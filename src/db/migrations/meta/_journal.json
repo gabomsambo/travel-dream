@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1759077770601,
+      "tag": "20250928164250_right_hiroim",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1759091058813,
+      "tag": "20250928202418_common_bastion",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1759204221066,
+      "tag": "20250930035021_huge_power_pack",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+
+services:
+  travel-dreams:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # Source code for live reloading
+      - .:/app
+      # Exclude node_modules to prevent host/container conflicts
+      - /app/node_modules
+      # Persistent uploads storage
+      - uploads_data:/app/public/uploads
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    env_file:
+      - .env.local
+    depends_on:
+      - redis
+    networks:
+      - travel-dreams-network
+
+  # Local Redis for development (alternative to Upstash)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - travel-dreams-network
+
+  # Local SQLite volume (optional alternative to Turso for development)
+  db-volume:
+    image: alpine:latest
+    volumes:
+      - sqlite_data:/data
+    command: ["tail", "-f", "/dev/null"]
+    networks:
+      - travel-dreams-network
+
+volumes:
+  uploads_data:
+  redis_data:
+  sqlite_data:
+
+networks:
+  travel-dreams-network:
+    driver: bridge

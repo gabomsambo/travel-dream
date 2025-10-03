@@ -34,9 +34,18 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
     author?: string;
     platform?: string;
     uploadInfo?: {
-      filename: string;
-      originalName: string;
-      uploadedAt: string;
+      sessionId?: string;
+      filename?: string;
+      originalName?: string;
+      fileSize?: number;
+      dimensions?: { width: number; height: number };
+      mimeType?: string;
+      storedPath?: string;
+      thumbnailPath?: string;
+      ocrStatus?: string;
+      ocrConfidence?: number;
+      ocrError?: string;
+      uploadedAt?: string;
     };
   }>(),
 

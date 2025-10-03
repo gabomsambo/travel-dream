@@ -264,32 +264,22 @@ export async function GET(request: NextRequest) {
 
     const sources = await getSourcesForLLMProcessing({
       limit,
-      excludeProcessed: !includeProcessed,
       requireOcrText: true,
       prioritizeManual: true
     });
 
     const stats = await withErrorHandling(async () => {
-      const [totalResult, pendingResult, processedResult] = await Promise.all([
+      const [totalResult, pendingResult] = await Promise.all([
         db.select({ count: sql<number>`count(*)` }).from(sourcesCurrentSchema),
         db.select({ count: sql<number>`count(*)` })
           .from(sourcesCurrentSchema)
-          .where(and(
-            sql`${sourcesCurrentSchema.ocrText} IS NOT NULL`,
-            or(
-              eq(sourcesCurrentSchema.llmProcessed, 0),
-              isNull(sourcesCurrentSchema.llmProcessed)
-            )
-          )),
-        db.select({ count: sql<number>`count(*)` })
-          .from(sourcesCurrentSchema)
-          .where(eq(sourcesCurrentSchema.llmProcessed, 1))
+          .where(sql`${sourcesCurrentSchema.ocrText} IS NOT NULL`)
       ]);
 
       return {
         totalCount: totalResult[0]?.count || 0,
         pendingCount: pendingResult[0]?.count || 0,
-        processedCount: processedResult[0]?.count || 0
+        processedCount: 0 // Not tracked in current schema
       };
     }, 'getLLMQueueStats');
 
@@ -301,7 +291,7 @@ export async function GET(request: NextRequest) {
         createdAt: source.createdAt,
         ocrTextLength: source.ocrText?.length || 0,
         lang: source.lang,
-        llmProcessed: source.llmProcessed === 1,
+        llmProcessed: false, // Not tracked in current schema
         platform: source.meta?.platform
       })),
       stats: {

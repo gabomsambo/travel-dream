@@ -174,13 +174,14 @@ export async function GET(request: NextRequest) {
 
         // Get candidate places (excluding target)
         const candidates = await withErrorHandling(async () => {
-          const query = db.select().from(places).where(ne(places.id, placeId));
+          const whereConditions = status
+            ? and(ne(places.id, placeId), eq(places.status, status))
+            : ne(places.id, placeId);
 
-          if (status) {
-            query.where(and(ne(places.id, placeId), eq(places.status, status)));
-          }
-
-          return await query.limit(limit);
+          return await db.select()
+            .from(places)
+            .where(whereConditions)
+            .limit(limit);
         }, 'getCandidatePlaces');
 
         // Detect duplicates

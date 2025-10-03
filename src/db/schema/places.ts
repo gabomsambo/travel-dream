@@ -28,6 +28,9 @@ export const places = sqliteTable('places', {
   // Alternative names as typed array
   altNames: text('alt_names', { mode: 'json' }).$type<string[]>().default([]),
 
+  // Description of the place
+  description: text('description'),
+
   // Tags for categorization as typed array
   tags: text('tags', { mode: 'json' }).$type<string[]>().default([]),
 

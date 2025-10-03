@@ -84,13 +84,13 @@ export async function POST(request: NextRequest) {
 
           await db.update(sourcesCurrentSchema)
             .set({
-              meta: JSON.stringify({
+              meta: {
                 ...currentMeta,
                 uploadInfo: {
                   ...(currentMeta as any).uploadInfo,
                   ocrStatus: 'processing'
                 }
-              }),
+              },
               updatedAt: new Date().toISOString()
             })
             .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
@@ -141,14 +141,14 @@ export async function POST(request: NextRequest) {
             await db.update(sourcesCurrentSchema)
               .set({
                 ocrText: ocrResult.text,
-                meta: JSON.stringify({
+                meta: {
                   ...currentMeta,
                   uploadInfo: {
                     ...(currentMeta as any).uploadInfo,
                     ocrStatus: 'completed',
                     ocrConfidence: ocrResult.confidence
                   }
-                }),
+                },
                 updatedAt: new Date().toISOString()
               })
               .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
@@ -217,14 +217,14 @@ export async function POST(request: NextRequest) {
 
           await db.update(sourcesCurrentSchema)
             .set({
-              meta: JSON.stringify({
+              meta: {
                 ...currentMeta,
                 uploadInfo: {
                   ...(currentMeta as any).uploadInfo,
                   ocrStatus: 'failed',
                   ocrError: error instanceof Error ? error.message : 'OCR processing failed'
                 }
-              }),
+              },
               updatedAt: new Date().toISOString()
             })
             .where(eq(sourcesCurrentSchema.id, sourceRecord.id));

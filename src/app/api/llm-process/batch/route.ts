@@ -119,11 +119,8 @@ export async function POST(request: NextRequest) {
         return false;
       }
 
-      // Skip if already processed
-      if (source.llmProcessed) {
-        return false;
-      }
-
+      // Note: We don't check llmProcessed here as it's not in current schema
+      // Sources can be reprocessed if needed
       return true;
     });
 
@@ -353,7 +350,6 @@ export async function GET(request: NextRequest) {
 
     const sources = await getSourcesForLLMProcessing({
       limit,
-      excludeProcessed: true,
       requireOcrText: true,
       prioritizeManual: priorityMode === 'manual_first'
     });

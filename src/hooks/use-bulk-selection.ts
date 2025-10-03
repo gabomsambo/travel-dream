@@ -210,7 +210,7 @@ export function useBulkSelection<T extends BulkSelectionItem>(
 }
 
 // Convenience hook for confidence-based selection
-export function useConfidenceSelection<T extends BulkSelectionItem & { confidence?: number }>(
+export function useConfidenceSelection<T extends BulkSelectionItem & { confidence?: number | null }>(
   items: T[],
   options: BulkSelectionOptions = {}
 ) {

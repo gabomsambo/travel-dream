@@ -11,13 +11,14 @@ interface VirtualizedPlaceGridProps {
   showConfidence?: boolean
   selectable?: boolean
   selected?: string[]
-  onSelectionChange?: (placeId: string, index: number, event: React.MouseEvent) => void
+  onSelectionChange?: (placeId: string, selected: boolean) => void
   onItemClick?: (placeId: string, index: number, event: React.MouseEvent) => void
   showKeyboardHints?: boolean
   onConfirm?: (placeId: string) => void
   onArchive?: (placeId: string) => void
   onEdit?: (placeId: string) => void
   onMerge?: (placeId: string) => void
+  onView?: (placeId: string) => void
   emptyMessage?: string
   itemHeight?: number
   overscan?: number
@@ -156,6 +157,7 @@ export function VirtualizedPlaceGrid({
   onArchive,
   onEdit,
   onMerge,
+  onView,
   emptyMessage = "No places found",
   itemHeight = 280,
   overscan = 5,
@@ -316,6 +318,7 @@ export function VirtualizedPlaceGrid({
                     onArchive={onArchive}
                     onEdit={onEdit}
                     onMerge={onMerge}
+                    onView={onView}
                     onObserve={(element) => observeElement(element, place.id)}
                     onUnobserve={() => unobserveElement(place.id)}
                   />
@@ -337,13 +340,14 @@ interface VirtualizedPlaceCardProps {
   showConfidence?: boolean
   selectable?: boolean
   selected?: boolean
-  onSelectionChange?: (placeId: string, index: number, event: React.MouseEvent) => void
+  onSelectionChange?: (placeId: string, selected: boolean) => void
   onItemClick?: (placeId: string, index: number, event: React.MouseEvent) => void
   showKeyboardHints?: boolean
   onConfirm?: (placeId: string) => void
   onArchive?: (placeId: string) => void
   onEdit?: (placeId: string) => void
   onMerge?: (placeId: string) => void
+  onView?: (placeId: string) => void
   onObserve?: (element: Element) => void
   onUnobserve?: () => void
 }

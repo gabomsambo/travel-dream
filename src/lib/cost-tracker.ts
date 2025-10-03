@@ -149,7 +149,7 @@ export class CostTrackerService {
     try {
       // Validate Redis connection only if enabled
       if (this.redisEnabled && this.redis) {
-        await this.redis.ping();
+        await this.redis!.ping();
         // Initialize daily and monthly buckets if needed
         await this.ensureBuckets();
       }
@@ -177,7 +177,7 @@ export class CostTrackerService {
       const month = date.substring(0, 7); // YYYY-MM
 
       // Store individual record
-      await this.redis.setex(
+      await this.redis!.setex(
         `cost:record:${costRecord.id}`,
         86400 * this.config.retention.dailyDataDays,
         JSON.stringify(costRecord)
@@ -281,7 +281,7 @@ export class CostTrackerService {
       await this.initialize();
 
       const statsKey = `cost:daily:${date}`;
-      const data = await this.redis.get(statsKey);
+      const data = await this.redis!.get(statsKey);
 
       if (!data) {
         return null;
@@ -297,7 +297,7 @@ export class CostTrackerService {
       await this.initialize();
 
       const statsKey = `cost:monthly:${month}`;
-      const data = await this.redis.get(statsKey);
+      const data = await this.redis!.get(statsKey);
 
       if (!data) {
         return null;
@@ -348,14 +348,14 @@ export class CostTrackerService {
       await this.initialize();
 
       // Get recent cost records
-      const keys = await this.redis.keys('cost:record:*');
+      const keys = await this.redis!.keys('cost:record:*');
       const records: CostRecord[] = [];
 
       // Batch get records (in chunks to avoid memory issues)
       const CHUNK_SIZE = 100;
       for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
         const chunk = keys.slice(i, i + CHUNK_SIZE);
-        const values = await this.redis.mget(...chunk);
+        const values = await this.redis!.mget(...chunk);
 
         values.forEach(value => {
           if (value) {
@@ -404,35 +404,35 @@ export class CostTrackerService {
       let deletedMonths = 0;
 
       // Clean up old records
-      const recordKeys = await this.redis.keys('cost:record:*');
+      const recordKeys = await this.redis!.keys('cost:record:*');
       for (const key of recordKeys) {
-        const record = await this.redis.get(key);
+        const record = await this.redis!.get(key);
         if (record) {
           const parsed = JSON.parse(record as string) as CostRecord;
           if (new Date(parsed.date) < cutoffDate) {
-            await this.redis.del(key);
+            await this.redis!.del(key);
             deletedRecords++;
           }
         }
       }
 
       // Clean up old daily stats
-      const dailyKeys = await this.redis.keys('cost:daily:*');
+      const dailyKeys = await this.redis!.keys('cost:daily:*');
       for (const key of dailyKeys) {
         const date = key.split(':')[2];
         if (new Date(date) < cutoffDate) {
-          await this.redis.del(key);
+          await this.redis!.del(key);
           deletedDays++;
         }
       }
 
       // Clean up old monthly stats
-      const monthlyKeys = await this.redis.keys('cost:monthly:*');
+      const monthlyKeys = await this.redis!.keys('cost:monthly:*');
       for (const key of monthlyKeys) {
         const month = key.split(':')[2];
         const monthDate = new Date(month + '-01');
         if (monthDate < cutoffMonth) {
-          await this.redis.del(key);
+          await this.redis!.del(key);
           deletedMonths++;
         }
       }
@@ -447,7 +447,7 @@ export class CostTrackerService {
     const thisMonth = today.substring(0, 7);
 
     // Ensure daily bucket exists
-    const dailyExists = await this.redis.exists(`cost:daily:${today}`);
+    const dailyExists = await this.redis!.exists(`cost:daily:${today}`);
     if (!dailyExists) {
       const emptyDaily: DailyStats = {
         date: today,
@@ -460,11 +460,11 @@ export class CostTrackerService {
         budget_remaining: this.config.budget.dailyLimit,
         budget_used_percentage: 0
       };
-      await this.redis.setex(`cost:daily:${today}`, 86400 * this.config.retention.dailyDataDays, JSON.stringify(emptyDaily));
+      await this.redis!.setex(`cost:daily:${today}`, 86400 * this.config.retention.dailyDataDays, JSON.stringify(emptyDaily));
     }
 
     // Ensure monthly bucket exists
-    const monthlyExists = await this.redis.exists(`cost:monthly:${thisMonth}`);
+    const monthlyExists = await this.redis!.exists(`cost:monthly:${thisMonth}`);
     if (!monthlyExists) {
       const emptyMonthly: MonthlyStats = {
         month: thisMonth,
@@ -477,7 +477,7 @@ export class CostTrackerService {
         budget_remaining: this.config.budget.monthlyLimit,
         budget_used_percentage: 0
       };
-      await this.redis.setex(`cost:monthly:${thisMonth}`, 86400 * 30 * this.config.retention.monthlyDataMonths, JSON.stringify(emptyMonthly));
+      await this.redis!.setex(`cost:monthly:${thisMonth}`, 86400 * 30 * this.config.retention.monthlyDataMonths, JSON.stringify(emptyMonthly));
     }
   }
 
@@ -528,7 +528,7 @@ export class CostTrackerService {
     stats.budget_remaining = Math.max(0, this.config.budget.dailyLimit - stats.total_cost);
     stats.budget_used_percentage = (stats.total_cost / this.config.budget.dailyLimit) * 100;
 
-    await this.redis.setex(key, 86400 * this.config.retention.dailyDataDays, JSON.stringify(stats));
+    await this.redis!.setex(key, 86400 * this.config.retention.dailyDataDays, JSON.stringify(stats));
   }
 
   private async updateMonthlyStats(month: string, record: CostRecord): Promise<void> {
@@ -562,7 +562,7 @@ export class CostTrackerService {
     stats.budget_remaining = Math.max(0, this.config.budget.monthlyLimit - stats.total_cost);
     stats.budget_used_percentage = (stats.total_cost / this.config.budget.monthlyLimit) * 100;
 
-    await this.redis.setex(key, 86400 * 30 * this.config.retention.monthlyDataMonths, JSON.stringify(stats));
+    await this.redis!.setex(key, 86400 * 30 * this.config.retention.monthlyDataMonths, JSON.stringify(stats));
   }
 
   private async triggerAlert(budgetStatus: BudgetStatus, record: CostRecord): Promise<void> {

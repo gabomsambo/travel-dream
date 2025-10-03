@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useOptimistic, useCallback, startTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { PlaceGrid } from "@/components/places/place-grid"
 import { InboxToolbar, type ConfidenceFilter } from "@/components/inbox/inbox-toolbar"
 import { useConfidenceSelection } from "@/hooks/use-bulk-selection"
@@ -54,6 +55,7 @@ function optimisticReducer(state: Place[], action: OptimisticAction): Place[] {
 }
 
 export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
+  const router = useRouter()
   const [places, setOptimisticPlaces] = useOptimistic(initialPlaces, optimisticReducer)
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all')
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -157,9 +159,8 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
   }, [archivePlaces])
 
   const handleEditPlace = useCallback((placeId: string) => {
-    // TODO: Implement edit modal
-    toast.info('Edit functionality coming soon')
-  }, [])
+    router.push(`/review?placeId=${placeId}`)
+  }, [router])
 
   const handleMergePlace = useCallback((placeId: string) => {
     // TODO: Implement merge workflow
@@ -339,7 +340,6 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
         showConfidence={true}
         selectable={true}
         selected={bulkSelection.selectedIds}
-        onSelectionChange={bulkSelection.handleItemClick}
         onItemClick={bulkSelection.handleItemClick}
         showKeyboardHints={showKeyboardHints}
         onConfirm={handleConfirmPlace}

@@ -51,11 +51,7 @@ export async function deletePlace(id: string): Promise<void> {
       await tx.delete(placesToCollections).where(eq(placesToCollections.placeId, id));
       
       // Delete the place
-      const result = await tx.delete(places).where(eq(places.id, id));
-      
-      if (result.changes === 0) {
-        throw new Error(`Place with id ${id} not found`);
-      }
+      await tx.delete(places).where(eq(places.id, id));
     });
   }, 'deletePlace');
 }
@@ -110,9 +106,6 @@ export async function deleteSource(id: string): Promise<void> {
       // Delete the source
       const result = await tx.delete(sources).where(eq(sources.id, id));
       
-      if (result.changes === 0) {
-        throw new Error(`Source with id ${id} not found`);
-      }
     });
   }, 'deleteSource');
 }
@@ -159,9 +152,6 @@ export async function deleteCollection(id: string): Promise<void> {
       // Delete the collection
       const result = await tx.delete(collections).where(eq(collections.id, id));
       
-      if (result.changes === 0) {
-        throw new Error(`Collection with id ${id} not found`);
-      }
     });
   }, 'deleteCollection');
 }
@@ -303,7 +293,7 @@ export async function createPlaceFromExtraction(
 
       // Location information
       city: extractedPlace.location.city || null,
-      state: extractedPlace.location.state || null,
+      admin: extractedPlace.location.state || null,
       country: extractedPlace.location.country || null,
       address: extractedPlace.location.address || null,
 
@@ -394,7 +384,7 @@ export async function batchCreatePlacesFromExtractions(
 
               // Location information
               city: extractedPlace.location.city || null,
-              state: extractedPlace.location.state || null,
+              admin: extractedPlace.location.state || null,
               country: extractedPlace.location.country || null,
               address: extractedPlace.location.address || null,
 

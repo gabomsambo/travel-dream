@@ -1,4 +1,4 @@
-import { MoreVertical, Check, X, Edit, Merge, MapPin } from "lucide-react"
+import { MoreVertical, Check, X, Edit, Merge, MapPin, Calendar, Eye } from "lucide-react"
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,6 +21,7 @@ interface PlaceCardProps {
   onArchive?: (placeId: string) => void
   onEdit?: (placeId: string) => void
   onMerge?: (placeId: string) => void
+  onView?: (placeId: string) => void
 }
 
 export function PlaceCard({
@@ -36,7 +37,8 @@ export function PlaceCard({
   onConfirm,
   onArchive,
   onEdit,
-  onMerge
+  onMerge,
+  onView
 }: PlaceCardProps) {
   const handleCardClick = (e: React.MouseEvent) => {
     if (selectable && onItemClick) {
@@ -81,6 +83,23 @@ export function PlaceCard({
         </div>
       )}
 
+      {/* Quick delete button */}
+      {onArchive && !showKeyboardHints && (
+        <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700"
+            onClick={(e) => {
+              e.stopPropagation()
+              onArchive(place.id)
+            }}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
       <CardHeader className={cn(
         "flex flex-row items-start justify-between space-y-0 pb-2",
         selectable && "pl-8" // Add padding when checkbox is shown
@@ -100,10 +119,27 @@ export function PlaceCard({
           </div>
         </div>
 
-        {showActions && !selectable && (
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <MoreVertical className="h-4 w-4" />
-          </Button>
+        {(showActions || onView) && !selectable && (
+          <div className="flex gap-1">
+            {onView && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onView(place.id)
+                }}
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+            )}
+            {showActions && (
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         )}
       </CardHeader>
 
@@ -122,6 +158,71 @@ export function PlaceCard({
           )}
         </div>
 
+        {/* Price & Time Metadata */}
+        {(place.price_level || place.best_time) && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {place.price_level && (
+              <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
+                {place.price_level}
+              </Badge>
+            )}
+            {place.best_time && (
+              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                <Calendar className="h-3 w-3 mr-1" />
+                {place.best_time}
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {/* Activities */}
+        {Array.isArray(place.activities) && place.activities.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {place.activities.slice(0, 3).map((activity: string) => (
+              <Badge key={activity} variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                {activity}
+              </Badge>
+            ))}
+            {place.activities.length > 3 && (
+              <Badge variant="outline" className="text-xs">
+                +{place.activities.length - 3} activities
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {/* Cuisine (restaurants/cafes only) */}
+        {Array.isArray(place.cuisine) && place.cuisine.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {place.cuisine.slice(0, 3).map((item: string) => (
+              <Badge key={item} variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
+                {item}
+              </Badge>
+            ))}
+            {place.cuisine.length > 3 && (
+              <Badge variant="outline" className="text-xs">
+                +{place.cuisine.length - 3} cuisine
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {/* Amenities */}
+        {Array.isArray(place.amenities) && place.amenities.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {place.amenities.slice(0, 2).map((amenity: string) => (
+              <Badge key={amenity} variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                {amenity}
+              </Badge>
+            ))}
+            {place.amenities.length > 2 && (
+              <Badge variant="outline" className="text-xs">
+                +{place.amenities.length - 2} amenities
+              </Badge>
+            )}
+          </div>
+        )}
+
         {Array.isArray(place.vibes) && place.vibes.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {place.vibes.slice(0, 2).map((vibe: string) => (
@@ -132,8 +233,15 @@ export function PlaceCard({
           </div>
         )}
 
+        {/* Description */}
+        {place.description && (
+          <p className="text-sm text-muted-foreground line-clamp-2">
+            {place.description}
+          </p>
+        )}
+
         {/* Enhanced confidence indicator */}
-        {showConfidence && place.confidence !== undefined && (
+        {showConfidence && place.confidence !== undefined && place.confidence !== null && (
           <ConfidenceIndicator
             confidence={place.confidence}
             variant="bar"

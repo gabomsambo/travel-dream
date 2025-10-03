@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { PlaceGrid } from "@/components/places/place-grid"
+import { PlaceDetailsDialog } from "@/components/places/place-details-dialog"
 import { LibraryFilters } from "./library-filters"
 import { LibraryStats } from "./library-stats"
 import { useDebounce } from "@/hooks/use-debounce"
@@ -35,6 +36,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   const [selectedVibes, setSelectedVibes] = useState<Set<string>>(
     new Set(searchParams.get('vibes')?.split(',').filter(Boolean) || [])
   )
+  const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
 
   // Debounce search for URL updates
   const debouncedSearch = useDebounce(search, 300)
@@ -159,6 +161,12 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     if ('vibes' in updates) setSelectedVibes(updates.vibes!)
   }, [])
 
+  // Handle view place
+  const handleViewPlace = useCallback((placeId: string) => {
+    const place = filteredPlaces.find(p => p.id === placeId)
+    setSelectedPlace(place || null)
+  }, [filteredPlaces])
+
   return (
     <div className="space-y-6">
       <LibraryFilters
@@ -185,6 +193,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
           places={filteredPlaces}
           showActions={false}
           showConfidence={false}
+          onView={handleViewPlace}
           virtualizeThreshold={500}
           enablePerformanceMonitoring={process.env.NODE_ENV === 'development'}
           emptyMessage="No places match your filters"
@@ -212,6 +221,12 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
           </p>
         </div>
       )}
+
+      <PlaceDetailsDialog
+        open={selectedPlace !== null}
+        onOpenChange={(open) => !open && setSelectedPlace(null)}
+        place={selectedPlace}
+      />
     </div>
   )
 }

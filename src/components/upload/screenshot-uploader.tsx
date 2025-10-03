@@ -129,10 +129,10 @@ function ScreenshotUploaderInner({
       // Add files to our state when batch starts
       batch.items.forEach((item) => {
         if (item.file) {
-          const previewUrl = URL.createObjectURL(item.file)
+          const previewUrl = URL.createObjectURL(item.file as unknown as Blob)
           setUploadedFiles(prev => new Map(prev.set(item.file.name, {
             id: item.file.name,
-            file: item.file,
+            file: item.file as unknown as File,
             progress: 0,
             status: 'uploading',
             previewUrl
@@ -204,8 +204,10 @@ function ScreenshotUploaderInner({
             Supports PNG, JPEG, WebP, HEIC (max {Math.round(maxFileSize / (1024 * 1024))}MB each)
           </div>
           <UploadButton className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2">
-            <Image className="mr-2 h-4 w-4" />
-            Select Screenshots
+            <>
+              <Image className="mr-2 h-4 w-4" />
+              Select Screenshots
+            </>
           </UploadButton>
         </div>
       </UploadDropZone>

@@ -424,7 +424,7 @@ function PlaceComparisonCard({ place, label }: PlaceComparisonCardProps) {
           )}
         </div>
 
-        {place.tags && place.tags.length > 0 && (
+        {place.tags && Array.isArray(place.tags) && place.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {place.tags.slice(0, 3).map(tag => (
               <Badge key={tag} variant="outline" className="text-xs">

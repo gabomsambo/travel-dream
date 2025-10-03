@@ -18,8 +18,8 @@ export const maxDuration = 120; // 2 minutes for duplicate detection
 
 // Request validation schemas
 const DuplicateQuerySchema = z.object({
-  placeId: z.string().optional(),
-  status: z.enum(['inbox', 'library', 'archived']).optional(),
+  placeId: z.string().nullable().optional(),
+  status: z.enum(['inbox', 'library', 'archived']).nullable().optional(),
   limit: z.coerce.number().min(1).max(1000).default(100),
   minConfidence: z.coerce.number().min(0).max(1).default(0.6),
   includeReasoning: z.coerce.boolean().default(true),
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!queryValidation.success) {
-      console.error('Duplicate detection validation failed:', {
+      const errorDetails = {
         errors: queryValidation.error.errors,
         receivedParams: {
           placeId: searchParams.get('placeId'),
@@ -91,8 +91,12 @@ export async function GET(request: NextRequest) {
           minConfidence: searchParams.get('minConfidence'),
           includeReasoning: searchParams.get('includeReasoning'),
           mode: searchParams.get('mode')
-        }
-      })
+        },
+        fullUrl: request.url,
+        searchParamsString: searchParams.toString()
+      };
+
+      console.error('❌ Duplicate detection validation failed:', JSON.stringify(errorDetails, null, 2));
 
       return NextResponse.json(
         {
@@ -100,8 +104,10 @@ export async function GET(request: NextRequest) {
           message: 'Invalid query parameters',
           errors: queryValidation.error.errors.map(err => ({
             field: err.path.join('.'),
-            message: err.message
+            message: err.message,
+            received: err.path.length > 0 ? searchParams.get(err.path[0] as string) : null
           })),
+          receivedParams: errorDetails.receivedParams,
           timestamp: new Date().toISOString(),
         },
         { status: 400 }
@@ -109,6 +115,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { placeId, status, limit, minConfidence, includeReasoning, mode } = queryValidation.data;
+
+    console.log('✅ Duplicate detection validation passed:', { mode, status, limit, minConfidence });
 
     // Parse configuration from query params or use defaults
     const configData = {

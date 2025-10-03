@@ -5,20 +5,22 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { 
-  Inbox, 
+import {
+  Inbox,
   GitPullRequest,
-  Library, 
-  FolderOpen, 
+  Library,
+  FolderOpen,
   Settings,
   Download,
-  Map
+  Map,
+  Copy
 } from "lucide-react"
 
 const navigation = {
   main: [
     { name: 'Inbox', href: '/inbox', icon: Inbox, shortcut: 'I' },
     { name: 'Review', href: '/review', icon: GitPullRequest, shortcut: 'R' },
+    { name: 'Duplicates', href: '/duplicates', icon: Copy, shortcut: 'D' },
     { name: 'Library', href: '/library', icon: Library, shortcut: 'L' },
     { name: 'Collections', href: '/collections', icon: FolderOpen, shortcut: 'C' },
     { name: 'Map', href: '/map', icon: Map, shortcut: 'M' },

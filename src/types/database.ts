@@ -1,5 +1,5 @@
 import { InferSelectModel, InferInsertModel } from 'drizzle-orm';
-import { sources, places, collections, sourcesToPlaces, placesToCollections } from '@/db/schema';
+import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, dismissedDuplicates } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 
 // Select types (for queries)
@@ -8,6 +8,8 @@ export type Place = InferSelectModel<typeof places>;
 export type Collection = InferSelectModel<typeof collections>;
 export type SourceToPlace = InferSelectModel<typeof sourcesToPlaces>;
 export type PlaceToCollection = InferSelectModel<typeof placesToCollections>;
+export type MergeLog = InferSelectModel<typeof mergeLogs>;
+export type DismissedDuplicate = InferSelectModel<typeof dismissedDuplicates>;
 
 // Insert types (for mutations)
 export type NewSource = InferInsertModel<typeof sourcesCurrentSchema>;
@@ -15,6 +17,8 @@ export type NewPlace = InferInsertModel<typeof places>;
 export type NewCollection = InferInsertModel<typeof collections>;
 export type NewSourceToPlace = InferInsertModel<typeof sourcesToPlaces>;
 export type NewPlaceToCollection = InferInsertModel<typeof placesToCollections>;
+export type NewMergeLog = InferInsertModel<typeof mergeLogs>;
+export type NewDismissedDuplicate = InferInsertModel<typeof dismissedDuplicates>;
 
 // Taxonomy from INITIAL.md - used for validation and UI
 export const PLACE_KINDS = [

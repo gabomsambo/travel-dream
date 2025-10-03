@@ -1,6 +1,6 @@
 import { eq, and, inArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { sources, places, collections, sourcesToPlaces, placesToCollections } from '@/db/schema';
+import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId } from './db-utils';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
@@ -538,6 +538,119 @@ export async function mergePlaces(sourceId: string, targetId: string): Promise<P
       return updatedPlace;
     });
   }, 'mergePlaces');
+}
+
+export async function bulkMergePlaces(
+  clusters: Array<{ targetId: string; sourceIds: string[]; confidence: number }>
+): Promise<{ success: number; failed: number; results: any[] }> {
+  return withErrorHandling(async () => {
+    const results = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const cluster of clusters) {
+      try {
+        await withTransaction(async (tx) => {
+          const [targetPlace] = await tx.select().from(places)
+            .where(eq(places.id, cluster.targetId)).limit(1);
+          const sourcePlaces = await tx.select().from(places)
+            .where(inArray(places.id, cluster.sourceIds));
+
+          if (!targetPlace) throw new Error('Target place not found');
+
+          const sourceSnapshots = sourcePlaces.map(p => ({ ...p }));
+
+          const mergedData = {
+            altNames: [...new Set([
+              targetPlace.name,
+              ...(targetPlace.altNames || []),
+              ...sourcePlaces.flatMap(p => [p.name, ...(p.altNames || [])])
+            ])],
+            tags: [...new Set([
+              ...(targetPlace.tags || []),
+              ...sourcePlaces.flatMap(p => p.tags || [])
+            ])],
+            vibes: [...new Set([
+              ...(targetPlace.vibes || []),
+              ...sourcePlaces.flatMap(p => p.vibes || [])
+            ])],
+            notes: [
+              targetPlace.notes,
+              ...sourcePlaces.map(p => p.notes)
+            ].filter(Boolean).join('\n\n---\n\n'),
+            updatedAt: new Date().toISOString()
+          };
+
+          await tx.update(places)
+            .set(mergedData)
+            .where(eq(places.id, cluster.targetId));
+
+          for (const sourceId of cluster.sourceIds) {
+            await tx.update(sourcesToPlaces)
+              .set({ placeId: cluster.targetId })
+              .where(eq(sourcesToPlaces.placeId, sourceId));
+
+            await tx.update(placesToCollections)
+              .set({ placeId: cluster.targetId })
+              .where(eq(placesToCollections.placeId, sourceId));
+          }
+
+          await tx.update(places)
+            .set({ status: 'archived' })
+            .where(inArray(places.id, cluster.sourceIds));
+
+          const [mergeLog] = await tx.insert(mergeLogs).values({
+            targetId: cluster.targetId,
+            sourceIds: cluster.sourceIds,
+            mergedData,
+            sourceSnapshots,
+            confidence: cluster.confidence,
+            performedBy: 'user',
+          }).returning();
+
+          results.push({
+            clusterId: cluster.targetId,
+            status: 'success',
+            mergeLogId: mergeLog.id,
+          });
+          successCount++;
+        });
+      } catch (error) {
+        results.push({
+          clusterId: cluster.targetId,
+          status: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+        failedCount++;
+      }
+    }
+
+    return { success: successCount, failed: failedCount, results };
+  }, 'bulkMergePlaces');
+}
+
+export async function undoMerge(mergeLogId: string): Promise<void> {
+  return withErrorHandling(async () => {
+    await withTransaction(async (tx) => {
+      const [log] = await tx.select().from(mergeLogs)
+        .where(eq(mergeLogs.id, mergeLogId)).limit(1);
+
+      if (!log || log.undone) {
+        throw new Error('Merge log not found or already undone');
+      }
+
+      for (const snapshot of (log.sourceSnapshots as any[]) || []) {
+        await tx.insert(places).values({
+          ...snapshot,
+          status: 'library',
+        });
+      }
+
+      await tx.update(mergeLogs)
+        .set({ undone: true, undonAt: new Date().toISOString() })
+        .where(eq(mergeLogs.id, mergeLogId));
+    });
+  }, 'undoMerge');
 }
 
 export async function batchArchivePlaces(placeIds: string[]): Promise<number> {

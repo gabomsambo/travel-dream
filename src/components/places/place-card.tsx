@@ -110,19 +110,19 @@ export function PlaceCard({
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-1">
           <Badge variant="secondary">{place.kind}</Badge>
-          {place.tags?.slice(0, 3).map((tag: string) => (
+          {Array.isArray(place.tags) && place.tags.slice(0, 3).map((tag: string) => (
             <Badge key={tag} variant="outline" className="text-xs">
               {tag}
             </Badge>
           ))}
-          {place.tags && place.tags.length > 3 && (
+          {Array.isArray(place.tags) && place.tags.length > 3 && (
             <Badge variant="outline" className="text-xs">
               +{place.tags.length - 3}
             </Badge>
           )}
         </div>
 
-        {place.vibes && place.vibes.length > 0 && (
+        {Array.isArray(place.vibes) && place.vibes.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {place.vibes.slice(0, 2).map((vibe: string) => (
               <Badge key={vibe} variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">

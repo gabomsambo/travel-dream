@@ -368,9 +368,10 @@ export function detectDuplicates(
 }
 
 /**
- * Batch duplicate detection for multiple places
+ * Batch duplicate detection for multiple places (UNOPTIMIZED VERSION)
+ * Preserved for testing and comparison
  */
-export async function batchDetectDuplicates(
+export async function batchDetectDuplicatesUnoptimized(
   places: Place[],
   config: DuplicateDetectionConfig = DEFAULT_DETECTION_CONFIG,
   onProgress?: (processed: number, total: number) => void
@@ -389,6 +390,8 @@ export async function batchDetectDuplicates(
 
   return results;
 }
+
+export { optimizedBatchDetectDuplicates as batchDetectDuplicates } from './duplicate-optimization';
 
 /**
  * Find all duplicate clusters (groups of similar places)

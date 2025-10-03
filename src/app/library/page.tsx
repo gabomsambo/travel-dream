@@ -1,82 +1,82 @@
-"use client"
+import { Suspense } from "react"
+import { LibraryClient } from "@/components/library/library-client"
+import { searchPlaces } from "@/lib/db-queries"
+import type { Place } from "@/types/database"
 
-import { PageHeader } from "@/components/layout/page-header"
-import { PlaceGrid } from "@/components/places/place-grid"
-import { Button } from "@/components/ui/button"
-import { SearchBar } from "@/components/search/search-bar"
-import { Plus } from "lucide-react"
+interface PageProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}
 
-// Mock data for library - confirmed places
-const mockLibraryPlaces = [
-  {
-    id: "plc_lib_1",
-    name: "Casa Batlló",
-    kind: "landmark",
-    city: "Barcelona",
-    country: "ES", 
-    admin: "Catalonia",
-    coords: { lat: 41.3916, lon: 2.1649 },
-    address: null,
-    altNames: [],
-    tags: ["Gaudí", "architecture", "modernist"],
-    vibes: ["artistic", "iconic"],
-    ratingSelf: 5,
-    notes: "Incredible facade and interior design",
-    status: "library",
-    confidence: 1.0,
-    createdAt: "2025-09-27T00:00:00Z",
-    updatedAt: "2025-09-27T00:00:00Z",
-  },
-  {
-    id: "plc_lib_2",
-    name: "La Boqueria Market",
-    kind: "market",
-    city: "Barcelona",
-    country: "ES",
-    admin: "Catalonia", 
-    coords: { lat: 41.3818, lon: 2.1713 },
-    address: null,
-    altNames: ["Mercat de Sant Josep de la Boqueria"],
-    tags: ["food", "market", "tourist"],
-    vibes: ["bustling", "colorful"],
-    ratingSelf: 4,
-    notes: "Great for fresh fruit and jamón",
-    status: "library",
-    confidence: 1.0,
-    createdAt: "2025-09-26T00:00:00Z",
-    updatedAt: "2025-09-26T00:00:00Z",
-  }
-]
-
-export default function LibraryPage() {
+function LibraryFiltersSkeleton() {
   return (
     <div className="space-y-6">
-      <PageHeader 
-        title="Library"
-        description={`${mockLibraryPlaces.length} confirmed places`}
-      >
-        <Button size="sm">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Place
-        </Button>
-      </PageHeader>
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="h-10 bg-muted animate-pulse rounded-md flex-1" />
+          <div className="h-10 bg-muted animate-pulse rounded-md w-full sm:w-40" />
+          <div className="h-10 bg-muted animate-pulse rounded-md w-full sm:w-40" />
+          <div className="h-10 bg-muted animate-pulse rounded-md w-full sm:w-40" />
+        </div>
+      </div>
+      <div className="h-6 bg-muted animate-pulse rounded-md w-48" />
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {[...Array(8)].map((_, i) => (
+          <div key={i} className="h-64 bg-muted animate-pulse rounded-lg" />
+        ))}
+      </div>
+    </div>
+  )
+}
 
-      {/* Search and Filters */}
-      <SearchBar 
-        showFilters={true}
-        placeholder="Search your library..."
-      />
+export default async function LibraryPage({ searchParams }: PageProps) {
+  // Next.js 15: searchParams is a Promise
+  const params = await searchParams
 
-      {/* Places Grid with virtualization support */}
-      <PlaceGrid
-        places={mockLibraryPlaces}
-        showActions={false}
-        showConfidence={false}
-        emptyMessage="No places in your library yet"
-        virtualizeThreshold={300} // Enable virtualization for 300+ places in library
-        containerHeight={600} // Larger height for library browsing
-        enablePerformanceMonitoring={process.env.NODE_ENV === 'development'}
-      />
+  // Parse filters from URL
+  const filters = {
+    search: (params.search as string) || '',
+    kind: (params.kind as string) || 'all',
+    city: (params.city as string) || 'all',
+    country: (params.country as string) || 'all',
+    tags: (params.tags as string)?.split(',').filter(Boolean) || [],
+    vibes: (params.vibes as string)?.split(',').filter(Boolean) || []
+  }
+
+  // Fetch all library places
+  const places = await searchPlaces({
+    status: 'library',
+    text: filters.search || undefined,
+    kind: filters.kind !== 'all' ? filters.kind : undefined,
+    city: filters.city !== 'all' ? filters.city : undefined,
+    country: filters.country !== 'all' ? filters.country : undefined,
+    tags: filters.tags.length > 0 ? filters.tags : undefined,
+    vibes: filters.vibes.length > 0 ? filters.vibes : undefined
+  })
+
+  // Compute dynamic filter options from actual library data
+  const filterOptions = {
+    kinds: [...new Set(places.map(p => p.kind))].sort(),
+    cities: [...new Set(places.map(p => p.city).filter(Boolean) as string[])].sort(),
+    countries: [...new Set(places.map(p => p.country).filter(Boolean) as string[])].sort(),
+    tags: [...new Set(places.flatMap(p => p.tags || []))].sort(),
+    vibes: [...new Set(places.flatMap(p => p.vibes || []))].sort()
+  }
+
+  return (
+    <div className="container mx-auto p-6 max-w-7xl">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold tracking-tight">Library</h1>
+        <p className="text-muted-foreground mt-1">
+          Your curated collection of confirmed travel places
+        </p>
+      </div>
+
+      <Suspense fallback={<LibraryFiltersSkeleton />}>
+        <LibraryClient
+          initialPlaces={places}
+          filterOptions={filterOptions}
+        />
+      </Suspense>
     </div>
   )
 }

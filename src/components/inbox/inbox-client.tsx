@@ -155,6 +155,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
   }, [confirmPlaces])
 
   const handleArchivePlace = useCallback((placeId: string) => {
+    console.log('handleArchivePlace called with:', placeId)
     archivePlaces([placeId])
   }, [archivePlaces])
 

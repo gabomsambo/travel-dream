@@ -267,14 +267,14 @@ export async function bulkUpdatePlaceStatus(placeIds: string[], status: string):
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    const result = await db.update(places)
+    await db.update(places)
       .set({
         status,
         updatedAt: new Date().toISOString(),
       })
       .where(inArray(places.id, placeIds));
 
-    return result.changes || 0;
+    return placeIds.length;
   }, 'bulkUpdatePlaceStatus');
 }
 
@@ -647,14 +647,14 @@ export async function batchArchivePlaces(placeIds: string[]): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    const result = await db.update(places)
+    await db.update(places)
       .set({
         status: 'archived',
         updatedAt: new Date().toISOString(),
       })
       .where(inArray(places.id, placeIds));
 
-    return result.changes || 0;
+    return placeIds.length;
   }, 'batchArchivePlaces');
 }
 

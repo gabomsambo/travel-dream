@@ -59,11 +59,14 @@ export function PlaceDetailsDialog({
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {/* Kind and Tags */}
+          {/* Kind and Status */}
           <div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="secondary" className="text-sm">
                 {place.kind}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                Status: {place.status}
               </Badge>
               {Array.isArray(place.tags) &&
                 place.tags.map((tag: string) => (
@@ -73,6 +76,20 @@ export function PlaceDetailsDialog({
                 ))}
             </div>
           </div>
+
+          {/* Alternative Names */}
+          {Array.isArray(place.altNames) && place.altNames.length > 0 && (
+            <div>
+              <h3 className="font-semibold mb-2">Also Known As</h3>
+              <div className="flex flex-wrap gap-2">
+                {place.altNames.map((name: string) => (
+                  <Badge key={name} variant="outline" className="text-xs">
+                    {name}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Description */}
           {place.description && (
@@ -210,30 +227,59 @@ export function PlaceDetailsDialog({
             </div>
           )}
 
-          {/* Address */}
-          {place.address && (
-            <div>
-              <h3 className="font-semibold mb-2">Address</h3>
-              <p className="text-muted-foreground">{place.address}</p>
-            </div>
-          )}
+          <Separator />
 
-          {/* Coordinates */}
-          {place.coords && (
-            <div>
-              <h3 className="font-semibold mb-2">Coordinates</h3>
-              <p className="text-muted-foreground font-mono text-sm">
-                {place.coords.lat.toFixed(6)}, {place.coords.lon.toFixed(6)}
-              </p>
+          {/* Location Details */}
+          <div className="space-y-3">
+            <h3 className="font-semibold">Location Details</h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              {place.city && (
+                <div>
+                  <span className="text-muted-foreground">City:</span>
+                  <span className="ml-2 font-medium">{place.city}</span>
+                </div>
+              )}
+              {place.admin && (
+                <div>
+                  <span className="text-muted-foreground">State/Region:</span>
+                  <span className="ml-2 font-medium">{place.admin}</span>
+                </div>
+              )}
+              {place.country && (
+                <div>
+                  <span className="text-muted-foreground">Country:</span>
+                  <span className="ml-2 font-medium">{place.country}</span>
+                </div>
+              )}
+              {place.coords && (
+                <div>
+                  <span className="text-muted-foreground">Coordinates:</span>
+                  <span className="ml-2 font-mono text-xs">
+                    {place.coords.lat.toFixed(6)}, {place.coords.lon.toFixed(6)}
+                  </span>
+                </div>
+              )}
             </div>
-          )}
+
+            {place.address && (
+              <div>
+                <span className="text-sm text-muted-foreground">Full Address:</span>
+                <p className="text-sm mt-1">{place.address}</p>
+              </div>
+            )}
+          </div>
 
           <Separator />
 
-          {/* Timestamps */}
-          <div className="text-sm text-muted-foreground space-y-1">
-            <div>Created: {formatDate(place.createdAt)}</div>
-            <div>Updated: {formatDate(place.updatedAt)}</div>
+          {/* System Information */}
+          <div className="space-y-2">
+            <h3 className="font-semibold text-sm">System Information</h3>
+            <div className="text-xs text-muted-foreground space-y-1 font-mono bg-muted/30 p-3 rounded">
+              <div>ID: {place.id}</div>
+              <div>Created: {formatDate(place.createdAt)}</div>
+              <div>Updated: {formatDate(place.updatedAt)}</div>
+            </div>
           </div>
 
           {/* Actions */}

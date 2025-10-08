@@ -82,10 +82,10 @@ async function testExtraction() {
         }
 
         // Provider info
-        console.log(`\n   Provider: ${result.provider || 'unknown'}`);
-        console.log(`   Model: ${result.model || 'unknown'}`);
-        if (result.cost) {
-          console.log(`   Cost: $${result.cost.toFixed(4)}`);
+        console.log(`\n   Provider: ${(result as any).provider || result.metadata.model || 'unknown'}`);
+        console.log(`   Model: ${result.metadata.model || 'unknown'}`);
+        if (result.metadata.cost_usd) {
+          console.log(`   Cost: $${result.metadata.cost_usd.toFixed(4)}`);
         }
 
       } else {

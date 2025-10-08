@@ -3,6 +3,9 @@ import { relations } from 'drizzle-orm';
 import { sources } from './sources';
 import { places } from './places';
 import { collections } from './collections';
+import { attachments } from './attachments';
+import { placeLinks } from './placeLinks';
+import { reservations } from './reservations';
 
 // Join table for sources to places (many-to-many)
 export const sourcesToPlaces = sqliteTable('sources_to_places', {
@@ -34,6 +37,9 @@ export const sourcesRelations = relations(sources, ({ many }) => ({
 export const placesRelations = relations(places, ({ many }) => ({
   sourcesToPlaces: many(sourcesToPlaces),
   placesToCollections: many(placesToCollections),
+  attachments: many(attachments),
+  links: many(placeLinks),
+  reservations: many(reservations),
 }));
 
 export const collectionsRelations = relations(collections, ({ many }) => ({
@@ -59,5 +65,26 @@ export const placesToCollectionsRelations = relations(placesToCollections, ({ on
   collection: one(collections, {
     fields: [placesToCollections.collectionId],
     references: [collections.id],
+  }),
+}));
+
+export const attachmentsRelations = relations(attachments, ({ one }) => ({
+  place: one(places, {
+    fields: [attachments.placeId],
+    references: [places.id],
+  }),
+}));
+
+export const placeLinksRelations = relations(placeLinks, ({ one }) => ({
+  place: one(places, {
+    fields: [placeLinks.placeId],
+    references: [places.id],
+  }),
+}));
+
+export const reservationsRelations = relations(reservations, ({ one }) => ({
+  place: one(places, {
+    fields: [reservations.placeId],
+    references: [places.id],
   }),
 }));

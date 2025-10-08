@@ -1,5 +1,5 @@
 import { InferSelectModel, InferInsertModel } from 'drizzle-orm';
-import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, dismissedDuplicates } from '@/db/schema';
+import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, dismissedDuplicates, attachments, placeLinks, reservations } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 
 // Select types (for queries)
@@ -10,6 +10,9 @@ export type SourceToPlace = InferSelectModel<typeof sourcesToPlaces>;
 export type PlaceToCollection = InferSelectModel<typeof placesToCollections>;
 export type MergeLog = InferSelectModel<typeof mergeLogs>;
 export type DismissedDuplicate = InferSelectModel<typeof dismissedDuplicates>;
+export type Attachment = InferSelectModel<typeof attachments>;
+export type PlaceLink = InferSelectModel<typeof placeLinks>;
+export type Reservation = InferSelectModel<typeof reservations>;
 
 // Insert types (for mutations)
 export type NewSource = InferInsertModel<typeof sourcesCurrentSchema>;
@@ -19,6 +22,9 @@ export type NewSourceToPlace = InferInsertModel<typeof sourcesToPlaces>;
 export type NewPlaceToCollection = InferInsertModel<typeof placesToCollections>;
 export type NewMergeLog = InferInsertModel<typeof mergeLogs>;
 export type NewDismissedDuplicate = InferInsertModel<typeof dismissedDuplicates>;
+export type NewAttachment = InferInsertModel<typeof attachments>;
+export type NewPlaceLink = InferInsertModel<typeof placeLinks>;
+export type NewReservation = InferInsertModel<typeof reservations>;
 
 // Taxonomy from INITIAL.md - used for validation and UI
 export const PLACE_KINDS = [
@@ -93,4 +99,25 @@ export type PlaceWithCollections = Place & {
 
 export type CollectionWithPlaces = Collection & {
   places?: Place[];
+};
+
+export type PlaceWithRelations = Place & {
+  attachments: Attachment[];
+  links: PlaceLink[];
+  reservations: Reservation[];
+  sources: Source[];
+};
+
+export type LibraryStats = {
+  total: number;
+  visited: number;
+  planned: number;
+  notVisited: number;
+  byPriority: {
+    high: number;
+    medium: number;
+    low: number;
+  };
+  countries: number;
+  withPhotos: number;
 };

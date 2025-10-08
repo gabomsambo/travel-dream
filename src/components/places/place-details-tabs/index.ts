@@ -1,0 +1,7 @@
+export { OverviewTab } from "./overview-tab"
+export { MediaTab } from "./media-tab"
+export { LinksTab } from "./links-tab"
+export { BookingsTab } from "./bookings-tab"
+export { PlanningTab } from "./planning-tab"
+export { NotesTab } from "./notes-tab"
+export { PlaceDetailsTabs } from "./example-usage"

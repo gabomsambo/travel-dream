@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getPlaceById, getSourcesForPlace } from '@/lib/db-queries';
+import { getPlaceWithRelations } from '@/lib/db-queries';
 import { updatePlace } from '@/lib/db-mutations';
 import { PLACE_KINDS } from '@/types/database';
 
@@ -22,6 +22,26 @@ const PlaceUpdateSchema = z.object({
   notes: z.string().max(2000).nullable().optional(),
   ratingSelf: z.number().min(0).max(5).nullable().optional(),
   status: z.enum(['inbox', 'library', 'archived']).optional(),
+
+  // Enhanced fields
+  website: z.string().url().nullable().optional(),
+  phone: z.string().max(50).nullable().optional(),
+  email: z.string().email().nullable().optional(),
+  hours: z.record(z.string()).nullable().optional(),
+  visitStatus: z.enum(['not_visited', 'visited', 'planned']).optional(),
+  priority: z.number().min(0).max(5).optional(),
+  lastVisited: z.string().nullable().optional(),
+  plannedVisit: z.string().nullable().optional(),
+  recommendedBy: z.string().max(200).nullable().optional(),
+  companions: z.array(z.string()).optional(),
+  practicalInfo: z.string().max(1000).nullable().optional(),
+
+  // Additional missing fields
+  altNames: z.array(z.string()).optional(),
+  coords: z.object({
+    lat: z.number(),
+    lon: z.number(),
+  }).nullable().optional(),
 });
 
 export async function GET(
@@ -30,22 +50,16 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const place = await getPlaceById(id);
+    const placeWithRelations = await getPlaceWithRelations(id);
 
-    if (!place) {
+    if (!placeWithRelations) {
       return NextResponse.json(
         { status: 'error', message: 'Place not found' },
         { status: 404 }
       );
     }
 
-    const sources = await getSourcesForPlace(id);
-
-    return NextResponse.json({
-      status: 'success',
-      place,
-      sources,
-    });
+    return NextResponse.json(placeWithRelations);
   } catch (error) {
     console.error('Error fetching place:', error);
     return NextResponse.json(
@@ -78,14 +92,7 @@ export async function PATCH(
       );
     }
 
-    const updateData = { ...validation.data };
-    if (updateData.tags) updateData.tags = JSON.stringify(updateData.tags) as any;
-    if (updateData.vibes) updateData.vibes = JSON.stringify(updateData.vibes) as any;
-    if (updateData.activities) updateData.activities = JSON.stringify(updateData.activities) as any;
-    if (updateData.cuisine) updateData.cuisine = JSON.stringify(updateData.cuisine) as any;
-    if (updateData.amenities) updateData.amenities = JSON.stringify(updateData.amenities) as any;
-
-    const updated = await updatePlace(id, updateData);
+    const updated = await updatePlace(id, validation.data);
 
     return NextResponse.json({
       status: 'success',

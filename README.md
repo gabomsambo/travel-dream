@@ -42,6 +42,38 @@ npm run dev
 - `npm run db:studio` - Open Drizzle Studio (database GUI)
 - `npm run db:drop` - Drop database tables
 
+## Docker Development (Alternative Setup)
+
+Prefer containerized development? Use Docker:
+
+```bash
+# Initial setup
+cp .env.docker .env.local
+# Edit .env.local with your credentials
+
+# Start all services (app + redis + db)
+npm run docker:dev:build
+
+# View logs
+npm run docker:logs
+
+# Check health
+npm run docker:health
+
+# Stop services
+npm run docker:down
+```
+
+**Features included in Docker setup:**
+- ✅ Next.js app with hot reload
+- ✅ Local Redis for rate limiting
+- ✅ All image processing dependencies (Sharp, VIPS)
+- ✅ Tesseract OCR pre-installed
+- ✅ Persistent upload storage
+- ✅ Automatic directory creation
+
+See **[DOCKER.md](./DOCKER.md)** for detailed Docker setup guide.
+
 ## Project Structure
 
 ```

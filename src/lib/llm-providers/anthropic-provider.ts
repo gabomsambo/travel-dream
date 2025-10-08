@@ -222,13 +222,52 @@ export class AnthropicProvider extends BaseLLMProvider {
     return this.circuitBreaker.call(async () => {
       try {
         // Create a tool for structured output
-        const extractionTool: Anthropic.Beta.Tools.Tool = {
+        const extractionTool: Anthropic.Tool = {
           name: 'extract_travel_places',
           description: 'Extract structured travel destination data from text',
-          input_schema: ExtractedPlacesArrayZodSchema.shape.places._def.schema._def.schema
+          input_schema: {
+            type: 'object',
+            properties: {
+              places: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['name', 'kind', 'confidence', 'location', 'metadata'],
+                  properties: {
+                    name: { type: 'string' },
+                    kind: { type: 'string', enum: PLACE_KINDS },
+                    confidence: { type: 'number', minimum: 0, maximum: 1 },
+                    description: { type: 'string' },
+                    location: {
+                      type: 'object',
+                      properties: {
+                        city: { type: 'string' },
+                        state: { type: 'string' },
+                        country: { type: 'string' },
+                        address: { type: 'string' }
+                      }
+                    },
+                    metadata: {
+                      type: 'object',
+                      properties: {
+                        price_level: { type: 'string' },
+                        best_time: { type: 'string' },
+                        activities: { type: 'array', items: { type: 'string' } },
+                        cuisine: { type: 'array', items: { type: 'string' } },
+                        amenities: { type: 'array', items: { type: 'string' } },
+                        tags: { type: 'array', items: { type: 'string' } },
+                        vibes: { type: 'array', items: { type: 'string' } }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            required: ['places']
+          }
         };
 
-        const message = await this.client.beta.tools.messages.create({
+        const message = await this.client.messages.create({
           model: this.config.model,
           max_tokens: this.config.maxTokens,
           temperature: this.config.temperature,
@@ -246,7 +285,7 @@ export class AnthropicProvider extends BaseLLMProvider {
 
         // Extract tool use from response
         const toolUse = message.content.find(
-          (content): content is Anthropic.Beta.Tools.ToolUseBlock =>
+          (content): content is Anthropic.ToolUseBlock =>
             content.type === 'tool_use' && content.name === 'extract_travel_places'
         );
 
@@ -362,7 +401,7 @@ export class AnthropicProvider extends BaseLLMProvider {
   }
 
   // Handle Anthropic-specific errors
-  private handleAnthropicError(error: Anthropic.APIError): LLMError {
+  private handleAnthropicError(error: any): LLMError {
     switch (error.status) {
       case 429:
         const retryAfter = error.headers?.['retry-after']

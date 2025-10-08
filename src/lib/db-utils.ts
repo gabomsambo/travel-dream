@@ -44,7 +44,7 @@ export async function withErrorHandling<T>(
 
 // Transaction helper
 export async function withTransaction<T>(
-  operation: (tx: typeof db) => Promise<T>
+  operation: (tx: any) => Promise<T>
 ): Promise<T> {
   return await db.transaction(async (tx) => {
     return await operation(tx);

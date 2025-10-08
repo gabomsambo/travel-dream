@@ -1,4 +1,4 @@
-import { eq, and, or, like, inArray, desc, asc, sql, gte, lte, between, isNull } from 'drizzle-orm';
+import { eq, and, or, like, inArray, desc, asc, sql, gte, lte, between, isNull, SQL } from 'drizzle-orm';
 import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
@@ -146,15 +146,15 @@ export async function searchPlaces(query: {
     }
     
     let dbQuery = db.select().from(places);
-    
+
     if (conditions.length > 0) {
-      dbQuery = dbQuery.where(and(...conditions));
+      dbQuery = dbQuery.where(and(...conditions)) as typeof dbQuery;
     }
-    
-    dbQuery = dbQuery.orderBy(desc(places.ratingSelf), asc(places.name));
-    
+
+    dbQuery = dbQuery.orderBy(desc(places.ratingSelf), asc(places.name)) as typeof dbQuery;
+
     if (query.limit) {
-      dbQuery = dbQuery.limit(query.limit);
+      dbQuery = dbQuery.limit(query.limit) as typeof dbQuery;
     }
     
     return await dbQuery;
@@ -220,6 +220,7 @@ export async function getPlacesInCollection(collectionId: string): Promise<Place
       id: places.id,
       name: places.name,
       kind: places.kind,
+      description: places.description,
       city: places.city,
       country: places.country,
       admin: places.admin,
@@ -228,12 +229,28 @@ export async function getPlacesInCollection(collectionId: string): Promise<Place
       altNames: places.altNames,
       tags: places.tags,
       vibes: places.vibes,
+      price_level: places.price_level,
+      best_time: places.best_time,
+      activities: places.activities,
+      cuisine: places.cuisine,
+      amenities: places.amenities,
       ratingSelf: places.ratingSelf,
       notes: places.notes,
       status: places.status,
       confidence: places.confidence,
       createdAt: places.createdAt,
       updatedAt: places.updatedAt,
+      website: places.website,
+      phone: places.phone,
+      email: places.email,
+      hours: places.hours,
+      visitStatus: places.visitStatus,
+      priority: places.priority,
+      lastVisited: places.lastVisited,
+      plannedVisit: places.plannedVisit,
+      recommendedBy: places.recommendedBy,
+      companions: places.companions,
+      practicalInfo: places.practicalInfo,
     })
       .from(places)
       .innerJoin(placesToCollections, eq(places.id, placesToCollections.placeId))
@@ -288,7 +305,7 @@ export async function getSourcesForLLMProcessing(options: {
       prioritizeManual = true
     } = options;
 
-    let conditions = [];
+    const conditions: SQL[] = [];
 
     // Only sources with OCR text available
     if (requireOcrText) {
@@ -299,7 +316,7 @@ export async function getSourcesForLLMProcessing(options: {
     let dbQuery = db.select().from(sourcesCurrentSchema);
 
     if (conditions.length > 0) {
-      dbQuery = dbQuery.where(and(...conditions));
+      dbQuery = dbQuery.where(and(...conditions)!) as any;
     }
 
     // Priority ordering: manual uploads first, then by creation date
@@ -307,13 +324,13 @@ export async function getSourcesForLLMProcessing(options: {
       dbQuery = dbQuery.orderBy(
         sql`CASE WHEN ${sourcesCurrentSchema.type} = 'screenshot' THEN 0 ELSE 1 END`,
         desc(sourcesCurrentSchema.createdAt)
-      );
+      ) as any;
     } else {
-      dbQuery = dbQuery.orderBy(desc(sourcesCurrentSchema.createdAt));
+      dbQuery = dbQuery.orderBy(desc(sourcesCurrentSchema.createdAt)) as any;
     }
 
     if (limit > 0) {
-      dbQuery = dbQuery.limit(limit);
+      dbQuery = dbQuery.limit(limit) as any;
     }
 
     return await dbQuery;
@@ -334,7 +351,7 @@ export async function getPlacesByConfidenceRange(options: {
       status
     } = options;
 
-    let conditions = [];
+    const conditions: SQL[] = [];
 
     // Confidence range filter
     conditions.push(between(places.confidence, minConfidence, maxConfidence));
@@ -348,11 +365,12 @@ export async function getPlacesByConfidenceRange(options: {
     conditions.push(sql`${places.confidence} IS NOT NULL`);
 
     let dbQuery = db.select().from(places)
-      .where(and(...conditions))
-      .orderBy(asc(places.confidence), desc(places.createdAt)); // Low confidence first for review
+      .where(and(...conditions)!) as any;
+
+    dbQuery = dbQuery.orderBy(asc(places.confidence), desc(places.createdAt)) as any; // Low confidence first for review
 
     if (limit > 0) {
-      dbQuery = dbQuery.limit(limit);
+      dbQuery = dbQuery.limit(limit) as any;
     }
 
     return await dbQuery;
@@ -537,6 +555,7 @@ export async function getSourcesWithPlaces(sourceIds: string[]): Promise<Array<S
         id: places.id,
         name: places.name,
         kind: places.kind,
+        description: places.description,
         city: places.city,
         country: places.country,
         admin: places.admin,
@@ -545,12 +564,28 @@ export async function getSourcesWithPlaces(sourceIds: string[]): Promise<Array<S
         altNames: places.altNames,
         tags: places.tags,
         vibes: places.vibes,
+        price_level: places.price_level,
+        best_time: places.best_time,
+        activities: places.activities,
+        cuisine: places.cuisine,
+        amenities: places.amenities,
         ratingSelf: places.ratingSelf,
         notes: places.notes,
         status: places.status,
         confidence: places.confidence,
         createdAt: places.createdAt,
         updatedAt: places.updatedAt,
+        website: places.website,
+        phone: places.phone,
+        email: places.email,
+        hours: places.hours,
+        visitStatus: places.visitStatus,
+        priority: places.priority,
+        lastVisited: places.lastVisited,
+        plannedVisit: places.plannedVisit,
+        recommendedBy: places.recommendedBy,
+        companions: places.companions,
+        practicalInfo: places.practicalInfo,
       })
         .from(places)
         .innerJoin(sourcesToPlaces, eq(places.id, sourcesToPlaces.placeId))
@@ -734,8 +769,8 @@ export async function findSimilarPlaces(placeId: string, options: {
 
         // Address similarity (if available)
         if (target.address && candidate.address &&
-            target.address.toLowerCase().includes(candidate.address.toLowerCase()) ||
-            candidate.address.toLowerCase().includes(target.address.toLowerCase())) {
+            (target.address.toLowerCase().includes(candidate.address.toLowerCase()) ||
+            candidate.address.toLowerCase().includes(target.address.toLowerCase()))) {
           similarity += 0.2;
           reasons.push('Similar address');
         }
@@ -752,4 +787,158 @@ export async function findSimilarPlaces(placeId: string, options: {
 
     return results;
   }, 'findSimilarPlaces');
+}
+
+export async function getAttachmentsForPlace(placeId: string) {
+  return withErrorHandling(async () => {
+    const { attachments } = await import('@/db/schema');
+    const { eq, desc } = await import('drizzle-orm');
+
+    const results = await db
+      .select()
+      .from(attachments)
+      .where(eq(attachments.placeId, placeId))
+      .orderBy(desc(attachments.createdAt));
+
+    return results;
+  }, 'getAttachmentsForPlace');
+}
+
+export async function getLinksForPlace(placeId: string) {
+  return withErrorHandling(async () => {
+    const { placeLinks } = await import('@/db/schema');
+    const { eq, desc } = await import('drizzle-orm');
+
+    const results = await db
+      .select()
+      .from(placeLinks)
+      .where(eq(placeLinks.placeId, placeId))
+      .orderBy(desc(placeLinks.createdAt));
+
+    return results;
+  }, 'getLinksForPlace');
+}
+
+export async function getReservationsForPlace(placeId: string) {
+  return withErrorHandling(async () => {
+    const { reservations } = await import('@/db/schema');
+    const { eq, desc } = await import('drizzle-orm');
+
+    const results = await db
+      .select()
+      .from(reservations)
+      .where(eq(reservations.placeId, placeId))
+      .orderBy(desc(reservations.reservationDate));
+
+    return results;
+  }, 'getReservationsForPlace');
+}
+
+export async function getPlaceWithRelations(placeId: string) {
+  return withErrorHandling(async () => {
+    const { places, sourcesCurrentSchema } = await import('@/db/schema');
+    const { eq } = await import('drizzle-orm');
+
+    const place = await db
+      .select()
+      .from(places)
+      .where(eq(places.id, placeId))
+      .limit(1)
+      .then(rows => rows[0]);
+
+    if (!place) {
+      return null;
+    }
+
+    const [attachments, links, reservations, sources] = await Promise.all([
+      getAttachmentsForPlace(placeId),
+      getLinksForPlace(placeId),
+      getReservationsForPlace(placeId),
+      getSourcesForPlace(placeId),
+    ]);
+
+    return {
+      ...place,
+      attachments,
+      links,
+      reservations,
+      sources,
+    };
+  }, 'getPlaceWithRelations');
+}
+
+export async function getLibraryStatsEnhanced() {
+  return withErrorHandling(async () => {
+    const { places } = await import('@/db/schema');
+    const { eq, count, sql } = await import('drizzle-orm');
+
+    const totalPlaces = await db
+      .select({ count: count() })
+      .from(places)
+      .where(eq(places.status, 'library'))
+      .then(rows => rows[0]?.count || 0);
+
+    const visitedCount = await db
+      .select({ count: count() })
+      .from(places)
+      .where(sql`${places.status} = 'library' AND ${places.visitStatus} = 'visited'`)
+      .then(rows => rows[0]?.count || 0);
+
+    const plannedCount = await db
+      .select({ count: count() })
+      .from(places)
+      .where(sql`${places.status} = 'library' AND ${places.visitStatus} = 'planned'`)
+      .then(rows => rows[0]?.count || 0);
+
+    const notVisitedCount = await db
+      .select({ count: count() })
+      .from(places)
+      .where(sql`${places.status} = 'library' AND (${places.visitStatus} = 'not_visited' OR ${places.visitStatus} IS NULL)`)
+      .then(rows => rows[0]?.count || 0);
+
+    const highPriorityCount = await db
+      .select({ count: count() })
+      .from(places)
+      .where(sql`${places.status} = 'library' AND ${places.priority} >= 4`)
+      .then(rows => rows[0]?.count || 0);
+
+    const mediumPriorityCount = await db
+      .select({ count: count() })
+      .from(places)
+      .where(sql`${places.status} = 'library' AND ${places.priority} >= 2 AND ${places.priority} < 4`)
+      .then(rows => rows[0]?.count || 0);
+
+    const lowPriorityCount = await db
+      .select({ count: count() })
+      .from(places)
+      .where(sql`${places.status} = 'library' AND ${places.priority} < 2`)
+      .then(rows => rows[0]?.count || 0);
+
+    const uniqueCountries = await db
+      .select({ country: places.country })
+      .from(places)
+      .where(eq(places.status, 'library'))
+      .then(rows => new Set(rows.map(r => r.country).filter(Boolean)).size);
+
+    const { attachments } = await import('@/db/schema');
+    const withPhotosCount = await db
+      .select({ placeId: attachments.placeId })
+      .from(attachments)
+      .where(eq(attachments.type, 'photo'))
+      .then(rows => new Set(rows.map(r => r.placeId)).size);
+
+    return {
+      total: totalPlaces,
+      visited: visitedCount,
+      planned: plannedCount,
+      notVisited: notVisitedCount,
+      byPriority: {
+        high: highPriorityCount,
+        medium: mediumPriorityCount,
+        low: lowPriorityCount,
+      },
+      countries: uniqueCountries,
+      withPhotos: withPhotosCount,
+    };
+  }, 'getLibraryStatsEnhanced');
 }

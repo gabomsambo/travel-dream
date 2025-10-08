@@ -128,7 +128,7 @@ export class FileStorageService {
     buffer: Buffer,
     sourceId: string,
     format: string
-  ): Promise<string> {
+  ): Promise<string | undefined> {
     const thumbnailFileName = `${sourceId}_thumb.jpg`;
     const thumbnailPath = path.join(this.thumbnailsDir, thumbnailFileName);
     const publicThumbnailPath = `/uploads/thumbnails/${thumbnailFileName}`;

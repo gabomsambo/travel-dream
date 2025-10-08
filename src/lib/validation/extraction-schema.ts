@@ -281,7 +281,7 @@ export function shouldAutoApprove(place: ExtractedPlace): boolean {
   return (
     place.confidence >= CONFIDENCE_THRESHOLDS.HIGH &&
     place.name.length > 2 &&
-    place.location.city && // Must have city
+    !!place.location.city && // Must have city
     PLACE_KINDS.includes(place.kind) // Valid place kind
   );
 }

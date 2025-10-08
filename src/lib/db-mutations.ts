@@ -1,4 +1,4 @@
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, count } from 'drizzle-orm';
 import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
@@ -180,10 +180,10 @@ export async function addPlaceToCollection(placeId: string, collectionId: string
   return withErrorHandling(async () => {
     // If no order index provided, append to end
     if (orderIndex === undefined) {
-      const maxOrder = await db.select({ max: db.$count() })
+      const maxOrder = await db.select({ max: count() })
         .from(placesToCollections)
         .where(eq(placesToCollections.collectionId, collectionId));
-      
+
       orderIndex = (maxOrder[0]?.max || 0) + 1;
     }
     
@@ -301,11 +301,11 @@ export async function createPlaceFromExtraction(
       confidence: extractedPlace.confidence,
       price_level: extractedPlace.metadata.price_level || null,
       best_time: extractedPlace.metadata.best_time || null,
-      activities: extractedPlace.metadata.activities ? JSON.stringify(extractedPlace.metadata.activities) : null,
-      cuisine: extractedPlace.metadata.cuisine ? JSON.stringify(extractedPlace.metadata.cuisine) : null,
-      amenities: extractedPlace.metadata.amenities ? JSON.stringify(extractedPlace.metadata.amenities) : null,
-      tags: extractedPlace.metadata.tags ? JSON.stringify(extractedPlace.metadata.tags) : null,
-      vibes: extractedPlace.metadata.vibes ? JSON.stringify(extractedPlace.metadata.vibes) : null,
+      activities: extractedPlace.metadata.activities || null,
+      cuisine: extractedPlace.metadata.cuisine || null,
+      amenities: extractedPlace.metadata.amenities || null,
+      tags: extractedPlace.metadata.tags || null,
+      vibes: extractedPlace.metadata.vibes || null,
     };
 
     const [created] = await db.insert(places).values(newPlace).returning();
@@ -392,11 +392,11 @@ export async function batchCreatePlacesFromExtractions(
               confidence: extractedPlace.confidence,
               price_level: extractedPlace.metadata.price_level || null,
               best_time: extractedPlace.metadata.best_time || null,
-              activities: extractedPlace.metadata.activities ? JSON.stringify(extractedPlace.metadata.activities) : null,
-              cuisine: extractedPlace.metadata.cuisine ? JSON.stringify(extractedPlace.metadata.cuisine) : null,
-              amenities: extractedPlace.metadata.amenities ? JSON.stringify(extractedPlace.metadata.amenities) : null,
-              tags: extractedPlace.metadata.tags ? JSON.stringify(extractedPlace.metadata.tags) : null,
-              vibes: extractedPlace.metadata.vibes ? JSON.stringify(extractedPlace.metadata.vibes) : null,
+              activities: extractedPlace.metadata.activities || null,
+              cuisine: extractedPlace.metadata.cuisine || null,
+              amenities: extractedPlace.metadata.amenities || null,
+              tags: extractedPlace.metadata.tags || null,
+              vibes: extractedPlace.metadata.vibes || null,
             };
 
             const [place] = await tx.insert(places).values(newPlace).returning();
@@ -548,25 +548,25 @@ export async function bulkMergePlaces(
 
           if (!targetPlace) throw new Error('Target place not found');
 
-          const sourceSnapshots = sourcePlaces.map(p => ({ ...p }));
+          const sourceSnapshots = sourcePlaces.map((p: Place) => ({ ...p }));
 
           const mergedData = {
             altNames: [...new Set([
               targetPlace.name,
               ...(targetPlace.altNames || []),
-              ...sourcePlaces.flatMap(p => [p.name, ...(p.altNames || [])])
+              ...sourcePlaces.flatMap((p: Place) => [p.name, ...(p.altNames || [])])
             ])],
             tags: [...new Set([
               ...(targetPlace.tags || []),
-              ...sourcePlaces.flatMap(p => p.tags || [])
+              ...sourcePlaces.flatMap((p: Place) => p.tags || [])
             ])],
             vibes: [...new Set([
               ...(targetPlace.vibes || []),
-              ...sourcePlaces.flatMap(p => p.vibes || [])
+              ...sourcePlaces.flatMap((p: Place) => p.vibes || [])
             ])],
             notes: [
               targetPlace.notes,
-              ...sourcePlaces.map(p => p.notes)
+              ...sourcePlaces.map((p: Place) => p.notes)
             ].filter(Boolean).join('\n\n---\n\n'),
             updatedAt: new Date().toISOString()
           };
@@ -669,4 +669,139 @@ export async function bulkMovePlacesToReview(placeIds: string[]): Promise<number
   return withErrorHandling(async () => {
     return await bulkUpdatePlaceStatus(placeIds, 'review');
   }, 'bulkMovePlacesToReview');
+}
+
+export async function createAttachment(data: {
+  placeId: string;
+  type: string;
+  uri: string;
+  filename: string;
+  mimeType?: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  thumbnailUri?: string;
+  caption?: string;
+  takenAt?: string;
+  isPrimary?: number;
+}) {
+  return withErrorHandling(async () => {
+    const { attachments } = await import('@/db/schema');
+
+    const [attachment] = await db
+      .insert(attachments)
+      .values(data)
+      .returning();
+
+    return attachment;
+  }, 'createAttachment');
+}
+
+export async function deleteAttachment(id: string) {
+  return withErrorHandling(async () => {
+    const { attachments } = await import('@/db/schema');
+    const { eq } = await import('drizzle-orm');
+
+    await db
+      .delete(attachments)
+      .where(eq(attachments.id, id));
+
+    return { success: true };
+  }, 'deleteAttachment');
+}
+
+export async function createPlaceLink(data: {
+  placeId: string;
+  url: string;
+  title?: string;
+  description?: string;
+  type?: string;
+  platform?: string;
+}) {
+  return withErrorHandling(async () => {
+    const { placeLinks } = await import('@/db/schema');
+
+    const [link] = await db
+      .insert(placeLinks)
+      .values(data)
+      .returning();
+
+    return link;
+  }, 'createPlaceLink');
+}
+
+export async function deletePlaceLink(id: string) {
+  return withErrorHandling(async () => {
+    const { placeLinks } = await import('@/db/schema');
+    const { eq } = await import('drizzle-orm');
+
+    await db
+      .delete(placeLinks)
+      .where(eq(placeLinks.id, id));
+
+    return { success: true };
+  }, 'deletePlaceLink');
+}
+
+export async function createReservation(data: {
+  placeId: string;
+  reservationDate: string;
+  reservationTime?: string;
+  confirmationNumber?: string;
+  status?: string;
+  partySize?: number;
+  bookingPlatform?: string;
+  bookingUrl?: string;
+  specialRequests?: string;
+  totalCost?: string;
+  notes?: string;
+}) {
+  return withErrorHandling(async () => {
+    const { reservations } = await import('@/db/schema');
+
+    const [reservation] = await db
+      .insert(reservations)
+      .values(data)
+      .returning();
+
+    return reservation;
+  }, 'createReservation');
+}
+
+export async function updateReservation(
+  id: string,
+  data: {
+    reservationDate?: string;
+    reservationTime?: string | null;
+    confirmationNumber?: string | null;
+    bookingPlatform?: string | null;
+    status?: string;
+    notes?: string | null;
+  }
+) {
+  return withErrorHandling(async () => {
+    const { reservations } = await import('@/db/schema');
+    const { eq } = await import('drizzle-orm');
+
+    const [updated] = await db
+      .update(reservations)
+      .set(data)
+      .where(eq(reservations.id, id))
+      .returning();
+
+    return updated;
+  }, 'updateReservation');
+}
+
+export async function deleteReservation(id: string) {
+  return withErrorHandling(async () => {
+    const { reservations } = await import('@/db/schema');
+    const { eq } = await import('drizzle-orm');
+
+    await db
+      .delete(reservations)
+      .where(eq(reservations.id, id));
+
+    return { success: true };
+  }, 'deleteReservation');
 }

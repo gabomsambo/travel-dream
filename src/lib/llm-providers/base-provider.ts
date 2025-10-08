@@ -110,18 +110,18 @@ export abstract class BaseLLMProvider implements LLMProvider {
           prefix: `llm-provider`
         });
         this.rateLimitEnabled = true;
-        console.log(`[${this.name}] Rate limiting enabled with Upstash Redis`);
+        console.log(`[LLM Provider] Rate limiting enabled with Upstash Redis`);
       } else {
         this.redis = null;
         this.rateLimit = null;
         this.rateLimitEnabled = false;
-        console.warn(`[${this.name}] Redis not configured - rate limiting disabled`);
+        console.warn(`[LLM Provider] Redis not configured - rate limiting disabled`);
       }
     } catch (error) {
       this.redis = null;
       this.rateLimit = null;
       this.rateLimitEnabled = false;
-      console.warn(`[${this.name}] Failed to initialize Redis:`, error instanceof Error ? error.message : 'Unknown error');
+      console.warn(`[LLM Provider] Failed to initialize Redis:`, error instanceof Error ? error.message : 'Unknown error');
     }
   }
 
@@ -428,8 +428,8 @@ export abstract class BaseLLMProvider implements LLMProvider {
   }
 
   // Validation and response processing
-  validateResponse(response: unknown): ExtractedPlace[] {
-    const result = this.validator.validateLLMResponse(response, this.name);
+  async validateResponse(response: unknown): Promise<ExtractedPlace[]> {
+    const result = await this.validator.validateLLMResponse(response, this.name);
     if (result.success && result.data) {
       return result.data;
     }

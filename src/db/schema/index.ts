@@ -5,6 +5,9 @@ export * from './collections';
 export * from './relations';
 export * from './merge-logs';
 export * from './dismissed-duplicates';
+export * from './attachments';
+export * from './placeLinks';
+export * from './reservations';
 
 // Re-export tables for convenience
 export { sourcesCurrentSchema as sources } from './sources-current';
@@ -13,6 +16,9 @@ export { collections } from './collections';
 export { sourcesToPlaces, placesToCollections } from './relations';
 export { mergeLogs } from './merge-logs';
 export { dismissedDuplicates } from './dismissed-duplicates';
+export { attachments } from './attachments';
+export { placeLinks } from './placeLinks';
+export { reservations } from './reservations';
 
 // Export all relations for Drizzle
 export {
@@ -21,6 +27,9 @@ export {
   collectionsRelations,
   sourcesToPlacesRelations,
   placesToCollectionsRelations,
+  attachmentsRelations,
+  placeLinksRelations,
+  reservationsRelations,
 } from './relations';
 
 // Export upload sessions

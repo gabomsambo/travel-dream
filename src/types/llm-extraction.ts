@@ -48,7 +48,7 @@ export interface LLMProvider {
   getCost(inputTokens: number, outputTokens: number): number;
 
   // Validation and health checks
-  validateResponse(response: unknown): ExtractedPlace[];
+  validateResponse(response: unknown): Promise<ExtractedPlace[]>;
   isHealthy(): Promise<boolean>;
 
   // Configuration

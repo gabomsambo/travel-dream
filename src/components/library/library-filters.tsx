@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from "react"
-import { Search, X } from "lucide-react"
+import { Search, X, Star, Image } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
   SelectContent,
@@ -23,6 +24,9 @@ export interface LibraryFiltersProps {
     country: string
     tags: Set<string>
     vibes: Set<string>
+    rating: number
+    visitStatus: Set<string>
+    hasPhotosOnly: boolean
   }
 
   // Available filter options (from actual library data)
@@ -42,6 +46,9 @@ export interface LibraryFiltersProps {
     country?: string
     tags?: Set<string>
     vibes?: Set<string>
+    rating?: number
+    visitStatus?: Set<string>
+    hasPhotosOnly?: boolean
   }) => void
 
   onClearFilters: () => void
@@ -80,6 +87,16 @@ export function LibraryFilters({
     onFilterChange({ vibes: newVibes })
   }
 
+  const toggleVisitStatus = (status: string) => {
+    const newVisitStatus = new Set(filters.visitStatus)
+    if (newVisitStatus.has(status)) {
+      newVisitStatus.delete(status)
+    } else {
+      newVisitStatus.add(status)
+    }
+    onFilterChange({ visitStatus: newVisitStatus })
+  }
+
   // Check if any filters are active
   const hasActiveFilters =
     filters.search !== '' ||
@@ -87,7 +104,10 @@ export function LibraryFilters({
     filters.city !== 'all' ||
     filters.country !== 'all' ||
     filters.tags.size > 0 ||
-    filters.vibes.size > 0
+    filters.vibes.size > 0 ||
+    filters.rating > 0 ||
+    filters.visitStatus.size > 0 ||
+    filters.hasPhotosOnly
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -157,6 +177,76 @@ export function LibraryFilters({
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Rating Filter */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-muted-foreground">
+          Minimum Rating
+        </label>
+        <div className="flex gap-1">
+          {[0, 1, 2, 3, 4, 5].map(rating => (
+            <Button
+              key={rating}
+              variant={filters.rating === rating ? "default" : "outline"}
+              size="sm"
+              onClick={() => onFilterChange({ rating })}
+              className="gap-1"
+            >
+              {rating === 0 ? 'All' : rating}
+              {rating > 0 && (
+                <Star
+                  className={cn(
+                    "h-3 w-3",
+                    filters.rating === rating && "fill-current"
+                  )}
+                />
+              )}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* Visit Status Filter */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-muted-foreground">
+          Visit Status
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {['not_visited', 'planned', 'visited'].map(status => (
+            <Badge
+              key={status}
+              variant={filters.visitStatus.has(status) ? "default" : "outline"}
+              className="cursor-pointer transition-colors hover:bg-accent"
+              onClick={() => toggleVisitStatus(status)}
+            >
+              {status === 'not_visited' ? 'Not Visited' :
+               status === 'planned' ? 'Planned' : 'Visited'}
+              {filters.visitStatus.has(status) && (
+                <X className="ml-1 h-3 w-3" />
+              )}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      {/* Has Photos Filter */}
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="has-photos"
+          checked={filters.hasPhotosOnly}
+          onCheckedChange={(checked) =>
+            onFilterChange({ hasPhotosOnly: checked === true })
+          }
+        />
+        <label
+          htmlFor="has-photos"
+          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed
+          peer-disabled:opacity-70 flex items-center gap-2 cursor-pointer"
+        >
+          <Image className="h-4 w-4" />
+          Only show places with photos
+        </label>
       </div>
 
       {/* Tag Multi-Select */}

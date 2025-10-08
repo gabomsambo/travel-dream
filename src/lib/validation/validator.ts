@@ -456,7 +456,7 @@ export class ExtractionValidator {
       switch (error.keyword) {
         case 'enum':
           type = SchemaValidationError.INVALID_PLACE_KIND;
-          suggestion = `Valid values: ${error.schema.join(', ')}`;
+          suggestion = `Valid values: ${Array.isArray(error.schema) ? (error.schema as string[]).join(', ') : 'see schema'}`;
           break;
         case 'minimum':
         case 'maximum':

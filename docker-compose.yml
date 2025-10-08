@@ -9,18 +9,23 @@ services:
       - .:/app
       # Exclude node_modules to prevent host/container conflicts
       - /app/node_modules
-      # Persistent uploads storage
+      # Exclude .next to prevent build conflicts
+      - /app/.next
+      # Persistent uploads storage with all subdirectories
       - uploads_data:/app/public/uploads
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
+      # Next.js configuration for Docker
+      - HOSTNAME=0.0.0.0
     env_file:
       - .env.local
     depends_on:
       - redis
     networks:
       - travel-dreams-network
+    restart: unless-stopped
 
   # Local Redis for development (alternative to Upstash)
   redis:

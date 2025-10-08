@@ -10,10 +10,20 @@ import {
   LLMProvider,
   LLMProviderConfig,
   LLMError,
-  LLMErrorType,
-  ProcessingProgress
+  LLMErrorType
 } from '@/types/llm-extraction';
 import { Source } from '@/types/database';
+
+// Progress tracking for batch operations
+export interface ProcessingProgress {
+  total: number;
+  completed: number;
+  failed: number;
+  progress: number; // Percentage (0-100)
+  currentItem?: string;
+  currentSource?: string;
+  estimatedTimeRemaining?: number;
+}
 
 // Service configuration
 export interface LLMExtractionConfig {

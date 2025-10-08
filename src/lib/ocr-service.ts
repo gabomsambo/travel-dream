@@ -78,7 +78,7 @@ export class OCRService {
       });
 
       // Set additional Tesseract options for screenshot optimization
-      await this.worker.setParameters(this.config.tessJsOptions);
+      await this.worker.setParameters(this.config.tessJsOptions as any);
 
       this.isInitialized = true;
     } catch (error) {
@@ -107,9 +107,9 @@ export class OCRService {
       return {
         text: result.data.text,
         confidence: result.data.confidence,
-        words: result.data.words ? result.data.words.length : 0,
-        lines: result.data.lines ? result.data.lines.length : 0,
-        blocks: result.data.blocks ? result.data.blocks.length : 0,
+        words: (result.data as any).words ? (result.data as any).words.length : 0,
+        lines: (result.data as any).lines ? (result.data as any).lines.length : 0,
+        blocks: (result.data as any).blocks ? (result.data as any).blocks.length : 0,
         processingTime,
       };
     } catch (error) {

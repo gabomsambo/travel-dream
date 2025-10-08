@@ -1,6 +1,7 @@
 import { Suspense } from "react"
 import { LibraryClient } from "@/components/library/library-client"
-import { searchPlaces } from "@/lib/db-queries"
+import { LibraryStatsCards } from "@/components/library/library-stats-cards"
+import { searchPlaces, getLibraryStatsEnhanced } from "@/lib/db-queries"
 import type { Place } from "@/types/database"
 
 interface PageProps {
@@ -53,6 +54,9 @@ export default async function LibraryPage({ searchParams }: PageProps) {
     vibes: filters.vibes.length > 0 ? filters.vibes : undefined
   })
 
+  // Fetch library stats
+  const stats = await getLibraryStatsEnhanced()
+
   // Compute dynamic filter options from actual library data
   const filterOptions = {
     kinds: [...new Set(places.map(p => p.kind))].sort(),
@@ -70,6 +74,8 @@ export default async function LibraryPage({ searchParams }: PageProps) {
           Your curated collection of confirmed travel places
         </p>
       </div>
+
+      <LibraryStatsCards stats={stats} />
 
       <Suspense fallback={<LibraryFiltersSkeleton />}>
         <LibraryClient

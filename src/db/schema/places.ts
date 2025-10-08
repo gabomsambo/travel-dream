@@ -60,6 +60,25 @@ export const places = sqliteTable('places', {
   // Timestamps
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+
+  // Contact & Practical Information
+  website: text('website'),
+  phone: text('phone'),
+  email: text('email'),
+  hours: text('hours', { mode: 'json' }).$type<Record<string, string>>(), // {"monday": "9-17", "tuesday": "9-17", "closed": ["sunday"]}
+
+  // Visit Tracking
+  visitStatus: text('visit_status').default('not_visited'), // 'not_visited' | 'visited' | 'planned'
+  priority: integer('priority').default(0), // 0-5 priority rating
+  lastVisited: text('last_visited'), // ISO date string
+  plannedVisit: text('planned_visit'), // ISO date string
+
+  // Social Context
+  recommendedBy: text('recommended_by'), // "Sarah's Instagram", "Travel blog XYZ", "Friend John"
+  companions: text('companions', { mode: 'json' }).$type<string[]>(), // ["Alice", "Bob", "Carol"]
+
+  // Additional Notes
+  practicalInfo: text('practical_info'), // "Bring cash only", "Entrance on side street", etc.
 }, (table) => ({
   // Performance indexes for common queries
   cityCountryIdx: index('places_city_country_idx').on(table.city, table.country),
@@ -72,4 +91,10 @@ export const places = sqliteTable('places', {
   // Composite indexes for complex queries
   statusKindIdx: index('places_status_kind_idx').on(table.status, table.kind),
   cityKindIdx: index('places_city_kind_idx').on(table.city, table.kind),
+
+  // Visit tracking indexes
+  visitStatusIdx: index('places_visit_status_idx').on(table.visitStatus),
+  priorityIdx: index('places_priority_idx').on(table.priority),
+  lastVisitedIdx: index('places_last_visited_idx').on(table.lastVisited),
+  plannedVisitIdx: index('places_planned_visit_idx').on(table.plannedVisit),
 }));

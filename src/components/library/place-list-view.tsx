@@ -1,6 +1,6 @@
 "use client"
 
-import { MapPin, Star } from "lucide-react"
+import { MapPin, Star, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import type { Place } from "@/types/database"
@@ -8,9 +8,10 @@ import type { Place } from "@/types/database"
 interface PlaceListViewProps {
   places: Place[]
   onView: (place: Place) => void
+  onDelete?: (placeId: string) => void
 }
 
-export function PlaceListView({ places, onView }: PlaceListViewProps) {
+export function PlaceListView({ places, onView, onDelete }: PlaceListViewProps) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
@@ -28,7 +29,7 @@ export function PlaceListView({ places, onView }: PlaceListViewProps) {
           {places.map((place) => (
             <tr
               key={place.id}
-              className="border-b hover:bg-muted/30 cursor-pointer"
+              className="border-b hover:bg-muted/30 cursor-pointer group"
               onClick={() => onView(place)}
             >
               <td className="p-3 font-medium">{place.name}</td>
@@ -72,16 +73,31 @@ export function PlaceListView({ places, onView }: PlaceListViewProps) {
                 </Badge>
               </td>
               <td className="p-3 text-right">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onView(place)
-                  }}
-                >
-                  View
-                </Button>
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onView(place)
+                    }}
+                  >
+                    View
+                  </Button>
+                  {onDelete && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDelete(place.id)
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}

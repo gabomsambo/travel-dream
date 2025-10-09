@@ -97,6 +97,7 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
       if (!response.ok) {
         const errorData = await response.json().catch(() => null)
         console.error('API Error Response:', errorData)
+        console.error('Validation errors detail:', errorData?.errors)
         const errorMessage = errorData?.message || errorData?.errors?.[0]?.message || 'Failed to save'
         throw new Error(errorMessage)
       }

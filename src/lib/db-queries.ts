@@ -259,6 +259,22 @@ export async function getPlacesInCollection(collectionId: string): Promise<Place
   }, 'getPlacesInCollection');
 }
 
+export async function getCollectionWithPlaces(
+  collectionId: string
+): Promise<(Collection & { places: Place[] }) | null> {
+  return withErrorHandling(async () => {
+    const collection = await getCollectionById(collectionId);
+    if (!collection) return null;
+
+    const places = await getPlacesInCollection(collectionId);
+
+    return {
+      ...collection,
+      places,
+    };
+  }, 'getCollectionWithPlaces');
+}
+
 // Statistics queries
 export async function getPlaceStats(): Promise<{
   total: number;

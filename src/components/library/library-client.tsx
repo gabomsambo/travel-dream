@@ -12,6 +12,8 @@ import { ActiveFilterChips } from "./active-filter-chips"
 import { PlaceListView } from "./place-list-view"
 import { PlaceMapView } from "./place-map-view"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useLocalStorage } from "@/hooks/use-local-storage"
+import { UserPreferences, DEFAULT_PREFERENCES } from "@/types/user-preferences"
 import type { Place } from "@/types/database"
 
 interface LibraryClientProps {
@@ -29,6 +31,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
+  const [preferences] = useLocalStorage<UserPreferences>('user-preferences', DEFAULT_PREFERENCES)
 
   // Initialize filter state from URL params
   const [search, setSearch] = useState(searchParams.get('search') || '')
@@ -49,7 +52,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     searchParams.get('hasPhotosOnly') === 'true'
   )
   const [view, setView] = useState<'grid' | 'list' | 'map'>(
-    (searchParams.get('view') as 'grid' | 'list' | 'map') || 'grid'
+    (searchParams.get('view') as 'grid' | 'list' | 'map') || preferences.defaultView
   )
   const [sort, setSort] = useState(searchParams.get('sort') || 'date-newest')
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
@@ -315,6 +318,31 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     setSelectedPlace(place)
   }, [])
 
+  // Handle delete place
+  const handleDeletePlace = useCallback(async (placeId: string) => {
+    const place = initialPlaces.find(p => p.id === placeId)
+    const placeName = place?.name || 'this place'
+
+    if (!confirm(`Are you sure you want to permanently delete "${placeName}"? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/places/${placeId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to delete place')
+      }
+
+      window.location.reload()
+    } catch (error) {
+      alert('Failed to delete place. Please try again.')
+      console.error('Delete error:', error)
+    }
+  }, [initialPlaces])
+
   return (
     <div className="space-y-6">
       <LibraryFilters
@@ -374,6 +402,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
               showActions={false}
               showConfidence={false}
               onView={handleViewPlace}
+              onArchive={handleDeletePlace}
               virtualizeThreshold={500}
               enablePerformanceMonitoring={process.env.NODE_ENV === 'development'}
               emptyMessage="No places match your filters"
@@ -383,6 +412,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
             <PlaceListView
               places={sortedPlaces}
               onView={handleViewPlaceObject}
+              onDelete={handleDeletePlace}
             />
           )}
           {view === 'map' && (

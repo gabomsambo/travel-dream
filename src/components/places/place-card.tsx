@@ -1,4 +1,4 @@
-import { MoreVertical, Check, X, Edit, Merge, MapPin, Calendar, Eye } from "lucide-react"
+import { MoreVertical, Check, X, Edit, Merge, MapPin, Calendar, Eye, Trash2 } from "lucide-react"
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -89,13 +89,14 @@ export function PlaceCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700"
+            className="h-8 w-8 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 shadow-sm"
             onClick={(e) => {
               e.stopPropagation()
               onArchive(place.id)
             }}
+            title="Delete place"
           >
-            <X className="h-4 w-4" />
+            <Trash2 className="h-4 w-4" />
           </Button>
         </div>
       )}

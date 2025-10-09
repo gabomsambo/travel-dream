@@ -1,12 +1,18 @@
 "use client"
 
 import { useState } from "react"
+import dynamic from "next/dynamic"
 import { Upload, X, Image as ImageIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import type { PlaceWithRelations } from "@/types/database"
+
+const PhotoLightbox = dynamic(() =>
+  import("@/components/ui-custom/photo-lightbox").then(mod => ({ default: mod.PhotoLightbox })),
+  { ssr: false }
+)
 
 interface MediaTabProps {
   place: PlaceWithRelations
@@ -16,8 +22,15 @@ interface MediaTabProps {
 export function MediaTab({ place }: MediaTabProps) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
 
   const photos = place.attachments.filter((a) => a.type === "photo")
+
+  const openLightbox = (index: number) => {
+    setLightboxIndex(index)
+    setLightboxOpen(true)
+  }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -123,13 +136,18 @@ export function MediaTab({ place }: MediaTabProps) {
 
       {photos.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {photos.map((photo) => (
+          {photos.map((photo, index) => (
             <Card key={photo.id} className="overflow-hidden group relative">
-              <img
-                src={photo.thumbnailUri || photo.uri}
-                alt={photo.caption || photo.filename}
-                className="w-full h-48 object-cover"
-              />
+              <div
+                className="cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => openLightbox(index)}
+              >
+                <img
+                  src={photo.thumbnailUri || photo.uri}
+                  alt={photo.caption || photo.filename}
+                  className="w-full h-48 object-cover"
+                />
+              </div>
               {photo.caption && (
                 <div className="p-2 text-xs text-muted-foreground">
                   {photo.caption}
@@ -140,7 +158,10 @@ export function MediaTab({ place }: MediaTabProps) {
                 size="icon"
                 className="absolute top-2 right-2 opacity-0 group-hover:opacity-100
                   transition-opacity h-8 w-8"
-                onClick={() => handleDelete(photo.id)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleDelete(photo.id)
+                }}
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -148,6 +169,13 @@ export function MediaTab({ place }: MediaTabProps) {
           ))}
         </div>
       )}
+
+      <PhotoLightbox
+        photos={photos}
+        open={lightboxOpen}
+        index={lightboxIndex}
+        onClose={() => setLightboxOpen(false)}
+      />
     </div>
   )
 }

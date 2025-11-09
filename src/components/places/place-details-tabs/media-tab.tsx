@@ -3,10 +3,10 @@
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import { Upload, X, Image as ImageIcon } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card } from "@/components/ui/card"
+import { Button } from "@/components/adapters/button"
+import { Input } from "@/components/adapters/input"
+import { Label } from "@/components/adapters/label"
+import { Card } from "@/components/adapters/card"
 import type { PlaceWithRelations } from "@/types/database"
 
 const PhotoLightbox = dynamic(() =>

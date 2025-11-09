@@ -1,9 +1,9 @@
 "use client"
 
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Input } from "@/components/adapters/input"
+import { Label } from "@/components/adapters/label"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
+import { Button } from "@/components/adapters/button"
 import { Star } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { TagInput } from "@/components/ui-custom/tag-input"

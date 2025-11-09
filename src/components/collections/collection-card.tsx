@@ -1,15 +1,21 @@
 'use client';
 
-import { Trash2, FolderOpen, Calendar } from 'lucide-react';
-import { Card, CardHeader, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { FolderHeart, MapPin, Trash2, MoreVertical } from 'lucide-react';
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from '@/lib/utils';
 import type { Collection } from '@/types/database';
 import { useRouter } from 'next/navigation';
-import { formatDistanceToNow } from 'date-fns';
 
 interface CollectionCardProps {
-  collection: Collection;
+  collection: Collection & { places?: Array<{ coverUrl?: string | null }> };
   placeCount?: number;
   onDelete?: (collectionId: string) => void;
 }
@@ -21,82 +27,91 @@ export function CollectionCard({
 }: CollectionCardProps) {
   const router = useRouter();
 
+  const coverUrl = collection.places?.[0]?.coverUrl;
+
   const handleCardClick = () => {
     router.push(`/collections/${collection.id}`);
-  };
-
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onDelete) {
-      onDelete(collection.id);
-    }
-  };
-
-  const truncateDescription = (text: string | null, maxLength: number = 120) => {
-    if (!text) return '';
-    if (text.length <= maxLength) return text;
-    return text.slice(0, maxLength).trim() + '...';
-  };
-
-  const formatDate = (dateString: string) => {
-    try {
-      return formatDistanceToNow(new Date(dateString), { addSuffix: true });
-    } catch {
-      return 'Recently';
-    }
   };
 
   return (
     <Card
       className={cn(
-        'hover:shadow-lg transition-all duration-200 cursor-pointer relative group',
-        'hover:border-primary/50'
+        'group cursor-pointer overflow-hidden transition-all duration-300',
+        'hover:shadow-2xl hover:-translate-y-2 rounded-2xl'
       )}
-      onClick={handleCardClick}
     >
-      {/* Delete button - visible on hover */}
-      {onDelete && (
-        <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 shadow-sm"
-            onClick={handleDelete}
-            title="Delete collection"
+      {/* Cover Image Section */}
+      <div className="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-primary/30 via-accent/20 to-secondary/40">
+        {coverUrl ? (
+          <img
+            src={coverUrl}
+            alt={collection.name}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+            onClick={handleCardClick}
+          />
+        ) : (
+          <div
+            className="flex h-full w-full items-center justify-center"
+            onClick={handleCardClick}
           >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
-
-      <CardHeader className="pb-3">
-        <div className="flex items-start gap-3">
-          <div className="p-2 rounded-lg bg-primary/10 shrink-0">
-            <FolderOpen className="h-5 w-5 text-primary" />
+            <FolderHeart className="h-20 w-20 text-primary/40" />
           </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-lg leading-tight truncate">
-              {collection.name}
-            </h3>
-            <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
-              <span>{placeCount} {placeCount === 1 ? 'place' : 'places'}</span>
-              <span>•</span>
-              <div className="flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                <span>{formatDate(collection.updatedAt)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </CardHeader>
+        )}
 
-      {collection.description && (
-        <CardContent className="pt-0">
+        {/* Place Count Badge */}
+        <Badge className="absolute right-3 bottom-3 bg-background/95 backdrop-blur-md shadow-lg">
+          <MapPin className="h-3 w-3 mr-1.5" />
+          {placeCount} {placeCount === 1 ? 'place' : 'places'}
+        </Badge>
+
+        {/* Actions Dropdown (shows on hover) */}
+        {onDelete && (
+          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-8 w-8 rounded-full bg-background/95 backdrop-blur-md"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(collection.id);
+                  }}
+                  className="text-destructive"
+                  variant="destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Collection
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+      </div>
+
+      {/* Content Section */}
+      <div className="p-6 space-y-3" onClick={handleCardClick}>
+        <h3 className="font-semibold text-xl line-clamp-1">{collection.name}</h3>
+        {collection.description && (
           <p className="text-sm text-muted-foreground line-clamp-2">
-            {truncateDescription(collection.description)}
+            {collection.description}
           </p>
-        </CardContent>
-      )}
+        )}
+        <p className="text-xs text-muted-foreground/80 pt-1">
+          Created{' '}
+          {new Date(collection.createdAt).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })}
+        </p>
+      </div>
     </Card>
   );
 }

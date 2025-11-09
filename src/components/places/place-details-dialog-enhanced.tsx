@@ -8,9 +8,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/adapters/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/adapters/button"
 import { OverviewTab } from "./place-details-tabs/overview-tab"
 import { MediaTab } from "./place-details-tabs/media-tab"
 import { LinksTab } from "./place-details-tabs/links-tab"

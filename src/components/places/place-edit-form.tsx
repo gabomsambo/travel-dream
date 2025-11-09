@@ -1,12 +1,12 @@
 "use client"
 
 import { useState, FormEvent } from 'react'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from "@/components/adapters/input"
+import { Textarea } from "@/components/adapters/textarea"
+import { Label } from "@/components/adapters/label"
+import { Button } from "@/components/adapters/button"
+import { Badge } from "@/components/adapters/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/adapters/select"
 import { X } from 'lucide-react'
 import { PLACE_KINDS } from '@/types/database'
 import type { Place } from '@/types/database'

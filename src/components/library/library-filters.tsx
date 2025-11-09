@@ -2,17 +2,17 @@
 
 import * as React from "react"
 import { Search, X, Star, Image } from "lucide-react"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/adapters/input"
+import { Button } from "@/components/adapters/button"
+import { Badge } from "@/components/adapters/badge"
+import { Checkbox } from "@/components/adapters/checkbox"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
+} from "@/components/adapters/select"
 import { cn } from "@/lib/utils"
 
 export interface LibraryFiltersProps {

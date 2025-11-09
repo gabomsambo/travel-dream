@@ -1,7 +1,7 @@
 "use client"
 
 import { Grid3x3, List, Map } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/adapters/button"
 import { cn } from "@/lib/utils"
 
 export interface LibraryViewSwitcherProps {

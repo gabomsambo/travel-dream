@@ -1,6 +1,5 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -21,9 +20,15 @@ import type { Place } from '@/types/database';
 
 interface DraggablePlacesListProps {
   places: Place[];
-  onReorder: (placeIds: string[]) => void;
+  onReorder: (places: Place[]) => void;
   onRemove: (placeId: string) => void;
   isRemoving?: string | null;
+  pinnedPlaceIds?: string[];
+  placeNotes?: Record<string, string>;
+  onTogglePin?: (placeId: string) => void;
+  onNoteChange?: (placeId: string, note: string) => void;
+  hoveredPlaceId?: string | null;
+  onPlaceHover?: (placeId: string | null) => void;
 }
 
 export function DraggablePlacesList({
@@ -31,13 +36,13 @@ export function DraggablePlacesList({
   onReorder,
   onRemove,
   isRemoving,
+  pinnedPlaceIds = [],
+  placeNotes = {},
+  onTogglePin,
+  onNoteChange,
+  hoveredPlaceId,
+  onPlaceHover,
 }: DraggablePlacesListProps) {
-  const [items, setItems] = useState(places);
-
-  useEffect(() => {
-    setItems(places);
-  }, [places]);
-
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -52,14 +57,16 @@ export function DraggablePlacesList({
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
 
+    if (pinnedPlaceIds.includes(active.id as string)) {
+      return;
+    }
+
     if (over && active.id !== over.id) {
-      const oldIndex = items.findIndex((item) => item.id === active.id);
-      const newIndex = items.findIndex((item) => item.id === over.id);
+      const oldIndex = places.findIndex((item) => item.id === active.id);
+      const newIndex = places.findIndex((item) => item.id === over.id);
 
-      const newOrder = arrayMove(items, oldIndex, newIndex);
-
-      setItems(newOrder);
-      onReorder(newOrder.map((place) => place.id));
+      const newOrder = arrayMove(places, oldIndex, newIndex);
+      onReorder(newOrder);
     }
   }
 
@@ -69,9 +76,9 @@ export function DraggablePlacesList({
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
-      <SortableContext items={items.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+      <SortableContext items={places.map((p) => p.id)} strategy={verticalListSortingStrategy}>
         <div className="space-y-2">
-          {items.map((place, index) => (
+          {places.map((place, index) => (
             <CollectionPlaceItem
               key={place.id}
               place={place}
@@ -79,6 +86,12 @@ export function DraggablePlacesList({
               onRemove={onRemove}
               isRemoving={isRemoving === place.id}
               sortable={true}
+              isPinned={pinnedPlaceIds.includes(place.id)}
+              onTogglePin={onTogglePin}
+              note={placeNotes[place.id] || ''}
+              onNoteChange={onNoteChange}
+              isHovered={hoveredPlaceId === place.id}
+              onHover={(hover) => onPlaceHover?.(hover ? place.id : null)}
             />
           ))}
         </div>

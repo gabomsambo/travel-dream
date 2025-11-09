@@ -1,6 +1,7 @@
 import { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, dismissedDuplicates, attachments, placeLinks, reservations } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
+import { z } from 'zod';
 
 // Select types (for queries)
 export type Source = InferSelectModel<typeof sourcesCurrentSchema>;
@@ -106,6 +107,30 @@ export type PlaceWithRelations = Place & {
   links: PlaceLink[];
   reservations: Reservation[];
   sources: Source[];
+};
+
+export const DayBucketSchema = z.object({
+  id: z.string().min(1),
+  dayNumber: z.number().int().positive(),
+  placeIds: z.array(z.string()).max(50),
+  dayNote: z.string().max(1000).optional(),
+  timeWindow: z.object({
+    start: z.string().regex(/^\d{2}:\d{2}$/),
+    end: z.string().regex(/^\d{2}:\d{2}$/)
+  }).optional(),
+  lockedPlaceIds: z.array(z.string()).optional()
+});
+
+export type DayBucket = z.infer<typeof DayBucketSchema>;
+
+export type DayPlace = Place & {
+  isLocked?: boolean;
+  dayNote?: string;
+};
+
+export type CollectionWithDays = Collection & {
+  dayBuckets: DayBucket[];
+  unscheduledPlaceIds: string[];
 };
 
 export type LibraryStats = {

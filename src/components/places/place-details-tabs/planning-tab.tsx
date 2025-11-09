@@ -2,9 +2,9 @@
 
 import { useState } from "react"
 import { Star, Calendar, Users, UserPlus } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Button } from "@/components/adapters/button"
+import { Input } from "@/components/adapters/input"
+import { Label } from "@/components/adapters/label"
 import type { PlaceWithRelations } from "@/types/database"
 
 interface PlanningTabProps {

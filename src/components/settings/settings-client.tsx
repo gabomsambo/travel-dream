@@ -3,23 +3,25 @@
 import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
-import { Download, Trash2, Keyboard, Sun, Moon, Laptop, Grid3x3, List, Map } from 'lucide-react'
+import { Download, Trash2, Keyboard, Sun, Moon, Laptop, Grid3x3, List, Map, Sparkles } from 'lucide-react'
 import { useLocalStorage } from '@/hooks/use-local-storage'
 import { UserPreferences, DEFAULT_PREFERENCES } from '@/types/user-preferences'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
+import { Button } from "@/components/adapters/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/adapters/card"
+import { Label } from "@/components/adapters/label"
 import { Slider } from '@/components/ui/slider'
-import { Separator } from '@/components/ui/separator'
+import { Separator } from "@/components/adapters/separator"
+import { Switch } from "@/components/adapters/switch"
 import { toast } from 'sonner'
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog'
+import { useUIRefresh } from '@/lib/feature-flags'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
+} from "@/components/adapters/select"
 
 export function SettingsClient() {
   const router = useRouter()
@@ -32,6 +34,7 @@ export function SettingsClient() {
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [uiRefreshEnabled, toggleUIRefresh] = useUIRefresh()
 
   useEffect(() => {
     setMounted(true)
@@ -210,6 +213,27 @@ export function SettingsClient() {
                 Comfortable
               </Button>
             </div>
+          </div>
+
+          <Separator />
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 flex-1">
+              <div className="flex items-center gap-2">
+                <Label className="cursor-pointer" htmlFor="ui-refresh">
+                  Tropical Boutique UI
+                </Label>
+                <Sparkles className="h-3.5 w-3.5 text-accent" />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Modern UI with warm tropical colors, enhanced spacing, and refined components
+              </p>
+            </div>
+            <Switch
+              id="ui-refresh"
+              checked={uiRefreshEnabled}
+              onCheckedChange={toggleUIRefresh}
+            />
           </div>
         </CardContent>
       </Card>

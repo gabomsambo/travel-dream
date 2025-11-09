@@ -1,14 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+} from "@/components/adapters/dialog";
+import { Button } from "@/components/adapters/button";
 import { Download, Map, Navigation, FileText, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Collection, Place } from '@/types/database';
@@ -21,11 +21,17 @@ interface ShareDialogProps {
 
 export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps) {
   const [copied, setCopied] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setShareUrl(window.location.href);
+    }
+  }, []);
 
   const handleCopyLink = async () => {
-    const url = window.location.href;
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       toast.success('Link copied to clipboard');
       setTimeout(() => setCopied(false), 2000);
@@ -108,7 +114,7 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
             <div className="flex gap-2">
               <input
                 type="text"
-                value={window.location.href}
+                value={shareUrl}
                 readOnly
                 className="flex-1 px-3 py-2 text-sm border rounded-md bg-muted"
               />

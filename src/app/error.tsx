@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect } from 'react'
-import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card'
+import { Button } from "@/components/adapters/button"
+import { Card, CardHeader, CardContent, CardFooter } from "@/components/adapters/card"
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export default function Error({

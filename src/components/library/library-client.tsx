@@ -2,9 +2,12 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
+import { Library } from 'lucide-react'
 import { PlaceGrid } from "@/components/places/place-grid"
 import { PlaceDetailsDialogEnhanced } from "@/components/places/place-details-dialog-enhanced"
-import { LibraryFilters } from "./library-filters"
+import { PlaceCardV2 } from "@/components/library-v2/place-card-v2"
+import { PlaceFiltersSidebar } from "@/components/library-v2/place-filters-sidebar"
+import { EmptyState } from "@/components/library-v2/empty-state"
 import { LibraryStats } from "./library-stats"
 import { LibraryViewSwitcher } from "./library-view-switcher"
 import { LibrarySortControls } from "./library-sort-controls"
@@ -14,10 +17,11 @@ import { PlaceMapView } from "./place-map-view"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { UserPreferences, DEFAULT_PREFERENCES } from "@/types/user-preferences"
+import type { PlaceWithCover } from "@/lib/library-adapters"
 import type { Place } from "@/types/database"
 
 interface LibraryClientProps {
-  initialPlaces: Place[]
+  initialPlaces: PlaceWithCover[]
   filterOptions: {
     kinds: string[]
     cities: string[]
@@ -343,114 +347,144 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     }
   }, [initialPlaces])
 
+  // Convert kind filter to Set for sidebar compatibility
+  const selectedKinds = useMemo(() => {
+    return kind !== 'all' ? new Set([kind]) : new Set<string>()
+  }, [kind])
+
+  const handleSidebarFilterChange = useCallback((updates: {
+    kinds?: Set<string>
+    vibes?: Set<string>
+    rating?: number
+    visitStatus?: Set<string>
+    hasPhotosOnly?: boolean
+  }) => {
+    if ('kinds' in updates) {
+      // Convert Set back to single kind for URL
+      const kindsArray = Array.from(updates.kinds!)
+      setKind(kindsArray.length === 1 ? kindsArray[0] : 'all')
+    }
+    if ('vibes' in updates) setSelectedVibes(updates.vibes!)
+    if ('rating' in updates) setRating(updates.rating!)
+    if ('visitStatus' in updates) setVisitStatus(updates.visitStatus!)
+    if ('hasPhotosOnly' in updates) setHasPhotosOnly(updates.hasPhotosOnly!)
+  }, [])
+
   return (
-    <div className="space-y-6">
-      <LibraryFilters
-        filters={{
-          search,
-          kind,
-          city,
-          country,
-          tags: selectedTags,
-          vibes: selectedVibes,
-          rating,
-          visitStatus,
-          hasPhotosOnly
-        }}
-        filterOptions={filterOptions}
-        onFilterChange={handleFilterChange}
-        onClearFilters={clearFilters}
-      />
-
-      <ActiveFilterChips
-        filters={{
-          search,
-          kind: kind !== 'all' ? kind : undefined,
-          city: city !== 'all' ? city : undefined,
-          country: country !== 'all' ? country : undefined,
-          tags: selectedTags,
-          vibes: selectedVibes,
-          rating: rating > 0 ? rating : undefined,
-          visitStatus,
-          hasPhotosOnly: hasPhotosOnly ? true : undefined
-        }}
-        onRemoveFilter={handleRemoveFilter}
-      />
-
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <LibraryStats
-          totalCount={initialPlaces.length}
-          filteredCount={filteredPlaces.length}
+    <div className="flex gap-6">
+      {/* Desktop Filters Sidebar */}
+      <aside className="hidden lg:block shrink-0">
+        <PlaceFiltersSidebar
+          filters={{
+            kinds: selectedKinds,
+            vibes: selectedVibes,
+            tags: selectedTags,
+            rating,
+            visitStatus,
+            hasPhotosOnly
+          }}
+          filterOptions={filterOptions}
+          onChange={handleSidebarFilterChange}
+          onClear={clearFilters}
         />
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <LibrarySortControls
-            sort={sort}
-            onSortChange={setSort}
-          />
-          <LibraryViewSwitcher
-            view={view}
-            onViewChange={setView}
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 space-y-4 min-w-0">
+        {/* Mobile Filters */}
+        <div className="lg:hidden">
+          <PlaceFiltersSidebar
+            filters={{
+              kinds: selectedKinds,
+              vibes: selectedVibes,
+              tags: selectedTags,
+              rating,
+              visitStatus,
+              hasPhotosOnly
+            }}
+            filterOptions={filterOptions}
+            onChange={handleSidebarFilterChange}
+            onClear={clearFilters}
           />
         </div>
-      </div>
 
-      {sortedPlaces.length > 0 ? (
-        <>
-          {view === 'grid' && (
-            <PlaceGrid
-              places={sortedPlaces}
-              showActions={false}
-              showConfidence={false}
-              onView={handleViewPlace}
-              onArchive={handleDeletePlace}
-              virtualizeThreshold={500}
-              enablePerformanceMonitoring={process.env.NODE_ENV === 'development'}
-              emptyMessage="No places match your filters"
+        <ActiveFilterChips
+          filters={{
+            search,
+            kind: kind !== 'all' ? kind : undefined,
+            city: city !== 'all' ? city : undefined,
+            country: country !== 'all' ? country : undefined,
+            tags: selectedTags,
+            vibes: selectedVibes,
+            rating: rating > 0 ? rating : undefined,
+            visitStatus,
+            hasPhotosOnly: hasPhotosOnly ? true : undefined
+          }}
+          onRemoveFilter={handleRemoveFilter}
+        />
+
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <LibraryStats
+            totalCount={initialPlaces.length}
+            filteredCount={filteredPlaces.length}
+          />
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <LibrarySortControls
+              sort={sort}
+              onSortChange={setSort}
             />
-          )}
-          {view === 'list' && (
-            <PlaceListView
-              places={sortedPlaces}
-              onView={handleViewPlaceObject}
-              onDelete={handleDeletePlace}
+            <LibraryViewSwitcher
+              view={view}
+              onViewChange={setView}
             />
-          )}
-          {view === 'map' && (
-            <PlaceMapView
-              places={sortedPlaces}
-              onView={handleViewPlaceObject}
-            />
-          )}
-        </>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="rounded-full bg-muted p-3 mb-4">
-            <svg
-              className="h-6 w-6 text-muted-foreground"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
           </div>
-          <h3 className="text-lg font-semibold mb-1">No places found</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Try adjusting your filters to find more places
-          </p>
         </div>
-      )}
 
-      <PlaceDetailsDialogEnhanced
-        open={selectedPlace !== null}
-        onOpenChange={(open) => !open && setSelectedPlace(null)}
-        placeId={selectedPlace?.id || null}
-      />
+        {sortedPlaces.length > 0 ? (
+          <>
+            {view === 'grid' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {sortedPlaces.map((place) => (
+                  <PlaceCardV2
+                    key={place.id}
+                    place={place}
+                    onClick={() => setSelectedPlace(place)}
+                  />
+                ))}
+              </div>
+            )}
+            {view === 'list' && (
+              <PlaceListView
+                places={sortedPlaces}
+                onView={handleViewPlaceObject}
+                onDelete={handleDeletePlace}
+              />
+            )}
+            {view === 'map' && (
+              <PlaceMapView
+                places={sortedPlaces}
+                onView={handleViewPlaceObject}
+              />
+            )}
+          </>
+        ) : (
+          <EmptyState
+            icon={Library}
+            title="No places found"
+            description="Try adjusting your filters or add new places to your library"
+            action={{
+              label: "Clear Filters",
+              onClick: clearFilters
+            }}
+          />
+        )}
+
+        <PlaceDetailsDialogEnhanced
+          open={selectedPlace !== null}
+          onOpenChange={(open) => !open && setSelectedPlace(null)}
+          placeId={selectedPlace?.id || null}
+        />
+      </div>
     </div>
   )
 }

@@ -2,10 +2,10 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Card, CardHeader, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
+import { Card, CardHeader, CardContent } from "@/components/adapters/card"
+import { Button } from "@/components/adapters/button"
+import { Badge } from "@/components/adapters/badge"
+import { Separator } from "@/components/adapters/separator"
 import { Check, X, Image as ImageIcon } from "lucide-react"
 import { toast } from "sonner"
 import { PlaceEditForm } from '@/components/places/place-edit-form'

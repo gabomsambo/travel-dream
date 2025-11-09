@@ -3,14 +3,14 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Menu } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/adapters/button"
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-} from "@/components/ui/sheet"
+} from "@/components/adapters/sheet"
 import { 
   Inbox, 
   GitPullRequest,

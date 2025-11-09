@@ -1,7 +1,7 @@
 "use client"
 
 import { X } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { Badge } from "@/components/adapters/badge"
 import { cn } from "@/lib/utils"
 
 export interface ActiveFilterChipsProps {

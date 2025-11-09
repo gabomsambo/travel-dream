@@ -2,6 +2,7 @@ import { Suspense } from "react"
 import { LibraryClient } from "@/components/library/library-client"
 import { LibraryStatsCards } from "@/components/library/library-stats-cards"
 import { searchPlaces, getLibraryStatsEnhanced } from "@/lib/db-queries"
+import { getCoverImagesForPlaces, type PlaceWithCover } from "@/lib/library-adapters"
 import type { Place } from "@/types/database"
 
 interface PageProps {
@@ -54,6 +55,16 @@ export default async function LibraryPage({ searchParams }: PageProps) {
     vibes: filters.vibes.length > 0 ? filters.vibes : undefined
   })
 
+  // Fetch cover images for all places
+  const placeIds = places.map(p => p.id)
+  const coverMap = await getCoverImagesForPlaces(placeIds)
+
+  // Adapt places with cover URLs
+  const placesWithCovers: PlaceWithCover[] = places.map(place => ({
+    ...place,
+    coverUrl: coverMap.get(place.id)
+  }))
+
   // Fetch library stats
   const stats = await getLibraryStatsEnhanced()
 
@@ -79,7 +90,7 @@ export default async function LibraryPage({ searchParams }: PageProps) {
 
       <Suspense fallback={<LibraryFiltersSkeleton />}>
         <LibraryClient
-          initialPlaces={places}
+          initialPlaces={placesWithCovers}
           filterOptions={filterOptions}
         />
       </Suspense>

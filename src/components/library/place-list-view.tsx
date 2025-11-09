@@ -1,8 +1,8 @@
 "use client"
 
 import { MapPin, Star, Trash2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/adapters/button"
+import { Badge } from "@/components/adapters/badge"
 import type { Place } from "@/types/database"
 
 interface PlaceListViewProps {

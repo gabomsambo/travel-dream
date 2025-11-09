@@ -1,7 +1,7 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
+import { Badge } from "@/components/adapters/badge"
+import { Separator } from "@/components/adapters/separator"
 import { MapPin, DollarSign, Calendar } from "lucide-react"
 import type { PlaceWithRelations } from "@/types/database"
 

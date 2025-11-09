@@ -1,4 +1,4 @@
-import { Card } from '@/components/ui/card';
+import { Card } from "@/components/adapters/card";
 import { DuplicateConfidenceBadge } from './duplicate-confidence-badge';
 import type { Place } from '@/types/database';
 import { cn } from '@/lib/utils';

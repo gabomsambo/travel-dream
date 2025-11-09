@@ -7,6 +7,7 @@
 
 @layer base {
   :root {
+    /* Original Blue/Professional Theme - Light Mode (Default) */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -16,13 +17,13 @@
     --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 84% 4.9%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
     --muted: 210 40% 96%;
     --muted-foreground: 215.4 16.3% 46.9%;
     --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
@@ -30,6 +31,7 @@
   }
 
   .dark {
+    /* Original Blue/Professional Theme - Dark Mode */
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
     --card: 222.2 84% 4.9%;
@@ -37,18 +39,65 @@
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
     --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
+    --primary-foreground: 222.2 47.4% 11.2%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 72% 58%;
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 94.1%;
+    --ring: 217.2 91.2% 59.8%;
+  }
+
+  [data-ui-refresh="true"] {
+    /* Tropical Boutique Explorer Theme - Light Mode */
+    --background: 40 33% 98%;
+    --foreground: 220 15% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 12%;
+    --primary: 178 55% 36%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 35 30% 88%;
+    --secondary-foreground: 220 15% 20%;
+    --muted: 35 20% 92%;
+    --muted-foreground: 220 10% 38%;
+    --accent: 14 85% 62%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 35 18% 86%;
+    --input: 35 18% 86%;
+    --ring: 178 55% 36%;
+    --radius: 1rem;
+  }
+
+  [data-ui-refresh="true"].dark {
+    /* Tropical Boutique Explorer Theme - Dark Mode */
+    --background: 220 20% 8%;
+    --foreground: 35 15% 92%;
+    --card: 220 18% 12%;
+    --card-foreground: 35 15% 92%;
+    --popover: 220 18% 12%;
+    --popover-foreground: 35 15% 92%;
+    --primary: 178 60% 48%;
+    --primary-foreground: 220 20% 8%;
+    --secondary: 220 15% 16%;
+    --secondary-foreground: 35 15% 92%;
+    --muted: 220 15% 16%;
+    --muted-foreground: 35 10% 65%;
+    --accent: 14 85% 62%;
+    --accent-foreground: 220 20% 8%;
+    --destructive: 0 72% 58%;
+    --destructive-foreground: 35 15% 92%;
+    --border: 220 15% 18%;
+    --input: 220 15% 18%;
+    --ring: 178 60% 48%;
   }
 }
 

@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useOptimistic, startTransition } from 'react';
+import { useState, useOptimistic, startTransition, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ArrowLeft, Plus, Share2, Route } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ArrowLeft, Plus, Share2, Route, Save, Sparkles, Calendar } from 'lucide-react';
+import { Button } from "@/components/ui/button";
 import { CollectionStats } from './collection-stats';
-import { CollectionPlaceItem } from './collection-place-item';
 import { AddPlacesDialog } from './add-places-dialog';
 import { ShareDialog } from './share-dialog';
+import Link from 'next/link';
+import { TransportModeToggle } from './transport-mode-toggle';
+import { ItineraryMap } from './itinerary-map';
 import { optimizeCollectionRoute } from '@/lib/algorithms/tsp';
 import type { Collection, Place } from '@/types/database';
 import { toast } from 'sonner';
@@ -19,7 +21,10 @@ const DraggablePlacesList = dynamic(
 );
 
 interface CollectionBuilderProps {
-  initialCollection: Collection & { places: Place[] };
+  initialCollection: Collection & {
+    places: (Place & { isPinned?: boolean; note?: string | null; orderIndex?: number })[];
+    transportMode?: 'drive' | 'walk';
+  };
 }
 
 export function CollectionBuilder({ initialCollection }: CollectionBuilderProps) {
@@ -33,14 +38,97 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
   const [isReordering, setIsReordering] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
+  const [transportMode, setTransportMode] = useState<'drive' | 'walk'>(
+    initialCollection.transportMode || 'drive'
+  );
+  const [pinnedPlaceIds, setPinnedPlaceIds] = useState<string[]>(
+    initialCollection.places.filter((p) => p.isPinned).map((p) => p.id)
+  );
+  const [placeNotes, setPlaceNotes] = useState<Record<string, string>>(
+    initialCollection.places.reduce((acc, p) => {
+      if (p.note) acc[p.id] = p.note;
+      return acc;
+    }, {} as Record<string, string>)
+  );
+  const [hoveredPlaceId, setHoveredPlaceId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
   const handleBack = () => {
     router.push('/collections');
+  };
+
+  // Auto-save transport mode (debounced)
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      setIsSaving(true);
+      try {
+        await fetch(`/api/collections/${collection.id}/settings`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transportMode }),
+        });
+      } catch (error) {
+        console.error('Error saving transport mode:', error);
+      }
+      setIsSaving(false);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [transportMode, collection.id]);
+
+  // Update note with debounce
+  const updateNote = useCallback(
+    (placeId: string, note: string) => {
+      setPlaceNotes((prev) => ({ ...prev, [placeId]: note }));
+
+      const timer = setTimeout(async () => {
+        setIsSaving(true);
+        try {
+          await fetch(`/api/collections/${collection.id}/places/${placeId}/note`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ note: note || null }),
+          });
+        } catch (error) {
+          console.error('Error saving note:', error);
+        }
+        setIsSaving(false);
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    },
+    [collection.id]
+  );
+
+  // Toggle pin
+  const togglePin = async (placeId: string) => {
+    setIsSaving(true);
+    setPinnedPlaceIds((prev) =>
+      prev.includes(placeId) ? prev.filter((id) => id !== placeId) : [...prev, placeId]
+    );
+
+    try {
+      await fetch(`/api/collections/${collection.id}/places/${placeId}/pin`, {
+        method: 'PATCH',
+      });
+    } catch (error) {
+      console.error('Error toggling pin:', error);
+      toast.error('Failed to update pin status');
+    }
+    setIsSaving(false);
   };
 
   const handleRemovePlace = async (placeId: string) => {
     if (!confirm('Remove this place from the collection?')) {
       return;
     }
+
+    console.log('[CollectionBuilder] Removing place:', placeId);
+
+    const newPlaces = places.filter((p) => p.id !== placeId);
+
+    startTransition(() => {
+      setOptimisticPlaces(newPlaces);
+    });
 
     setIsRemoving(placeId);
     try {
@@ -51,29 +139,35 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
         }
       );
 
+      const result = await response.json();
+      console.log('[CollectionBuilder] Delete response:', result);
+
       if (!response.ok) {
-        throw new Error('Failed to remove place');
+        throw new Error(result.message || 'Failed to remove place');
       }
 
-      setPlaces((prev) => prev.filter((p) => p.id !== placeId));
+      setPlaces(newPlaces);
+      console.log('[CollectionBuilder] Place removed successfully, new count:', newPlaces.length);
       toast.success('Place removed from collection');
     } catch (error) {
-      console.error('Error removing place:', error);
+      console.error('[CollectionBuilder] Error removing place:', error);
+      startTransition(() => {
+        setOptimisticPlaces(places);
+      });
       toast.error('Failed to remove place');
     } finally {
       setIsRemoving(null);
     }
   };
 
-  const handleReorder = async (placeIds: string[]) => {
-    const newOrder = placeIds.map((id) => places.find((p) => p.id === id)!).filter(Boolean);
-
+  const handleReorder = async (newOrder: Place[]) => {
     startTransition(() => {
       setOptimisticPlaces(newOrder);
     });
     setIsReordering(true);
 
     try {
+      const placeIds = newOrder.map((p) => p.id);
       const response = await fetch(`/api/collections/${collection.id}/reorder`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -112,31 +206,38 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
     setIsOptimizing(true);
 
     try {
-      const result = optimizeCollectionRoute(optimisticPlaces, {
+      // Filter out pinned places before optimization
+      const unpinnedPlaces = optimisticPlaces.filter((p) => !pinnedPlaceIds.includes(p.id));
+      
+      if (unpinnedPlaces.filter(p => p.coords).length < 2) {
+        toast.error('Need at least 2 unpinned places with coordinates to optimize');
+        setIsOptimizing(false);
+        return;
+      }
+
+      const result = optimizeCollectionRoute(unpinnedPlaces, {
         returnToStart: false,
         maxPlaces: 50,
       });
 
-      const currentDistance = optimisticPlaces.reduce((total, place, i) => {
-        if (i === 0 || !place.coords || !optimisticPlaces[i - 1].coords) return total;
-        const from = optimisticPlaces[i - 1];
-        const to = place;
-        const dist =
-          Math.sqrt(
-            Math.pow((to.coords!.lat - from.coords!.lat), 2) +
-            Math.pow((to.coords!.lon - from.coords!.lon), 2)
-          ) * 111;
-        return total + dist;
-      }, 0);
+      // Merge optimized unpinned places back with pinned places in original positions
+      const newOrder = [];
+      let optimizedIndex = 0;
+      for (const place of optimisticPlaces) {
+        if (pinnedPlaceIds.includes(place.id)) {
+          newOrder.push(place);
+        } else {
+          if (optimizedIndex < result.orderedPlaces.length) {
+            newOrder.push(result.orderedPlaces[optimizedIndex]);
+            optimizedIndex++;
+          }
+        }
+      }
 
-      const improvement = currentDistance - result.totalDistance;
-      const improvementPercent = ((improvement / currentDistance) * 100).toFixed(1);
-
-      const orderedPlaceIds = result.orderedPlaces.map((p) => p.id);
-      await handleReorder(orderedPlaceIds);
+      await handleReorder(newOrder);
 
       toast.success(
-        `Route optimized! Saved ${improvement.toFixed(1)}km (${improvementPercent}% improvement)`
+        `Route optimized! Total distance: ${result.totalDistance.toFixed(1)}km`
       );
     } catch (error) {
       console.error('Error optimizing route:', error);
@@ -151,96 +252,122 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="h-screen flex flex-col">
       {/* Header */}
-      <div className="mb-6">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleBack}
-          className="mb-4"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Collections
-        </Button>
+      <div className="border-b p-4">
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" onClick={handleBack}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
 
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-bold truncate">{collection.name}</h1>
-            {collection.description && (
-              <p className="text-muted-foreground mt-2">
-                {collection.description}
-              </p>
-            )}
-          </div>
+          <div className="flex items-center gap-3">
+            {/* Auto-save indicator */}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {isSaving ? (
+                <>
+                  <Save className="h-4 w-4 animate-pulse" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 text-green-600" />
+                  <span>Saved</span>
+                </>
+              )}
+            </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+            {/* Transport mode toggle */}
+            <TransportModeToggle value={transportMode} onChange={setTransportMode} />
+
             {optimisticPlaces.length >= 3 && (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={handleOptimizeRoute}
                 disabled={isOptimizing || isReordering}
               >
-                <Route className="h-4 w-4 mr-2" />
-                {isOptimizing ? 'Optimizing...' : 'Auto-Order'}
+                <Sparkles className="h-4 w-4 mr-2" />
+                {isOptimizing ? 'Optimizing...' : 'Optimize Route'}
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShareDialogOpen(true)}
-            >
+
+            <Link href={`/collections/${collection.id}/planner`}>
+              <Button variant="outline">
+                <Calendar className="h-4 w-4 mr-2" />
+                Plan Days
+              </Button>
+            </Link>
+
+            <Button variant="outline" onClick={() => setShareDialogOpen(true)}>
               <Share2 className="h-4 w-4 mr-2" />
               Share
             </Button>
-            <Button
-              size="sm"
-              onClick={() => setAddPlacesDialogOpen(true)}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Places
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="mb-6">
-        <CollectionStats places={optimisticPlaces} />
-      </div>
-
-      {/* Places List */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            Places ({optimisticPlaces.length})
-          </h2>
-          {optimisticPlaces.length > 0 && (
-            <p className="text-sm text-muted-foreground">
-              Drag places to reorder
-            </p>
-          )}
-        </div>
-
-        {optimisticPlaces.length === 0 ? (
-          <div className="text-center py-12 border-2 border-dashed rounded-lg">
-            <p className="text-muted-foreground mb-4">
-              No places in this collection yet
-            </p>
             <Button onClick={() => setAddPlacesDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Places
             </Button>
           </div>
-        ) : (
-          <DraggablePlacesList
-            places={optimisticPlaces}
-            onReorder={handleReorder}
-            onRemove={handleRemovePlace}
-            isRemoving={isRemoving}
-          />
-        )}
+        </div>
+
+        {/* Collection Title */}
+        <div className="mt-4">
+          <h1 className="text-3xl font-bold">{collection.name}</h1>
+          {collection.description && (
+            <p className="text-muted-foreground mt-2">{collection.description}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="px-4 py-3 border-b">
+        <CollectionStats places={optimisticPlaces} />
+      </div>
+
+      {/* Main Content: Two-column split */}
+      <div className="flex-1 overflow-hidden">
+        <div className="h-full grid grid-cols-2 gap-6 container py-6">
+          {/* LEFT: Itinerary List */}
+          <div className="overflow-y-auto pr-2 space-y-4">
+            <h2 className="text-lg font-semibold">
+              Itinerary ({optimisticPlaces.length} places)
+            </h2>
+
+            {optimisticPlaces.length === 0 ? (
+              <div className="text-center py-12 border-2 border-dashed rounded-lg">
+                <p className="text-muted-foreground mb-4">
+                  No places in this collection yet
+                </p>
+                <Button onClick={() => setAddPlacesDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Places
+                </Button>
+              </div>
+            ) : (
+              <DraggablePlacesList
+                places={optimisticPlaces}
+                onReorder={handleReorder}
+                onRemove={handleRemovePlace}
+                isRemoving={isRemoving}
+                pinnedPlaceIds={pinnedPlaceIds}
+                placeNotes={placeNotes}
+                onTogglePin={togglePin}
+                onNoteChange={updateNote}
+                hoveredPlaceId={hoveredPlaceId}
+                onPlaceHover={setHoveredPlaceId}
+              />
+            )}
+          </div>
+
+          {/* RIGHT: Map */}
+          <div className="h-full">
+            <ItineraryMap
+              places={optimisticPlaces}
+              hoveredPlaceId={hoveredPlaceId}
+              onPlaceHover={setHoveredPlaceId}
+              transportMode={transportMode}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Add Places Dialog */}

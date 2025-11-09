@@ -8,11 +8,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
+} from "@/components/adapters/dialog";
+import { Button } from "@/components/adapters/button";
+import { Input } from "@/components/adapters/input";
+import { Checkbox } from "@/components/adapters/checkbox";
+import { Badge } from "@/components/adapters/badge";
 import { Search, MapPin, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDebounce } from '@/hooks/use-debounce';

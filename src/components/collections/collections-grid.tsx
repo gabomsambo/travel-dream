@@ -1,31 +1,39 @@
 'use client';
 
 import { CollectionCard } from './collection-card';
-import { FolderPlus } from 'lucide-react';
+import { EmptyState } from './empty-state';
+import { FolderHeart } from 'lucide-react';
 import type { Collection } from '@/types/database';
 
 interface CollectionsGridProps {
-  collections: (Collection & { placeCount?: number })[];
+  collections: (Collection & { placeCount?: number; places?: Array<{ coverUrl?: string | null }> })[];
   onDelete?: (collectionId: string) => void;
+  onCreateClick?: () => void;
 }
 
-export function CollectionsGrid({ collections, onDelete }: CollectionsGridProps) {
+export function CollectionsGrid({ collections, onDelete, onCreateClick }: CollectionsGridProps) {
   if (collections.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-        <div className="p-4 rounded-full bg-muted/50 mb-4">
-          <FolderPlus className="h-12 w-12 text-muted-foreground" />
-        </div>
-        <h3 className="text-lg font-semibold mb-2">No collections yet</h3>
-        <p className="text-muted-foreground max-w-sm">
-          Create your first collection to organize your travel places into curated lists
-        </p>
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <EmptyState
+          icon={FolderHeart}
+          title="No collections yet"
+          description="Create your first collection to start organizing places into trips, themes, or wish lists"
+          action={
+            onCreateClick
+              ? {
+                  label: 'Create Your First Collection',
+                  onClick: onCreateClick,
+                }
+              : undefined
+          }
+        />
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {collections.map((collection) => (
         <CollectionCard
           key={collection.id}

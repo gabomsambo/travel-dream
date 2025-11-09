@@ -7,10 +7,10 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
+} from "@/components/adapters/dialog"
+import { Badge } from "@/components/adapters/badge"
+import { Button } from "@/components/adapters/button"
+import { Separator } from "@/components/adapters/separator"
 import { ConfidenceIndicator } from "@/components/inbox/confidence-indicator"
 import type { Place } from "@/types/database"
 

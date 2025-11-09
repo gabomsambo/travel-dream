@@ -31,5 +31,10 @@ export default async function CollectionPage({ params }: CollectionPageProps) {
     notFound();
   }
 
-  return <CollectionBuilder initialCollection={collection} />;
+  const collectionWithTypedTransport = {
+    ...collection,
+    transportMode: (collection.transportMode || 'drive') as 'drive' | 'walk',
+  };
+
+  return <CollectionBuilder initialCollection={collectionWithTypedTransport} />;
 }

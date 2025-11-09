@@ -1,10 +1,10 @@
 "use client"
 
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
+import { Input } from "@/components/adapters/input"
+import { Label } from "@/components/adapters/label"
+import { Textarea } from "@/components/adapters/textarea"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
+import { Separator } from "@/components/adapters/separator"
 import { TagInput } from "@/components/ui-custom/tag-input"
 import { CoordinateInput } from "@/components/ui-custom/coordinate-input"
 

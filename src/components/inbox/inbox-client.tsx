@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { PlaceGrid } from "@/components/places/place-grid"
 import { InboxToolbar, type ConfidenceFilter } from "@/components/inbox/inbox-toolbar"
 import { useConfidenceSelection } from "@/hooks/use-bulk-selection"
-import { Badge } from "@/components/ui/badge"
+import { Badge } from "@/components/adapters/badge"
 import { toast } from "sonner"
 import type { Place } from "@/types/database"
 

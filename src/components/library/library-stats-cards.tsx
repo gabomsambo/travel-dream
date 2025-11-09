@@ -1,7 +1,7 @@
 "use client"
 
 import { MapPin, Globe, CheckCircle, Calendar } from "lucide-react"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/adapters/card"
 import { cn } from "@/lib/utils"
 
 export interface LibraryStatsCardsProps {

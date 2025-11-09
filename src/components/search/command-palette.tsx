@@ -11,7 +11,7 @@ import {
   CommandList,
   CommandSeparator,
   CommandShortcut,
-} from '@/components/ui/command'
+} from "@/components/adapters/command"
 import {
   Inbox,
   Library,

@@ -8,14 +8,18 @@ export async function DELETE(
   try {
     const { id: collectionId, placeId } = await params;
 
-    await removePlaceFromCollection(collectionId, placeId);
+    console.log('[DELETE place] Removing place:', placeId, 'from collection:', collectionId);
+
+    await removePlaceFromCollection(placeId, collectionId);
+
+    console.log('[DELETE place] Successfully removed');
 
     return NextResponse.json({
       status: 'success',
       message: 'Place removed from collection',
     });
   } catch (error) {
-    console.error('Error removing place from collection:', error);
+    console.error('[DELETE place] Error removing place from collection:', error);
     return NextResponse.json(
       {
         status: 'error',

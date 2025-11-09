@@ -1,6 +1,6 @@
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card'
+import { Button } from "@/components/adapters/button"
+import { Card, CardHeader, CardContent, CardFooter } from "@/components/adapters/card"
 import { MapPin, Home } from 'lucide-react'
 
 export default function NotFound() {

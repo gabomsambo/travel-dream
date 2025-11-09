@@ -1,9 +1,9 @@
 "use client"
 
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Input } from "@/components/adapters/input"
+import { Label } from "@/components/adapters/label"
+import { Textarea } from "@/components/adapters/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/adapters/select"
 import { Star } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PLACE_KINDS } from "@/types/database"

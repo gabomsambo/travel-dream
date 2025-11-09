@@ -3,13 +3,13 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
+import { Badge } from "@/components/adapters/badge"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/adapters/tooltip"
 
 const confidenceBarVariants = cva(
   "relative h-2 w-full overflow-hidden rounded-full bg-muted",

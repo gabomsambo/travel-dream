@@ -251,6 +251,9 @@ export async function getPlacesInCollection(collectionId: string): Promise<Place
       recommendedBy: places.recommendedBy,
       companions: places.companions,
       practicalInfo: places.practicalInfo,
+      orderIndex: placesToCollections.orderIndex,
+      isPinned: placesToCollections.isPinned,
+      note: placesToCollections.note,
     })
       .from(places)
       .innerJoin(placesToCollections, eq(places.id, placesToCollections.placeId))
@@ -273,6 +276,87 @@ export async function getCollectionWithPlaces(
       places,
     };
   }, 'getCollectionWithPlaces');
+}
+
+export async function getDayPlaces(
+  collectionId: string,
+  placeIds: string[],
+  lockedPlaceIds?: string[]
+): Promise<Place[]> {
+  return withErrorHandling(async () => {
+    if (placeIds.length === 0) return [];
+
+    const allPlaces = await db.select({
+      id: places.id,
+      name: places.name,
+      kind: places.kind,
+      description: places.description,
+      city: places.city,
+      country: places.country,
+      admin: places.admin,
+      coords: places.coords,
+      address: places.address,
+      altNames: places.altNames,
+      tags: places.tags,
+      vibes: places.vibes,
+      price_level: places.price_level,
+      best_time: places.best_time,
+      activities: places.activities,
+      cuisine: places.cuisine,
+      amenities: places.amenities,
+      ratingSelf: places.ratingSelf,
+      notes: places.notes,
+      status: places.status,
+      confidence: places.confidence,
+      createdAt: places.createdAt,
+      updatedAt: places.updatedAt,
+      website: places.website,
+      phone: places.phone,
+      email: places.email,
+      hours: places.hours,
+      visitStatus: places.visitStatus,
+      priority: places.priority,
+      lastVisited: places.lastVisited,
+      plannedVisit: places.plannedVisit,
+      recommendedBy: places.recommendedBy,
+      companions: places.companions,
+      practicalInfo: places.practicalInfo,
+      orderIndex: placesToCollections.orderIndex,
+      isPinned: placesToCollections.isPinned,
+      note: placesToCollections.note,
+    })
+      .from(places)
+      .innerJoin(placesToCollections, eq(places.id, placesToCollections.placeId))
+      .where(and(
+        eq(placesToCollections.collectionId, collectionId),
+        inArray(places.id, placeIds)
+      ));
+
+    const placeMap = new Map(allPlaces.map(p => [p.id, p]));
+    const orderedPlaces = placeIds
+      .map(id => placeMap.get(id))
+      .filter((p): p is Place => p !== undefined);
+
+    if (lockedPlaceIds && lockedPlaceIds.length > 0) {
+      return orderedPlaces.map(p => ({
+        ...p,
+        isLocked: lockedPlaceIds.includes(p.id)
+      }));
+    }
+
+    return orderedPlaces;
+  }, 'getDayPlaces');
+}
+
+export async function getUnscheduledPlaces(
+  collectionId: string,
+  unscheduledPlaceIds: string[]
+): Promise<Place[]> {
+  return withErrorHandling(async () => {
+    if (unscheduledPlaceIds.length === 0) return [];
+
+    return getDayPlaces(collectionId, unscheduledPlaceIds);
+  }, 'getUnscheduledPlaces');
 }
 
 // Statistics queries

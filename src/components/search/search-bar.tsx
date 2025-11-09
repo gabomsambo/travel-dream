@@ -2,15 +2,15 @@
 
 import { useState } from 'react'
 import { Search, Filter } from 'lucide-react'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Input } from "@/components/adapters/input"
+import { Button } from "@/components/adapters/button"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from "@/components/adapters/select"
 import { PLACE_KINDS } from '@/types/database'
 
 interface SearchFilters {

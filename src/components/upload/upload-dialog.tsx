@@ -8,9 +8,9 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+} from "@/components/adapters/dialog"
+import { Button } from "@/components/adapters/button"
+import { Badge } from "@/components/adapters/badge"
 import { ScreenshotUploader } from './screenshot-uploader'
 import { UploadProgress } from './upload-progress'
 import { CheckCircle, XCircle, Clock, Loader2 } from 'lucide-react'

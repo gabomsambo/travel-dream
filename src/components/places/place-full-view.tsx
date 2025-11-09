@@ -3,7 +3,7 @@
 import { useState, useTransition, useOptimistic } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/adapters/button"
 import { useDebouncedCallback } from "@/hooks/use-auto-save"
 import type { PlaceWithRelations } from "@/types/database"
 

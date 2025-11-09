@@ -2,21 +2,21 @@
 
 import * as React from "react"
 import { Check, X, Archive, Filter, Keyboard, ChevronDown } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/adapters/button"
+import { Badge } from "@/components/adapters/badge"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
+} from "@/components/adapters/select"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/adapters/tooltip"
 import { cn } from "@/lib/utils"
 
 export type ConfidenceFilter = "all" | "high" | "medium" | "low" | "very-low"

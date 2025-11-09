@@ -1,9 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/adapters/button"
+import { Label } from "@/components/adapters/label"
+import { Textarea } from "@/components/adapters/textarea"
 import type { PlaceWithRelations } from "@/types/database"
 
 interface NotesTabProps {

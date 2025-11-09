@@ -6,8 +6,8 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Separator } from "@/components/ui/separator"
+} from "@/components/adapters/dialog"
+import { Separator } from "@/components/adapters/separator"
 import { Kbd } from "@/components/ui/kbd"
 
 interface KeyboardShortcutsDialogProps {

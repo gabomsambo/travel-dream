@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import { Upload, Plus } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/adapters/button"
+import { Badge } from "@/components/adapters/badge"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { MobileNav } from "@/components/navigation/mobile-nav"
 import { SearchBar } from "@/components/search/search-bar"

@@ -1,9 +1,9 @@
 "use client"
 
 import { useState } from 'react'
-import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Card } from "@/components/adapters/card"
+import { Badge } from "@/components/adapters/badge"
+import { Button } from "@/components/adapters/button"
 import { Image, FileText, Clock, CheckCircle, AlertCircle, X } from 'lucide-react'
 import { toast } from 'sonner'
 

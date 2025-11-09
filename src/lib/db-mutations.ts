@@ -148,12 +148,77 @@ export async function deleteCollection(id: string): Promise<void> {
     await withTransaction(async (tx) => {
       // Delete related records first
       await tx.delete(placesToCollections).where(eq(placesToCollections.collectionId, id));
-      
+
       // Delete the collection
       const result = await tx.delete(collections).where(eq(collections.id, id));
-      
+
     });
   }, 'deleteCollection');
+}
+
+export async function updateCollectionTransportMode(
+  collectionId: string,
+  mode: 'drive' | 'walk'
+): Promise<Collection> {
+  return withErrorHandling(async () => {
+    const [updated] = await db
+      .update(collections)
+      .set({
+        transportMode: mode,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(collections.id, collectionId))
+      .returning();
+
+    if (!updated) {
+      throw new Error(`Collection with id ${collectionId} not found`);
+    }
+
+    return updated;
+  }, 'updateCollectionTransportMode');
+}
+
+export async function togglePlacePin(
+  collectionId: string,
+  placeId: string
+): Promise<void> {
+  return withErrorHandling(async () => {
+    const [current] = await db
+      .select({ isPinned: placesToCollections.isPinned })
+      .from(placesToCollections)
+      .where(and(
+        eq(placesToCollections.collectionId, collectionId),
+        eq(placesToCollections.placeId, placeId)
+      ));
+
+    if (!current) {
+      throw new Error(`Place ${placeId} not found in collection ${collectionId}`);
+    }
+
+    await db
+      .update(placesToCollections)
+      .set({ isPinned: current.isPinned ? 0 : 1 })
+      .where(and(
+        eq(placesToCollections.collectionId, collectionId),
+        eq(placesToCollections.placeId, placeId)
+      ));
+  }, 'togglePlacePin');
+}
+
+export async function updatePlaceNote(
+  collectionId: string,
+  placeId: string,
+  note: string | null
+): Promise<void> {
+  return withErrorHandling(async () => {
+    await db
+      .update(placesToCollections)
+      .set({ note })
+      .where(and(
+        eq(placesToCollections.collectionId, collectionId),
+        eq(placesToCollections.placeId, placeId)
+      ));
+  }, 'updatePlaceNote');
 }
 
 // Relationship mutations
@@ -200,11 +265,20 @@ export async function addPlaceToCollection(placeId: string, collectionId: string
 
 export async function removePlaceFromCollection(placeId: string, collectionId: string): Promise<void> {
   return withErrorHandling(async () => {
-    await db.delete(placesToCollections)
+    console.log('[removePlaceFromCollection] Deleting placeId:', placeId, 'from collectionId:', collectionId);
+
+    const result = await db.delete(placesToCollections)
       .where(and(
         eq(placesToCollections.placeId, placeId),
         eq(placesToCollections.collectionId, collectionId)
-      ));
+      ))
+      .returning();
+
+    console.log('[removePlaceFromCollection] Rows deleted:', result.length);
+
+    if (result.length === 0) {
+      console.warn('[removePlaceFromCollection] WARNING: No rows were deleted! Place may not be in collection.');
+    }
   }, 'removePlaceFromCollection');
 }
 
@@ -222,6 +296,81 @@ export async function reorderPlacesInCollection(collectionId: string, placeIds: 
       }
     });
   }, 'reorderPlacesInCollection');
+}
+
+export async function saveDayBuckets(
+  collectionId: string,
+  dayBuckets: any[]
+): Promise<void> {
+  return withErrorHandling(async () => {
+    const { DayBucketSchema } = await import('@/types/database');
+
+    DayBucketSchema.array().parse(dayBuckets);
+
+    console.log('[saveDayBuckets] Saving to collection:', collectionId);
+    console.log('[saveDayBuckets] Day buckets count:', dayBuckets.length);
+    console.log('[saveDayBuckets] Day buckets data:', JSON.stringify(dayBuckets, null, 2));
+
+    const result = await db
+      .update(collections)
+      .set({
+        dayBuckets: dayBuckets as any,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(collections.id, collectionId))
+      .returning();
+
+    console.log('[saveDayBuckets] Update result:', result);
+    console.log('[saveDayBuckets] Rows affected:', result.length);
+  }, 'saveDayBuckets');
+}
+
+export async function saveUnscheduledPlaces(
+  collectionId: string,
+  placeIds: string[]
+): Promise<void> {
+  return withErrorHandling(async () => {
+    console.log('[saveUnscheduledPlaces] Saving to collection:', collectionId);
+    console.log('[saveUnscheduledPlaces] Unscheduled place IDs count:', placeIds.length);
+    console.log('[saveUnscheduledPlaces] Place IDs:', placeIds);
+
+    const result = await db
+      .update(collections)
+      .set({
+        unscheduledPlaceIds: placeIds as any,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(collections.id, collectionId))
+      .returning();
+
+    console.log('[saveUnscheduledPlaces] Update result:', result);
+    console.log('[saveUnscheduledPlaces] Rows affected:', result.length);
+  }, 'saveUnscheduledPlaces');
+}
+
+export async function updateDayNote(
+  collectionId: string,
+  dayId: string,
+  note: string
+): Promise<void> {
+  return withErrorHandling(async () => {
+    const collection = await db
+      .select({ dayBuckets: collections.dayBuckets })
+      .from(collections)
+      .where(eq(collections.id, collectionId))
+      .limit(1);
+
+    if (!collection[0]) {
+      throw new Error(`Collection ${collectionId} not found`);
+    }
+
+    const dayBuckets = collection[0].dayBuckets as any[];
+    const updatedBuckets = dayBuckets.map(bucket =>
+      bucket.id === dayId ? { ...bucket, dayNote: note } : bucket
+    );
+
+    await saveDayBuckets(collectionId, updatedBuckets);
+  }, 'updateDayNote');
 }
 
 // Batch operations

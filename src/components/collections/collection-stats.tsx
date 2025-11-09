@@ -1,7 +1,7 @@
 'use client';
 
 import { MapPin, Navigation, DollarSign, Star } from 'lucide-react';
-import { Card } from '@/components/ui/card';
+import { Card } from "@/components/adapters/card";
 import type { Place } from '@/types/database';
 import distance from '@turf/distance';
 import { point } from '@turf/helpers';

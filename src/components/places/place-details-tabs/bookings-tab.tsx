@@ -1,9 +1,9 @@
 "use client"
 
 import { Calendar, Clock, Phone, Mail, Globe, ExternalLink } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { Card } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
+import { Badge } from "@/components/adapters/badge"
+import { Card } from "@/components/adapters/card"
+import { Separator } from "@/components/adapters/separator"
 import type { PlaceWithRelations } from "@/types/database"
 
 interface BookingsTabProps {

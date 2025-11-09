@@ -22,11 +22,14 @@ export const placesToCollections = sqliteTable('places_to_collections', {
   placeId: text('place_id').notNull().references(() => places.id, { onDelete: 'cascade' }),
   collectionId: text('collection_id').notNull().references(() => collections.id, { onDelete: 'cascade' }),
   orderIndex: integer('order_index').notNull().default(0),
+  isPinned: integer('is_pinned').notNull().default(0),
+  note: text('note'),
 }, (table) => ({
   pk: primaryKey({ columns: [table.placeId, table.collectionId] }),
   placeIdx: index('places_to_collections_place_idx').on(table.placeId),
   collectionIdx: index('places_to_collections_collection_idx').on(table.collectionId),
   orderIdx: index('places_to_collections_order_idx').on(table.collectionId, table.orderIndex),
+  pinnedIdx: index('places_to_collections_pinned_idx').on(table.collectionId, table.isPinned),
 }));
 
 // Drizzle relations for type-safe queries

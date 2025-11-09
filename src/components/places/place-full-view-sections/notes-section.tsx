@@ -1,8 +1,8 @@
 "use client"
 
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/adapters/label"
+import { Textarea } from "@/components/adapters/textarea"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
 
 interface NotesSectionProps {
   formData: any

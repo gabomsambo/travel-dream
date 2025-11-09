@@ -54,9 +54,19 @@ const config = {
         },
       },
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        lg: '1rem',
+        md: 'calc(1rem - 2px)',
+        sm: 'calc(1rem - 4px)',
+        xl: '1.25rem',
+        '2xl': '1.5rem',
+      },
+      boxShadow: {
+        sm: '0 1px 2px rgba(0,0,0,.05)',
+        md: '0 6px 18px rgba(0,0,0,.08)',
+        lg: '0 12px 28px rgba(0,0,0,.12)',
+      },
+      maxWidth: {
+        container: '1400px',
       },
       keyframes: {
         'accordion-down': {

@@ -76,7 +76,6 @@ export function PlaceCard({
       {showKeyboardHints && selectable && (
         <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="bg-background/90 backdrop-blur-sm border rounded px-2 py-1 text-xs text-muted-foreground shadow-sm">
-            <div>c - confirm</div>
             <div>x - archive</div>
             <div>e - edit</div>
           </div>
@@ -268,22 +267,11 @@ export function PlaceCard({
             className="flex-1"
             onClick={(e) => {
               e.stopPropagation()
-              onConfirm?.(place.id)
-            }}
-          >
-            <Check className="mr-1 h-3 w-3" />
-            Confirm
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={(e) => {
-              e.stopPropagation()
               onEdit?.(place.id)
             }}
           >
             <Edit className="mr-1 h-3 w-3" />
-            Edit
+            Continue to Edit
           </Button>
           <Button
             size="sm"

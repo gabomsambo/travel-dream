@@ -14,22 +14,22 @@ import { PLACE_KINDS } from '@/types/database';
 const ExtractedPlaceZodSchema = z.object({
   name: z.string().min(1).max(200),
   location: z.object({
-    city: z.string().max(100).optional(),
-    state: z.string().max(100).optional(),
-    country: z.string().max(100).optional(),
-    address: z.string().max(500).optional()
+    city: z.string().max(100).nullable().default(null),
+    state: z.string().max(100).nullable().default(null),
+    country: z.string().max(100).nullable().default(null),
+    address: z.string().max(500).nullable().default(null)
   }),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(1000).nullable().default(null),
   kind: z.enum(PLACE_KINDS as any),
   confidence: z.number().min(0).max(1),
   metadata: z.object({
-    price_level: z.string().max(50).optional(),
-    best_time: z.string().max(100).optional(),
-    activities: z.array(z.string().max(100)).max(20).optional(),
-    cuisine: z.array(z.string().max(50)).max(10).optional(),
-    amenities: z.array(z.string().max(100)).max(20).optional(),
-    tags: z.array(z.string().max(50)).max(20).optional(),
-    vibes: z.array(z.string().max(50)).max(15).optional()
+    price_level: z.string().max(50).nullable().default(null),
+    best_time: z.string().max(100).nullable().default(null),
+    activities: z.array(z.string().max(100)).max(20).nullable().default(null),
+    cuisine: z.array(z.string().max(50)).max(10).nullable().default(null),
+    amenities: z.array(z.string().max(100)).max(20).nullable().default(null),
+    tags: z.array(z.string().max(50)).max(20).nullable().default(null),
+    vibes: z.array(z.string().max(50)).max(15).nullable().default(null)
   })
 });
 
@@ -39,7 +39,7 @@ const ExtractedPlacesArrayZodSchema = z.object({
 
 // Default configuration for Anthropic provider
 const DEFAULT_ANTHROPIC_CONFIG: Partial<LLMProviderConfig> = {
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   maxTokens: 4000,
   temperature: 0.1, // Low temperature for consistent extraction
   timeout: 30000,
@@ -67,15 +67,28 @@ For each place, extract ALL these fields (use null only if genuinely unavailable
    - country: Full country name or ISO code
    - address: Full street address if visible in text
 
-3. DESCRIPTION (CRITICAL - never leave null):
+3. DESCRIPTION:
    - Write 2-4 sentences capturing:
      * What makes this place special or interesting
      * The vibe or atmosphere mentioned
      * Why someone would want to visit
-   - Synthesize from ALL available context, not just explicit descriptions
+   - Synthesize from available context; leave null if no meaningful context exists
    - Example: "Historic modernist park with mosaic-covered structures designed by Gaudí. Known for panoramic city views and whimsical architecture. Popular sunset spot with artistic vibes and tourist crowds."
 
-4. PRACTICAL METADATA:
+4. MULTI-PLACE HANDLING:
+   - Comma-separated lists (e.g., "Chile: place1, place2, place3") → extract each as separate place
+   - Bullet/numbered lists → each line typically represents a separate place
+   - Nested places (e.g., "Dubrovnik" + "Old Town" + hotels) → extract all with appropriate kind granularity
+   - Itinerary duration markers (e.g., "3 nights", "2 days") → ignore, these are NOT place attributes
+
+5. SIGNAL PRIORITIZATION (when text contains mixed content):
+   - Proper place names (geographic entities, capitalized locations) > taglines > user commentary
+   - Activity verbs embedded in text (e.g., "Hike Volcán Acatenango") → extract place name only, move verb to activities array
+   - User logistics notes (e.g., "far apart", "hard to reach") → ignore these, NOT place attributes
+   - Price commentary (e.g., "quite $$$$", "expensive") → extract to price_level field if clear
+   - Promotional language (e.g., "one of the best cities") → may inform vibes/tags, NOT literal description
+
+6. PRACTICAL METADATA:
    - price_level:
      * "$" = budget/cheap eats (under $15/person)
      * "$$" = moderate dining ($15-40/person)
@@ -89,19 +102,19 @@ For each place, extract ALL these fields (use null only if genuinely unavailable
    - amenities: Practical facilities/requirements
      * Examples: ["reservations recommended", "rooftop seating", "wifi available", "cash only", "wheelchair accessible", "outdoor terrace"]
 
-5. CATEGORIZATION:
+7. CATEGORIZATION:
    - tags: Functional categories (e.g., ["architecture", "views", "photography", "UNESCO site", "touristy"])
    - vibes: Atmosphere descriptors (e.g., ["sunset", "artistic", "romantic", "budget-friendly", "instagrammable", "local favorite", "crowded"])
 
-6. CONFIDENCE SCORING:
-   - 0.9-1.0: Complete info with name, location, rich description, and context
-   - 0.7-0.8: Good core data, clear place identity, some metadata present
+8. CONFIDENCE SCORING:
+   - 0.9-1.0: Complete info with name, location, description, and rich metadata
+   - 0.7-0.8: Clear place name and location, even if metadata is sparse
    - 0.5-0.6: Basic place identified but limited details or vague location
    - 0.3-0.4: Mentioned but very limited information
    - 0.1-0.2: Uncertain or potentially misidentified
 
 CRITICAL EXTRACTION RULES:
-✅ ALWAYS write a description by synthesizing available context
+✅ Write a description from available context; prefer null over speculation
 ✅ Extract activities even from implicit mentions (e.g., "great for sunset" → ["sunset viewing"])
 ✅ Infer price_level from context clues ("budget", "cheap eats", "upscale", "fine dining")
 ✅ Use tags for objective categories, vibes for subjective atmosphere
@@ -167,7 +180,7 @@ class CircuitBreaker {
 
 export class AnthropicProvider extends BaseLLMProvider {
   private client: Anthropic;
-  private promptVersion = '2.0.0';
+  private promptVersion = '2.2.0';
   private circuitBreaker: CircuitBreaker;
 
   constructor(config: LLMProviderConfig) {
@@ -308,7 +321,7 @@ export class AnthropicProvider extends BaseLLMProvider {
         }
 
         // Validate and return tool input
-        const validated = ExtractedPlacesArrayZodSchema.parse({ places: toolUse.input });
+        const validated = ExtractedPlacesArrayZodSchema.parse(toolUse.input);
         return validated;
 
       } catch (error) {
@@ -372,12 +385,12 @@ export class AnthropicProvider extends BaseLLMProvider {
   // Enhanced cost calculation using actual token usage
   getCost(inputTokens: number, outputTokens: number): number {
     const costs = {
-      'claude-3-5-sonnet-20241022': { input: 0.003, output: 0.015 },
+      'claude-sonnet-4-20250514': { input: 0.003, output: 0.015 },
       'claude-3-5-haiku-20241022': { input: 0.00025, output: 0.00125 },
       'claude-3-opus-20240229': { input: 0.015, output: 0.075 }
     };
 
-    const modelCosts = costs[this.config.model as keyof typeof costs] || costs['claude-3-5-sonnet-20241022'];
+    const modelCosts = costs[this.config.model as keyof typeof costs] || costs['claude-sonnet-4-20250514'];
     return ((inputTokens / 1000) * modelCosts.input) + ((outputTokens / 1000) * modelCosts.output);
   }
 
@@ -487,7 +500,7 @@ export class AnthropicProvider extends BaseLLMProvider {
     }
 
     const supportedModels = [
-      'claude-3-5-sonnet-20241022',
+      'claude-sonnet-4-20250514',
       'claude-3-5-haiku-20241022',
       'claude-3-opus-20240229'
     ];

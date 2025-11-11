@@ -60,7 +60,7 @@ const DEFAULT_CONFIG: LLMExtractionConfig = {
     },
     anthropic: {
       apiKey: process.env.ANTHROPIC_API_KEY || '',
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-sonnet-4-20250514',
       maxTokens: 4000,
       temperature: 0.1,
       timeout: 30000,

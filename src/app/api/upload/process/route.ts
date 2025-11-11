@@ -118,8 +118,28 @@ export async function POST(request: NextRequest) {
             throw new Error(validation.error || 'Invalid image buffer');
           }
 
-          // Process with server OCR service
-          const ocrResult = await ocrServiceServer.processImageBuffer(fileBuffer, sourceRecord.id);
+          // Process with Gemini Vision or Tesseract OCR based on feature flag
+          let ocrResult;
+          const useGemini = process.env.GEMINI_VISION_ENABLED === 'true';
+
+          if (useGemini) {
+            try {
+              const { geminiVisionService } = await import('@/lib/gemini-vision-service');
+              ocrResult = await geminiVisionService.extractTextFromImage(fileBuffer, sourceRecord.id);
+              console.log(`[Upload] Used Gemini vision for ${sourceRecord.id}`);
+            } catch (geminiError) {
+              console.error(`[Upload] Gemini failed for ${sourceRecord.id}:`, geminiError);
+
+              if (process.env.GEMINI_FALLBACK_TO_TESSERACT === 'true') {
+                console.log(`[Upload] Falling back to Tesseract for ${sourceRecord.id}`);
+                ocrResult = await ocrServiceServer.processImageBuffer(fileBuffer, sourceRecord.id);
+              } else {
+                throw geminiError;
+              }
+            }
+          } else {
+            ocrResult = await ocrServiceServer.processImageBuffer(fileBuffer, sourceRecord.id);
+          }
 
           console.log(`[OCR Process] OCR completed for ${sourceRecord.id}, extracted ${ocrResult.text.length} chars`);
 

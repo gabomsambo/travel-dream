@@ -187,16 +187,10 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
           e.preventDefault()
           setCurrentIndex(prev => Math.max(prev - 1, 0))
           break
-        case 'c':
+        case 'e':
           e.preventDefault()
           if (filteredPlaces[currentIndex]) {
-            handleConfirmPlace(filteredPlaces[currentIndex].id)
-          }
-          break
-        case 'C':
-          e.preventDefault()
-          if (bulkSelection.selectedCount > 0) {
-            confirmPlaces(bulkSelection.selectedIds)
+            handleEditPlace(filteredPlaces[currentIndex].id)
           }
           break
         case 'x':
@@ -232,7 +226,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [currentIndex, filteredPlaces, bulkSelection, handleConfirmPlace, handleArchivePlace, confirmPlaces, archivePlaces])
+  }, [currentIndex, filteredPlaces, bulkSelection, handleEditPlace, handleArchivePlace, archivePlaces])
 
   // Auto-scroll to current item
   useEffect(() => {

@@ -54,6 +54,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
   })
   const [currentStep, setCurrentStep] = useState<'upload' | 'processing' | 'complete'>('upload')
   const [isProcessingOCR, setIsProcessingOCR] = useState(false)
+  const [hasStartedProcessing, setHasStartedProcessing] = useState(false)
   const [error, setError] = useState<string>('')
 
   // Initialize session when dialog opens
@@ -134,8 +135,11 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
 
       setUploadStats(newStats)
 
-      // Auto-transition steps
-      if (newStats.uploadedFiles > 0 && newStats.ocrPending === 0 && !isProcessingOCR) {
+      // Auto-transition steps - only if we actually started processing
+      if (newStats.uploadedFiles > 0 &&
+          newStats.ocrPending === 0 &&
+          hasStartedProcessing &&
+          !isProcessingOCR) {
         setCurrentStep('complete')
       }
     } catch (err) {
@@ -144,44 +148,65 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
   }
 
   const handleUploadComplete = async (results: any[]) => {
-    if (results.length === 0) return
+    console.log('[UploadDialog] handleUploadComplete called with', results.length, 'results')
+    console.log('[UploadDialog] Full results object:', results)
+
+    if (results.length === 0) {
+      console.warn('[UploadDialog] No results to process, returning early')
+      return
+    }
 
     setCurrentStep('processing')
     setIsProcessingOCR(true)
+    setHasStartedProcessing(true)
 
     try {
       // Extract source IDs from react-uploady upload results
       const sourceIds: string[] = []
 
       for (const result of results) {
+        console.log('[UploadDialog] Processing result:', {
+          state: result.state,
+          hasUploadResponse: !!result.uploadResponse,
+          uploadResponse: result.uploadResponse
+        })
+
         if (result.state === 'finished' && result.uploadResponse) {
           try {
             // Handle both string and object responses
             let response = result.uploadResponse.data
             if (typeof response === 'string') {
+              console.log('[UploadDialog] Parsing string response')
               response = JSON.parse(response)
             }
 
+            console.log('[UploadDialog] Parsed response:', response)
+
             if (response.status === 'success' && response.results) {
-              response.results
-                .filter((r: any) => r.success)
-                .forEach((r: any) => {
-                  if (r.sourceId) {
-                    sourceIds.push(r.sourceId)
-                  }
-                })
+              const successfulResults = response.results.filter((r: any) => r.success)
+              console.log('[UploadDialog] Found', successfulResults.length, 'successful uploads')
+
+              successfulResults.forEach((r: any) => {
+                if (r.sourceId) {
+                  console.log('[UploadDialog] Adding sourceId:', r.sourceId)
+                  sourceIds.push(r.sourceId)
+                }
+              })
             }
           } catch (parseError) {
-            console.warn('Failed to parse upload response:', parseError, result.uploadResponse)
+            console.error('[UploadDialog] Failed to parse upload response:', parseError, result.uploadResponse)
           }
         }
       }
+
+      console.log('[UploadDialog] Extracted sourceIds:', sourceIds)
 
       if (sourceIds.length === 0) {
         throw new Error('No successful uploads to process')
       }
 
       // Start OCR processing
+      console.log('[UploadDialog] Calling /api/upload/process with', sourceIds.length, 'sources')
       const response = await fetch('/api/upload/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -191,12 +216,14 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
         })
       })
 
+      console.log('[UploadDialog] OCR process response status:', response.status, response.statusText)
+
       if (!response.ok) {
         throw new Error('Failed to start OCR processing')
       }
 
       const ocrResults = await response.json()
-      console.log('OCR processing completed:', ocrResults)
+      console.log('[UploadDialog] OCR processing completed:', ocrResults)
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'OCR processing failed')
@@ -223,6 +250,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
     })
     setCurrentStep('upload')
     setIsProcessingOCR(false)
+    setHasStartedProcessing(false)
     setError('')
 
     onOpenChange(false)

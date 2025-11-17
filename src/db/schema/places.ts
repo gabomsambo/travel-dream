@@ -16,7 +16,7 @@ export const places = sqliteTable('places', {
   
   // Location information
   city: text('city'),
-  country: text('country'), // ISO-3166 code (e.g., 'ES', 'US')
+  country: text('country'), // Country name (e.g., 'Spain', 'United States')
   admin: text('admin'),     // State/region/province
   
   // Coordinates as JSON object { lat: number, lon: number }

@@ -1,8 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { Check, X, Archive, Filter, Keyboard, ChevronDown } from "lucide-react"
+import { Check, X, Archive, Filter, Keyboard, ChevronDown, Download, FileText, FileSpreadsheet, Loader2 } from "lucide-react"
 import { Button } from "@/components/adapters/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/adapters/dropdown-menu"
 import { Badge } from "@/components/adapters/badge"
 import {
   Select,
@@ -31,8 +37,10 @@ export interface InboxToolbarProps {
   // Actions
   onConfirmSelected?: () => void
   onArchiveSelected?: () => void
+  onExportSelected?: (format: 'csv' | 'xlsx') => void
   onSelectAll?: () => void
   onSelectNone?: () => void
+  isExporting?: boolean
 
   // Filters
   confidenceFilter: ConfidenceFilter
@@ -71,8 +79,10 @@ export function InboxToolbar({
   isSomeSelected = false,
   onConfirmSelected,
   onArchiveSelected,
+  onExportSelected,
   onSelectAll,
   onSelectNone,
+  isExporting = false,
   confidenceFilter,
   onConfidenceFilterChange,
   onSelectHighConfidence,
@@ -166,6 +176,34 @@ export function InboxToolbar({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled || loading || isExporting}
+                  className="h-8"
+                >
+                  {isExporting ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <Download className="mr-1 h-3 w-3" />
+                  )}
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onExportSelected?.('csv')}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export as CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onExportSelected?.('xlsx')}>
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Export as Excel
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
       </div>

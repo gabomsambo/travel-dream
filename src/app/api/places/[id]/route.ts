@@ -21,22 +21,12 @@ const emailOrEmpty = z.preprocess(
   z.string().max(200).nullable().optional()
 );
 
-const countryCode = z.preprocess(
-  (val) => {
-    if (val === '' || val === null || val === undefined) return null;
-    if (typeof val === 'string' && val.length === 2) return val;
-    if (typeof val === 'string' && val.length < 2) return val;
-    return null;
-  },
-  z.string().max(2).nullable().optional()
-);
-
 const PlaceUpdateSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   kind: z.enum(PLACE_KINDS).optional(),
   description: emptyStringToNull(1000),
   city: emptyStringToNull(100),
-  country: countryCode,
+  country: emptyStringToNull(100),
   admin: emptyStringToNull(100),
   address: emptyStringToNull(500),
   tags: z.array(z.string()).optional(),

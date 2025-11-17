@@ -117,17 +117,23 @@ function ScreenshotUploaderInner({
     setUploadedFiles(new Map())
   }
 
+  // Refs defined at parent scope to persist across re-renders
+  const batchSizeRef = useRef<number>(0)
+  const completedItemsRef = useRef<any[]>([])
+
   // Component that uses Uploady hooks (must be inside Uploady provider)
   function UploadyHooks() {
-    const completedItemsRef = useRef<any[]>([])
 
     // React-Uploady event listeners
     useBatchStartListener((batch) => {
-      console.log(`Starting upload batch with ${batch.items.length} files`)
+      console.log(`[ScreenshotUploader] Starting upload batch with ${batch.items.length} files`)
       completedItemsRef.current = [] // Reset completed items for new batch
+      batchSizeRef.current = batch.items.length // Track batch size
+      console.log('[ScreenshotUploader] Batch size set to:', batchSizeRef.current)
 
       // Add files to our state when batch starts
-      batch.items.forEach((item) => {
+      batch.items.forEach((item, index) => {
+        console.log(`[ScreenshotUploader] Batch item ${index + 1}:`, item.file?.name)
         if (item.file) {
           const previewUrl = URL.createObjectURL(item.file as unknown as Blob)
           setUploadedFiles(prev => new Map(prev.set(item.file.name, {
@@ -157,6 +163,12 @@ function ScreenshotUploaderInner({
     })
 
     useItemFinishListener((item) => {
+      console.log('[ScreenshotUploader] Item finished:', {
+        fileName: item.file?.name,
+        state: item.state,
+        id: item.id
+      })
+
       setUploadedFiles(prev => {
         const newMap = new Map(prev)
         const existing = newMap.get(item.file?.name || item.id)
@@ -172,10 +184,16 @@ function ScreenshotUploaderInner({
 
       // Collect completed items
       completedItemsRef.current.push(item)
+      console.log(`[ScreenshotUploader] Completed items collected: ${completedItemsRef.current.length}`)
+      console.log(`[ScreenshotUploader] Batch size target: ${batchSizeRef.current}`)
 
-      // Trigger completion callback with all completed items so far
-      if (item.state === 'finished') {
+      // Only trigger completion callback when ALL items in batch have finished
+      if (completedItemsRef.current.length === batchSizeRef.current) {
+        console.log(`[ScreenshotUploader] ✓ All ${batchSizeRef.current} uploads completed, triggering OCR processing`)
+        console.log('[ScreenshotUploader] Calling onUploadComplete with items:', completedItemsRef.current)
         onUploadComplete?.(completedItemsRef.current)
+      } else {
+        console.log(`[ScreenshotUploader] Upload progress: ${completedItemsRef.current.length}/${batchSizeRef.current} completed (waiting for more...)`)
       }
     })
 

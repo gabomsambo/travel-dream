@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as OCRProcessRequest;
     const { sourceIds, sessionId } = body;
 
+    console.log(`[OCR Process] Received request for ${sourceIds?.length || 0} sources:`, sourceIds);
+
     if (!sourceIds || sourceIds.length === 0) {
       return NextResponse.json(
         {
@@ -53,8 +55,15 @@ export async function POST(request: NextRequest) {
       })
     );
 
+    console.log(`[OCR Process] Fetched ${sourceRecords.length} source records (${sourceRecords.filter(r => r !== null).length} valid)`);
+    console.log(`[OCR Process] Source IDs to process:`, sourceRecords.filter(r => r !== null).map(r => r!.id));
+
     // Process OCR for each source
+    let processedCount = 0;
     for (const sourceRecord of sourceRecords) {
+      processedCount++;
+      console.log(`[OCR Process] Processing source ${processedCount}/${sourceRecords.length}: ${sourceRecord?.id || 'null'}`);
+
       if (!sourceRecord) {
         results.push({
           sourceId: 'unknown',
@@ -185,22 +194,34 @@ export async function POST(request: NextRequest) {
             const host = request.headers.get('host') || 'localhost:3000';
             const baseUrl = `${protocol}://${host}`;
 
-            // Non-blocking async trigger - don't await
-            fetch(`${baseUrl}/api/llm-process`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                sourceIds: [sourceRecord.id],
-                provider: process.env.LLM_PROVIDER || 'openai',
-                context: {
-                  sourceType: 'screenshot',
-                  triggeredBy: 'auto-ocr-completion'
-                }
-              })
-            }).catch(err => {
-              // Non-blocking: log but don't fail OCR success
-              console.warn(`[OCR Process] LLM trigger failed for ${sourceRecord.id}:`, err);
-            });
+            // Sequential processing - await LLM completion before continuing
+            try {
+              const llmResponse = await fetch(`${baseUrl}/api/llm-process`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sourceIds: [sourceRecord.id],
+                  provider: process.env.LLM_PROVIDER || 'openai',
+                  context: {
+                    sourceType: 'screenshot',
+                    triggeredBy: 'auto-ocr-completion'
+                  }
+                })
+              });
+
+              if (llmResponse.ok) {
+                const llmResult = await llmResponse.json();
+                console.log(`[OCR Process] LLM processing completed for ${sourceRecord.id}:`, {
+                  placesExtracted: llmResult.summary?.totalPlaces || 0,
+                  successful: llmResult.summary?.successful || 0,
+                  failed: llmResult.summary?.failed || 0
+                });
+              } else {
+                console.warn(`[OCR Process] LLM request failed for ${sourceRecord.id}: ${llmResponse.status} ${llmResponse.statusText}`);
+              }
+            } catch (err) {
+              console.error(`[OCR Process] LLM processing error for ${sourceRecord.id}:`, err);
+            }
           } else {
             console.log(`[OCR Process] Skipping LLM - text too short (${ocrResult.text?.length || 0} chars)`);
           }

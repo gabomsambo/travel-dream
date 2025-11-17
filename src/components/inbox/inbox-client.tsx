@@ -8,6 +8,7 @@ import { useConfidenceSelection } from "@/hooks/use-bulk-selection"
 import { Badge } from "@/components/adapters/badge"
 import { toast } from "sonner"
 import type { Place } from "@/types/database"
+import type { ExportFormat } from "@/types/export"
 
 interface InboxClientProps {
   initialPlaces: Place[]
@@ -61,6 +62,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showKeyboardHints, setShowKeyboardHints] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   // Filter places based on confidence filter
   const filteredPlaces = useMemo(() => {
@@ -148,6 +150,47 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
       setIsLoading(false)
     }
   }, [bulkSelection])
+
+  const exportPlaces = useCallback(async (format: ExportFormat) => {
+    if (bulkSelection.selectedIds.length === 0) {
+      toast.error('No places selected for export')
+      return
+    }
+
+    setIsExporting(true)
+    try {
+      const response = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: { type: 'selected', placeIds: bulkSelection.selectedIds },
+          format,
+          preset: 'standard'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Export failed')
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `inbox_export.${format}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+
+      toast.success(`Exported ${bulkSelection.selectedIds.length} places as ${format.toUpperCase()}`)
+    } catch (error) {
+      console.error('Export error:', error)
+      toast.error('Export failed. Please try again.')
+    } finally {
+      setIsExporting(false)
+    }
+  }, [bulkSelection.selectedIds])
 
   // Individual place actions
   const handleConfirmPlace = useCallback((placeId: string) => {
@@ -304,8 +347,10 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
         isSomeSelected={bulkSelection.isSomeSelected}
         onConfirmSelected={() => confirmPlaces(bulkSelection.selectedIds)}
         onArchiveSelected={() => archivePlaces(bulkSelection.selectedIds)}
+        onExportSelected={exportPlaces}
         onSelectAll={bulkSelection.selectAll}
         onSelectNone={bulkSelection.selectNone}
+        isExporting={isExporting}
         confidenceFilter={confidenceFilter}
         onConfidenceFilterChange={setConfidenceFilter}
         onSelectHighConfidence={bulkSelection.selectHighConfidence}

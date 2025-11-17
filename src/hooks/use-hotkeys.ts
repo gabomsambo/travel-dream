@@ -100,6 +100,14 @@ export function useNavigationHotkeys(openCommandPalette?: () => void) {
       category: 'Navigation'
     },
     {
+      key: 'a',
+      cmd: true,
+      shift: true,
+      action: () => router?.push('/archive'),
+      description: 'Go to Archive',
+      category: 'Navigation'
+    },
+    {
       key: 'c',
       cmd: true,
       action: () => router?.push('/collections'),

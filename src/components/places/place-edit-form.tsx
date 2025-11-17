@@ -143,8 +143,7 @@ export function PlaceEditForm({
               id="country"
               value={formData.country}
               onChange={(e) => setFormData(prev => ({ ...prev, country: e.target.value }))}
-              placeholder="Country code (e.g., US)"
-              maxLength={2}
+              placeholder="Country name (e.g., United States)"
             />
           </div>
         </div>

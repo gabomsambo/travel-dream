@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
-import { Library } from 'lucide-react'
+import { Library, FileText, FileSpreadsheet, Download, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { PlaceGrid } from "@/components/places/place-grid"
 import { PlaceDetailsDialogEnhanced } from "@/components/places/place-details-dialog-enhanced"
 import { PlaceCardV2 } from "@/components/library-v2/place-card-v2"
@@ -14,11 +15,21 @@ import { LibrarySortControls } from "./library-sort-controls"
 import { ActiveFilterChips } from "./active-filter-chips"
 import { PlaceListView } from "./place-list-view"
 import { PlaceMapView } from "./place-map-view"
+import { LibrarySearchBar } from "./library-search-bar"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { UserPreferences, DEFAULT_PREFERENCES } from "@/types/user-preferences"
 import type { PlaceWithCover } from "@/lib/library-adapters"
 import type { Place } from "@/types/database"
+import { initializeSearchIndex, fuzzySearch } from "@/lib/search-service"
+import type { ExportFormat } from "@/types/export"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/adapters/dropdown-menu"
+import { Button } from "@/components/adapters/button"
 
 interface LibraryClientProps {
   initialPlaces: PlaceWithCover[]
@@ -60,9 +71,15 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   )
   const [sort, setSort] = useState(searchParams.get('sort') || 'date-newest')
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
 
   // Debounce search for URL updates
   const debouncedSearch = useDebounce(search, 300)
+
+  // Initialize search index when places change
+  useEffect(() => {
+    initializeSearchIndex(initialPlaces)
+  }, [initialPlaces])
 
   // Update URL when filters change
   useEffect(() => {
@@ -146,13 +163,11 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   const filteredPlaces = useMemo(() => {
     let result = initialPlaces
 
-    // Text search in name and notes
+    // Enhanced fuzzy text search across multiple fields
     if (search) {
-      const query = search.toLowerCase()
-      result = result.filter(place =>
-        place.name.toLowerCase().includes(query) ||
-        place.notes?.toLowerCase().includes(query)
-      )
+      const searchResults = fuzzySearch(search)
+      const searchPlaceIds = new Set(searchResults.map(r => r.place.id))
+      result = result.filter(place => searchPlaceIds.has(place.id))
     }
 
     // Kind filter
@@ -370,29 +385,94 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     if ('hasPhotosOnly' in updates) setHasPhotosOnly(updates.hasPhotosOnly!)
   }, [])
 
-  return (
-    <div className="flex gap-6">
-      {/* Desktop Filters Sidebar */}
-      <aside className="hidden lg:block shrink-0">
-        <PlaceFiltersSidebar
-          filters={{
-            kinds: selectedKinds,
-            vibes: selectedVibes,
-            tags: selectedTags,
-            rating,
-            visitStatus,
-            hasPhotosOnly
-          }}
-          filterOptions={filterOptions}
-          onChange={handleSidebarFilterChange}
-          onClear={clearFilters}
-        />
-      </aside>
+  const handleExport = useCallback(async (format: ExportFormat) => {
+    if (filteredPlaces.length === 0) {
+      toast.error('No places to export')
+      return
+    }
 
-      {/* Main Content */}
-      <div className="flex-1 space-y-4 min-w-0">
-        {/* Mobile Filters */}
-        <div className="lg:hidden">
+    setIsExporting(true)
+    try {
+      const filters: any = {}
+
+      if (search) filters.searchText = search
+      if (kind !== 'all') filters.kind = kind
+      if (city !== 'all') filters.city = city
+      if (country !== 'all') filters.country = country
+      if (selectedTags.size > 0) filters.tags = Array.from(selectedTags)
+      if (selectedVibes.size > 0) filters.vibes = Array.from(selectedVibes)
+      if (rating > 0) filters.minRating = rating
+      if (visitStatus.size > 0) {
+        const statusArray = Array.from(visitStatus)
+        if (statusArray.length === 1) {
+          filters.status = statusArray[0] as 'library' | 'inbox' | 'archived'
+        }
+      }
+
+      const response = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: { type: 'library', filters },
+          format,
+          preset: 'standard'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Export failed')
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `library_export.${format}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+
+      toast.success(`Exported ${filteredPlaces.length} places as ${format.toUpperCase()}`)
+    } catch (error) {
+      console.error('Export error:', error)
+      toast.error('Export failed. Please try again.')
+    } finally {
+      setIsExporting(false)
+    }
+  }, [filteredPlaces, search, kind, city, country, selectedTags, selectedVibes, rating, visitStatus])
+
+  return (
+    <div className="space-y-4">
+      {/* Search Bar - Full Width Above Everything */}
+      <LibrarySearchBar
+        value={search}
+        onChange={setSearch}
+        className="mt-6"
+      />
+
+      <div className="flex gap-6">
+        {/* Desktop Filters Sidebar */}
+        <aside className="hidden lg:block shrink-0">
+          <PlaceFiltersSidebar
+            filters={{
+              kinds: selectedKinds,
+              vibes: selectedVibes,
+              tags: selectedTags,
+              rating,
+              visitStatus,
+              hasPhotosOnly
+            }}
+            filterOptions={filterOptions}
+            onChange={handleSidebarFilterChange}
+            onClear={clearFilters}
+          />
+        </aside>
+
+        {/* Main Content */}
+        <div className="flex-1 space-y-4 min-w-0">
+          {/* Mobile Filters */}
+          <div className="lg:hidden">
           <PlaceFiltersSidebar
             filters={{
               kinds: selectedKinds,
@@ -429,6 +509,36 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
             filteredCount={filteredPlaces.length}
           />
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  disabled={filteredPlaces.length === 0 || isExporting}
+                  className="w-full sm:w-auto"
+                >
+                  {isExporting ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-2" />
+                  )}
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleExport('csv')}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export as CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport('xlsx')}>
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Export as Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport('pdf')}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export as PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <LibrarySortControls
               sort={sort}
               onSortChange={setSort}
@@ -484,6 +594,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
           onOpenChange={(open) => !open && setSelectedPlace(null)}
           placeId={selectedPlace?.id || null}
         />
+        </div>
       </div>
     </div>
   )

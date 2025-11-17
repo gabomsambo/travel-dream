@@ -954,3 +954,41 @@ export async function deleteReservation(id: string) {
     return { success: true };
   }, 'deleteReservation');
 }
+
+export async function batchRestorePlaces(placeIds: string[]): Promise<number> {
+  return withErrorHandling(async () => {
+    if (placeIds.length === 0) return 0;
+
+    await db.update(places)
+      .set({
+        status: 'library',
+        updatedAt: new Date().toISOString(),
+      })
+      .where(inArray(places.id, placeIds));
+
+    return placeIds.length;
+  }, 'batchRestorePlaces');
+}
+
+export async function batchDeletePlaces(placeIds: string[]): Promise<number> {
+  return withErrorHandling(async () => {
+    if (placeIds.length === 0) return 0;
+
+    return await withTransaction(async (tx) => {
+      let count = 0;
+
+      for (const placeId of placeIds) {
+        await tx.delete(sourcesToPlaces).where(eq(sourcesToPlaces.placeId, placeId));
+        await tx.delete(placesToCollections).where(eq(placesToCollections.placeId, placeId));
+
+        const result = await tx.delete(places).where(eq(places.id, placeId));
+
+        if (result.rowsAffected && result.rowsAffected > 0) {
+          count++;
+        }
+      }
+
+      return count;
+    });
+  }, 'batchDeletePlaces');
+}

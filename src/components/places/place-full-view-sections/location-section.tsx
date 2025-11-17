@@ -39,8 +39,7 @@ export function LocationSection({ formData, updateField }: LocationSectionProps)
               id="country"
               value={formData.country || ''}
               onChange={(e) => updateField('country', e.target.value || null)}
-              placeholder="US"
-              maxLength={2}
+              placeholder="United States"
             />
           </div>
 

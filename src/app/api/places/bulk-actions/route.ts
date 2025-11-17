@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withErrorHandling } from '@/lib/db-utils';
-import { bulkConfirmPlaces, batchArchivePlaces } from '@/lib/db-mutations';
+import { bulkConfirmPlaces, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces } from '@/lib/db-mutations';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 1 minute for bulk operations
 
 const BulkActionSchema = z.object({
-  action: z.enum(['confirm', 'archive'], {
+  action: z.enum(['confirm', 'archive', 'restore', 'delete'], {
     required_error: 'Action is required',
-    invalid_type_error: 'Action must be either "confirm" or "archive"'
+    invalid_type_error: 'Action must be one of: "confirm", "archive", "restore", or "delete"'
   }),
   placeIds: z.array(z.string().min(1, 'Place ID cannot be empty'), {
     required_error: 'Place IDs are required',
@@ -18,7 +18,7 @@ const BulkActionSchema = z.object({
 });
 
 interface BulkActionRequest {
-  action: 'confirm' | 'archive';
+  action: 'confirm' | 'archive' | 'restore' | 'delete';
   placeIds: string[];
 }
 
@@ -71,6 +71,13 @@ export async function POST(request: NextRequest) {
           break;
         case 'archive':
           updatedCount = await batchArchivePlaces(uniquePlaceIds);
+          break;
+        case 'restore':
+          updatedCount = await batchRestorePlaces(uniquePlaceIds);
+          break;
+        case 'delete':
+          updatedCount = await batchDeletePlaces(uniquePlaceIds);
+          console.log(`Permanently deleted ${updatedCount} places`);
           break;
         default:
           return NextResponse.json(
@@ -125,10 +132,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (isPartialSuccess) {
+      const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : 'deleted';
       return NextResponse.json(
         {
           status: 'partial_success',
-          message: `Successfully ${action === 'confirm' ? 'confirmed' : 'archived'} ${updatedCount} of ${uniquePlaceIds.length} places`,
+          message: `Successfully ${actionVerb} ${updatedCount} of ${uniquePlaceIds.length} places`,
           result,
           timestamp: new Date().toISOString(),
         },
@@ -137,10 +145,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Full success
+    const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : 'permanently deleted';
     return NextResponse.json(
       {
         status: 'success',
-        message: `Successfully ${action === 'confirm' ? 'confirmed' : 'archived'} ${updatedCount} places`,
+        message: `Successfully ${actionVerb} ${updatedCount} places`,
         result,
         timestamp: new Date().toISOString(),
       },
@@ -186,12 +195,14 @@ export async function GET() {
         method: 'POST',
         description: 'Perform bulk operations on multiple places',
         requestBody: {
-          action: 'confirm | archive',
+          action: 'confirm | archive | restore | delete',
           placeIds: 'string[] (1-100 items)'
         },
         actions: {
           confirm: 'Move places from inbox to library',
-          archive: 'Move places to archived status'
+          archive: 'Move places to archived status',
+          restore: 'Restore archived places back to library',
+          delete: 'Permanently delete places from database'
         },
         responses: {
           200: 'Operation successful (full or partial)',
@@ -206,6 +217,14 @@ export async function GET() {
           archive: {
             action: 'archive',
             placeIds: ['place_789']
+          },
+          restore: {
+            action: 'restore',
+            placeIds: ['place_abc']
+          },
+          delete: {
+            action: 'delete',
+            placeIds: ['place_xyz']
           }
         }
       },

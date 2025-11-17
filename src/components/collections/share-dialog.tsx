@@ -9,9 +9,10 @@ import {
   DialogTitle,
 } from "@/components/adapters/dialog";
 import { Button } from "@/components/adapters/button";
-import { Download, Map, Navigation, FileText, Copy, Check } from 'lucide-react';
+import { Download, Map, Navigation, FileText, FileSpreadsheet, Copy, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Collection, Place } from '@/types/database';
+import type { ExportFormat } from '@/types/export';
 
 interface ShareDialogProps {
   collection: Collection & { places: Place[] };
@@ -22,6 +23,7 @@ interface ShareDialogProps {
 export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps) {
   const [copied, setCopied] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -40,14 +42,46 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
     }
   };
 
-  const handleExportCSV = () => {
+  const handleExport = async (format: ExportFormat) => {
     if (collection.places.length === 0) {
       toast.error('No places to export');
       return;
     }
 
-    window.location.href = `/api/collections/${collection.id}/export/csv`;
-    toast.success('Downloading CSV file');
+    setIsExporting(true);
+    try {
+      const response = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: { type: 'collection', collectionId: collection.id },
+          format,
+          preset: 'standard',
+          options: { includeCollectionMetadata: true }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${collection.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${collection.places.length} places as ${format.toUpperCase()}`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Export failed. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleExportGoogleMaps = () => {
@@ -135,11 +169,43 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
               <Button
                 variant="outline"
                 className="justify-start"
-                onClick={handleExportCSV}
-                disabled={collection.places.length === 0}
+                onClick={() => handleExport('csv')}
+                disabled={collection.places.length === 0 || isExporting}
               >
-                <FileText className="h-4 w-4 mr-2" />
-                Export as CSV
+                {isExporting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4 mr-2" />
+                )}
+                Export as CSV (Google Sheets)
+              </Button>
+
+              <Button
+                variant="outline"
+                className="justify-start"
+                onClick={() => handleExport('xlsx')}
+                disabled={collection.places.length === 0 || isExporting}
+              >
+                {isExporting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                )}
+                Export as Excel (XLSX)
+              </Button>
+
+              <Button
+                variant="outline"
+                className="justify-start"
+                onClick={() => handleExport('pdf')}
+                disabled={collection.places.length === 0 || isExporting}
+              >
+                {isExporting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4 mr-2" />
+                )}
+                Export as PDF (Printable)
               </Button>
 
               <Button

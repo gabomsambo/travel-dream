@@ -11,7 +11,7 @@ import { generatePDF } from './export-generators/pdf-generator';
 import { generateFilename, getMimeType } from './export-utils';
 
 export async function exportData(request: ExportRequest): Promise<ExportResult> {
-  let places: Place[] = [];
+  let results: Place[] = [];
   let relationMetadata: Map<string, any> | undefined;
   let collection: Collection | null = null;
   let baseName = 'export';
@@ -25,7 +25,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
         throw new Error('Collection not found');
       }
 
-      places = await getPlacesInCollection(collectionId);
+      results = await getPlacesInCollection(collectionId);
       baseName = collection.name;
 
       if (request.options?.includeCollectionMetadata) {
@@ -52,7 +52,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
 
     case 'library': {
       if (request.scope.filters) {
-        places = await searchPlaces({
+        results = await searchPlaces({
           text: request.scope.filters.searchText,
           city: request.scope.filters.city,
           country: request.scope.filters.country,
@@ -64,7 +64,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
           hasCoords: request.scope.filters.hasCoords
         });
       } else {
-        places = await getPlacesByStatus('library');
+        results = await getPlacesByStatus('library');
       }
 
       baseName = 'library';
@@ -76,10 +76,10 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
         throw new Error('No places selected for export');
       }
 
-      places = await db
+      results = await db
         .select()
-        .from(places as any)
-        .where(inArray((places as any).id, request.scope.placeIds));
+        .from(places)
+        .where(inArray(places.id, request.scope.placeIds));
 
       baseName = 'selected_places';
       break;
@@ -89,7 +89,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
       throw new Error('Invalid export scope');
   }
 
-  if (places.length === 0) {
+  if (results.length === 0) {
     throw new Error('No places found to export');
   }
 
@@ -102,7 +102,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
 
   switch (request.format) {
     case 'csv': {
-      buffer = await generateCSV(places, fieldDefs, {
+      buffer = await generateCSV(results, fieldDefs, {
         includeBOM: true,
         relationMetadata
       });
@@ -110,7 +110,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
     }
 
     case 'xlsx': {
-      buffer = await generateXLSX(places, fieldDefs, {
+      buffer = await generateXLSX(results, fieldDefs, {
         includeSummary: true,
         relationMetadata
       });
@@ -118,7 +118,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
     }
 
     case 'pdf': {
-      buffer = await generatePDF(places, fieldDefs, {
+      buffer = await generatePDF(results, fieldDefs, {
         title: collection?.name || 'Places Export',
         groupByDay: !!collection?.dayBuckets && collection.dayBuckets.length > 0,
         dayBuckets: collection?.dayBuckets || [],

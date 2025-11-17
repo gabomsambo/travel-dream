@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
-import { Library, FileText, FileSpreadsheet, Download, Loader2 } from 'lucide-react'
+import { Library, FileText, FileSpreadsheet, Download, Loader2, Trash2, Archive } from 'lucide-react'
 import { toast } from 'sonner'
 import { PlaceGrid } from "@/components/places/place-grid"
 import { PlaceDetailsDialogEnhanced } from "@/components/places/place-details-dialog-enhanced"
@@ -16,6 +16,12 @@ import { ActiveFilterChips } from "./active-filter-chips"
 import { PlaceListView } from "./place-list-view"
 import { PlaceMapView } from "./place-map-view"
 import { LibrarySearchBar } from "./library-search-bar"
+import { LibraryToolbar } from "./library-toolbar"
+import { Checkbox } from "@/components/ui/checkbox"
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog"
+import { Button } from "@/components/adapters/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { UserPreferences, DEFAULT_PREFERENCES } from "@/types/user-preferences"
@@ -29,7 +35,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/adapters/dropdown-menu"
-import { Button } from "@/components/adapters/button"
 
 interface LibraryClientProps {
   initialPlaces: PlaceWithCover[]
@@ -72,6 +77,14 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   const [sort, setSort] = useState(searchParams.get('sort') || 'date-newest')
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [isLoading, setIsLoading] = useState(false)
+  const [showKeyboardHints, setShowKeyboardHints] = useState(false)
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
 
   // Debounce search for URL updates
   const debouncedSearch = useDebounce(search, 300)
@@ -332,6 +345,207 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     setSelectedPlace(place || null)
   }, [filteredPlaces])
 
+  // Selection handlers
+  const toggleSelection = useCallback((placeId: string) => {
+    setSelectedItems(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(placeId)) {
+        newSet.delete(placeId)
+      } else {
+        newSet.add(placeId)
+      }
+      return newSet
+    })
+  }, [])
+
+  const selectAll = useCallback(() => {
+    setSelectedItems(new Set(sortedPlaces.map(p => p.id)))
+  }, [sortedPlaces])
+
+  const selectNone = useCallback(() => {
+    setSelectedItems(new Set())
+  }, [])
+
+  // Bulk action handlers
+  const archivePlaces = useCallback(async (placeIds: string[]) => {
+    setIsLoading(true)
+    setArchiveDialogOpen(false)
+
+    try {
+      const response = await fetch('/api/places/bulk-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'archive', placeIds })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || 'Failed to archive places')
+      }
+
+      const result = await response.json()
+      toast.success(`Archived ${result.result?.updatedCount || placeIds.length} place(s)`)
+
+      selectNone()
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to archive places')
+      console.error('Error archiving places:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [router, selectNone])
+
+  const deletePlaces = useCallback(async (placeIds: string[]) => {
+    setIsDeleting(true)
+
+    try {
+      const response = await fetch('/api/places/bulk-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', placeIds })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || 'Failed to delete places')
+      }
+
+      const result = await response.json()
+      toast.success(`Deleted ${result.result?.updatedCount || placeIds.length} place(s)`)
+
+      setDeleteDialogOpen(false)
+      setConfirmText('')
+      selectNone()
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete places')
+      console.error('Error deleting places:', error)
+    } finally {
+      setIsDeleting(false)
+    }
+  }, [router, selectNone])
+
+  const handleArchiveClick = useCallback(() => {
+    if (selectedItems.size === 0) {
+      toast.error('No places selected')
+      return
+    }
+    setArchiveDialogOpen(true)
+  }, [selectedItems.size])
+
+  const handleDeleteClick = useCallback(() => {
+    if (selectedItems.size === 0) {
+      toast.error('No places selected')
+      return
+    }
+    setDeleteDialogOpen(true)
+  }, [selectedItems.size])
+
+  const handleAddToCollection = useCallback(() => {
+    if (selectedItems.size === 0) {
+      toast.error('No places selected')
+      return
+    }
+    toast.info('Add to collection feature coming soon!')
+  }, [selectedItems.size])
+
+  const handleExport = useCallback(async (format: ExportFormat) => {
+    if (selectedItems.size > 0) {
+      setIsExporting(true)
+      try {
+        const response = await fetch('/api/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: {
+              type: 'selected',
+              placeIds: Array.from(selectedItems)
+            },
+            format,
+            preset: 'standard'
+          })
+        })
+
+        if (!response.ok) {
+          throw new Error('Export failed')
+        }
+
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `library_export.${format}`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+
+        toast.success(`Exported ${selectedItems.size} place(s)`)
+      } catch (error) {
+        toast.error('Failed to export places')
+        console.error('Export error:', error)
+      } finally {
+        setIsExporting(false)
+      }
+    } else {
+      if (filteredPlaces.length === 0) {
+        toast.error('No places to export')
+        return
+      }
+
+      setIsExporting(true)
+      try {
+        const filters: any = {}
+
+        if (search) filters.searchText = search
+        if (kind !== 'all') filters.kind = kind
+        if (city !== 'all') filters.city = city
+        if (country !== 'all') filters.country = country
+        if (selectedTags.size > 0) filters.tags = Array.from(selectedTags)
+        if (selectedVibes.size > 0) filters.vibes = Array.from(selectedVibes)
+        if (rating > 0) filters.minRating = rating
+        if (visitStatus.size > 0) {
+          const statusArray = Array.from(visitStatus)
+          if (statusArray.length === 1) {
+            filters.status = statusArray[0] as 'library' | 'inbox' | 'archived'
+          }
+        }
+
+        const response = await fetch('/api/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: { type: 'library', filters },
+            format,
+            preset: 'standard'
+          })
+        })
+
+        if (!response.ok) {
+          throw new Error('Export failed')
+        }
+
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `library_export.${format}`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+
+        toast.success(`Exported ${filteredPlaces.length} places as ${format.toUpperCase()}`)
+      } catch (error) {
+        console.error('Export error:', error)
+        toast.error('Export failed. Please try again.')
+      } finally {
+        setIsExporting(false)
+      }
+    }
+  }, [selectedItems, filteredPlaces, search, kind, city, country, selectedTags, selectedVibes, rating, visitStatus])
+
   // Handle view place (for list/map views which use place object)
   const handleViewPlaceObject = useCallback((place: Place) => {
     setSelectedPlace(place)
@@ -385,62 +599,6 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     if ('hasPhotosOnly' in updates) setHasPhotosOnly(updates.hasPhotosOnly!)
   }, [])
 
-  const handleExport = useCallback(async (format: ExportFormat) => {
-    if (filteredPlaces.length === 0) {
-      toast.error('No places to export')
-      return
-    }
-
-    setIsExporting(true)
-    try {
-      const filters: any = {}
-
-      if (search) filters.searchText = search
-      if (kind !== 'all') filters.kind = kind
-      if (city !== 'all') filters.city = city
-      if (country !== 'all') filters.country = country
-      if (selectedTags.size > 0) filters.tags = Array.from(selectedTags)
-      if (selectedVibes.size > 0) filters.vibes = Array.from(selectedVibes)
-      if (rating > 0) filters.minRating = rating
-      if (visitStatus.size > 0) {
-        const statusArray = Array.from(visitStatus)
-        if (statusArray.length === 1) {
-          filters.status = statusArray[0] as 'library' | 'inbox' | 'archived'
-        }
-      }
-
-      const response = await fetch('/api/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scope: { type: 'library', filters },
-          format,
-          preset: 'standard'
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error('Export failed')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `library_export.${format}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
-
-      toast.success(`Exported ${filteredPlaces.length} places as ${format.toUpperCase()}`)
-    } catch (error) {
-      console.error('Export error:', error)
-      toast.error('Export failed. Please try again.')
-    } finally {
-      setIsExporting(false)
-    }
-  }, [filteredPlaces, search, kind, city, country, selectedTags, selectedVibes, rating, visitStatus])
 
   return (
     <div className="space-y-4">
@@ -513,7 +671,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  disabled={filteredPlaces.length === 0 || isExporting}
+                  disabled={(selectedItems.size === 0 && filteredPlaces.length === 0) || isExporting}
                   className="w-full sm:w-auto"
                 >
                   {isExporting ? (
@@ -521,7 +679,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
                   ) : (
                     <Download className="h-4 w-4 mr-2" />
                   )}
-                  Export
+                  {selectedItems.size > 0 ? `Export (${selectedItems.size})` : 'Export'}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -550,16 +708,47 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
           </div>
         </div>
 
+        <LibraryToolbar
+          selectedCount={selectedItems.size}
+          totalCount={sortedPlaces.length}
+          isAllSelected={selectedItems.size === sortedPlaces.length && sortedPlaces.length > 0}
+          isSomeSelected={selectedItems.size > 0 && selectedItems.size < sortedPlaces.length}
+          onArchiveSelected={handleArchiveClick}
+          onDeleteSelected={handleDeleteClick}
+          onAddToCollectionSelected={handleAddToCollection}
+          onSelectAll={selectAll}
+          onSelectNone={selectNone}
+          showKeyboardHints={showKeyboardHints}
+          onToggleKeyboardHints={() => setShowKeyboardHints(!showKeyboardHints)}
+          disabled={isLoading}
+          loading={isLoading}
+        />
+
         {sortedPlaces.length > 0 ? (
           <>
             {view === 'grid' && (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {sortedPlaces.map((place) => (
-                  <PlaceCardV2
-                    key={place.id}
-                    place={place}
-                    onClick={() => setSelectedPlace(place)}
-                  />
+                  <div key={place.id} className="relative">
+                    <div className="absolute top-2 left-2 z-10">
+                      <Checkbox
+                        checked={selectedItems.has(place.id)}
+                        onCheckedChange={() => toggleSelection(place.id)}
+                        className="bg-white border-2 shadow-sm"
+                      />
+                    </div>
+                    <PlaceCardV2
+                      place={place}
+                      onClick={() => {
+                        if (selectedItems.size === 0) {
+                          handleViewPlace(place.id)
+                        } else {
+                          toggleSelection(place.id)
+                        }
+                      }}
+                      className={selectedItems.has(place.id) ? 'ring-2 ring-primary' : ''}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -594,6 +783,83 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
           onOpenChange={(open) => !open && setSelectedPlace(null)}
           placeId={selectedPlace?.id || null}
         />
+
+        <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Archive {selectedItems.size} Place(s)?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will move the selected places to your archive. You can restore them later if needed.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+              <Button
+                onClick={() => archivePlaces(Array.from(selectedItems))}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Archiving...
+                  </>
+                ) : (
+                  <>
+                    <Archive className="mr-2 h-4 w-4" />
+                    Archive
+                  </>
+                )}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-destructive">
+                Permanently Delete {selectedItems.size} Place(s)?
+              </AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <p className="font-semibold text-destructive">This action cannot be undone.</p>
+                <p>These places will be completely removed from the database, including all associated data.</p>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="my-4">
+              <Label htmlFor="confirm-text">Type "confirm" to proceed:</Label>
+              <Input
+                id="confirm-text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="confirm"
+                autoFocus
+                disabled={isDeleting}
+              />
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <Button
+                variant="destructive"
+                onClick={() => deletePlaces(Array.from(selectedItems))}
+                disabled={confirmText.toLowerCase() !== 'confirm' || isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Permanently
+                  </>
+                )}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         </div>
       </div>
     </div>

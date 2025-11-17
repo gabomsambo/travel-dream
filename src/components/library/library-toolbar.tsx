@@ -1,14 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { RotateCcw, Trash2, Download, FileText, FileSpreadsheet, Loader2, Keyboard } from "lucide-react"
+import { Archive, Trash2, Keyboard, FolderPlus } from "lucide-react"
 import { Button } from "@/components/adapters/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/adapters/dropdown-menu"
 import { Badge } from "@/components/adapters/badge"
 import {
   Tooltip,
@@ -18,18 +12,17 @@ import {
 } from "@/components/adapters/tooltip"
 import { cn } from "@/lib/utils"
 
-export interface ArchiveToolbarProps {
+export interface LibraryToolbarProps {
   selectedCount: number
   totalCount: number
   isAllSelected?: boolean
   isSomeSelected?: boolean
 
-  onRestoreSelected?: () => void
+  onArchiveSelected?: () => void
   onDeleteSelected?: () => void
-  onExportSelected?: (format: 'csv' | 'xlsx' | 'pdf') => void
+  onAddToCollectionSelected?: () => void
   onSelectAll?: () => void
   onSelectNone?: () => void
-  isExporting?: boolean
 
   showKeyboardHints?: boolean
   onToggleKeyboardHints?: () => void
@@ -39,23 +32,22 @@ export interface ArchiveToolbarProps {
   className?: string
 }
 
-export function ArchiveToolbar({
+export function LibraryToolbar({
   selectedCount,
   totalCount,
   isAllSelected = false,
   isSomeSelected = false,
-  onRestoreSelected,
+  onArchiveSelected,
   onDeleteSelected,
-  onExportSelected,
+  onAddToCollectionSelected,
   onSelectAll,
   onSelectNone,
-  isExporting = false,
   showKeyboardHints = false,
   onToggleKeyboardHints,
   disabled = false,
   loading = false,
   className
-}: ArchiveToolbarProps) {
+}: LibraryToolbarProps) {
   const hasSelection = selectedCount > 0
 
   return (
@@ -68,7 +60,7 @@ export function ArchiveToolbar({
             </Badge>
           ) : (
             <span className="text-sm text-muted-foreground">
-              {totalCount} {totalCount === 1 ? 'item' : 'items'} archived
+              {totalCount} {totalCount === 1 ? 'item' : 'items'}
             </span>
           )}
 
@@ -98,18 +90,18 @@ export function ArchiveToolbar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="default"
+                    variant="outline"
                     size="sm"
-                    onClick={onRestoreSelected}
+                    onClick={onArchiveSelected}
                     disabled={disabled || loading}
-                    className="h-8 bg-green-600 hover:bg-green-700 text-white"
+                    className="h-8"
                   >
-                    <RotateCcw className="mr-1 h-3 w-3" />
-                    Restore to Library ({selectedCount})
+                    <Archive className="mr-1 h-3 w-3" />
+                    Archive ({selectedCount})
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Move selected items back to library (Shortcut: R)
+                  Move selected items to archive (Shortcut: A)
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -118,53 +110,41 @@ export function ArchiveToolbar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="destructive"
+                    variant="outline"
                     size="sm"
-                    onClick={onDeleteSelected}
+                    onClick={onAddToCollectionSelected}
                     disabled={disabled || loading}
                     className="h-8"
                   >
-                    <Trash2 className="mr-1 h-3 w-3" />
-                    Permanently Delete ({selectedCount})
+                    <FolderPlus className="mr-1 h-3 w-3" />
+                    Add to Collection
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Permanently delete selected items from database (Shortcut: D)
+                  Add selected items to a collection
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={disabled || loading || isExporting}
-                  className="h-8"
-                >
-                  {isExporting ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Download className="mr-1 h-3 w-3" />
-                  )}
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onExportSelected?.('csv')}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Export as CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onExportSelected?.('xlsx')}>
-                  <FileSpreadsheet className="h-4 w-4 mr-2" />
-                  Export as Excel
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onExportSelected?.('pdf')}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Export as PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onDeleteSelected}
+                    disabled={disabled || loading}
+                    className="h-8 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="mr-1 h-3 w-3" />
+                    Delete
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Delete selected items (Shortcut: D)
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         )}
       </div>
@@ -190,13 +170,10 @@ export function ArchiveToolbar({
                 <div className="font-medium">Keyboard Shortcuts</div>
                 <div className="text-xs space-y-0.5">
                   <div>j/k - Navigate up/down</div>
-                  <div>r - Restore current item</div>
-                  <div>R - Restore all selected</div>
-                  <div>d - Delete current item</div>
-                  <div>D - Delete all selected</div>
+                  <div>a - Archive selected</div>
+                  <div>d - Delete selected</div>
                   <div>Space - Toggle selection</div>
                   <div>Cmd/Ctrl+A - Select all</div>
-                  <div>Cmd+Shift+A - Go to archive</div>
                 </div>
               </div>
             </TooltipContent>
@@ -207,4 +184,4 @@ export function ArchiveToolbar({
   )
 }
 
-export default ArchiveToolbar
+export default LibraryToolbar

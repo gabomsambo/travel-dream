@@ -371,8 +371,12 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          scope: {
+            type: 'selected',
+            placeIds: Array.from(selectedItems)
+          },
           format,
-          placeIds: Array.from(selectedItems)
+          preset: 'standard'
         })
       })
 
@@ -384,7 +388,7 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `archive-export.${format}`
+      a.download = `archive_export.${format}`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -530,7 +534,7 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
                       </div>
                       <PlaceCardV2
                         place={place}
-                        onClick={() => setSelectedPlace(place)}
+                        onClick={() => toggleSelection(place.id)}
                         className={selectedItems.has(place.id) ? 'ring-2 ring-primary' : ''}
                       />
                     </div>

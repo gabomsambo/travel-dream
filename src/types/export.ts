@@ -3,7 +3,18 @@ import type { Place } from './database';
 
 export type ExportFormat = 'csv' | 'xlsx' | 'pdf';
 
-export type FieldPreset = 'minimal' | 'standard' | 'complete';
+export type FieldPreset = 'minimal' | 'standard' | 'complete' | 'custom';
+
+export type FieldCategory =
+  | 'essentials'
+  | 'location'
+  | 'contact'
+  | 'categorization'
+  | 'visit_tracking'
+  | 'social'
+  | 'llm_metadata'
+  | 'user_notes'
+  | 'system_meta';
 
 export interface LibraryFilters {
   status?: 'library' | 'inbox' | 'archived';
@@ -67,6 +78,7 @@ export interface ExportErrorResponse {
 export interface FieldDefinition {
   dbField: string;
   csvHeader: string;
+  category: FieldCategory;
   transform?: (value: any, place: Place, relationMetadata?: any) => string;
   includeInPreset: FieldPreset[];
 }
@@ -75,4 +87,46 @@ export interface ExportResult {
   buffer: Buffer | string;
   mimeType: string;
   filename: string;
+}
+
+export interface ExportTemplate {
+  id: string;
+  name: string;
+  scope: ExportScope;
+  format: ExportFormat;
+  preset: FieldPreset;
+  customFields?: string[];
+  options?: {
+    includeCollectionMetadata?: boolean;
+    csvOptimizedFor?: 'sheets' | 'excel' | 'notion' | 'airtable';
+    xlsxIncludeSummary?: boolean;
+    xlsxSeparateSheetsByCity?: boolean;
+    pdfLayout?: 'table' | 'itinerary' | 'detailed';
+    pdfPageSize?: 'a4' | 'letter';
+  };
+  createdAt: string;
+}
+
+export interface ExportHistoryEntry {
+  id: string;
+  filename: string;
+  exportedAt: string;
+  scope: ExportScope;
+  format: ExportFormat;
+  preset: FieldPreset;
+  recordCount: number;
+  fileSize: number;
+}
+
+export interface PreviewResponse {
+  success: boolean;
+  count: number;
+  preview: Place[];
+  stats: {
+    byKind: Record<string, number>;
+    byCity?: Record<string, number>;
+    byCountry?: Record<string, number>;
+  };
+  estimatedSize: number;
+  error?: string;
 }

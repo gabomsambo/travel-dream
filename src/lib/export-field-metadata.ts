@@ -1,5 +1,5 @@
 import type { Place } from '@/types/database';
-import type { FieldDefinition, FieldPreset } from '@/types/export';
+import type { FieldDefinition, FieldPreset, FieldCategory } from '@/types/export';
 
 export const FIELD_PRESETS: Record<FieldPreset, string[]> = {
   minimal: [
@@ -69,25 +69,30 @@ export const FIELD_PRESETS: Record<FieldPreset, string[]> = {
     'updated_at',
     'google_maps_link',
     'full_address'
-  ]
+  ],
+
+  custom: []
 };
 
 export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   id: {
     dbField: 'id',
     csvHeader: 'ID',
+    category: 'system_meta',
     includeInPreset: ['complete']
   },
 
   name: {
     dbField: 'name',
     csvHeader: 'Name',
+    category: 'essentials',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
 
   alt_names: {
     dbField: 'altNames',
     csvHeader: 'Alternative Names',
+    category: 'system_meta',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -98,42 +103,49 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   kind: {
     dbField: 'kind',
     csvHeader: 'Type',
+    category: 'essentials',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
 
   description: {
     dbField: 'description',
     csvHeader: 'Description',
+    category: 'essentials',
     includeInPreset: ['standard', 'complete']
   },
 
   city: {
     dbField: 'city',
     csvHeader: 'City',
+    category: 'location',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
 
   country: {
     dbField: 'country',
     csvHeader: 'Country',
+    category: 'location',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
 
   admin: {
     dbField: 'admin',
     csvHeader: 'State/Region',
+    category: 'location',
     includeInPreset: ['complete']
   },
 
   address: {
     dbField: 'address',
     csvHeader: 'Address',
+    category: 'location',
     includeInPreset: ['standard', 'complete']
   },
 
   coords_lat: {
     dbField: 'coords',
     csvHeader: 'Latitude',
+    category: 'location',
     transform: (value: any) => {
       if (!value || typeof value !== 'object') return '';
       return value.lat?.toString() || '';
@@ -144,6 +156,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   coords_lon: {
     dbField: 'coords',
     csvHeader: 'Longitude',
+    category: 'location',
     transform: (value: any) => {
       if (!value || typeof value !== 'object') return '';
       return value.lon?.toString() || '';
@@ -154,6 +167,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   tags: {
     dbField: 'tags',
     csvHeader: 'Tags',
+    category: 'categorization',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -164,6 +178,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   vibes: {
     dbField: 'vibes',
     csvHeader: 'Vibes',
+    category: 'categorization',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -174,6 +189,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   rating_self: {
     dbField: 'ratingSelf',
     csvHeader: 'Your Rating',
+    category: 'user_notes',
     transform: (value: any) => {
       if (value === null || value === undefined) return '';
       return value.toString();
@@ -184,18 +200,21 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   notes: {
     dbField: 'notes',
     csvHeader: 'Notes',
+    category: 'user_notes',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
 
   status: {
     dbField: 'status',
     csvHeader: 'Status',
+    category: 'system_meta',
     includeInPreset: ['complete']
   },
 
   confidence: {
     dbField: 'confidence',
     csvHeader: 'Confidence Score',
+    category: 'system_meta',
     transform: (value: any) => {
       if (value === null || value === undefined) return '';
       return value.toString();
@@ -206,24 +225,28 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   website: {
     dbField: 'website',
     csvHeader: 'Website',
+    category: 'contact',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
 
   phone: {
     dbField: 'phone',
     csvHeader: 'Phone',
+    category: 'contact',
     includeInPreset: ['standard', 'complete']
   },
 
   email: {
     dbField: 'email',
     csvHeader: 'Email',
+    category: 'contact',
     includeInPreset: ['complete']
   },
 
   hours: {
     dbField: 'hours',
     csvHeader: 'Hours',
+    category: 'contact',
     transform: (value: any) => {
       if (!value || typeof value !== 'object') return '';
       return JSON.stringify(value);
@@ -234,18 +257,21 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   price_level: {
     dbField: 'price_level',
     csvHeader: 'Price Level',
+    category: 'categorization',
     includeInPreset: ['standard', 'complete']
   },
 
   best_time: {
     dbField: 'best_time',
     csvHeader: 'Best Time to Visit',
+    category: 'llm_metadata',
     includeInPreset: ['complete']
   },
 
   activities: {
     dbField: 'activities',
     csvHeader: 'Activities',
+    category: 'llm_metadata',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -256,6 +282,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   cuisine: {
     dbField: 'cuisine',
     csvHeader: 'Cuisine',
+    category: 'llm_metadata',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -266,6 +293,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   amenities: {
     dbField: 'amenities',
     csvHeader: 'Amenities',
+    category: 'llm_metadata',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -276,12 +304,14 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   visit_status: {
     dbField: 'visitStatus',
     csvHeader: 'Visit Status',
+    category: 'visit_tracking',
     includeInPreset: ['complete']
   },
 
   priority: {
     dbField: 'priority',
     csvHeader: 'Priority',
+    category: 'visit_tracking',
     transform: (value: any) => {
       if (value === null || value === undefined) return '';
       return value.toString();
@@ -292,24 +322,28 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   last_visited: {
     dbField: 'lastVisited',
     csvHeader: 'Last Visited',
+    category: 'visit_tracking',
     includeInPreset: ['complete']
   },
 
   planned_visit: {
     dbField: 'plannedVisit',
     csvHeader: 'Planned Visit',
+    category: 'visit_tracking',
     includeInPreset: ['complete']
   },
 
   recommended_by: {
     dbField: 'recommendedBy',
     csvHeader: 'Recommended By',
+    category: 'social',
     includeInPreset: ['complete']
   },
 
   companions: {
     dbField: 'companions',
     csvHeader: 'Companions',
+    category: 'social',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -320,24 +354,28 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   practical_info: {
     dbField: 'practicalInfo',
     csvHeader: 'Practical Info',
+    category: 'user_notes',
     includeInPreset: ['complete']
   },
 
   created_at: {
     dbField: 'createdAt',
     csvHeader: 'Created At',
+    category: 'system_meta',
     includeInPreset: ['complete']
   },
 
   updated_at: {
     dbField: 'updatedAt',
     csvHeader: 'Updated At',
+    category: 'system_meta',
     includeInPreset: ['complete']
   },
 
   google_maps_link: {
     dbField: 'coords',
     csvHeader: 'Google Maps Link',
+    category: 'location',
     transform: (value: any, place: Place) => {
       if (!place.coords) return '';
       return `https://www.google.com/maps/search/?api=1&query=${place.coords.lat},${place.coords.lon}`;
@@ -348,6 +386,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   full_address: {
     dbField: 'address',
     csvHeader: 'Full Address',
+    category: 'location',
     transform: (value: any, place: Place) => {
       const parts = [
         place.address,
@@ -363,6 +402,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   collection_order: {
     dbField: 'orderIndex',
     csvHeader: 'Collection Order',
+    category: 'system_meta',
     transform: (value: any, place: Place, relationMetadata?: any) => {
       if (!relationMetadata) return '';
       return relationMetadata.orderIndex?.toString() || '';
@@ -373,6 +413,7 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   is_pinned: {
     dbField: 'isPinned',
     csvHeader: 'Pinned',
+    category: 'system_meta',
     transform: (value: any, place: Place, relationMetadata?: any) => {
       if (!relationMetadata) return '';
       return relationMetadata.isPinned ? 'Yes' : 'No';
@@ -383,11 +424,64 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
   collection_note: {
     dbField: 'note',
     csvHeader: 'Collection Note',
+    category: 'system_meta',
     transform: (value: any, place: Place, relationMetadata?: any) => {
       if (!relationMetadata) return '';
       return relationMetadata.note || '';
     },
     includeInPreset: ['complete']
+  }
+};
+
+export const FIELD_CATEGORIES: Record<FieldCategory, {
+  label: string;
+  description: string;
+  fields: string[];
+}> = {
+  essentials: {
+    label: 'Essentials',
+    description: 'Core place information',
+    fields: ['name', 'kind', 'description']
+  },
+  location: {
+    label: 'Location',
+    description: 'Geographic information',
+    fields: ['city', 'country', 'admin', 'address', 'coords_lat', 'coords_lon', 'google_maps_link', 'full_address']
+  },
+  contact: {
+    label: 'Contact',
+    description: 'Contact information and hours',
+    fields: ['website', 'phone', 'email', 'hours']
+  },
+  categorization: {
+    label: 'Categorization',
+    description: 'Tags, vibes, and pricing',
+    fields: ['tags', 'vibes', 'price_level']
+  },
+  visit_tracking: {
+    label: 'Visit Tracking',
+    description: 'Visit status and planning',
+    fields: ['visit_status', 'priority', 'last_visited', 'planned_visit']
+  },
+  social: {
+    label: 'Social',
+    description: 'Recommendations and companions',
+    fields: ['recommended_by', 'companions']
+  },
+  llm_metadata: {
+    label: 'LLM Metadata',
+    description: 'AI-extracted details',
+    fields: ['best_time', 'activities', 'cuisine', 'amenities']
+  },
+  user_notes: {
+    label: 'User Notes',
+    description: 'Personal notes and ratings',
+    fields: ['notes', 'rating_self', 'practical_info']
+  },
+  system_meta: {
+    label: 'System Metadata',
+    description: 'System-generated information',
+    fields: ['id', 'alt_names', 'status', 'confidence', 'created_at', 'updated_at', 'collection_order', 'is_pinned', 'collection_note']
   }
 };
 

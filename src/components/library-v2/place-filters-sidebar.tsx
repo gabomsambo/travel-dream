@@ -149,7 +149,7 @@ export function PlaceFiltersSidebar({
         {/* Rating Filter */}
         <div className="space-y-3">
           <h4 className="font-semibold text-sm">Minimum Rating</h4>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {[0, 1, 2, 3, 4, 5].map((ratingValue) => (
               <Button
                 key={ratingValue}
@@ -231,8 +231,8 @@ export function PlaceFiltersSidebar({
   }
 
   return (
-    <div className="w-64 rounded-xl border bg-card">
-      <div className="flex items-center justify-between border-b p-4">
+    <div className="w-64 rounded-xl border bg-card sticky top-6 h-[calc(100vh-120px)] flex flex-col">
+      <div className="flex items-center justify-between border-b p-4 shrink-0">
         <h3 className="font-semibold">Filters</h3>
         {activeFilterCount > 0 && (
           <Button variant="ghost" size="sm" onClick={onClear} className="h-8 px-2 text-xs">
@@ -241,7 +241,9 @@ export function PlaceFiltersSidebar({
           </Button>
         )}
       </div>
-      {filterContent}
+      <div className="flex-1 min-h-0">
+        {filterContent}
+      </div>
     </div>
   )
 }

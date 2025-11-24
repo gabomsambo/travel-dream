@@ -59,6 +59,7 @@ const PlaceUpdateSchema = z.object({
     lat: z.number(),
     lon: z.number(),
   }).nullable().optional(),
+  googlePlaceId: z.string().max(200).nullable().optional(),
 });
 
 export async function GET(

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Place } from './database';
 
-export type ExportFormat = 'csv' | 'xlsx' | 'pdf';
+export type ExportFormat = 'csv' | 'xlsx' | 'pdf' | 'kml';
 
 export type FieldPreset = 'minimal' | 'standard' | 'complete' | 'custom';
 
@@ -58,13 +58,25 @@ export const ExportRequestSchema = z.object({
       placeIds: z.array(z.string().min(1)).min(1).max(500)
     })
   ]),
-  format: z.enum(['csv', 'xlsx', 'pdf']),
-  preset: z.enum(['minimal', 'standard', 'complete']).default('standard'),
+  format: z.enum(['csv', 'xlsx', 'pdf', 'kml']),
+  preset: z.enum(['minimal', 'standard', 'complete', 'custom']).default('standard'),
   options: z.object({
     includeCollectionMetadata: z.boolean().optional(),
+    customFields: z.array(z.string()).optional(),
     filename: z.string().optional()
   }).optional()
-});
+}).refine(
+  (data) => {
+    if (data.preset === 'custom') {
+      return data.options?.customFields && data.options.customFields.length > 0;
+    }
+    return true;
+  },
+  {
+    message: 'customFields is required when preset is "custom"',
+    path: ['options', 'customFields']
+  }
+);
 
 export type ExportRequest = z.infer<typeof ExportRequestSchema>;
 

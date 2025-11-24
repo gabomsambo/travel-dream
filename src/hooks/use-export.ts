@@ -11,6 +11,7 @@ interface ExportOptions {
   xlsxSeparateSheetsByCity?: boolean;
   pdfLayout?: 'table' | 'itinerary' | 'detailed';
   pdfPageSize?: 'a4' | 'letter';
+  kmlGroupBy?: 'none' | 'kind' | 'city';
 }
 
 export function useExport() {

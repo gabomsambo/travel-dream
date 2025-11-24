@@ -8,6 +8,7 @@ import { getFieldsForPreset } from './export-field-metadata';
 import { generateCSV } from './export-generators/csv-generator';
 import { generateXLSX } from './export-generators/xlsx-generator';
 import { generatePDF } from './export-generators/pdf-generator';
+import { generateKML } from './export-generators/kml-generator';
 import { generateFilename, getMimeType } from './export-utils';
 
 export async function exportData(request: ExportRequest): Promise<ExportResult> {
@@ -93,7 +94,10 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
     throw new Error('No places found to export');
   }
 
-  const fieldDefs = getFieldsForPreset(request.preset);
+  const fieldDefs = getFieldsForPreset(
+    request.preset,
+    request.options?.customFields
+  );
 
   const filename = request.options?.filename || generateFilename(baseName, request.format);
   const mimeType = getMimeType(request.format);
@@ -123,6 +127,17 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
         groupByDay: !!collection?.dayBuckets && collection.dayBuckets.length > 0,
         dayBuckets: collection?.dayBuckets || [],
         relationMetadata
+      });
+      break;
+    }
+
+    case 'kml': {
+      const kmlGroupBy = (request.options as any)?.kmlGroupBy;
+      buffer = await generateKML(results, {
+        documentName: collection?.name || 'Places Export',
+        documentDescription: collection?.description || undefined,
+        groupByKind: kmlGroupBy === 'kind',
+        groupByCity: kmlGroupBy === 'city'
       });
       break;
     }

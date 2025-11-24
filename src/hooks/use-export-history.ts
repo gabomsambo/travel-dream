@@ -28,7 +28,7 @@ const ExportHistoryEntrySchema = z.object({
     })
   ]),
   format: z.enum(['csv', 'xlsx', 'pdf']),
-  preset: z.enum(['minimal', 'standard', 'complete']),
+  preset: z.enum(['minimal', 'standard', 'complete', 'custom']),
   recordCount: z.number(),
   fileSize: z.number()
 });

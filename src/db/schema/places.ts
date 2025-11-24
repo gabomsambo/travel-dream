@@ -25,6 +25,9 @@ export const places = sqliteTable('places', {
   // Full address if available
   address: text('address'),
 
+  // Google Place ID for verified locations
+  googlePlaceId: text('google_place_id'),
+
   // Alternative names as typed array
   altNames: text('alt_names', { mode: 'json' }).$type<string[]>().default([]),
 

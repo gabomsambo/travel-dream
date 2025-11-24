@@ -65,7 +65,7 @@ export function formatDateTime(isoString: string | null | undefined): string {
 
 export function generateFilename(
   baseName: string,
-  format: 'csv' | 'xlsx' | 'pdf'
+  format: 'csv' | 'xlsx' | 'pdf' | 'kml'
 ): string {
   const sanitized = sanitizeFilename(baseName);
   const timestamp = new Date().toISOString().split('T')[0];
@@ -81,11 +81,12 @@ export function arrayToString(
   return value.join(delimiter);
 }
 
-export function getMimeType(format: 'csv' | 'xlsx' | 'pdf'): string {
+export function getMimeType(format: 'csv' | 'xlsx' | 'pdf' | 'kml'): string {
   const mimeTypes = {
     csv: 'text/csv',
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    pdf: 'application/pdf'
+    pdf: 'application/pdf',
+    kml: 'application/vnd.google-earth.kml+xml'
   };
 
   return mimeTypes[format];

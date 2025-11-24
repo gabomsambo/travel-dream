@@ -7,9 +7,11 @@ import { Label } from "@/components/adapters/label"
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/adapters/select"
-import { X } from 'lucide-react'
+import { X, ChevronDown, ChevronUp } from 'lucide-react'
 import { PLACE_KINDS } from '@/types/database'
 import type { Place } from '@/types/database'
+import { LocationPicker } from '@/components/ui/location-picker'
+import type { LocationData } from '@/hooks/use-google-places'
 
 interface PlaceEditFormProps {
   place: Place
@@ -32,6 +34,8 @@ export function PlaceEditForm({
     country: place.country || '',
     admin: place.admin || '',
     address: place.address || '',
+    googlePlaceId: place.googlePlaceId || null,
+    coords: place.coords || null,
     tags: Array.isArray(place.tags) ? place.tags : [],
     vibes: Array.isArray(place.vibes) ? place.vibes : [],
     activities: Array.isArray(place.activities) ? place.activities : [],
@@ -42,6 +46,32 @@ export function PlaceEditForm({
     notes: place.notes || '',
     ratingSelf: place.ratingSelf || 0,
   })
+
+  const [showManualLocation, setShowManualLocation] = useState(false)
+
+  const handleLocationChange = (location: LocationData | null) => {
+    if (location) {
+      setFormData(prev => ({
+        ...prev,
+        googlePlaceId: location.googlePlaceId,
+        address: location.address,
+        city: location.city || '',
+        admin: location.admin || '',
+        country: location.country || '',
+        coords: location.coords,
+      }))
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        googlePlaceId: null,
+        address: '',
+        city: '',
+        admin: '',
+        country: '',
+        coords: null,
+      }))
+    }
+  }
 
   const [tagInput, setTagInput] = useState('')
   const [vibeInput, setVibeInput] = useState('')
@@ -116,47 +146,88 @@ export function PlaceEditForm({
       <div className="space-y-4">
         <h3 className="font-semibold text-lg">Location</h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="city">City</Label>
-            <Input
-              id="city"
-              value={formData.city}
-              onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
-              placeholder="City name"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="admin">State/Region</Label>
-            <Input
-              id="admin"
-              value={formData.admin}
-              onChange={(e) => setFormData(prev => ({ ...prev, admin: e.target.value }))}
-              placeholder="State or region"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="country">Country</Label>
-            <Input
-              id="country"
-              value={formData.country}
-              onChange={(e) => setFormData(prev => ({ ...prev, country: e.target.value }))}
-              placeholder="Country name (e.g., United States)"
-            />
-          </div>
-        </div>
-
         <div className="space-y-2">
-          <Label htmlFor="address">Full Address</Label>
-          <Input
-            id="address"
-            value={formData.address}
-            onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-            placeholder="Street address"
+          <Label>Search Location</Label>
+          <LocationPicker
+            value={{
+              googlePlaceId: formData.googlePlaceId,
+              name: formData.name,
+              address: formData.address,
+              city: formData.city,
+              admin: formData.admin,
+              country: formData.country,
+              coords: formData.coords,
+            }}
+            onChange={handleLocationChange}
+            placeholder="Search for a place..."
           />
         </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowManualLocation(!showManualLocation)}
+          className="text-muted-foreground"
+        >
+          {showManualLocation ? (
+            <>
+              <ChevronUp className="h-4 w-4 mr-1" />
+              Hide manual entry
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-4 w-4 mr-1" />
+              Edit location manually
+            </>
+          )}
+        </Button>
+
+        {showManualLocation && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="city">City</Label>
+                <Input
+                  id="city"
+                  value={formData.city}
+                  onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
+                  placeholder="City name"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="admin">State/Region</Label>
+                <Input
+                  id="admin"
+                  value={formData.admin}
+                  onChange={(e) => setFormData(prev => ({ ...prev, admin: e.target.value }))}
+                  placeholder="State or region"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="country">Country</Label>
+                <Input
+                  id="country"
+                  value={formData.country}
+                  onChange={(e) => setFormData(prev => ({ ...prev, country: e.target.value }))}
+                  placeholder="Country name (e.g., United States)"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="address">Full Address</Label>
+              <Input
+                id="address"
+                value={formData.address}
+                onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
+                placeholder="Street address"
+              />
+            </div>
+          </>
+        )}
       </div>
 
       <div className="space-y-4">

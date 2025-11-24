@@ -27,7 +27,7 @@ const ExportTemplateSchema = z.object({
     })
   ]),
   format: z.enum(['csv', 'xlsx', 'pdf']),
-  preset: z.enum(['minimal', 'standard', 'complete']),
+  preset: z.enum(['minimal', 'standard', 'complete', 'custom']),
   customFields: z.array(z.string()).optional(),
   options: z.object({
     includeCollectionMetadata: z.boolean().optional(),

@@ -68,7 +68,8 @@ export const FIELD_PRESETS: Record<FieldPreset, string[]> = {
     'created_at',
     'updated_at',
     'google_maps_link',
-    'full_address'
+    'full_address',
+    'google_place_id'
   ],
 
   custom: []
@@ -399,6 +400,13 @@ export const FIELD_DEFINITIONS: Record<string, FieldDefinition> = {
     includeInPreset: ['complete']
   },
 
+  google_place_id: {
+    dbField: 'googlePlaceId',
+    csvHeader: 'Google Place ID',
+    category: 'location',
+    includeInPreset: ['complete']
+  },
+
   collection_order: {
     dbField: 'orderIndex',
     csvHeader: 'Collection Order',
@@ -446,7 +454,7 @@ export const FIELD_CATEGORIES: Record<FieldCategory, {
   location: {
     label: 'Location',
     description: 'Geographic information',
-    fields: ['city', 'country', 'admin', 'address', 'coords_lat', 'coords_lon', 'google_maps_link', 'full_address']
+    fields: ['city', 'country', 'admin', 'address', 'coords_lat', 'coords_lon', 'google_maps_link', 'full_address', 'google_place_id']
   },
   contact: {
     label: 'Contact',
@@ -485,8 +493,19 @@ export const FIELD_CATEGORIES: Record<FieldCategory, {
   }
 };
 
-export function getFieldsForPreset(preset: FieldPreset): FieldDefinition[] {
-  const fieldIds = FIELD_PRESETS[preset];
+export function getFieldsForPreset(
+  preset: FieldPreset,
+  customFields?: string[]
+): FieldDefinition[] {
+  if (preset === 'custom' && customFields) {
+    return customFields.map(fieldId => FIELD_DEFINITIONS[fieldId]).filter(Boolean);
+  }
+
+  const fieldIds = FIELD_PRESETS[preset as 'minimal' | 'standard' | 'complete'];
+  if (!fieldIds) {
+    return [];
+  }
+
   return fieldIds.map(fieldId => FIELD_DEFINITIONS[fieldId]).filter(Boolean);
 }
 

@@ -30,7 +30,7 @@ const PreviewRequestSchema = z.object({
       placeIds: z.array(z.string().min(1))
     })
   ]),
-  preset: z.enum(['minimal', 'standard', 'complete']).default('standard'),
+  preset: z.enum(['minimal', 'standard', 'complete', 'custom']).default('standard'),
   customFields: z.array(z.string()).optional()
 });
 
@@ -153,7 +153,7 @@ export async function GET(request: NextRequest) {
 
     const fieldCount = customFields
       ? customFields.length
-      : getFieldsForPreset(preset).length;
+      : getFieldsForPreset(preset, customFields).length;
     const estimatedSize = estimateFileSize(count, fieldCount);
 
     const response: PreviewResponse = {

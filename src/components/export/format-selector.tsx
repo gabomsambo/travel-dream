@@ -10,10 +10,11 @@ import {
 } from '@/components/ui-v2/select'
 import { Checkbox } from '@/components/ui-v2/checkbox'
 import { Label } from '@/components/ui-v2/label'
+import { Info } from 'lucide-react'
 
 interface FormatSelectorProps {
-  format: 'csv' | 'xlsx' | 'pdf'
-  onFormatChange: (format: 'csv' | 'xlsx' | 'pdf') => void
+  format: 'csv' | 'xlsx' | 'pdf' | 'kml'
+  onFormatChange: (format: 'csv' | 'xlsx' | 'pdf' | 'kml') => void
   options: Record<string, any>
   onOptionsChange: (options: Record<string, any>) => void
 }
@@ -30,6 +31,7 @@ export function FormatSelector({
         <TabsTrigger value="csv">CSV</TabsTrigger>
         <TabsTrigger value="xlsx">XLSX</TabsTrigger>
         <TabsTrigger value="pdf">PDF</TabsTrigger>
+        <TabsTrigger value="kml">KML</TabsTrigger>
       </TabsList>
 
       <TabsContent value="csv" className="space-y-4 pt-4">
@@ -125,6 +127,42 @@ export function FormatSelector({
               <SelectItem value="letter">Letter</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="kml" className="space-y-4 pt-4">
+        <div className="space-y-2">
+          <Label>Group placemarks by</Label>
+          <Select
+            value={options.kmlGroupBy || 'none'}
+            onValueChange={(value) =>
+              onOptionsChange({ ...options, kmlGroupBy: value })
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No grouping</SelectItem>
+              <SelectItem value="kind">Type (restaurant, cafe, etc.)</SelectItem>
+              <SelectItem value="city">City</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium">Google My Maps limits:</p>
+              <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                <li>2,000 placemarks per layer</li>
+                <li>10 layers per map</li>
+                <li>5 MB file size</li>
+              </ul>
+              <p className="mt-2">Only places with coordinates will be exported.</p>
+            </div>
+          </div>
         </div>
       </TabsContent>
     </Tabs>

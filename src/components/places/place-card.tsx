@@ -260,7 +260,7 @@ export function PlaceCard({
       )}
 
       {showActions && (
-        <CardFooter className="flex gap-2 pt-0">
+        <CardFooter className="flex flex-wrap gap-2 pt-0">
           <Button
             size="sm"
             variant="outline"

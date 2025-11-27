@@ -102,16 +102,13 @@ function getCandidatesForPlace(
   }
 
   // Strategy 3: Name similarity (2-char prefix for broader matching)
+  // FIXED: Include ALL name matches regardless of city to catch cross-city duplicates
+  // (e.g., "Monaco" with city="Monaco" vs city=null should be compared)
   const normalized = normalizeNameForComparison(place.name);
   if (normalized.length >= 2) {
     const prefix = normalized.slice(0, 2);
     const namePlaces = nameIndex.byPrefix.get(prefix) || [];
-    // Only add name matches if they're also in the same city (spatial constraint)
-    namePlaces.forEach(p => {
-      if (cityPlaces.includes(p)) {
-        candidates.add(p);
-      }
-    });
+    namePlaces.forEach(p => candidates.add(p));
   }
 
   // Add all city places as baseline

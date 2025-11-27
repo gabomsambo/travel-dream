@@ -526,4 +526,166 @@ describe('Duplicate Detection Utils', () => {
       expect(duration).toBeLessThan(1000) // Should complete in under 1 second
     })
   })
+
+  describe('Bug Fix: Configurable cluster threshold', () => {
+    it('should use provided minConfidence threshold for clustering', async () => {
+      // Create places with similar (but not identical) names and different kinds
+      const placesWithSimilarNames: Place[] = [
+        {
+          ...mockPlaces[0],
+          id: 'similar-1',
+          name: 'Seychelles Beach Resort',
+          coords: null,
+          kind: 'hotel',
+          city: null,
+          country: null,
+        },
+        {
+          ...mockPlaces[0],
+          id: 'similar-2',
+          name: 'Seychelles',
+          coords: null,
+          kind: 'beach',
+          city: null,
+          country: null,
+        },
+      ]
+
+      const results = await batchDetectDuplicates(placesWithSimilarNames, DEFAULT_DETECTION_CONFIG)
+
+      // Should find clusters at low threshold (0.4)
+      const clustersLow = findDuplicateClusters(results, 2, 0.4)
+      expect(clustersLow.length).toBeGreaterThan(0)
+
+      // Should NOT find clusters at very high threshold (0.99) - partial name match won't reach this
+      const clustersHigh = findDuplicateClusters(results, 2, 0.99)
+      expect(clustersHigh.length).toBe(0)
+    })
+
+    it('should default to 0.6 minConfidence when not specified', async () => {
+      const placesWithoutCoords: Place[] = [
+        {
+          ...mockPlaces[0],
+          id: 'default-1',
+          name: 'Monaco',
+          coords: null,
+          kind: 'city',
+          city: null,
+          country: null,
+        },
+        {
+          ...mockPlaces[0],
+          id: 'default-2',
+          name: 'Monaco',
+          coords: null,
+          kind: 'city',
+          city: null,
+          country: null,
+        },
+      ]
+
+      const results = await batchDetectDuplicates(placesWithoutCoords, DEFAULT_DETECTION_CONFIG)
+      
+      // Default threshold should find these duplicates
+      const clusters = findDuplicateClusters(results, 2)
+      expect(clusters.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('Bug Fix: Adaptive scoring without coordinates', () => {
+    it('should give high score to exact name matches without coords', () => {
+      const place1: Place = {
+        ...mockPlaces[0],
+        id: 'adaptive-1',
+        name: 'Seychelles',
+        coords: null,
+        kind: 'beach',
+        city: null,
+        country: null,
+      }
+      const place2: Place = {
+        ...mockPlaces[0],
+        id: 'adaptive-2',
+        name: 'Seychelles',
+        coords: null,
+        kind: 'beach',
+        city: null,
+        country: null,
+      }
+
+      const { score } = calculateDuplicateScore(place1, place2)
+      // Perfect name match + same kind should score high with adaptive weights
+      expect(score).toBeGreaterThanOrEqual(0.7)
+    })
+
+    it('should score higher when kind also matches', () => {
+      const place1: Place = {
+        ...mockPlaces[0],
+        id: 'kind-1',
+        name: 'Monaco',
+        coords: null,
+        kind: 'city',
+        city: null,
+        country: null,
+      }
+      const place2Same: Place = {
+        ...mockPlaces[0],
+        id: 'kind-2',
+        name: 'Monaco',
+        coords: null,
+        kind: 'city',
+        city: null,
+        country: null,
+      }
+      const place2Diff: Place = {
+        ...mockPlaces[0],
+        id: 'kind-3',
+        name: 'Monaco',
+        coords: null,
+        kind: 'beach',
+        city: null,
+        country: null,
+      }
+
+      const { score: scoreSameKind } = calculateDuplicateScore(place1, place2Same)
+      const { score: scoreDiffKind } = calculateDuplicateScore(place1, place2Diff)
+
+      expect(scoreSameKind).toBeGreaterThan(scoreDiffKind)
+    })
+
+    it('should treat null city as matching (both unknown)', () => {
+      const place1: Place = {
+        ...mockPlaces[0],
+        id: 'city-null-1',
+        name: 'Test Place',
+        coords: null,
+        kind: 'landmark',
+        city: null,
+        country: null,
+      }
+      const place2: Place = {
+        ...mockPlaces[0],
+        id: 'city-null-2',
+        name: 'Test Place',
+        coords: null,
+        kind: 'landmark',
+        city: null,
+        country: null,
+      }
+
+      const { factors } = calculateDuplicateScore(place1, place2)
+      expect(factors.cityMatch).toBe(true)
+      expect(factors.countryMatch).toBe(true)
+    })
+
+    it('should maintain normal behavior when coords are present', () => {
+      // Use original mock places that have coords
+      const { score, factors } = calculateDuplicateScore(mockPlaces[0], mockPlaces[1])
+      
+      // Should use location score when available
+      expect(factors.locationScore).toBeGreaterThan(0)
+      // High confidence due to same location + similar names
+      expect(score).toBeGreaterThan(0.7)
+    })
+  })
 })

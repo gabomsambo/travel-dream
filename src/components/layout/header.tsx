@@ -8,9 +8,11 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { MobileNav } from "@/components/navigation/mobile-nav"
 import { SearchBar } from "@/components/search/search-bar"
 import { UploadDialog } from "@/components/upload/upload-dialog"
+import { AddPlaceDialog } from "@/components/places/add-place-dialog"
 
 export function Header() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+  const [addPlaceDialogOpen, setAddPlaceDialogOpen] = useState(false)
   const [uploadCount, setUploadCount] = useState(0)
 
   const handleSearch = (filters: any) => {
@@ -38,6 +40,16 @@ export function Header() {
         <div className="flex items-center gap-2">
           <Button
             size="sm"
+            variant="outline"
+            className="gap-2"
+            onClick={() => setAddPlaceDialogOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            Add Place
+          </Button>
+
+          <Button
+            size="sm"
             className="gap-2"
             onClick={() => setUploadDialogOpen(true)}
           >
@@ -53,6 +65,11 @@ export function Header() {
           <ThemeToggle />
         </div>
       </div>
+
+      <AddPlaceDialog
+        open={addPlaceDialogOpen}
+        onOpenChange={setAddPlaceDialogOpen}
+      />
 
       <UploadDialog
         open={uploadDialogOpen}

@@ -725,13 +725,59 @@ export async function bulkMergePlaces(
             .where(eq(places.id, cluster.targetId));
 
           for (const sourceId of cluster.sourceIds) {
-            await tx.update(sourcesToPlaces)
-              .set({ placeId: cluster.targetId })
-              .where(eq(sourcesToPlaces.placeId, sourceId));
+            // Get existing associations for target to avoid duplicates
+            const targetSourceAssocs = await tx.select({ sourceId: sourcesToPlaces.sourceId })
+              .from(sourcesToPlaces)
+              .where(eq(sourcesToPlaces.placeId, cluster.targetId));
+            const targetSourceIds = new Set(targetSourceAssocs.map((a: { sourceId: string }) => a.sourceId));
 
-            await tx.update(placesToCollections)
-              .set({ placeId: cluster.targetId })
+            const targetCollectionAssocs = await tx.select({ collectionId: placesToCollections.collectionId })
+              .from(placesToCollections)
+              .where(eq(placesToCollections.placeId, cluster.targetId));
+            const targetCollectionIds = new Set(targetCollectionAssocs.map((a: { collectionId: string }) => a.collectionId));
+
+            // Get source's associations
+            const sourceSourceAssocs = await tx.select()
+              .from(sourcesToPlaces)
+              .where(eq(sourcesToPlaces.placeId, sourceId));
+            const sourceCollectionAssocs = await tx.select()
+              .from(placesToCollections)
               .where(eq(placesToCollections.placeId, sourceId));
+
+            // Transfer source associations that target doesn't have, delete the rest
+            for (const assoc of sourceSourceAssocs) {
+              if (!targetSourceIds.has(assoc.sourceId)) {
+                await tx.update(sourcesToPlaces)
+                  .set({ placeId: cluster.targetId })
+                  .where(and(
+                    eq(sourcesToPlaces.placeId, sourceId),
+                    eq(sourcesToPlaces.sourceId, assoc.sourceId)
+                  ));
+              } else {
+                await tx.delete(sourcesToPlaces)
+                  .where(and(
+                    eq(sourcesToPlaces.placeId, sourceId),
+                    eq(sourcesToPlaces.sourceId, assoc.sourceId)
+                  ));
+              }
+            }
+
+            for (const assoc of sourceCollectionAssocs) {
+              if (!targetCollectionIds.has(assoc.collectionId)) {
+                await tx.update(placesToCollections)
+                  .set({ placeId: cluster.targetId })
+                  .where(and(
+                    eq(placesToCollections.placeId, sourceId),
+                    eq(placesToCollections.collectionId, assoc.collectionId)
+                  ));
+              } else {
+                await tx.delete(placesToCollections)
+                  .where(and(
+                    eq(placesToCollections.placeId, sourceId),
+                    eq(placesToCollections.collectionId, assoc.collectionId)
+                  ));
+              }
+            }
           }
 
           await tx.update(places)

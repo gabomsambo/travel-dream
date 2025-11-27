@@ -327,7 +327,7 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
       <div className="flex-1 overflow-hidden">
         <div className="h-full grid grid-cols-2 gap-6 container py-6">
           {/* LEFT: Itinerary List */}
-          <div className="overflow-y-auto pr-2 space-y-4">
+          <div className="overflow-y-auto pl-1 pr-2 space-y-4">
             <h2 className="text-lg font-semibold">
               Itinerary ({optimisticPlaces.length} places)
             </h2>

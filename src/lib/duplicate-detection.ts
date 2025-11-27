@@ -217,31 +217,54 @@ export function calculateLocationSimilarity(
 
 /**
  * Calculate overall duplicate confidence score
+ * Uses adaptive weighting when location data is missing to prevent unfair penalization
  */
 export function calculateDuplicateScore(
   place1: Place,
   place2: Place,
   config: DuplicateDetectionConfig = DEFAULT_DETECTION_CONFIG
 ): { score: number; factors: DuplicateMatch['factors'] } {
+  // Check if both places have valid coordinates
+  const hasLocation = place1.coords && place2.coords &&
+    typeof place1.coords.lat === 'number' && typeof place1.coords.lon === 'number' &&
+    typeof place2.coords.lat === 'number' && typeof place2.coords.lon === 'number';
+
   const factors = {
     nameScore: calculateNameSimilarity(place1.name, place2.name),
-    locationScore: calculateLocationSimilarity(
-      place1.coords,
-      place2.coords,
-      config.locationThresholdKm
-    ),
+    locationScore: hasLocation
+      ? calculateLocationSimilarity(place1.coords, place2.coords, config.locationThresholdKm)
+      : 0,
     kindMatch: place1.kind === place2.kind,
-    cityMatch: place1.city === place2.city,
-    countryMatch: place1.country === place2.country
+    // Treat null === null as a match for city/country (both unknown is compatible)
+    cityMatch: place1.city?.toLowerCase() === place2.city?.toLowerCase(),
+    countryMatch: place1.country?.toLowerCase() === place2.country?.toLowerCase()
   };
 
-  // Calculate weighted score
+  // Adaptive weighting: redistribute location weight when coords are missing
+  let effectiveWeights = config.weights;
+  
+  if (!hasLocation) {
+    // Redistribute location weight proportionally to other factors
+    const locationWeight = config.weights.location;
+    const otherWeightsSum = config.weights.name + config.weights.kind + 
+                           config.weights.city + config.weights.country;
+    
+    effectiveWeights = {
+      name: config.weights.name + (locationWeight * config.weights.name / otherWeightsSum),
+      location: 0,
+      kind: config.weights.kind + (locationWeight * config.weights.kind / otherWeightsSum),
+      city: config.weights.city + (locationWeight * config.weights.city / otherWeightsSum),
+      country: config.weights.country + (locationWeight * config.weights.country / otherWeightsSum)
+    };
+  }
+
+  // Calculate weighted score with effective weights
   const score =
-    factors.nameScore * config.weights.name +
-    factors.locationScore * config.weights.location +
-    (factors.kindMatch ? 1 : 0) * config.weights.kind +
-    (factors.cityMatch ? 1 : 0) * config.weights.city +
-    (factors.countryMatch ? 1 : 0) * config.weights.country;
+    factors.nameScore * effectiveWeights.name +
+    factors.locationScore * effectiveWeights.location +
+    (factors.kindMatch ? 1 : 0) * effectiveWeights.kind +
+    (factors.cityMatch ? 1 : 0) * effectiveWeights.city +
+    (factors.countryMatch ? 1 : 0) * effectiveWeights.country;
 
   return { score, factors };
 }
@@ -395,10 +418,14 @@ export { optimizedBatchDetectDuplicates as batchDetectDuplicates } from './dupli
 
 /**
  * Find all duplicate clusters (groups of similar places)
+ * @param duplicateResults - Map of place IDs to their duplicate detection results
+ * @param minClusterSize - Minimum number of places to form a cluster (default: 2)
+ * @param minConfidence - Minimum confidence threshold for including duplicates in clusters (default: 0.6)
  */
 export function findDuplicateClusters(
   duplicateResults: Map<string, DuplicateDetectionResult>,
-  minClusterSize: number = 2
+  minClusterSize: number = 2,
+  minConfidence: number = 0.6
 ): Array<{ places: Place[]; avgConfidence: number; cluster_id: string }> {
   const processed = new Set<string>();
   const clusters: Array<{ places: Place[]; avgConfidence: number; cluster_id: string }> = [];
@@ -410,9 +437,9 @@ export function findDuplicateClusters(
     let totalConfidence = 0;
     let confidenceCount = 0;
 
-    // Add high-confidence duplicates to cluster
+    // Add duplicates that meet the configurable confidence threshold
     for (const duplicate of result.potentialDuplicates) {
-      if (duplicate.confidence > 0.8 && !processed.has(duplicate.place.id)) {
+      if (duplicate.confidence >= minConfidence && !processed.has(duplicate.place.id)) {
         cluster.push(duplicate.place);
         totalConfidence += duplicate.confidence;
         confidenceCount++;

@@ -119,7 +119,7 @@ export function DayColumn({
     <Card
       ref={setNodeRef}
       className={cn(
-        "overflow-hidden transition-all duration-200",
+        "transition-all duration-200",
         isSelected && "ring-2 ring-primary shadow-lg",
         places.length === 0 && "min-h-[200px]"
       )}

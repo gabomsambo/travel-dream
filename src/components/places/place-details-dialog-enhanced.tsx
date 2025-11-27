@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { X, Maximize2 } from "lucide-react"
+import { Maximize2 } from "lucide-react"
 import Link from "next/link"
 import {
   Dialog,
@@ -185,15 +185,6 @@ export function PlaceDetailsDialogEnhanced({
               </Button>
             </Link>
           )}
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-4 top-4"
-            onClick={() => onOpenChange(false)}
-          >
-            <X className="h-4 w-4" />
-          </Button>
         </DialogHeader>
 
         {error && (
@@ -217,7 +208,7 @@ export function PlaceDetailsDialogEnhanced({
               <TabsTrigger value="notes">Notes</TabsTrigger>
             </TabsList>
 
-            <div className="flex-1 overflow-y-auto mt-4">
+            <div className="flex-1 overflow-y-auto mt-4 px-1">
               <TabsContent value="overview" className="m-0">
                 <OverviewTab place={place} />
               </TabsContent>

@@ -9,9 +9,10 @@ import {
   type DuplicateDetectionConfig
 } from '@/lib/duplicate-detection';
 import { db } from '@/db';
-import { places } from '@/db/schema';
+import { places, dismissedDuplicates } from '@/db/schema';
 import { eq, inArray, and, ne } from 'drizzle-orm';
 import { z } from 'zod';
+import type { Place } from '@/types/database';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutes for duplicate detection
@@ -65,6 +66,36 @@ function getCache(key: string): any | null {
   }
 
   return cached.data;
+}
+
+async function getDismissedPairsSet(): Promise<Set<string>> {
+  const dismissed = await db.select().from(dismissedDuplicates);
+  const dismissedSet = new Set<string>();
+
+  for (const d of dismissed) {
+    dismissedSet.add(`${d.placeId1}:${d.placeId2}`);
+  }
+
+  return dismissedSet;
+}
+
+function filterDismissedClusters(
+  clusters: Array<{ places: Place[]; avgConfidence: number; cluster_id: string }>,
+  dismissedSet: Set<string>
+): Array<{ places: Place[]; avgConfidence: number; cluster_id: string }> {
+  return clusters.filter(cluster => {
+    // Check if ANY pair in cluster is dismissed
+    for (let i = 0; i < cluster.places.length; i++) {
+      for (let j = i + 1; j < cluster.places.length; j++) {
+        const key1 = `${cluster.places[i].id}:${cluster.places[j].id}`;
+        const key2 = `${cluster.places[j].id}:${cluster.places[i].id}`;
+        if (dismissedSet.has(key1) || dismissedSet.has(key2)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -297,15 +328,19 @@ export async function GET(request: NextRequest) {
       }
 
       case 'clusters': {
-        // Get places for cluster analysis
+        // Get places for cluster analysis (exclude archived by default)
         const targetPlaces = await withErrorHandling(async () => {
-          const query = db.select().from(places);
-
           if (status) {
-            query.where(eq(places.status, status));
+            // If specific status requested, use that
+            return await db.select().from(places)
+              .where(eq(places.status, status))
+              .limit(limit);
+          } else {
+            // Default: exclude archived places
+            return await db.select().from(places)
+              .where(ne(places.status, 'archived'))
+              .limit(limit);
           }
-
-          return await query.limit(limit);
         }, 'getClusterPlaces');
 
         if (targetPlaces.length < 2) {
@@ -326,8 +361,12 @@ export async function GET(request: NextRequest) {
         // Batch duplicate detection for clustering
         const duplicateResults = await batchDetectDuplicates(targetPlaces, config);
 
-        // Find clusters
-        const clusters = findDuplicateClusters(duplicateResults, 2);
+        // Find clusters with configurable confidence threshold
+        const allClusters = findDuplicateClusters(duplicateResults, 2, minConfidence);
+
+        // Filter out dismissed clusters
+        const dismissedSet = await getDismissedPairsSet();
+        const clusters = filterDismissedClusters(allClusters, dismissedSet);
 
         const response = {
           mode: 'clusters',

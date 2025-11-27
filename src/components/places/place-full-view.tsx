@@ -134,9 +134,9 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background -m-6">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-background border-b">
+      <div className="sticky -top-6 z-50 bg-background border-b">
         <div className="container max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button

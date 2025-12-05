@@ -6,7 +6,7 @@ import { Card, CardHeader, CardContent } from "@/components/adapters/card"
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Separator } from "@/components/adapters/separator"
-import { Check, X, Image as ImageIcon } from "lucide-react"
+import { X, Image as ImageIcon } from "lucide-react"
 import { toast } from "sonner"
 import { PlaceEditForm } from '@/components/places/place-edit-form'
 import { ConfidenceIndicator } from '@/components/inbox/confidence-indicator'
@@ -45,18 +45,18 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
       }
     }
 
-    const handleSaveAndConfirm = async () => {
+    const handleSaveAndConfirm = async (updates: Partial<Place>) => {
       setIsSubmitting(true)
       try {
         const response = await fetch(`/api/places/${initialPlace.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'library' }),
+          body: JSON.stringify({ ...updates, status: 'library' }),
         })
 
         if (!response.ok) throw new Error('Confirm failed')
 
-        toast.success('Place confirmed to library')
+        toast.success('Place saved and confirmed to library')
         router.push('/library')
       } catch (error) {
         toast.error('Failed to confirm place')
@@ -165,23 +165,18 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
               onSave={handleSave}
               onCancel={() => router.push('/inbox')}
               isSubmitting={isSubmitting}
+              onSaveAndConfirm={handleSaveAndConfirm}
+              showConfirmButton={true}
             />
 
             <Separator className="my-6" />
 
             <div className="flex gap-3">
               <Button
-                onClick={handleSaveAndConfirm}
-                disabled={isSubmitting}
-                className="flex-1"
-              >
-                <Check className="h-4 w-4 mr-2" />
-                Save & Confirm to Library
-              </Button>
-              <Button
                 onClick={handleArchive}
                 disabled={isSubmitting}
                 variant="outline"
+                className="flex-1"
               >
                 <X className="h-4 w-4 mr-2" />
                 Archive

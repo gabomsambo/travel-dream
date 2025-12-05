@@ -1038,3 +1038,52 @@ export async function batchDeletePlaces(placeIds: string[]): Promise<number> {
     });
   }, 'batchDeletePlaces');
 }
+
+export async function batchCreatePlaces(
+  placesData: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>[],
+  options?: {
+    collectionId?: string;
+    defaultStatus?: 'inbox' | 'library';
+  }
+): Promise<{
+  success: Place[];
+  failed: Array<{ index: number; error: string }>;
+}> {
+  return withErrorHandling(async () => {
+    return await withTransaction(async (tx) => {
+      const success: Place[] = [];
+      const failed: Array<{ index: number; error: string }> = [];
+
+      for (let i = 0; i < placesData.length; i++) {
+        try {
+          const placeData = placesData[i];
+          const newPlace: NewPlace = {
+            id: generatePlaceId(),
+            ...placeData,
+            status: placeData.status || options?.defaultStatus || 'inbox',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          const [place] = await tx.insert(places).values(newPlace).returning();
+          success.push(place);
+
+          if (options?.collectionId) {
+            await tx.insert(placesToCollections).values({
+              placeId: place.id,
+              collectionId: options.collectionId,
+              orderIndex: success.length,
+            }).onConflictDoNothing();
+          }
+        } catch (error) {
+          failed.push({
+            index: i,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+
+      return { success, failed };
+    });
+  }, 'batchCreatePlaces');
+}

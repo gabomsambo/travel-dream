@@ -11,9 +11,11 @@ import {
 } from "@/components/adapters/dialog"
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ScreenshotUploader } from './screenshot-uploader'
 import { UploadProgress } from './upload-progress'
-import { CheckCircle, XCircle, Clock, Loader2 } from 'lucide-react'
+import { ImportWorkflow } from '@/components/import/import-workflow'
+import { CheckCircle, XCircle, Clock, Loader2, Camera, FileSpreadsheet } from 'lucide-react'
 
 interface UploadDialogProps {
   open: boolean
@@ -42,6 +44,7 @@ interface UploadStats {
 }
 
 export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogProps) {
+  const [activeTab, setActiveTab] = useState<'screenshot' | 'import'>('screenshot')
   const [sessionId, setSessionId] = useState<string>('')
   const [session, setSession] = useState<UploadSession | null>(null)
   const [uploadStats, setUploadStats] = useState<UploadStats>({
@@ -238,6 +241,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
 
   const handleClose = () => {
     // Reset state
+    setActiveTab('screenshot')
     setSessionId('')
     setSession(null)
     setUploadStats({
@@ -281,124 +285,151 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
-          <DialogTitle>Upload Screenshots</DialogTitle>
+          <DialogTitle>Upload</DialogTitle>
           <DialogDescription>
-            Upload your travel screenshots for OCR text extraction and organization
+            Add places from screenshots or import from CSV/Excel files
           </DialogDescription>
         </DialogHeader>
 
-        {/* Progress Steps */}
-        <div className="flex items-center justify-between mb-6 px-4">
-          <div className="flex items-center gap-2">
-            {getStepIcon('upload')}
-            <span className={currentStep === 'upload' ? 'font-medium' : 'text-gray-500'}>
-              Upload Files
-            </span>
-          </div>
-          <div className="flex-1 h-px bg-gray-200 mx-4" />
-          <div className="flex items-center gap-2">
-            {getStepIcon('processing')}
-            <span className={currentStep === 'processing' || isProcessingOCR ? 'font-medium' : 'text-gray-500'}>
-              Process OCR
-            </span>
-          </div>
-          <div className="flex-1 h-px bg-gray-200 mx-4" />
-          <div className="flex items-center gap-2">
-            {getStepIcon('complete')}
-            <span className={currentStep === 'complete' ? 'font-medium' : 'text-gray-500'}>
-              Complete
-            </span>
-          </div>
-        </div>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'screenshot' | 'import')} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsTrigger value="screenshot" disabled={isProcessingOCR}>
+              <Camera className="h-4 w-4 mr-2" />
+              Screenshot
+            </TabsTrigger>
+            <TabsTrigger value="import" disabled={isProcessingOCR || currentStep !== 'upload'}>
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              CSV/Excel
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Error Display */}
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-center gap-2 text-red-800">
-              <XCircle className="h-4 w-4" />
-              <span className="font-medium">Error</span>
+          <TabsContent value="screenshot" className="min-h-[400px]">
+            {/* Progress Steps for Screenshot */}
+            <div className="flex items-center justify-between mb-6 px-4">
+              <div className="flex items-center gap-2">
+                {getStepIcon('upload')}
+                <span className={currentStep === 'upload' ? 'font-medium' : 'text-gray-500'}>
+                  Upload Files
+                </span>
+              </div>
+              <div className="flex-1 h-px bg-gray-200 mx-4" />
+              <div className="flex items-center gap-2">
+                {getStepIcon('processing')}
+                <span className={currentStep === 'processing' || isProcessingOCR ? 'font-medium' : 'text-gray-500'}>
+                  Process OCR
+                </span>
+              </div>
+              <div className="flex-1 h-px bg-gray-200 mx-4" />
+              <div className="flex items-center gap-2">
+                {getStepIcon('complete')}
+                <span className={currentStep === 'complete' ? 'font-medium' : 'text-gray-500'}>
+                  Complete
+                </span>
+              </div>
             </div>
-            <p className="text-red-700 mt-1">{error}</p>
-          </div>
-        )}
 
-        {/* Upload Stats */}
-        {uploadStats.totalFiles > 0 && (
-          <div className="mb-4 flex gap-2 flex-wrap">
-            <Badge variant="outline">
-              {uploadStats.totalFiles} total files
-            </Badge>
-            {uploadStats.uploadedFiles > 0 && (
-              <Badge variant="default">
-                {uploadStats.uploadedFiles} uploaded
-              </Badge>
+            {/* Error Display */}
+            {error && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center gap-2 text-red-800">
+                  <XCircle className="h-4 w-4" />
+                  <span className="font-medium">Error</span>
+                </div>
+                <p className="text-red-700 mt-1">{error}</p>
+              </div>
             )}
-            {uploadStats.failedUploads > 0 && (
-              <Badge variant="destructive">
-                {uploadStats.failedUploads} upload failed
-              </Badge>
-            )}
-            {uploadStats.ocrProcessed > 0 && (
-              <Badge variant="secondary">
-                {uploadStats.ocrProcessed} OCR complete
-              </Badge>
-            )}
-            {uploadStats.ocrPending > 0 && (
-              <Badge variant="outline">
-                {uploadStats.ocrPending} OCR pending
-              </Badge>
-            )}
-            {uploadStats.ocrFailed > 0 && (
-              <Badge variant="destructive">
-                {uploadStats.ocrFailed} OCR failed
-              </Badge>
-            )}
-          </div>
-        )}
 
-        {/* Main Content */}
-        <div className="min-h-[400px]">
-          {currentStep === 'upload' && sessionId && (
-            <ScreenshotUploader
-              sessionId={sessionId}
-              onUploadComplete={handleUploadComplete}
-              onUploadError={handleUploadError}
-              maxFiles={100}
-            />
-          )}
+            {/* Upload Stats */}
+            {uploadStats.totalFiles > 0 && (
+              <div className="mb-4 flex gap-2 flex-wrap">
+                <Badge variant="outline">
+                  {uploadStats.totalFiles} total files
+                </Badge>
+                {uploadStats.uploadedFiles > 0 && (
+                  <Badge variant="default">
+                    {uploadStats.uploadedFiles} uploaded
+                  </Badge>
+                )}
+                {uploadStats.failedUploads > 0 && (
+                  <Badge variant="destructive">
+                    {uploadStats.failedUploads} upload failed
+                  </Badge>
+                )}
+                {uploadStats.ocrProcessed > 0 && (
+                  <Badge variant="secondary">
+                    {uploadStats.ocrProcessed} OCR complete
+                  </Badge>
+                )}
+                {uploadStats.ocrPending > 0 && (
+                  <Badge variant="outline">
+                    {uploadStats.ocrPending} OCR pending
+                  </Badge>
+                )}
+                {uploadStats.ocrFailed > 0 && (
+                  <Badge variant="destructive">
+                    {uploadStats.ocrFailed} OCR failed
+                  </Badge>
+                )}
+              </div>
+            )}
 
-          {(currentStep === 'processing' || currentStep === 'complete') && (
-            <UploadProgress
-              sessionId={sessionId}
-              uploadStats={uploadStats}
-              isComplete={currentStep === 'complete'}
-              onRetryFailed={() => {
-                // TODO: Implement retry logic
-                console.log('Retry failed uploads')
+            {/* Screenshot Upload Content */}
+            <div className="min-h-[300px]">
+              {currentStep === 'upload' && sessionId && (
+                <ScreenshotUploader
+                  sessionId={sessionId}
+                  onUploadComplete={handleUploadComplete}
+                  onUploadError={handleUploadError}
+                  maxFiles={100}
+                />
+              )}
+
+              {(currentStep === 'processing' || currentStep === 'complete') && (
+                <UploadProgress
+                  sessionId={sessionId}
+                  uploadStats={uploadStats}
+                  isComplete={currentStep === 'complete'}
+                  onRetryFailed={() => {
+                    console.log('Retry failed uploads')
+                  }}
+                />
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="import" className="min-h-[400px] w-full max-w-full overflow-hidden">
+            <ImportWorkflow
+              onComplete={(result) => {
+                if (onComplete) {
+                  onComplete(result)
+                }
               }}
+              onClose={handleClose}
             />
-          )}
-        </div>
+          </TabsContent>
+        </Tabs>
 
-        <DialogFooter>
-          <div className="flex justify-between w-full">
-            <Button
-              variant="outline"
-              onClick={handleClose}
-              disabled={isProcessingOCR}
-            >
-              {currentStep === 'complete' ? 'Close' : 'Cancel'}
-            </Button>
-
-            {currentStep === 'complete' && (
-              <Button onClick={handleClose}>
-                View in Inbox
+        {activeTab === 'screenshot' && (
+          <DialogFooter>
+            <div className="flex justify-between w-full">
+              <Button
+                variant="outline"
+                onClick={handleClose}
+                disabled={isProcessingOCR}
+              >
+                {currentStep === 'complete' ? 'Close' : 'Cancel'}
               </Button>
-            )}
-          </div>
-        </DialogFooter>
+
+              {currentStep === 'complete' && (
+                <Button onClick={handleClose}>
+                  View in Inbox
+                </Button>
+              )}
+            </div>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )

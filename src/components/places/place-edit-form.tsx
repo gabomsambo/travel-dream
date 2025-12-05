@@ -7,7 +7,7 @@ import { Label } from "@/components/adapters/label"
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/adapters/select"
-import { X, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import { PLACE_KINDS } from '@/types/database'
 import type { Place } from '@/types/database'
 import { LocationPicker } from '@/components/ui/location-picker'
@@ -18,13 +18,17 @@ interface PlaceEditFormProps {
   onSave: (updates: Partial<Place>) => Promise<void>
   onCancel: () => void
   isSubmitting?: boolean
+  onSaveAndConfirm?: (updates: Partial<Place>) => Promise<void>
+  showConfirmButton?: boolean
 }
 
 export function PlaceEditForm({
   place,
   onSave,
   onCancel,
-  isSubmitting = false
+  isSubmitting = false,
+  onSaveAndConfirm,
+  showConfirmButton = false
 }: PlaceEditFormProps) {
   const [formData, setFormData] = useState({
     name: place.name,
@@ -82,6 +86,12 @@ export function PlaceEditForm({
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     await onSave(formData)
+  }
+
+  const handleSaveAndConfirm = async () => {
+    if (onSaveAndConfirm) {
+      await onSaveAndConfirm(formData)
+    }
   }
 
   const addItem = (field: 'tags' | 'vibes' | 'activities' | 'cuisine' | 'amenities', value: string) => {
@@ -511,6 +521,16 @@ export function PlaceEditForm({
         >
           {isSubmitting ? 'Saving...' : 'Save Changes'}
         </Button>
+        {showConfirmButton && onSaveAndConfirm && (
+          <Button
+            type="button"
+            onClick={handleSaveAndConfirm}
+            disabled={isSubmitting}
+          >
+            <Check className="h-4 w-4 mr-2" />
+            {isSubmitting ? 'Confirming...' : 'Save & Confirm to Library'}
+          </Button>
+        )}
       </div>
     </form>
   )

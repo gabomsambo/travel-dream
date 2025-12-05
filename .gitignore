@@ -4,6 +4,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.pnpm-store/
 
 # Next.js
 .next/
@@ -29,11 +30,15 @@ next-env.d.ts
 .env.docker
 .env.production
 .env.*.local
+.env.development
+.env.test
 
 # Turso Database (local)
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 
 # Uploads (user content)
 /public/uploads/*
@@ -43,6 +48,8 @@ next-env.d.ts
 .DS_Store
 *.pem
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
 # IDE
 .vscode/
@@ -56,6 +63,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+*.sublime-project
+*.sublime-workspace
 
 # Misc
 *.orig
@@ -66,7 +75,7 @@ docker-compose.override.yml
 .dockerignore.backup
 
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 pids
@@ -78,9 +87,12 @@ pids
 temp/
 tmp/
 *.tmp
+*.bak
+*.backup
 
 # Development Tools & Documentation
 .claude/
+.cursor/
 AGENTS.md
 CLAUDE.md
 PRPs/
@@ -92,12 +104,33 @@ test_photos/
 # v0_update
 v0_update/
 
+# Test files in root (development only)
+test-*.js
+test-*.ts
+test-*.sh
+
+# Patch files
+*.patch
+
+# Archive files in root
+*.zip
+
+# OCR training data (users should download separately)
+eng.traineddata
+*.traineddata
+
+# Development shell scripts in root
+apply-schema.sh
+restart-docker.sh
+verify-ocr.sh
+
 # Planning & Troubleshooting Notes
 INITIAL.md
 INITIAL_PRP3.md
 INITAL_PRP3.md
 INITIAL_PRP4.md
 INITIAL_PRP5.md
+INITIAL_PRP6.md
 DOCKER_FIX_COMPLETE.md
 DOCKER_STATUS.md
 FINAL_REDIS_FIX.md
@@ -117,19 +150,33 @@ VISUAL_TEST_GUIDE.md
 LOCAL_DEVELOPMENT_GUIDE.md
 UI_REFRESH_AUDIT.md
 UI_transfer.md
-ui-sandbox.zip
-eng.traineddata
 GEMINI_VISION_IMPLEMENTATION_SUMMARY.md
 GEMINI_VISION_TEST_REPORT.md
 OCR_LLM_DIAGNOSTIC_REPORT.md
 CLAUDE_MODEL_UPDATE.md
 INBOX_BUTTON_CHANGES.md
 OCR_LLM_ANALYSIS_SUMMARY.md
-option-a-minimal.patch
-option-b-signal-hierarchy.patch
 PROMPT_FIXES.md
-scripts/test-extraction-accuracy.ts
-OCR_LLM_DIAGNOSTIC_REPORT.md
-OCR_LLM_DIAGNOSTIC_REPORT.md
 EXPORT_FEATURE_ANALYSIS.md
 Travel_Dreams_Export_Meta_Architecture.md
+LEAFLET_FIX.md
+LEAFLET_COMPLETE_FIX.md
+FULL_SCREEN_VIEW_PLAN.md
+FULL_SCREEN_VIEW_FIXES.md
+MEDIA_UPLOAD_FIX.md
+PLACE_DIALOG_DIAGNOSIS.md
+HANDOFF_PLACE_DIALOG_ISSUE.md
+NEW_SESSION_PROMPT.md
+TEST_DEDUPLICATION.md
+DATA_STRUCTURE_REFERENCE.md
+DOCKER_CHANGES_SUMMARY.md
+
+# Debug/test scripts in scripts folder
+scripts/test-extraction-accuracy.ts
+scripts/test-gemini-api.ts
+
+# Sensitive or generated files
+*.key
+*.cert
+*.crt
+secrets/

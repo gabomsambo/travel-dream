@@ -5,10 +5,10 @@ import { ArrowLeft, ExternalLink, MapPin, Clock, Globe, Phone, Mail, Navigation 
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { KindBadge } from '@/components/ui/kind-badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useMapContext } from './map-context'
-import { getKindColor } from '@/lib/map-utils'
 import type { PlaceWithRelations } from '@/types/database'
 
 export function MapPlaceDetails() {
@@ -52,8 +52,6 @@ export function MapPlaceDetails() {
   }
 
   if (!selectedPlaceId) return null
-
-  const kindColor = place ? getKindColor(place.kind) : '#64748b'
 
   return (
     <div className="flex flex-col h-full">
@@ -102,13 +100,7 @@ export function MapPlaceDetails() {
             <div className="mb-4">
               <h2 className="text-lg font-semibold">{place.name}</h2>
               <div className="flex items-center gap-2 mt-1">
-                <Badge
-                  variant="secondary"
-                  className="text-xs"
-                  style={{ backgroundColor: `${kindColor}20`, color: kindColor }}
-                >
-                  {place.kind}
-                </Badge>
+                <KindBadge kind={place.kind} size="md" />
                 {(place.city || place.country) && (
                   <span className="text-sm text-muted-foreground">
                     {[place.city, place.country].filter(Boolean).join(', ')}

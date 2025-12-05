@@ -2,8 +2,9 @@
 
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { KindBadge } from '@/components/ui/kind-badge'
 import type { MapPlace } from '@/types/map'
-import { getKindColor, getDayColor } from '@/lib/map-utils'
+import { getDayColor } from '@/lib/map-utils'
 
 interface MapPlaceCardProps {
   place: MapPlace
@@ -24,7 +25,6 @@ export function MapPlaceCard({
   onMouseEnter,
   onMouseLeave
 }: MapPlaceCardProps) {
-  const kindColor = getKindColor(place.kind)
   const dayColor = place.dayNumber ? getDayColor(place.dayNumber) : null
 
   return (
@@ -59,13 +59,7 @@ export function MapPlaceCard({
               Day {place.dayNumber}
             </Badge>
           )}
-          <Badge
-            variant="secondary"
-            className="text-[10px] px-1.5 py-0"
-            style={{ backgroundColor: `${kindColor}20`, color: kindColor }}
-          >
-            {place.kind}
-          </Badge>
+          <KindBadge kind={place.kind} size="sm" />
         </div>
       </div>
     </div>

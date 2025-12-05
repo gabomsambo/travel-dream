@@ -1,4 +1,4 @@
-import { MoreVertical, Check, X, Edit, Merge, MapPin, Calendar, Eye, Trash2 } from "lucide-react"
+import { MoreVertical, Check, X, Edit, MapPin, Calendar, Eye, Trash2 } from "lucide-react"
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/adapters/card"
 import { Badge } from "@/components/adapters/badge"
 import { Button } from "@/components/adapters/button"
@@ -20,7 +20,6 @@ interface PlaceCardProps {
   onConfirm?: (placeId: string) => void
   onArchive?: (placeId: string) => void
   onEdit?: (placeId: string) => void
-  onMerge?: (placeId: string) => void
   onView?: (placeId: string) => void
 }
 
@@ -37,7 +36,6 @@ export function PlaceCard({
   onConfirm,
   onArchive,
   onEdit,
-  onMerge,
   onView
 }: PlaceCardProps) {
   const handleCardClick = (e: React.MouseEvent) => {
@@ -272,17 +270,6 @@ export function PlaceCard({
           >
             <Edit className="mr-1 h-3 w-3" />
             Continue to Edit
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={(e) => {
-              e.stopPropagation()
-              onMerge?.(place.id)
-            }}
-          >
-            <Merge className="mr-1 h-3 w-3" />
-            Merge
           </Button>
           <Button
             size="sm"

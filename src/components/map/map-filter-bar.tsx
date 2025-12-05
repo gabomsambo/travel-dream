@@ -1,10 +1,9 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search, X, Maximize2, Eye, EyeOff } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -14,9 +13,9 @@ import {
 } from '@/components/ui/select'
 import { useMapContext } from './map-context'
 import { useDebounce } from '@/hooks/use-debounce'
-import { PLACE_KINDS } from '@/types/database'
 import { getKindColor } from '@/lib/map-utils'
-import { useEffect } from 'react'
+import { KIND_ICONS } from '@/components/places/kind-selector'
+import type { PlaceKind } from '@/types/database'
 
 const KIND_GROUPS = [
   { label: 'Food & Drink', kinds: ['restaurant', 'cafe', 'bar'] },
@@ -146,21 +145,27 @@ export function MapFilterBar() {
 
       <div className="flex flex-wrap gap-1.5">
         {KIND_GROUPS.map(group => (
-          group.kinds.map(kind => (
-            <Badge
-              key={kind}
-              variant={filters.kinds.includes(kind) ? 'default' : 'outline'}
-              className="cursor-pointer text-xs"
-              style={
-                filters.kinds.includes(kind)
-                  ? { backgroundColor: getKindColor(kind), borderColor: getKindColor(kind) }
-                  : { borderColor: `${getKindColor(kind)}50`, color: getKindColor(kind) }
-              }
-              onClick={() => toggleKind(kind)}
-            >
-              {kind}
-            </Badge>
-          ))
+          group.kinds.map(kind => {
+            const IconComponent = KIND_ICONS[kind as PlaceKind]
+            const isSelected = filters.kinds.includes(kind)
+            const color = getKindColor(kind)
+
+            return (
+              <button
+                key={kind}
+                onClick={() => toggleKind(kind)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors cursor-pointer border"
+                style={
+                  isSelected
+                    ? { backgroundColor: color, borderColor: color, color: 'white' }
+                    : { backgroundColor: `${color}15`, borderColor: `${color}40`, color: color }
+                }
+              >
+                {IconComponent && <IconComponent size={12} weight={isSelected ? 'fill' : 'regular'} />}
+                <span className="capitalize">{kind}</span>
+              </button>
+            )
+          })
         ))}
       </div>
 

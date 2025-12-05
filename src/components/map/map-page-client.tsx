@@ -7,6 +7,7 @@ import { MapPlaceList } from './map-place-list'
 import { MapFilterBar } from './map-filter-bar'
 import { MapPlaceDetails } from './map-place-details'
 import { MapDayOverlay } from './map-day-overlay'
+import { useIsDesktop } from '@/hooks/use-media-query'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -38,34 +39,47 @@ function MapRightPanel() {
   )
 }
 
+function MapLayout() {
+  const isDesktop = useIsDesktop()
+
+  if (isDesktop) {
+    return (
+      <div className="flex-1 overflow-hidden">
+        <ResizablePanelGroup direction="horizontal">
+          <ResizablePanel defaultSize={70} minSize={40}>
+            <div className="h-full">
+              <MapWrapper />
+            </div>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
+            <div className="h-full border-l">
+              <MapRightPanel />
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="h-1/2 border-b">
+        <MapRightPanel />
+      </div>
+      <div className="h-1/2">
+        <MapWrapper />
+      </div>
+    </div>
+  )
+}
+
 export function MapPageClient({ places, collections }: MapPageClientProps) {
   return (
     <MapProvider initialPlaces={places} collections={collections}>
-      <div className="h-[calc(100vh-4rem)] flex flex-col">
-        <div className="flex-1 overflow-hidden lg:block hidden">
-          <ResizablePanelGroup direction="horizontal">
-            <ResizablePanel defaultSize={70} minSize={40}>
-              <div className="h-full">
-                <MapWrapper />
-              </div>
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
-              <div className="h-full border-l">
-                <MapRightPanel />
-              </div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        </div>
-
-        <div className="flex-1 flex flex-col lg:hidden overflow-hidden">
-          <div className="h-1/2 border-b">
-            <MapRightPanel />
-          </div>
-          <div className="h-1/2">
-            <MapWrapper />
-          </div>
-        </div>
+      {/* Negative margins cancel out the parent p-6 padding for full-bleed map */}
+      <div className="-m-6 h-[calc(100vh-4rem)] flex flex-col">
+        <MapLayout />
       </div>
     </MapProvider>
   )

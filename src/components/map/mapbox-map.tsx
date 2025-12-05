@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useCallback, useMemo, useEffect, useState } from 'react'
+import { useCallback, useMemo, useEffect, useState, useRef } from 'react'
 import Map, {
   Source,
   Layer,
@@ -74,7 +74,7 @@ export function MapboxMap() {
     selectPlace,
     hoverPlace,
     scrollToPlace,
-    flyTo
+    setMapRef
   } = useMapContext()
 
   const mapRef = useRef<MapRef>(null)
@@ -273,6 +273,12 @@ export function MapboxMap() {
     })
   }, [hoveredPlaceId, geojsonData])
 
+  const onLoad = useCallback(() => {
+    if (mapRef.current) {
+      setMapRef(mapRef.current)
+    }
+  }, [setMapRef])
+
   return (
     <Map
       ref={mapRef}
@@ -285,6 +291,7 @@ export function MapboxMap() {
       }}
       style={{ width: '100%', height: '100%' }}
       mapStyle="mapbox://styles/mapbox/light-v11"
+      onLoad={onLoad}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}

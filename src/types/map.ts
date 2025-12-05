@@ -62,7 +62,7 @@ export interface MapContextValue {
   updateFilters: (filters: Partial<MapFilters>) => void
   fitBounds: () => void
   flyTo: (lng: number, lat: number) => void
-  mapRef: React.RefObject<mapboxgl.Map | null> | null
+  setMapRef: (ref: any) => void
   listRef: React.RefObject<HTMLDivElement> | null
   scrollToPlace: (id: string) => void
 }

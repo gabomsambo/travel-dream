@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { ArrowLeft, ExternalLink, MapPin, Clock, Globe, Phone, Mail } from 'lucide-react'
+import { ArrowLeft, ExternalLink, MapPin, Clock, Globe, Phone, Mail, Navigation } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,7 +12,7 @@ import { getKindColor } from '@/lib/map-utils'
 import type { PlaceWithRelations } from '@/types/database'
 
 export function MapPlaceDetails() {
-  const { selectedPlaceId, selectPlace } = useMapContext()
+  const { selectedPlaceId, selectPlace, flyTo } = useMapContext()
   const [place, setPlace] = useState<PlaceWithRelations | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -44,6 +44,13 @@ export function MapPlaceDetails() {
     selectPlace(null)
   }
 
+  const handleGoToPlace = () => {
+    if (place?.coords && typeof place.coords === 'object' && 'lat' in place.coords) {
+      const coords = place.coords as { lat: number; lon: number }
+      flyTo(coords.lon, coords.lat)
+    }
+  }
+
   if (!selectedPlaceId) return null
 
   const kindColor = place ? getKindColor(place.kind) : '#64748b'
@@ -61,12 +68,25 @@ export function MapPlaceDetails() {
           Back to list
         </Button>
         {place && (
-          <Link href={`/place/${place.id}`}>
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ExternalLink className="h-4 w-4" />
-              Full view
-            </Button>
-          </Link>
+          <div className="flex items-center gap-1">
+            {place.coords && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleGoToPlace}
+                className="gap-2"
+              >
+                <Navigation className="h-4 w-4" />
+                Go
+              </Button>
+            )}
+            <Link href={`/place/${place.id}`}>
+              <Button variant="ghost" size="sm" className="gap-2">
+                <ExternalLink className="h-4 w-4" />
+                Full view
+              </Button>
+            </Link>
+          </div>
         )}
       </div>
 

@@ -136,6 +136,10 @@ export function MapProvider({ children, initialPlaces, collections }: MapProvide
     }
   }, [])
 
+  const setMapRef = useCallback((ref: MapRef | null) => {
+    mapRef.current = ref
+  }, [])
+
   const scrollToPlace = useCallback((id: string) => {
     const index = placeIndexMap.current.get(id)
     if (index !== undefined && listRef.current) {
@@ -158,7 +162,7 @@ export function MapProvider({ children, initialPlaces, collections }: MapProvide
     updateFilters,
     fitBounds,
     flyTo,
-    mapRef: mapRef as React.RefObject<mapboxgl.Map | null>,
+    setMapRef,
     listRef,
     scrollToPlace
   }

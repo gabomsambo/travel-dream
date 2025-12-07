@@ -1,0 +1,46 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" fill="white"/>
+  
+  <!-- Table -->
+  <path d="M50 450 L462 450" stroke="black" stroke-width="12" stroke-linecap="round"/>
+  
+  <!-- Bowl -->
+  <path d="M156 350 C156 350 180 430 256 430 C332 430 356 350 356 350 L156 350Z" stroke="black" stroke-width="12" stroke-linejoin="round" fill="white"/>
+  
+  <!-- Noodles (Squiggly mess) -->
+  <path d="M180 340 Q200 300 220 340 T260 340 T300 340" stroke="black" stroke-width="8" stroke-linecap="round" fill="none"/>
+  <path d="M190 330 Q210 290 230 330 T270 330" stroke="black" stroke-width="8" stroke-linecap="round" fill="none"/>
+  <path d="M256 330 Q270 300 290 330" stroke="black" stroke-width="8" stroke-linecap="round" fill="none"/>
+  
+  <!-- Stick Figure Body -->
+  <path d="M256 300 L256 200" stroke="black" stroke-width="12" stroke-linecap="round"/>
+  
+  <!-- Head -->
+  <circle cx="256" cy="150" r="50" stroke="black" stroke-width="12" fill="white"/>
+  <!-- Eyes -->
+  <circle cx="240" cy="140" r="5" fill="black"/>
+  <circle cx="272" cy="140" r="5" fill="black"/>
+  <!-- Mouth (Happy open) -->
+  <path d="M240 160 Q256 180 272 160" stroke="black" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Arms -->
+  <!-- Left Arm holding Fork -->
+  <path d="M256 220 Q200 220 180 280" stroke="black" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <!-- Fork handle -->
+  <path d="M180 280 L180 310" stroke="black" stroke-width="8" stroke-linecap="round"/>
+  <!-- Fork tines -->
+  <path d="M170 310 L190 310 M175 310 L175 325 M180 310 L180 325 M185 310 L185 325" stroke="black" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Right Arm holding Spoon -->
+  <path d="M256 220 Q312 220 332 280" stroke="black" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <!-- Spoon -->
+  <path d="M332 280 L332 320" stroke="black" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="332" cy="325" r="12" stroke="black" stroke-width="6" fill="white"/>
+
+  <!-- Steam / Smell lines -->
+  <path d="M220 100 Q230 80 220 60" stroke="black" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+  <path d="M256 90 Q266 70 256 50" stroke="black" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+  <path d="M290 100 Q300 80 290 60" stroke="black" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+
+</svg>

@@ -52,6 +52,20 @@ const config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        landing: {
+          background: '#FFFCF5',
+          surface: '#F2EFE9',
+          primary: '#1A1A1A',
+          secondary: '#5A5A5A',
+          accent: '#0077B6',
+          highlight: '#FFB703',
+          teal: '#2A9D8F',
+          danger: '#E63946',
+        },
+      },
+      fontFamily: {
+        heading: ['var(--font-heading)', 'sans-serif'],
+        body: ['var(--font-body)', 'sans-serif'],
       },
       borderRadius: {
         lg: '1rem',
@@ -64,6 +78,8 @@ const config = {
         sm: '0 1px 2px rgba(0,0,0,.05)',
         md: '0 6px 18px rgba(0,0,0,.08)',
         lg: '0 12px 28px rgba(0,0,0,.12)',
+        glass: '0 4px 30px rgba(0, 0, 0, 0.1)',
+        neon: '0 0 20px rgba(0, 119, 182, 0.5)',
       },
       maxWidth: {
         container: '1400px',
@@ -77,10 +93,15 @@ const config = {
           from: { height: 'var(--radix-accordion-content-height)' },
           to: { height: '0' },
         },
+        marquee: {
+          '0%': { transform: 'translateX(0%)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
+        marquee: 'marquee 40s linear infinite',
       },
     },
   },

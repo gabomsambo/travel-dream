@@ -555,7 +555,7 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
       <PlaceDetailsDialogEnhanced
         open={selectedPlace !== null}
         onOpenChange={(open) => !open && setSelectedPlace(null)}
-        place={selectedPlace || undefined}
+        placeId={selectedPlace?.id || null}
       />
 
       <AlertDialog open={restoreDialogOpen} onOpenChange={setRestoreDialogOpen}>

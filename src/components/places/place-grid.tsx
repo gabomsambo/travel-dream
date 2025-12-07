@@ -114,7 +114,6 @@ export function PlaceGrid({
           onConfirm={onConfirm}
           onArchive={onArchive}
           onEdit={onEdit}
-          onMerge={onMerge}
           onView={onView}
           emptyMessage={emptyMessage}
         />
@@ -140,7 +139,6 @@ export function PlaceGrid({
           onConfirm={onConfirm}
           onArchive={onArchive}
           onEdit={onEdit}
-          onMerge={onMerge}
           onView={onView}
         />
       ))}

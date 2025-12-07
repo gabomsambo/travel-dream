@@ -1,6 +1,6 @@
 "use client"
 import { MapPin, Star, DollarSign, Calendar, ExternalLink, Heart, Archive, Trash2 } from "lucide-react"
-import type { Place } from "@/mocks/types"
+import type { Place } from "@/types/database"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,18 +17,13 @@ interface PlaceDetailsDialogProps {
 export function PlaceDetailsDialog({ place, open, onOpenChange }: PlaceDetailsDialogProps) {
   if (!place) return null
 
-  const priceSymbols = place.priceLevel ? "$".repeat(place.priceLevel) : null
+  const priceSymbols = place.price_level ?? null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] p-0">
         <ScrollArea className="max-h-[90vh]">
-          {/* Cover Image */}
-          {place.coverUrl && (
-            <div className="relative aspect-[21/9] overflow-hidden">
-              <img src={place.coverUrl || "/placeholder.svg"} alt={place.name} className="h-full w-full object-cover" />
-            </div>
-          )}
+          {/* Cover Image Placeholder */}
 
           <div className="p-6 space-y-6">
             {/* Header */}
@@ -49,10 +44,10 @@ export function PlaceDetailsDialog({ place, open, onOpenChange }: PlaceDetailsDi
 
             {/* Meta Info */}
             <div className="flex flex-wrap items-center gap-4 text-sm">
-              {place.rating && (
+              {place.ratingSelf && place.ratingSelf > 0 && (
                 <div className="flex items-center gap-1.5">
                   <Star className="h-4 w-4 fill-accent text-accent" />
-                  <span className="font-medium">{place.rating}</span>
+                  <span className="font-medium">{place.ratingSelf}</span>
                 </div>
               )}
               {priceSymbols && (
@@ -64,7 +59,7 @@ export function PlaceDetailsDialog({ place, open, onOpenChange }: PlaceDetailsDi
               {place.createdAt && (
                 <div className="flex items-center gap-1.5 text-muted-foreground">
                   <Calendar className="h-4 w-4" />
-                  <span>Added {place.createdAt.toLocaleDateString()}</span>
+                  <span>Added {new Date(place.createdAt).toLocaleDateString()}</span>
                 </div>
               )}
             </div>
@@ -90,11 +85,11 @@ export function PlaceDetailsDialog({ place, open, onOpenChange }: PlaceDetailsDi
                   </div>
                 )}
 
-                {place.coordinates && (
+                {place.coords && (
                   <div className="space-y-2">
                     <h4 className="font-semibold text-sm">Location</h4>
                     <p className="text-sm text-muted-foreground">
-                      {place.coordinates.lat.toFixed(4)}, {place.coordinates.lng.toFixed(4)}
+                      {place.coords.lat.toFixed(4)}, {place.coords.lon.toFixed(4)}
                     </p>
                   </div>
                 )}
@@ -120,7 +115,7 @@ export function PlaceDetailsDialog({ place, open, onOpenChange }: PlaceDetailsDi
                   <div className="space-y-2">
                     <h4 className="font-semibold text-sm">Vibes</h4>
                     <div className="flex flex-wrap gap-2">
-                      {place.vibes.map((vibe) => (
+                      {place.vibes.map((vibe: string) => (
                         <Badge key={vibe} variant="secondary" className="capitalize">
                           {vibe}
                         </Badge>
@@ -133,7 +128,7 @@ export function PlaceDetailsDialog({ place, open, onOpenChange }: PlaceDetailsDi
                   <div className="space-y-2">
                     <h4 className="font-semibold text-sm">Tags</h4>
                     <div className="flex flex-wrap gap-2">
-                      {place.tags.map((tag) => (
+                      {place.tags.map((tag: string) => (
                         <Badge key={tag} variant="outline" className="capitalize">
                           {tag}
                         </Badge>

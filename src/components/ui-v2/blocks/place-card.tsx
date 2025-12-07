@@ -22,7 +22,7 @@ export function PlaceCard({ place, onClick, className }: PlaceCardProps) {
     setIsFavorited(!isFavorited)
   }
 
-  const priceSymbols = place.priceLevel ? "$".repeat(place.priceLevel) : null
+  const priceSymbols = place.price_level ?? null
 
   return (
     <Card
@@ -31,17 +31,9 @@ export function PlaceCard({ place, onClick, className }: PlaceCardProps) {
     >
       {/* Cover Image */}
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-        {place.coverUrl ? (
-          <img
-            src={place.coverUrl || "/placeholder.svg"}
-            alt={place.name}
-            className="h-full w-full object-cover transition-transform group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <MapPin className="h-12 w-12 text-muted-foreground/30" />
-          </div>
-        )}
+        <div className="flex h-full w-full items-center justify-center">
+          <MapPin className="h-12 w-12 text-muted-foreground/30" />
+        </div>
 
         {/* Favorite Button */}
         <Button
@@ -104,10 +96,10 @@ export function PlaceCard({ place, onClick, className }: PlaceCardProps) {
         {/* Footer Meta */}
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-3 text-sm">
-            {place.rating && (
+            {place.ratingSelf && place.ratingSelf > 0 && (
               <div className="flex items-center gap-1">
                 <Star className="h-3.5 w-3.5 fill-accent text-accent" />
-                <span className="font-medium">{place.rating}</span>
+                <span className="font-medium">{place.ratingSelf}</span>
               </div>
             )}
             {priceSymbols && (

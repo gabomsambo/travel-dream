@@ -337,7 +337,7 @@ export async function getDayPlaces(
     const placeMap = new Map(allPlaces.map(p => [p.id, p]));
     const orderedPlaces = placeIds
       .map(id => placeMap.get(id))
-      .filter((p): p is Place => p !== undefined);
+      .filter((p): p is NonNullable<typeof p> => p !== undefined) as Place[];
 
     if (lockedPlaceIds && lockedPlaceIds.length > 0) {
       return orderedPlaces.map(p => ({
@@ -663,6 +663,7 @@ export async function getSourcesWithPlaces(sourceIds: string[]): Promise<Array<S
         admin: places.admin,
         coords: places.coords,
         address: places.address,
+        googlePlaceId: places.googlePlaceId,
         altNames: places.altNames,
         tags: places.tags,
         vibes: places.vibes,

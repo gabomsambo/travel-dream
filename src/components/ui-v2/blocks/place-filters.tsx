@@ -10,7 +10,7 @@ import { Label } from "@/components/ui-v2/label"
 import { Separator } from "@/components/ui-v2/separator"
 import { Badge } from "@/components/ui-v2/badge"
 import { ScrollArea } from "@/components/ui-v2/scroll-area"
-import { useMobile } from "@/components/ui-v2/use-mobile"
+import { useIsMobile } from "@/components/ui-v2/use-mobile"
 
 export interface PlaceFilters {
   kinds: PlaceKind[]
@@ -70,7 +70,7 @@ const commonVibes = [
 ]
 
 export function PlaceFiltersComponent({ filters, onChange }: PlaceFiltersProps) {
-  const isMobile = useMobile()
+  const isMobile = useIsMobile()
   const [open, setOpen] = React.useState(false)
 
   const toggleKind = (kind: PlaceKind) => {

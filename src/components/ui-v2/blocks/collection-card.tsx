@@ -13,7 +13,7 @@ interface CollectionCardProps {
 }
 
 export function CollectionCard({ collection, placeCount, onClick, className }: CollectionCardProps) {
-  const count = placeCount ?? collection.placeIds.length
+  const count = placeCount ?? 0
 
   return (
     <Card
@@ -22,9 +22,9 @@ export function CollectionCard({ collection, placeCount, onClick, className }: C
     >
       {/* Cover Image */}
       <div className="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-primary/20 via-accent/10 to-secondary">
-        {collection.coverUrl ? (
+        {collection.coverImageUrl ? (
           <img
-            src={collection.coverUrl || "/placeholder.svg"}
+            src={collection.coverImageUrl || "/placeholder.svg"}
             alt={collection.name}
             className="h-full w-full object-cover transition-transform group-hover:scale-105"
           />
@@ -50,7 +50,7 @@ export function CollectionCard({ collection, placeCount, onClick, className }: C
         )}
 
         {collection.createdAt && (
-          <p className="text-xs text-muted-foreground">Created {collection.createdAt.toLocaleDateString()}</p>
+          <p className="text-xs text-muted-foreground">Created {new Date(collection.createdAt).toLocaleDateString()}</p>
         )}
       </div>
     </Card>

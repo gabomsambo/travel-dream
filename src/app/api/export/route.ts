@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       ? Buffer.from(result.buffer, 'utf-8')
       : result.buffer;
 
-    return new Response(buffer, {
+    return new Response(new Uint8Array(buffer), {
       headers: {
         'Content-Type': result.mimeType,
         'Content-Disposition': `attachment; filename="${result.filename}"`

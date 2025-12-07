@@ -37,6 +37,9 @@
   ],
   "exclude": [
     "node_modules",
-    "ui-sandbox"
+    "ui-sandbox",
+    "scripts",
+    "Travel_Dreams_Landing_Page",
+    "v0_update"
   ]
 }

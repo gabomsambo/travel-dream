@@ -109,3 +109,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Landing page utilities */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

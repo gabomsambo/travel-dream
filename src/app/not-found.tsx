@@ -1,3 +1,5 @@
+'use client'
+
 import Link from 'next/link'
 import { Button } from "@/components/adapters/button"
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/adapters/card"

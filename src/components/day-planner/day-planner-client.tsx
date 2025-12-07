@@ -319,8 +319,8 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
   const totalStops = days.reduce((sum, d) => sum + d.placeIds.length, 0)
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
+    <div className="-mx-6 -mt-8 min-h-screen bg-background">
+      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky -top-6 z-10">
         <div className="container flex h-14 items-center gap-4">
           <Button variant="ghost" size="sm" onClick={() => window.history.back()}>
             <ArrowLeft className="h-4 w-4 mr-2" />

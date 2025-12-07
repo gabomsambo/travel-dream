@@ -16,6 +16,7 @@ const UpdateCollectionSchema = z.object({
     minRating: z.number().optional(),
     hasCoords: z.boolean().optional(),
   }).nullable().optional(),
+  coverImageUrl: z.string().nullable().optional(),
 });
 
 export async function GET(

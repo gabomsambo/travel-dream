@@ -10,7 +10,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { PlaceFiltersSidebar } from "@/components/library-v2/place-filters-sidebar"
 import { EmptyState } from "@/components/library-v2/empty-state"
 import { PlaceListView } from "@/components/library/place-list-view"
-import { PlaceMapView } from "@/components/library/place-map-view"
 import { LibraryViewSwitcher } from "@/components/library/library-view-switcher"
 import { LibrarySortControls } from "@/components/library/library-sort-controls"
 import { ActiveFilterChips } from "@/components/library/active-filter-chips"
@@ -79,8 +78,8 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
   const [hasPhotosOnly, setHasPhotosOnly] = useState(
     searchParams.get('hasPhotosOnly') === 'true'
   )
-  const [view, setView] = useState<'grid' | 'list' | 'map'>(
-    (searchParams.get('view') as 'grid' | 'list' | 'map') || preferences.defaultView
+  const [view, setView] = useState<'grid' | 'list'>(
+    (searchParams.get('view') as 'grid' | 'list') || preferences.defaultView
   )
   const [sort, setSort] = useState(searchParams.get('sort') || 'date-newest')
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
@@ -544,13 +543,6 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
 
               {view === 'list' && (
                 <PlaceListView
-                  places={sortedPlaces}
-                  onView={setSelectedPlace}
-                />
-              )}
-
-              {view === 'map' && (
-                <PlaceMapView
                   places={sortedPlaces}
                   onView={setSelectedPlace}
                 />

@@ -1,12 +1,12 @@
 "use client"
 
-import { Grid3x3, List, Map } from "lucide-react"
+import { Grid3x3, List } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import { cn } from "@/lib/utils"
 
 export interface LibraryViewSwitcherProps {
-  view: 'grid' | 'list' | 'map'
-  onViewChange: (view: 'grid' | 'list' | 'map') => void
+  view: 'grid' | 'list'
+  onViewChange: (view: 'grid' | 'list') => void
   className?: string
 }
 
@@ -34,15 +34,6 @@ export function LibraryViewSwitcher({
       >
         <List className="h-4 w-4" />
         <span className="hidden sm:inline">List</span>
-      </Button>
-      <Button
-        variant={view === 'map' ? 'default' : 'ghost'}
-        size="sm"
-        onClick={() => onViewChange('map')}
-        className="gap-2"
-      >
-        <Map className="h-4 w-4" />
-        <span className="hidden sm:inline">Map</span>
       </Button>
     </div>
   )

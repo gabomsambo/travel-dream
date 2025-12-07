@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
-import { Download, Trash2, Keyboard, Sun, Moon, Laptop, Grid3x3, List, Map, Sparkles } from 'lucide-react'
+import { Download, Trash2, Keyboard, Sun, Moon, Laptop, Grid3x3, List, Sparkles } from 'lucide-react'
 import { useLocalStorage } from '@/hooks/use-local-storage'
 import { UserPreferences, DEFAULT_PREFERENCES } from '@/types/user-preferences'
 import { Button } from "@/components/adapters/button"
@@ -163,7 +163,7 @@ export function SettingsClient() {
             <Label>Default Library View</Label>
             <Select
               value={preferences.defaultView}
-              onValueChange={(value: 'grid' | 'list' | 'map') =>
+              onValueChange={(value: 'grid' | 'list') =>
                 setPreferences({ ...preferences, defaultView: value })
               }
             >
@@ -181,12 +181,6 @@ export function SettingsClient() {
                   <div className="flex items-center gap-2">
                     <List className="h-4 w-4" />
                     <span>List</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="map">
-                  <div className="flex items-center gap-2">
-                    <Map className="h-4 w-4" />
-                    <span>Map</span>
                   </div>
                 </SelectItem>
               </SelectContent>

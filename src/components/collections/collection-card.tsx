@@ -1,6 +1,7 @@
 'use client';
 
-import { FolderHeart, MapPin, Trash2, MoreVertical } from 'lucide-react';
+import { useState } from 'react';
+import { FolderHeart, MapPin, Trash2, MoreVertical, ImageIcon, X } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,25 +10,31 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from '@/lib/utils';
 import type { Collection } from '@/types/database';
 import { useRouter } from 'next/navigation';
+import { CoverImagePickerDialog } from './cover-image-picker-dialog';
 
 interface CollectionCardProps {
   collection: Collection & { places?: Array<{ coverUrl?: string | null }> };
   placeCount?: number;
   onDelete?: (collectionId: string) => void;
+  onCoverChange?: (collectionId: string, coverUrl: string | null) => void;
 }
 
 export function CollectionCard({
   collection,
   placeCount = 0,
   onDelete,
+  onCoverChange,
 }: CollectionCardProps) {
   const router = useRouter();
+  const [showCoverPicker, setShowCoverPicker] = useState(false);
 
-  const coverUrl = collection.places?.[0]?.coverUrl;
+  // Priority: custom cover > first place cover > null (icon fallback)
+  const coverUrl = collection.coverImageUrl || collection.places?.[0]?.coverUrl;
 
   const handleCardClick = () => {
     router.push(`/collections/${collection.id}`);
@@ -81,6 +88,27 @@ export function CollectionCard({
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
+                    setShowCoverPicker(true);
+                  }}
+                >
+                  <ImageIcon className="h-4 w-4 mr-2" />
+                  Add cover picture
+                </DropdownMenuItem>
+                {collection.coverImageUrl && (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCoverChange?.(collection.id, null);
+                    }}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Remove cover
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
                     onDelete(collection.id);
                   }}
                   className="text-destructive"
@@ -112,6 +140,14 @@ export function CollectionCard({
           })}
         </p>
       </div>
+
+      {/* Cover Image Picker Dialog */}
+      <CoverImagePickerDialog
+        collectionId={collection.id}
+        open={showCoverPicker}
+        onOpenChange={setShowCoverPicker}
+        onCoverChange={(coverUrl) => onCoverChange?.(collection.id, coverUrl)}
+      />
     </Card>
   );
 }

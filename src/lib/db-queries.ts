@@ -906,6 +906,74 @@ export async function getAttachmentsForPlace(placeId: string) {
   }, 'getAttachmentsForPlace');
 }
 
+export async function getCollectionAvailableImages(
+  collectionId: string,
+  source: 'collection' | 'all'
+): Promise<Array<{
+  id: string;
+  uri: string;
+  thumbnailUri: string | null;
+  placeId: string;
+  placeName: string;
+}>> {
+  return withErrorHandling(async () => {
+    const { attachments, placesToCollections } = await import('@/db/schema');
+    const { eq, and, inArray } = await import('drizzle-orm');
+
+    if (source === 'collection') {
+      // Get place IDs in this collection
+      const collectionPlaces = await db
+        .select({ placeId: placesToCollections.placeId })
+        .from(placesToCollections)
+        .where(eq(placesToCollections.collectionId, collectionId));
+
+      const placeIds = collectionPlaces.map(cp => cp.placeId);
+
+      if (placeIds.length === 0) {
+        return [];
+      }
+
+      // Get all photo attachments for those places
+      const results = await db
+        .select({
+          id: attachments.id,
+          uri: attachments.uri,
+          thumbnailUri: attachments.thumbnailUri,
+          placeId: attachments.placeId,
+          placeName: places.name,
+        })
+        .from(attachments)
+        .innerJoin(places, eq(attachments.placeId, places.id))
+        .where(
+          and(
+            eq(attachments.type, 'photo'),
+            inArray(attachments.placeId, placeIds)
+          )
+        )
+        .orderBy(desc(attachments.createdAt));
+
+      return results;
+    } else {
+      // Get all photo attachments from all places
+      const results = await db
+        .select({
+          id: attachments.id,
+          uri: attachments.uri,
+          thumbnailUri: attachments.thumbnailUri,
+          placeId: attachments.placeId,
+          placeName: places.name,
+        })
+        .from(attachments)
+        .innerJoin(places, eq(attachments.placeId, places.id))
+        .where(eq(attachments.type, 'photo'))
+        .orderBy(desc(attachments.createdAt))
+        .limit(100); // Limit to 100 images for performance
+
+      return results;
+    }
+  }, 'getCollectionAvailableImages');
+}
+
 export async function getLinksForPlace(placeId: string) {
   return withErrorHandling(async () => {
     const { placeLinks } = await import('@/db/schema');

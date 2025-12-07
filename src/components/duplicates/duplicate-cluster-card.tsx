@@ -1,6 +1,7 @@
 'use client';
 
 import { Card } from '@/components/adapters/card';
+import { Checkbox } from '@/components/adapters/checkbox';
 import { DuplicateConfidenceBadge } from './duplicate-confidence-badge';
 import { DuplicateExpandedView } from './duplicate-expanded-view';
 import {
@@ -50,10 +51,20 @@ export function DuplicateClusterCard({
     <AccordionItem value={cluster.cluster_id} className="border-0">
       <Card
         className={cn(
-          'transition-all hover:shadow-md overflow-hidden',
+          'transition-all hover:shadow-md overflow-hidden relative group',
           selected && 'ring-2 ring-blue-500'
         )}
       >
+        <div
+          className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Checkbox
+            checked={selected}
+            onCheckedChange={onSelect}
+            className="bg-background shadow-sm"
+          />
+        </div>
         <AccordionTrigger
           className="p-4 w-full hover:no-underline [&>svg]:hidden"
           onClick={(e) => {

@@ -8,10 +8,11 @@ import type { Collection } from '@/types/database';
 interface CollectionsGridProps {
   collections: (Collection & { placeCount?: number; places?: Array<{ coverUrl?: string | null }> })[];
   onDelete?: (collectionId: string) => void;
+  onCoverChange?: (collectionId: string, coverUrl: string | null) => void;
   onCreateClick?: () => void;
 }
 
-export function CollectionsGrid({ collections, onDelete, onCreateClick }: CollectionsGridProps) {
+export function CollectionsGrid({ collections, onDelete, onCoverChange, onCreateClick }: CollectionsGridProps) {
   if (collections.length === 0) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -40,6 +41,7 @@ export function CollectionsGrid({ collections, onDelete, onCreateClick }: Collec
           collection={collection}
           placeCount={collection.placeCount || 0}
           onDelete={onDelete}
+          onCoverChange={onCoverChange}
         />
       ))}
     </div>

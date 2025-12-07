@@ -23,6 +23,9 @@ export const collections = sqliteTable('collections', {
     hasCoords?: boolean;
   }>(),
 
+  // Custom cover image URL (null = auto from first place, string = custom path)
+  coverImageUrl: text('cover_image_url'),
+
   // Transport mode for routing (drive or walk)
   transportMode: text('transport_mode').default('drive').notNull(),
 

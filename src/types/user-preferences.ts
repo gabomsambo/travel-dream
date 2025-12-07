@@ -1,6 +1,6 @@
 export interface UserPreferences {
   theme: 'light' | 'dark' | 'system'
-  defaultView: 'grid' | 'list' | 'map'
+  defaultView: 'grid' | 'list'
   cardDensity: 'compact' | 'comfortable'
   autoProcessUploads: boolean
   confidenceThreshold: number

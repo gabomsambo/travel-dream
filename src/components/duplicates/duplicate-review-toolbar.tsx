@@ -5,6 +5,7 @@ import { Button } from '@/components/adapters/button';
 
 interface DuplicateReviewToolbarProps {
   selectedCount: number;
+  totalCount: number;
   onMerge: () => void;
   onDismiss: () => void;
   onClear: () => void;
@@ -13,11 +14,14 @@ interface DuplicateReviewToolbarProps {
 
 export function DuplicateReviewToolbar({
   selectedCount,
+  totalCount,
   onMerge,
   onDismiss,
   onClear,
   isLoading = false,
 }: DuplicateReviewToolbarProps) {
+  const mergeLabel = selectedCount > 0 ? `Merge (${selectedCount})` : 'Merge All';
+  const dismissLabel = selectedCount > 0 ? `Dismiss (${selectedCount})` : 'Dismiss All';
   return (
     <div className="border-b p-4 flex items-center justify-between bg-background sticky top-0 z-10">
       <div className="flex items-center gap-4">
@@ -42,14 +46,14 @@ export function DuplicateReviewToolbar({
           variant="default"
           size="sm"
           onClick={onMerge}
-          disabled={selectedCount === 0 || isLoading}
+          disabled={totalCount === 0 || isLoading}
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 mr-1 animate-spin" />
           ) : (
             <Merge className="h-4 w-4 mr-1" />
           )}
-          Merge ({selectedCount})
+          {mergeLabel}
           <kbd className="ml-2 bg-primary-foreground/20 px-1.5 py-0.5 rounded text-xs font-mono hidden sm:inline">
             m
           </kbd>
@@ -58,10 +62,10 @@ export function DuplicateReviewToolbar({
           variant="outline"
           size="sm"
           onClick={onDismiss}
-          disabled={selectedCount === 0 || isLoading}
+          disabled={totalCount === 0 || isLoading}
         >
           <XCircle className="h-4 w-4 mr-1" />
-          Dismiss
+          {dismissLabel}
           <kbd className="ml-2 bg-muted px-1.5 py-0.5 rounded text-xs font-mono hidden sm:inline">
             d
           </kbd>

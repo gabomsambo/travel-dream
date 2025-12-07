@@ -1,30 +1,51 @@
 "use client"
 
-import { useState, useEffect, useTransition } from "react"
+import { useState, useEffect, useTransition, useMemo, useCallback, useRef } from "react"
 import { DndContext, type DragEndEvent, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core"
 import { arrayMove } from "@dnd-kit/sortable"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Plus, Calendar, Sparkles, Save } from "lucide-react"
+import { ArrowLeft, Plus, Sparkles, Save } from "lucide-react"
 import { toast } from "sonner"
 import { DayColumn } from "./day-column"
 import { UnscheduledList } from "./unscheduled-list"
-import { DayMap } from "./day-map"
 import { DayMetrics } from "./day-metrics"
 import { AutoCreateDaysDialog } from "./auto-create-days-dialog"
+import { useCollectionMapContextOptional } from "@/components/collections/collection-map-context"
+import { CollectionMapRenderer } from "@/components/collections/collection-map-renderer"
 import type { Collection, Place, DayBucket } from "@/types/database"
 
 interface DayPlannerClientProps {
   initialCollection: Collection & { places: Place[] }
 }
 
+function computeInitialUnscheduled(
+  collection: Collection & { places: Place[] }
+): string[] {
+  const savedUnscheduled = collection.unscheduledPlaceIds
+  const dayBuckets = collection.dayBuckets || []
+
+  // Get all place IDs that are already scheduled in days
+  const scheduledIds = new Set(
+    dayBuckets.flatMap((day) => day.placeIds || [])
+  )
+
+  // If we have saved unscheduled IDs with content, use them (filtered to exclude scheduled)
+  if (Array.isArray(savedUnscheduled) && savedUnscheduled.length > 0) {
+    return savedUnscheduled.filter(id => !scheduledIds.has(id))
+  }
+
+  // Otherwise, compute from all places minus scheduled
+  return collection.places
+    .map(p => p.id)
+    .filter(id => !scheduledIds.has(id))
+}
+
 export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
+  const mapContext = useCollectionMapContextOptional()
   const dayBuckets = Array.isArray(initialCollection.dayBuckets)
     ? initialCollection.dayBuckets
     : []
-  const unscheduledIds = Array.isArray(initialCollection.unscheduledPlaceIds)
-    && initialCollection.unscheduledPlaceIds.length > 0
-    ? initialCollection.unscheduledPlaceIds
-    : initialCollection.places.map(p => p.id)
+  const unscheduledIds = computeInitialUnscheduled(initialCollection)
 
   const [days, setDays] = useState<DayBucket[]>(dayBuckets)
   const [unscheduledPlaceIds, setUnscheduledPlaceIds] = useState<string[]>(unscheduledIds)
@@ -34,8 +55,11 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
   )
   const [showAutoCreate, setShowAutoCreate] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [hoveredPlaceId, setHoveredPlaceId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [isAltKeyPressed, setIsAltKeyPressed] = useState(false)
+
+  const hoveredPlaceId = mapContext?.hoveredPlaceId ?? null
+  const setHoveredPlaceId = mapContext?.hoverPlace ?? (() => {})
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -43,12 +67,28 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
     })
   )
 
-  const selectedDay = days.find((d) => d.id === selectedDayId)
-  const selectedDayPlaces = selectedDay
-    ? selectedDay.placeIds
-        .map(id => initialCollection.places.find(p => p.id === id))
-        .filter((p): p is Place => p !== undefined)
-    : []
+  const selectedDay = useMemo(
+    () => days.find((d) => d.id === selectedDayId),
+    [days, selectedDayId]
+  )
+
+  const selectedDayPlaces = useMemo(() => {
+    if (!selectedDay) return []
+    return selectedDay.placeIds
+      .map(id => initialCollection.places.find(p => p.id === id))
+      .filter((p): p is Place => p !== undefined)
+  }, [selectedDay, initialCollection.places])
+
+  useEffect(() => {
+    if (mapContext && selectedDay) {
+      mapContext.updateMapView({
+        mode: 'day',
+        places: selectedDayPlaces,
+        transportMode,
+        dayNumber: selectedDay.dayNumber,
+      })
+    }
+  }, [selectedDay, selectedDayPlaces, transportMode, mapContext])
 
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -101,12 +141,28 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
     return () => clearTimeout(timer)
   }, [transportMode, initialCollection.id])
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey) setIsAltKeyPressed(true)
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!e.altKey) setIsAltKeyPressed(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over) return
 
     const activeId = active.id as string
     const overId = over.id as string
+    const isCopyMode = isAltKeyPressed
 
     const sourceDayId = days.find((d) => d.placeIds.includes(activeId))?.id
     const isFromUnscheduled = unscheduledPlaceIds.includes(activeId)
@@ -152,12 +208,19 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
       const destDay = days.find((d) => d.id === destDayId)
       if (!destDay) return
 
-      if (isFromUnscheduled) {
-        setUnscheduledPlaceIds(unscheduledPlaceIds.filter((id) => id !== activeId))
-      } else if (sourceDayId) {
-        setDays(
-          days.map((d) => (d.id === sourceDayId ? { ...d, placeIds: d.placeIds.filter((id) => id !== activeId) } : d))
-        )
+      if (destDay.placeIds.includes(activeId)) {
+        toast.error('Place already in this day')
+        return
+      }
+
+      if (!isCopyMode) {
+        if (isFromUnscheduled) {
+          setUnscheduledPlaceIds(unscheduledPlaceIds.filter((id) => id !== activeId))
+        } else if (sourceDayId) {
+          setDays(
+            days.map((d) => (d.id === sourceDayId ? { ...d, placeIds: d.placeIds.filter((id) => id !== activeId) } : d))
+          )
+        }
       }
 
       const destIndex = destDay.placeIds.indexOf(overId)
@@ -169,6 +232,10 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
       }
 
       setDays(days.map((d) => (d.id === destDayId ? { ...d, placeIds: newPlaceIds } : d)))
+
+      if (isCopyMode && sourceDayId) {
+        toast.success(`Copied to Day ${destDay.dayNumber}`)
+      }
     }
   }
 
@@ -202,6 +269,29 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
 
   const handleUpdateDay = (dayId: string, updates: Partial<DayBucket>) => {
     setDays(days.map(d => d.id === dayId ? { ...d, ...updates } : d))
+  }
+
+  const handleCopyPlaceToDay = (placeId: string, targetDayId: string) => {
+    const targetDay = days.find(d => d.id === targetDayId)
+    if (!targetDay) return
+
+    if (targetDay.placeIds.includes(placeId)) {
+      toast.error('Place already in this day')
+      return
+    }
+
+    setDays(days.map(d =>
+      d.id === targetDayId
+        ? { ...d, placeIds: [...d.placeIds, placeId] }
+        : d
+    ))
+    toast.success(`Copied to Day ${targetDay.dayNumber}`)
+  }
+
+  const handleRemovePlaceFromDay = (placeId: string) => {
+    if (!unscheduledPlaceIds.includes(placeId)) {
+      setUnscheduledPlaceIds(prev => [...prev, placeId])
+    }
   }
 
   const handleAutoCreate = async (hoursPerDay: number) => {
@@ -294,6 +384,9 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
                     transportMode={transportMode}
                     hoveredPlaceId={hoveredPlaceId}
                     onPlaceHover={setHoveredPlaceId}
+                    allDays={days.map(d => ({ id: d.id, dayNumber: d.dayNumber }))}
+                    onCopyPlaceToDay={handleCopyPlaceToDay}
+                    onRemovePlaceFromDay={handleRemovePlaceFromDay}
                   />
                 )
               })}
@@ -308,16 +401,9 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
               />
             </div>
 
+            {/* Map (responsive - handles both desktop inline and mobile FAB+sheet) */}
             <div className="lg:col-span-1">
-              {selectedDay && (
-                <DayMap
-                  places={selectedDayPlaces}
-                  dayNumber={selectedDay.dayNumber}
-                  hoveredPlaceId={hoveredPlaceId}
-                  onPlaceHover={setHoveredPlaceId}
-                  transportMode={transportMode}
-                />
-              )}
+              <CollectionMapRenderer className="h-[500px] w-full rounded-lg overflow-hidden border sticky top-20" />
             </div>
           </div>
         </DndContext>

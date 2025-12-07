@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import dynamic from "next/dynamic"
-import { Upload, X, Image as ImageIcon } from "lucide-react"
+import { Upload, X, Image as ImageIcon, Star } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/adapters/button"
 import { Input } from "@/components/adapters/input"
 import { Label } from "@/components/adapters/label"
@@ -86,6 +87,26 @@ export function MediaTab({ place }: MediaTabProps) {
     }
   }
 
+  const handleSetCover = async (attachmentId: string) => {
+    try {
+      const response = await fetch(
+        `/api/places/${place.id}/attachments/${attachmentId}/primary`,
+        {
+          method: "PUT",
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error("Failed to set cover image")
+      }
+
+      toast.success("Set as cover image")
+      window.location.reload()
+    } catch (error) {
+      toast.error("Failed to set cover image")
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="border-2 border-dashed rounded-lg p-6">
@@ -136,37 +157,54 @@ export function MediaTab({ place }: MediaTabProps) {
 
       {photos.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {photos.map((photo, index) => (
-            <Card key={photo.id} className="overflow-hidden group relative">
-              <div
-                className="cursor-pointer hover:opacity-90 transition-opacity"
-                onClick={() => openLightbox(index)}
-              >
-                <img
-                  src={photo.thumbnailUri || photo.uri}
-                  alt={photo.caption || photo.filename}
-                  className="w-full h-48 object-cover"
-                />
-              </div>
-              {photo.caption && (
-                <div className="p-2 text-xs text-muted-foreground">
-                  {photo.caption}
+          {photos.map((photo, index) => {
+            const isPrimary = photo.isPrimary === 1
+            return (
+              <Card key={photo.id} className="overflow-hidden group relative">
+                <div
+                  className="cursor-pointer hover:opacity-90 transition-opacity"
+                  onClick={() => openLightbox(index)}
+                >
+                  <img
+                    src={photo.thumbnailUri || photo.uri}
+                    alt={photo.caption || photo.filename}
+                    className="w-full h-48 object-cover"
+                  />
                 </div>
-              )}
-              <Button
-                variant="destructive"
-                size="icon"
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100
-                  transition-opacity h-8 w-8"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleDelete(photo.id)
-                }}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </Card>
-          ))}
+                {photo.caption && (
+                  <div className="p-2 text-xs text-muted-foreground">
+                    {photo.caption}
+                  </div>
+                )}
+                <Button
+                  variant={isPrimary ? "default" : "secondary"}
+                  size="icon"
+                  className={`absolute top-2 left-2 h-8 w-8 transition-opacity ${
+                    isPrimary ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (!isPrimary) handleSetCover(photo.id)
+                  }}
+                  title={isPrimary ? "Cover image" : "Set as cover"}
+                >
+                  <Star className={`h-4 w-4 ${isPrimary ? "fill-current" : ""}`} />
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100
+                    transition-opacity h-8 w-8"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDelete(photo.id)
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </Card>
+            )
+          })}
         </div>
       )}
 

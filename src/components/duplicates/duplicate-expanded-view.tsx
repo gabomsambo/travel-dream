@@ -108,18 +108,18 @@ export function DuplicateExpandedView({
 
               return (
                 <SelectItem key={place.id} value={place.id}>
-                  <div className="flex items-center gap-2">
-                    <span className="truncate max-w-[200px]">{place.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      ({score.score}% complete)
+                  <div className="flex items-center gap-2 min-w-0 w-full">
+                    <span className="truncate flex-1 min-w-0">{place.name}</span>
+                    <span className="text-xs text-muted-foreground flex-shrink-0">
+                      ({score.score}%)
                     </span>
                     {isRecommended && (
                       <Badge
                         variant="secondary"
-                        className="ml-1 h-5 px-1.5 text-[10px] bg-green-100 text-green-700"
+                        className="h-5 px-1.5 text-[10px] bg-green-100 text-green-700 flex-shrink-0"
                       >
                         <Star className="h-3 w-3 mr-0.5" />
-                        Recommended
+                        Rec
                       </Badge>
                     )}
                   </div>
@@ -174,15 +174,16 @@ export function DuplicateExpandedView({
             <Button
               onClick={() => onMergePair(selectedTargetId, activeTabPlaceId)}
               disabled={isLoading}
-              className="flex-1"
+              className="flex-1 min-w-0"
             >
-              <Merge className="h-4 w-4 mr-2" />
-              Merge These Two
+              <Merge className="h-4 w-4 mr-2 flex-shrink-0" />
+              <span className="truncate">Merge These Two</span>
             </Button>
             <Button
               variant="outline"
               onClick={onDismiss}
               disabled={isLoading}
+              className="flex-shrink-0"
             >
               <XCircle className="h-4 w-4 mr-2" />
               Not Duplicates

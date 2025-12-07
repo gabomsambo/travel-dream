@@ -167,6 +167,35 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
     setDeleteTimeout(null);
   };
 
+  const handleCoverChange = async (collectionId: string, coverUrl: string | null) => {
+    // Optimistic update
+    setCollections(prev => prev.map(c =>
+      c.id === collectionId ? { ...c, coverImageUrl: coverUrl } : c
+    ));
+
+    try {
+      if (coverUrl === null) {
+        // Remove cover
+        const response = await fetch(`/api/collections/${collectionId}/cover`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to remove cover');
+        }
+
+        toast.success('Cover image removed');
+      }
+      // Note: When coverUrl is set, the dialog already handles the API call
+      // and we just need to update local state here
+    } catch (error) {
+      console.error('Error updating cover:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to update cover');
+      // Revert on error by refreshing
+      router.refresh();
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
@@ -187,7 +216,12 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
       </div>
 
       {/* Collections Grid */}
-      <CollectionsGrid collections={sortedCollections} onDelete={handleDelete} onCreateClick={() => setCreateDialogOpen(true)} />
+      <CollectionsGrid
+        collections={sortedCollections}
+        onDelete={handleDelete}
+        onCoverChange={handleCoverChange}
+        onCreateClick={() => setCreateDialogOpen(true)}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

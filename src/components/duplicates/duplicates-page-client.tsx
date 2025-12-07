@@ -38,7 +38,7 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
   const [clusters, setOptimisticClusters] = useOptimistic(initialData, clusterReducer);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expandedClusterId, setExpandedClusterId] = useState<string | undefined>(undefined);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(-1);
   const [isLoading, setIsLoading] = useState(false);
 
   const toggleSelection = useCallback((clusterId: string) => {
@@ -215,9 +215,11 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
   }, [router]);
 
   const handleBulkMerge = useCallback(async () => {
-    const selectedClusters = clusters.filter(c => selected.has(c.cluster_id));
+    const clustersToMerge = selected.size > 0
+      ? clusters.filter(c => selected.has(c.cluster_id))
+      : clusters;
 
-    if (selectedClusters.length === 0) return;
+    if (clustersToMerge.length === 0) return;
 
     setIsLoading(true);
 
@@ -226,7 +228,7 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          clusters: selectedClusters.map(c => {
+          clusters: clustersToMerge.map(c => {
             const targetId = recommendMergeTarget(c.places);
             return {
               targetId,
@@ -256,18 +258,20 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
     } finally {
       setIsLoading(false);
     }
-  }, [clusters, selected, clearSelection, router]);
+  }, [clusters, selected.size, clearSelection, router]);
 
   const handleBulkDismiss = useCallback(async () => {
-    const selectedClusters = clusters.filter(c => selected.has(c.cluster_id));
+    const clustersToDismiss = selected.size > 0
+      ? clusters.filter(c => selected.has(c.cluster_id))
+      : clusters;
 
-    if (selectedClusters.length === 0) return;
+    if (clustersToDismiss.length === 0) return;
 
     setIsLoading(true);
 
-    // Collect all pairs from all selected clusters
+    // Collect all pairs from all clusters to dismiss
     const allPairs: Array<{ placeId1: string; placeId2: string }> = [];
-    for (const cluster of selectedClusters) {
+    for (const cluster of clustersToDismiss) {
       allPairs.push(...generatePairsFromCluster(cluster));
     }
 
@@ -282,7 +286,7 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
         throw new Error('Failed to dismiss clusters');
       }
 
-      toast.success(`Dismissed ${selectedClusters.length} groups`);
+      toast.success(`Dismissed ${clustersToDismiss.length} groups`);
       clearSelection();
       router.refresh();
     } catch (error) {
@@ -291,7 +295,7 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
     } finally {
       setIsLoading(false);
     }
-  }, [clusters, selected, generatePairsFromCluster, clearSelection, router]);
+  }, [clusters, selected.size, generatePairsFromCluster, clearSelection, router]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -332,7 +336,7 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
           if (expandedClusterId) {
             const cluster = clusters.find(c => c.cluster_id === expandedClusterId);
             if (cluster) handleMerge(cluster);
-          } else if (selected.size > 0) {
+          } else if (clusters.length > 0) {
             handleBulkMerge();
           }
           break;
@@ -341,7 +345,7 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
           if (expandedClusterId) {
             const cluster = clusters.find(c => c.cluster_id === expandedClusterId);
             if (cluster) handleDismiss(cluster);
-          } else if (selected.size > 0) {
+          } else if (clusters.length > 0) {
             handleBulkDismiss();
           }
           break;
@@ -378,6 +382,7 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
     <div className="flex flex-col h-full">
       <DuplicateReviewToolbar
         selectedCount={selected.size}
+        totalCount={clusters.length}
         onMerge={handleBulkMerge}
         onDismiss={handleBulkDismiss}
         onClear={clearSelection}

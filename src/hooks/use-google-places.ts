@@ -20,6 +20,7 @@ export interface LocationData {
   admin: string | null;
   country: string | null;
   coords: { lat: number; lon: number };
+  hours: Record<string, string> | null;
 }
 
 interface UseGooglePlacesReturn {

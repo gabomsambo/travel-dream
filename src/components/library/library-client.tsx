@@ -14,7 +14,6 @@ import { LibraryViewSwitcher } from "./library-view-switcher"
 import { LibrarySortControls } from "./library-sort-controls"
 import { ActiveFilterChips } from "./active-filter-chips"
 import { PlaceListView } from "./place-list-view"
-import { PlaceMapView } from "./place-map-view"
 import { LibrarySearchBar } from "./library-search-bar"
 import { LibraryToolbar } from "./library-toolbar"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -71,8 +70,8 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   const [hasPhotosOnly, setHasPhotosOnly] = useState(
     searchParams.get('hasPhotosOnly') === 'true'
   )
-  const [view, setView] = useState<'grid' | 'list' | 'map'>(
-    (searchParams.get('view') as 'grid' | 'list' | 'map') || preferences.defaultView
+  const [view, setView] = useState<'grid' | 'list'>(
+    (searchParams.get('view') as 'grid' | 'list') || preferences.defaultView
   )
   const [sort, setSort] = useState(searchParams.get('sort') || 'date-newest')
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
@@ -757,12 +756,6 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
                 places={sortedPlaces}
                 onView={handleViewPlaceObject}
                 onDelete={handleDeletePlace}
-              />
-            )}
-            {view === 'map' && (
-              <PlaceMapView
-                places={sortedPlaces}
-                onView={handleViewPlaceObject}
               />
             )}
           </>

@@ -49,7 +49,7 @@ interface AddPlaceFormData {
   amenities: string[]
   website?: string
   phone?: string
-  hours?: string
+  hours?: Record<string, string>
   priceLevel?: string
   notes?: string
   bestTime?: string
@@ -146,6 +146,8 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
         admin: location.admin || '',
         country: location.country || '',
         coords: location.coords ? { lat: location.coords.lat, lon: location.coords.lon } : undefined,
+        // Auto-fill hours from Google Places if available
+        ...(location.hours ? { hours: location.hours } : {}),
       }))
     } else {
       setFormData(prev => ({
@@ -156,6 +158,7 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
         admin: '',
         country: '',
         coords: undefined,
+        hours: undefined,
       }))
     }
   }
@@ -209,7 +212,7 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
           amenities: formData.amenities.length > 0 ? formData.amenities : null,
           website: formData.website?.trim() || null,
           phone: formData.phone?.trim() || null,
-          hours: formData.hours?.trim() || null,
+          hours: formData.hours || null,
           price_level: formData.priceLevel || null,
           best_time: formData.bestTime?.trim() || null,
           notes: formData.notes?.trim() || null,

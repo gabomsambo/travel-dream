@@ -2,7 +2,14 @@
 
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { GripVertical, Lock, Unlock, X } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
+import { GripVertical, Lock, Unlock, X, MoreVertical, Copy } from "lucide-react"
 import type { Place } from "@/types/database"
 import { cn } from "@/lib/utils"
 import { useSortable } from "@dnd-kit/sortable"
@@ -16,6 +23,9 @@ interface StopItemProps {
   onRemove: () => void
   isHovered: boolean
   onHover: (placeId: string | null) => void
+  availableDays: Array<{ id: string; dayNumber: number }>
+  currentDayId: string
+  onCopyToDay: (targetDayId: string) => void
 }
 
 export function StopItem({
@@ -26,6 +36,9 @@ export function StopItem({
   onRemove,
   isHovered,
   onHover,
+  availableDays,
+  currentDayId,
+  onCopyToDay,
 }: StopItemProps) {
   const {
     attributes,
@@ -80,6 +93,48 @@ export function StopItem({
       </div>
 
       <div className="flex items-center gap-1 flex-shrink-0">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => e.stopPropagation()}
+              className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <MoreVertical className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {availableDays
+              .filter(day => day.id !== currentDayId)
+              .map(day => (
+                <DropdownMenuItem
+                  key={day.id}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCopyToDay(day.id)
+                  }}
+                >
+                  <Copy className="h-3 w-3 mr-2" />
+                  Copy to Day {day.dayNumber}
+                </DropdownMenuItem>
+              ))}
+            {availableDays.filter(day => day.id !== currentDayId).length === 0 && (
+              <DropdownMenuItem disabled>No other days available</DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove()
+              }}
+              variant="destructive"
+            >
+              <X className="h-3 w-3 mr-2" />
+              Remove from day
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           variant="ghost"
           size="icon"

@@ -27,6 +27,7 @@ export interface LocationPickerValue {
   admin?: string | null;
   country?: string | null;
   coords?: { lat: number; lon: number } | null;
+  hours?: Record<string, string> | null;
 }
 
 interface LocationPickerProps {

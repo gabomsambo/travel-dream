@@ -3,14 +3,15 @@
 import { useState, useOptimistic, startTransition, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ArrowLeft, Plus, Share2, Route, Save, Sparkles, Calendar } from 'lucide-react';
+import { ArrowLeft, Plus, Share2, Save, Sparkles, Calendar } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { CollectionStats } from './collection-stats';
 import { AddPlacesDialog } from './add-places-dialog';
 import { ShareDialog } from './share-dialog';
 import Link from 'next/link';
 import { TransportModeToggle } from './transport-mode-toggle';
-import { ItineraryMap } from './itinerary-map';
+import { useCollectionMapContextOptional } from './collection-map-context';
+import { CollectionMapRenderer } from './collection-map-renderer';
 import { optimizeCollectionRoute } from '@/lib/algorithms/tsp';
 import type { Collection, Place } from '@/types/database';
 import { toast } from 'sonner';
@@ -29,6 +30,7 @@ interface CollectionBuilderProps {
 
 export function CollectionBuilder({ initialCollection }: CollectionBuilderProps) {
   const router = useRouter();
+  const mapContext = useCollectionMapContextOptional();
   const [collection, setCollection] = useState(initialCollection);
   const [places, setPlaces] = useState(initialCollection.places);
   const [optimisticPlaces, setOptimisticPlaces] = useOptimistic(places);
@@ -50,8 +52,20 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
       return acc;
     }, {} as Record<string, string>)
   );
-  const [hoveredPlaceId, setHoveredPlaceId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const hoveredPlaceId = mapContext?.hoveredPlaceId ?? null;
+  const setHoveredPlaceId = mapContext?.hoverPlace ?? (() => {});
+
+  useEffect(() => {
+    if (mapContext) {
+      mapContext.updateMapView({
+        mode: 'itinerary',
+        places: optimisticPlaces,
+        transportMode,
+      });
+    }
+  }, [optimisticPlaces, transportMode, mapContext]);
 
   const handleBack = () => {
     router.push('/collections');
@@ -323,11 +337,11 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
         <CollectionStats places={optimisticPlaces} />
       </div>
 
-      {/* Main Content: Two-column split */}
+      {/* Main Content: Two-column layout */}
       <div className="flex-1 overflow-hidden">
-        <div className="h-full grid grid-cols-2 gap-6 container py-6">
+        <div className="h-full grid grid-cols-1 lg:grid-cols-2 gap-6 container py-6">
           {/* LEFT: Itinerary List */}
-          <div className="overflow-y-auto pl-1 pr-2 space-y-4">
+          <div className="overflow-y-auto space-y-4">
             <h2 className="text-lg font-semibold">
               Itinerary ({optimisticPlaces.length} places)
             </h2>
@@ -358,15 +372,8 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
             )}
           </div>
 
-          {/* RIGHT: Map */}
-          <div className="h-full">
-            <ItineraryMap
-              places={optimisticPlaces}
-              hoveredPlaceId={hoveredPlaceId}
-              onPlaceHover={setHoveredPlaceId}
-              transportMode={transportMode}
-            />
-          </div>
+          {/* RIGHT: Map (responsive - handles both desktop inline and mobile FAB+sheet) */}
+          <CollectionMapRenderer className="h-[500px] w-full rounded-lg overflow-hidden border sticky top-4" />
         </div>
       </div>
 

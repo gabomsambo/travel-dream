@@ -1,6 +1,6 @@
 import { eq, and, inArray, count } from 'drizzle-orm';
 import { db } from '@/db';
-import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs } from '@/db/schema';
+import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId } from './db-utils';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
@@ -522,6 +522,11 @@ export async function batchCreatePlacesFromExtractions(
 
           const createdPlaces: Place[] = [];
 
+          // Get source info for screenshot attachment
+          const [source] = await tx.select().from(sources).where(eq(sources.id, result.sourceId)).limit(1);
+          const meta = source?.meta as { uploadInfo?: { storedPath?: string; originalName?: string; mimeType?: string; size?: number } } | null;
+          const screenshotPath = meta?.uploadInfo?.storedPath;
+
           // Create places from extraction results
           for (const extractedPlace of result.places) {
             const newPlace: NewPlace = {
@@ -556,6 +561,19 @@ export async function batchCreatePlacesFromExtractions(
               sourceId: result.sourceId,
               placeId: place.id,
             });
+
+            // Import source screenshot as attachment (if available)
+            if (screenshotPath) {
+              await tx.insert(attachments).values({
+                placeId: place.id,
+                type: 'photo',
+                uri: screenshotPath,
+                filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
+                mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
+                fileSize: meta?.uploadInfo?.size || null,
+                isPrimary: 1, // Auto-set as cover image
+              });
+            }
           }
 
           // Update source with LLM metadata

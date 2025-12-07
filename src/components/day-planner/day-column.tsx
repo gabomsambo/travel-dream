@@ -34,6 +34,9 @@ interface DayColumnProps {
   transportMode: 'drive' | 'walk'
   hoveredPlaceId: string | null
   onPlaceHover: (placeId: string | null) => void
+  allDays: Array<{ id: string; dayNumber: number }>
+  onCopyPlaceToDay: (placeId: string, targetDayId: string) => void
+  onRemovePlaceFromDay: (placeId: string) => void
 }
 
 export function DayColumn({
@@ -46,6 +49,9 @@ export function DayColumn({
   transportMode,
   hoveredPlaceId,
   onPlaceHover,
+  allDays,
+  onCopyPlaceToDay,
+  onRemovePlaceFromDay,
 }: DayColumnProps) {
   const [showNote, setShowNote] = useState(!!day.dayNote)
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -113,6 +119,7 @@ export function DayColumn({
 
   const handleRemovePlace = (placeId: string) => {
     onUpdate({ placeIds: day.placeIds.filter((id) => id !== placeId) })
+    onRemovePlaceFromDay(placeId)
   }
 
   return (
@@ -237,6 +244,9 @@ export function DayColumn({
                     onRemove={() => handleRemovePlace(place.id)}
                     isHovered={hoveredPlaceId === place.id}
                     onHover={() => onPlaceHover(place.id)}
+                    availableDays={allDays}
+                    currentDayId={day.id}
+                    onCopyToDay={(targetDayId) => onCopyPlaceToDay(place.id, targetDayId)}
                   />
                 ))}
               </div>

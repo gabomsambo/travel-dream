@@ -104,9 +104,13 @@ const SelectLabel = React.forwardRef<
 })
 SelectLabel.displayName = SelectPrimitive.Label.displayName
 
+interface SelectItemAdapterProps extends React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> {
+  description?: string
+}
+
 const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
+  SelectItemAdapterProps
 >((props, ref) => {
   const [uiRefreshEnabled] = useUIRefresh()
 

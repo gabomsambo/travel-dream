@@ -16,6 +16,16 @@ import { ScreenshotUploader } from './screenshot-uploader'
 import { UploadProgress } from './upload-progress'
 import { ImportWorkflow } from '@/components/import/import-workflow'
 import { CheckCircle, XCircle, Clock, Loader2, Camera, FileSpreadsheet } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface UploadDialogProps {
   open: boolean
@@ -59,6 +69,12 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
   const [isProcessingOCR, setIsProcessingOCR] = useState(false)
   const [hasStartedProcessing, setHasStartedProcessing] = useState(false)
   const [error, setError] = useState<string>('')
+
+  // Warning dialog state
+  const [showTabSwitchWarning, setShowTabSwitchWarning] = useState(false)
+  const [pendingTab, setPendingTab] = useState<'screenshot' | 'import' | null>(null)
+  const [showCloseWarning, setShowCloseWarning] = useState(false)
+  const [importStep, setImportStep] = useState<string>('upload')
 
   // Initialize session when dialog opens
   useEffect(() => {
@@ -239,6 +255,73 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
     setError(error)
   }
 
+  // Check if there's unsaved progress on current tab
+  const hasUnsavedProgress = (): boolean => {
+    if (activeTab === 'screenshot') {
+      return uploadStats.uploadedFiles > 0 ||
+             uploadStats.ocrProcessed > 0 ||
+             currentStep !== 'upload' ||
+             hasStartedProcessing
+    }
+    if (activeTab === 'import') {
+      return importStep !== 'upload'
+    }
+    return false
+  }
+
+  // Guarded tab change handler
+  const handleTabChange = (newTab: 'screenshot' | 'import') => {
+    if (newTab === activeTab) return
+
+    if (hasUnsavedProgress()) {
+      setPendingTab(newTab)
+      setShowTabSwitchWarning(true)
+    } else {
+      setActiveTab(newTab)
+    }
+  }
+
+  // Confirm tab switch after warning
+  const confirmTabSwitch = () => {
+    if (pendingTab) {
+      setUploadStats({
+        totalFiles: 0,
+        uploadedFiles: 0,
+        failedUploads: 0,
+        ocrProcessed: 0,
+        ocrPending: 0,
+        ocrFailed: 0
+      })
+      setCurrentStep('upload')
+      setIsProcessingOCR(false)
+      setHasStartedProcessing(false)
+      setError('')
+      setImportStep('upload')
+      setActiveTab(pendingTab)
+    }
+    setPendingTab(null)
+    setShowTabSwitchWarning(false)
+  }
+
+  // Guarded dialog close handler
+  const handleDialogOpenChange = (open: boolean) => {
+    if (!open && hasUnsavedProgress()) {
+      setShowCloseWarning(true)
+      return
+    }
+    if (!open) {
+      handleClose()
+    } else {
+      onOpenChange(open)
+    }
+  }
+
+  // Confirm close after warning
+  const confirmClose = () => {
+    setShowCloseWarning(false)
+    handleClose()
+  }
+
   const handleClose = () => {
     // Reset state
     setActiveTab('screenshot')
@@ -256,6 +339,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
     setIsProcessingOCR(false)
     setHasStartedProcessing(false)
     setError('')
+    setImportStep('upload')
 
     onOpenChange(false)
 
@@ -284,7 +368,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>Upload</DialogTitle>
@@ -293,7 +377,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'screenshot' | 'import')} className="w-full">
+        <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as 'screenshot' | 'import')} className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-4">
             <TabsTrigger value="screenshot" disabled={isProcessingOCR}>
               <Camera className="h-4 w-4 mr-2" />
@@ -407,6 +491,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
                 }
               }}
               onClose={handleClose}
+              onStepChange={(step) => setImportStep(step)}
             />
           </TabsContent>
         </Tabs>
@@ -430,6 +515,49 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
             </div>
           </DialogFooter>
         )}
+
+        {/* Tab Switch Warning Dialog */}
+        <AlertDialog open={showTabSwitchWarning} onOpenChange={setShowTabSwitchWarning}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Switch tabs?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You have an upload in progress. Switching tabs will discard your current progress and any uploaded files.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {
+                setPendingTab(null)
+                setShowTabSwitchWarning(false)
+              }}>
+                Stay here
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={confirmTabSwitch}>
+                Switch anyway
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Dialog Close Warning */}
+        <AlertDialog open={showCloseWarning} onOpenChange={setShowCloseWarning}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Leave upload?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You have an upload in progress. Leaving now will discard your current progress and any uploaded files.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setShowCloseWarning(false)}>
+                Continue uploading
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={confirmClose}>
+                Leave anyway
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   )

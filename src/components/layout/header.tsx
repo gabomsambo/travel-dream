@@ -27,7 +27,7 @@ export function Header() {
   }
 
   return (
-    <header className="flex h-16 items-center gap-4 border-b bg-background px-6">
+    <header className="flex h-16 items-center gap-2 sm:gap-4 border-b bg-background px-3 sm:px-6">
       <MobileNav />
       
       <div className="flex flex-1 items-center gap-4">
@@ -37,24 +37,24 @@ export function Header() {
           placeholder="Search places, cities, tags... (⌘K for advanced)"
         />
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           <Button
             size="sm"
             variant="outline"
-            className="gap-2"
+            className="gap-2 px-2 sm:px-3"
             onClick={() => setAddPlaceDialogOpen(true)}
           >
             <Plus className="h-4 w-4" />
-            Add Place
+            <span className="hidden sm:inline">Add Place</span>
           </Button>
 
           <Button
             size="sm"
-            className="gap-2"
+            className="gap-2 px-2 sm:px-3"
             onClick={() => setUploadDialogOpen(true)}
           >
             <Upload className="h-4 w-4" />
-            Upload Screenshots
+            <span className="hidden sm:inline">Upload</span>
             {uploadCount > 0 && (
               <Badge variant="secondary" className="ml-1 text-xs">
                 {uploadCount}

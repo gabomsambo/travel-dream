@@ -86,54 +86,63 @@ export function SearchBar({
 
       {showFilters && (
         <>
-          {/* Kind Filter */}
-          <Select value={kind} onValueChange={(value) => handleFilterChange('kind', value)}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="All types" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {PLACE_KINDS.map((k: string) => (
-                <SelectItem key={k} value={k}>
-                  {k.charAt(0).toUpperCase() + k.slice(1)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Desktop: Show all filter dropdowns */}
+          <div className="hidden lg:flex items-center gap-2">
+            {/* Kind Filter */}
+            <Select value={kind} onValueChange={(value) => handleFilterChange('kind', value)}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {PLACE_KINDS.map((k: string) => (
+                  <SelectItem key={k} value={k}>
+                    {k.charAt(0).toUpperCase() + k.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          {/* City Filter */}
-          <Select value={city} onValueChange={(value) => handleFilterChange('city', value)}>
-            <SelectTrigger className="w-[120px]">
-              <SelectValue placeholder="All cities" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All cities</SelectItem>
-              <SelectItem value="barcelona">Barcelona</SelectItem>
-              <SelectItem value="madrid">Madrid</SelectItem>
-              <SelectItem value="paris">Paris</SelectItem>
-              <SelectItem value="london">London</SelectItem>
-              {/* TODO: Populate from actual data */}
-            </SelectContent>
-          </Select>
+            {/* City Filter */}
+            <Select value={city} onValueChange={(value) => handleFilterChange('city', value)}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="All cities" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All cities</SelectItem>
+                <SelectItem value="barcelona">Barcelona</SelectItem>
+                <SelectItem value="madrid">Madrid</SelectItem>
+                <SelectItem value="paris">Paris</SelectItem>
+                <SelectItem value="london">London</SelectItem>
+                {/* TODO: Populate from actual data */}
+              </SelectContent>
+            </Select>
 
-          {/* Country Filter */}
-          <Select value={country} onValueChange={(value) => handleFilterChange('country', value)}>
-            <SelectTrigger className="w-[120px]">
-              <SelectValue placeholder="All countries" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All countries</SelectItem>
-              <SelectItem value="ES">Spain</SelectItem>
-              <SelectItem value="FR">France</SelectItem>
-              <SelectItem value="GB">United Kingdom</SelectItem>
-              <SelectItem value="IT">Italy</SelectItem>
-              {/* TODO: Populate from actual data */}
-            </SelectContent>
-          </Select>
+            {/* Country Filter */}
+            <Select value={country} onValueChange={(value) => handleFilterChange('country', value)}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="All countries" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All countries</SelectItem>
+                <SelectItem value="ES">Spain</SelectItem>
+                <SelectItem value="FR">France</SelectItem>
+                <SelectItem value="GB">United Kingdom</SelectItem>
+                <SelectItem value="IT">Italy</SelectItem>
+                {/* TODO: Populate from actual data */}
+              </SelectContent>
+            </Select>
+          </div>
 
-          {/* Advanced Filters Button */}
-          <Button variant="outline" size="icon">
+          {/* Mobile/Tablet: Single filter icon button */}
+          <Button variant="outline" size="icon" className="lg:hidden">
             <Filter className="h-4 w-4" />
+          </Button>
+
+          {/* Desktop: Advanced filters button with text */}
+          <Button variant="outline" className="hidden lg:flex gap-2">
+            <Filter className="h-4 w-4" />
+            Filters
           </Button>
         </>
       )}

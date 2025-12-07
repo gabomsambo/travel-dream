@@ -86,15 +86,15 @@ export function ColumnMapper({
           </p>
         </div>
         <Select value={template} onValueChange={(v) => onTemplateChange(v as ImportTemplate)}>
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-[200px] [&>span]:truncate [&>span]:block [&>span>div]:truncate [&>span>div]:block [&>span>div>span:last-child]:hidden">
             <SelectValue placeholder="Select template" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="w-[280px]">
             {TEMPLATES.map((t) => (
-              <SelectItem key={t.value} value={t.value}>
+              <SelectItem key={t.value} value={t.value} className="py-2">
                 <div className="flex flex-col">
                   <span>{t.label}</span>
-                  <span className="text-xs text-gray-500">{t.description}</span>
+                  <span className="text-xs text-muted-foreground">{t.description}</span>
                 </div>
               </SelectItem>
             ))}

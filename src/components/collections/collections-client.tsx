@@ -199,18 +199,19 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold">Collections</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold">Collections</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             Organize your travel places into curated collections
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <CollectionSortDropdown value={sortBy} onChange={setSortBy} />
-          <Button onClick={() => setCreateDialogOpen(true)} size="lg">
-            <FolderPlus className="h-5 w-5 mr-2" />
-            New Collection
+          <Button onClick={() => setCreateDialogOpen(true)} size="lg" className="flex-1 sm:flex-none">
+            <FolderPlus className="h-5 w-5 sm:mr-2" />
+            <span className="hidden sm:inline">New Collection</span>
+            <span className="sm:hidden">New</span>
           </Button>
         </div>
       </div>

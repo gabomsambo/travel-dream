@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Check, X, Archive, Filter, Keyboard, ChevronDown, Download, FileText, FileSpreadsheet, Loader2 } from "lucide-react"
+import { Check, X, Archive, Filter, Keyboard, ChevronDown, Download, FileText, FileSpreadsheet, Loader2, MoreHorizontal } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import {
   DropdownMenu,
@@ -65,7 +65,7 @@ const confidenceFilterOptions = [
   { value: "high", label: "High (90%+)", description: "Ready for auto-confirmation" },
   { value: "medium", label: "Medium (80-89%)", description: "Quick review recommended" },
   { value: "low", label: "Low (60-79%)", description: "Manual review needed" },
-  { value: "very-low", label: "Very Low (&lt;60%)", description: "Careful review required" },
+  { value: "very-low", label: "Very Low (<60%)", description: "Careful review required" },
 ] as const
 
 function getConfidenceFilterInfo(filter: ConfidenceFilter) {
@@ -98,9 +98,9 @@ export function InboxToolbar({
   const filterInfo = getConfidenceFilterInfo(confidenceFilter)
 
   return (
-    <div className={cn("flex items-center justify-between gap-4 p-4 border-b bg-background/95 backdrop-blur", className)}>
+    <div className={cn("flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border-b bg-background/95 backdrop-blur", className)}>
       {/* Left section: Selection info and bulk actions */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
         {/* Selection counter and controls */}
         <div className="flex items-center gap-2">
           {hasSelection ? (
@@ -137,6 +137,7 @@ export function InboxToolbar({
         {/* Bulk action buttons */}
         {hasSelection && (
           <div className="flex items-center gap-2">
+            {/* Primary action - always visible */}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -148,7 +149,7 @@ export function InboxToolbar({
                     className="h-8"
                   >
                     <Check className="mr-1 h-3 w-3" />
-                    Confirm Selected
+                    <span className="hidden sm:inline">Confirm</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -157,61 +158,89 @@ export function InboxToolbar({
               </Tooltip>
             </TooltipProvider>
 
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
+            {/* Mobile: More actions dropdown */}
+            <div className="sm:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={onArchiveSelected}>
+                    <Archive className="h-4 w-4 mr-2" />
+                    Archive
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onExportSelected?.('csv')}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onExportSelected?.('xlsx')}>
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    Export Excel
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Desktop: Show all buttons inline */}
+            <div className="hidden sm:flex items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onArchiveSelected}
+                      disabled={disabled || loading}
+                      className="h-8"
+                    >
+                      <Archive className="mr-1 h-3 w-3" />
+                      Archive
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Archive selected items (Shortcut: X)
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={onArchiveSelected}
-                    disabled={disabled || loading}
+                    disabled={disabled || loading || isExporting}
                     className="h-8"
                   >
-                    <Archive className="mr-1 h-3 w-3" />
-                    Archive Selected
+                    {isExporting ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Download className="mr-1 h-3 w-3" />
+                    )}
+                    Export
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Archive selected items (Shortcut: X)
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={disabled || loading || isExporting}
-                  className="h-8"
-                >
-                  {isExporting ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Download className="mr-1 h-3 w-3" />
-                  )}
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onExportSelected?.('csv')}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Export as CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onExportSelected?.('xlsx')}>
-                  <FileSpreadsheet className="h-4 w-4 mr-2" />
-                  Export as Excel
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onExportSelected?.('csv')}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export as CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onExportSelected?.('xlsx')}>
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    Export as Excel
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         )}
       </div>
 
       {/* Right section: Filters and settings */}
-      <div className="flex items-center gap-3">
-        {/* Quick confidence selection */}
-        <div className="flex items-center gap-1">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+        {/* Quick confidence selection - hidden on mobile */}
+        <div className="hidden md:flex items-center gap-1">
           <span className="text-xs text-muted-foreground mr-1">Quick select:</span>
 
           <TooltipProvider>
@@ -272,29 +301,28 @@ export function InboxToolbar({
           </TooltipProvider>
         </div>
 
-        {/* Confidence filter dropdown */}
+        {/* Confidence filter dropdown - full width on mobile */}
         <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
+          <Filter className="h-4 w-4 text-muted-foreground hidden sm:block" />
           <Select value={confidenceFilter} onValueChange={onConfidenceFilterChange}>
-            <SelectTrigger className="w-40 h-8 text-sm">
+            <SelectTrigger className="w-full sm:w-44 h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {confidenceFilterOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  <div className="flex flex-col">
-                    <span>{option.label}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {option.description}
-                    </span>
-                  </div>
+                <SelectItem
+                  key={option.value}
+                  value={option.value}
+                  description={option.description}
+                >
+                  {option.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        {/* Keyboard shortcuts toggle */}
+        {/* Keyboard shortcuts toggle - hidden on mobile */}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -303,7 +331,7 @@ export function InboxToolbar({
                 size="sm"
                 onClick={onToggleKeyboardHints}
                 className={cn(
-                  "h-8 px-2",
+                  "h-8 px-2 hidden md:flex",
                   showKeyboardHints && "bg-accent text-accent-foreground"
                 )}
               >

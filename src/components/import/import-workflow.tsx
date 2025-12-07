@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { ArrowLeft, ArrowRight, CheckCircle, Loader2 } from 'lucide-react'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
@@ -18,10 +18,16 @@ type Step = 'upload' | 'mapping' | 'options' | 'preview' | 'review' | 'importing
 interface ImportWorkflowProps {
   onComplete?: (result: ImportResult) => void
   onClose?: () => void
+  onStepChange?: (step: Step) => void
 }
 
-export function ImportWorkflow({ onComplete, onClose }: ImportWorkflowProps) {
+export function ImportWorkflow({ onComplete, onClose, onStepChange }: ImportWorkflowProps) {
   const [step, setStep] = useState<Step>('upload')
+
+  // Notify parent when step changes (for progress tracking)
+  useEffect(() => {
+    onStepChange?.(step)
+  }, [step, onStepChange])
   const [error, setError] = useState<string | null>(null)
 
   const [parseResult, setParseResult] = useState<ImportPreviewResponse | null>(null)

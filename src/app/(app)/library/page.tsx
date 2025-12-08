@@ -73,8 +73,8 @@ export default async function LibraryPage({ searchParams }: PageProps) {
     kinds: [...new Set(places.map(p => p.kind))].sort(),
     cities: [...new Set(places.map(p => p.city).filter(Boolean) as string[])].sort(),
     countries: [...new Set(places.map(p => p.country).filter(Boolean) as string[])].sort(),
-    tags: [...new Set(places.flatMap(p => p.tags || []))].sort(),
-    vibes: [...new Set(places.flatMap(p => p.vibes || []))].sort()
+    tags: [...new Set(places.flatMap(p => Array.isArray(p.tags) ? p.tags : []))].sort(),
+    vibes: [...new Set(places.flatMap(p => Array.isArray(p.vibes) ? p.vibes : []))].sort()
   }
 
   return (

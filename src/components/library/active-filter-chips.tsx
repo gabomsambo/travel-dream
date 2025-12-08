@@ -17,7 +17,7 @@ export function ActiveFilterChips({
 }: ActiveFilterChipsProps) {
   const activeFilters = Object.entries(filters).filter(([key, value]) => {
     if (key === 'search') return value !== ''
-    if (key === 'tags' || key === 'vibes') {
+    if (key === 'tags' || key === 'vibes' || key === 'visitStatus') {
       return value instanceof Set && value.size > 0
     }
     return value !== 'all' && value !== null && value !== undefined
@@ -32,8 +32,14 @@ export function ActiveFilterChips({
   }
 
   const formatFilterValue = (key: string, value: any): string => {
-    if (key === 'tags' || key === 'vibes') {
-      return Array.from(value as Set<string>).join(', ')
+    if (key === 'tags' || key === 'vibes' || key === 'visitStatus') {
+      if (value instanceof Set) {
+        return Array.from(value).join(', ')
+      }
+      if (Array.isArray(value)) {
+        return value.join(', ')
+      }
+      return ''
     }
     return String(value)
   }

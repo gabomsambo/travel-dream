@@ -46,6 +46,12 @@ interface LibraryClientProps {
   }
 }
 
+function createSetFromParam(param: string | null): Set<string> {
+  if (!param) return new Set<string>()
+  const items = param.split(',').filter(Boolean)
+  return new Set(items)
+}
+
 export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -57,15 +63,15 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   const [kind, setKind] = useState(searchParams.get('kind') || 'all')
   const [city, setCity] = useState(searchParams.get('city') || 'all')
   const [country, setCountry] = useState(searchParams.get('country') || 'all')
-  const [selectedTags, setSelectedTags] = useState<Set<string>>(
-    new Set(searchParams.get('tags')?.split(',').filter(Boolean) || [])
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(() =>
+    createSetFromParam(searchParams.get('tags'))
   )
-  const [selectedVibes, setSelectedVibes] = useState<Set<string>>(
-    new Set(searchParams.get('vibes')?.split(',').filter(Boolean) || [])
+  const [selectedVibes, setSelectedVibes] = useState<Set<string>>(() =>
+    createSetFromParam(searchParams.get('vibes'))
   )
   const [rating, setRating] = useState(parseInt(searchParams.get('rating') || '0'))
-  const [visitStatus, setVisitStatus] = useState<Set<string>>(
-    new Set(searchParams.get('visitStatus')?.split(',').filter(Boolean) || [])
+  const [visitStatus, setVisitStatus] = useState<Set<string>>(() =>
+    createSetFromParam(searchParams.get('visitStatus'))
   )
   const [hasPhotosOnly, setHasPhotosOnly] = useState(
     searchParams.get('hasPhotosOnly') === 'true'
@@ -122,13 +128,13 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
       params.delete('country')
     }
 
-    if (selectedTags.size > 0) {
+    if (selectedTags instanceof Set && selectedTags.size > 0) {
       params.set('tags', Array.from(selectedTags).join(','))
     } else {
       params.delete('tags')
     }
 
-    if (selectedVibes.size > 0) {
+    if (selectedVibes instanceof Set && selectedVibes.size > 0) {
       params.set('vibes', Array.from(selectedVibes).join(','))
     } else {
       params.delete('vibes')
@@ -140,7 +146,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
       params.delete('rating')
     }
 
-    if (visitStatus.size > 0) {
+    if (visitStatus instanceof Set && visitStatus.size > 0) {
       params.set('visitStatus', Array.from(visitStatus).join(','))
     } else {
       params.delete('visitStatus')
@@ -198,14 +204,14 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     }
 
     // Tag filter (client-side for better UX)
-    if (selectedTags.size > 0) {
+    if (selectedTags instanceof Set && selectedTags.size > 0) {
       result = result.filter(place =>
         Array.from(selectedTags).some(tag => place.tags?.includes(tag))
       )
     }
 
     // Vibe filter (client-side for better UX)
-    if (selectedVibes.size > 0) {
+    if (selectedVibes instanceof Set && selectedVibes.size > 0) {
       result = result.filter(place =>
         Array.from(selectedVibes).some(vibe => place.vibes?.includes(vibe))
       )
@@ -217,7 +223,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     }
 
     // Visit status filter
-    if (visitStatus.size > 0) {
+    if (visitStatus instanceof Set && visitStatus.size > 0) {
       result = result.filter(place =>
         visitStatus.has(place.visitStatus || 'not_visited')
       )

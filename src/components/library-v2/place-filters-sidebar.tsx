@@ -51,7 +51,7 @@ export function PlaceFiltersSidebar({
   const [open, setOpen] = React.useState(false)
 
   const toggleKind = (kind: string) => {
-    const newKinds = new Set(filters.kinds)
+    const newKinds = filters.kinds instanceof Set ? new Set(filters.kinds) : new Set<string>()
     if (newKinds.has(kind)) {
       newKinds.delete(kind)
     } else {
@@ -61,7 +61,7 @@ export function PlaceFiltersSidebar({
   }
 
   const toggleVibe = (vibe: string) => {
-    const newVibes = new Set(filters.vibes)
+    const newVibes = filters.vibes instanceof Set ? new Set(filters.vibes) : new Set<string>()
     if (newVibes.has(vibe)) {
       newVibes.delete(vibe)
     } else {
@@ -71,7 +71,7 @@ export function PlaceFiltersSidebar({
   }
 
   const toggleVisitStatus = (status: string) => {
-    const newStatus = new Set(filters.visitStatus)
+    const newStatus = filters.visitStatus instanceof Set ? new Set(filters.visitStatus) : new Set<string>()
     if (newStatus.has(status)) {
       newStatus.delete(status)
     } else {
@@ -81,10 +81,10 @@ export function PlaceFiltersSidebar({
   }
 
   const activeFilterCount =
-    filters.kinds.size +
-    filters.vibes.size +
+    (filters.kinds instanceof Set ? filters.kinds.size : 0) +
+    (filters.vibes instanceof Set ? filters.vibes.size : 0) +
     (filters.rating > 0 ? 1 : 0) +
-    filters.visitStatus.size +
+    (filters.visitStatus instanceof Set ? filters.visitStatus.size : 0) +
     (filters.hasPhotosOnly ? 1 : 0)
 
   const filterContent = (
@@ -108,7 +108,7 @@ export function PlaceFiltersSidebar({
               <div key={kind} className="flex items-center space-x-2">
                 <Checkbox
                   id={`kind-${kind}`}
-                  checked={filters.kinds.has(kind)}
+                  checked={filters.kinds instanceof Set && filters.kinds.has(kind)}
                   onCheckedChange={() => toggleKind(kind)}
                 />
                 <Label
@@ -133,7 +133,7 @@ export function PlaceFiltersSidebar({
                 {filterOptions.vibes.map((vibe) => (
                   <Badge
                     key={vibe}
-                    variant={filters.vibes.has(vibe) ? "default" : "outline"}
+                    variant={filters.vibes instanceof Set && filters.vibes.has(vibe) ? "default" : "outline"}
                     className="cursor-pointer capitalize"
                     onClick={() => toggleVibe(vibe)}
                   >
@@ -175,7 +175,7 @@ export function PlaceFiltersSidebar({
               <div key={status.value} className="flex items-center space-x-2">
                 <Checkbox
                   id={`status-${status.value}`}
-                  checked={filters.visitStatus.has(status.value)}
+                  checked={filters.visitStatus instanceof Set && filters.visitStatus.has(status.value)}
                   onCheckedChange={() => toggleVisitStatus(status.value)}
                 />
                 <Label

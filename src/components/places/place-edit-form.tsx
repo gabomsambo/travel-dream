@@ -506,18 +506,20 @@ export function PlaceEditForm({
         </div>
       </div>
 
-      <div className="flex gap-3 justify-end pt-4 border-t">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-3 pt-4 border-t">
         <Button
           type="button"
           variant="outline"
           onClick={onCancel}
           disabled={isSubmitting}
+          className="w-full sm:w-auto"
         >
           Cancel
         </Button>
         <Button
           type="submit"
           disabled={isSubmitting}
+          className="w-full sm:w-auto"
         >
           {isSubmitting ? 'Saving...' : 'Save Changes'}
         </Button>
@@ -526,9 +528,10 @@ export function PlaceEditForm({
             type="button"
             onClick={handleSaveAndConfirm}
             disabled={isSubmitting}
+            className="w-full sm:w-auto sm:ml-auto"
           >
             <Check className="h-4 w-4 mr-2" />
-            {isSubmitting ? 'Confirming...' : 'Save & Confirm to Library'}
+            {isSubmitting ? 'Confirming...' : 'Save & Confirm'}
           </Button>
         )}
       </div>

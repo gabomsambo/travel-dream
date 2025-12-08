@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card } from "@/components/adapters/card"
 import { Badge } from "@/components/adapters/badge"
 import { Button } from "@/components/adapters/button"
-import { Image, FileText, Clock, CheckCircle, AlertCircle, X } from 'lucide-react'
+import { Image, FileText, Clock, CheckCircle, AlertCircle, X, RefreshCw, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ScreenshotSource {
@@ -18,10 +18,12 @@ interface ScreenshotSource {
 interface ScreenshotCardProps {
   source: ScreenshotSource
   onDelete?: (sourceId: string) => void
+  onRetryComplete?: () => void
 }
 
-export function ScreenshotCard({ source, onDelete }: ScreenshotCardProps) {
+export function ScreenshotCard({ source, onDelete, onRetryComplete }: ScreenshotCardProps) {
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isRetrying, setIsRetrying] = useState(false)
 
   const uploadInfo = source.meta?.uploadInfo
   const ocrStatus = uploadInfo?.ocrStatus || 'unknown'
@@ -77,10 +79,66 @@ export function ScreenshotCard({ source, onDelete }: ScreenshotCardProps) {
     }
   }
 
+  const handleRetry = async () => {
+    setIsRetrying(true)
+    try {
+      const response = await fetch('/api/llm-process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceIds: [source.id],
+          provider: 'openai',
+          context: {
+            sourceType: 'screenshot',
+            triggeredBy: 'manual-retry'
+          }
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to retry processing')
+      }
+
+      const result = await response.json()
+
+      if (result.summary.successful > 0) {
+        toast.success('Screenshot reprocessed successfully', {
+          description: `Extracted ${result.summary.totalPlaces} places`
+        })
+        onRetryComplete?.()
+        window.location.reload()
+      } else {
+        toast.error('Failed to process screenshot')
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to retry processing')
+      console.error('Error retrying screenshot:', error)
+    } finally {
+      setIsRetrying(false)
+    }
+  }
+
   return (
     <Card className="p-4 hover:shadow-md transition-shadow relative group">
-      {/* Delete button */}
-      <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Action buttons */}
+      <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+        {/* Retry button - only for failed status */}
+        {ocrStatus === 'failed' && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700"
+            onClick={handleRetry}
+            disabled={isRetrying}
+          >
+            {isRetrying ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+          </Button>
+        )}
+        {/* Delete button */}
         <Button
           variant="ghost"
           size="icon"

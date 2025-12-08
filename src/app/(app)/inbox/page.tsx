@@ -1,9 +1,8 @@
 import { PageHeader } from "@/components/layout/page-header"
 import { InboxClient } from "@/components/inbox/inbox-client"
-import { ScreenshotActions } from "@/components/inbox/screenshot-actions"
 import { ScreenshotGrid } from "@/components/inbox/screenshot-grid"
 import { Badge } from "@/components/adapters/badge"
-import { Image } from "lucide-react"
+import { Image, Info } from "lucide-react"
 import { getSourcesByType, getPlacesByStatus, getInboxStats } from "@/lib/db-queries"
 import { Suspense } from "react"
 
@@ -47,8 +46,14 @@ export default async function InboxPage() {
             </div>
           </div>
 
-          {/* LLM Processing Controls */}
-          <ScreenshotActions screenshots={screenshots} />
+          {/* Info hint */}
+          <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
+            <Info className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              Screenshots are processed automatically. Review the extracted places below,
+              then delete screenshots — a copy is saved with each place.
+            </span>
+          </div>
 
           <ScreenshotGrid sources={screenshots} />
         </div>

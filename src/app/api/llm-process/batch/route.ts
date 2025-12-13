@@ -10,7 +10,7 @@ import type { ExtractionContext } from '@/types/llm-extraction';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
-export const maxDuration = 900; // 15 minutes for large batch processing
+export const maxDuration = 300; // 5 minutes (Vercel hobby plan limit)
 
 interface BatchProcessingRequest {
   provider?: 'openai' | 'anthropic';

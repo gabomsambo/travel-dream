@@ -11,7 +11,7 @@ import type { ExtractionContext } from '@/types/llm-extraction';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
-export const maxDuration = 600; // 10 minutes for LLM processing
+export const maxDuration = 300; // 5 minutes (Vercel hobby plan limit)
 
 interface LLMProcessingRequest {
   sourceIds?: string[]; // Specific sources to process

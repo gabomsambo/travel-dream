@@ -57,7 +57,7 @@ export default function Freedom() {
                         transition={{ delay: 0.2 }}
                         className="text-xl text-landing-secondary max-w-2xl mx-auto leading-relaxed"
                     >
-                        We play nice with the tools you already use. Travel Dreams is the glue that holds your scattered plans together.
+                        We play nice with the tools you already use. Tabi Dreams is the glue that holds your scattered plans together.
                     </motion.p>
                 </div>
 

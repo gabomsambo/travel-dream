@@ -16,8 +16,8 @@ const plusJakarta = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Travel Dreams',
-    template: '%s | Travel Dreams',
+    default: 'Tabi Dreams',
+    template: '%s | Tabi Dreams',
   },
   description: 'A calm, visual place to store your travel ideas.',
   keywords: ['travel', 'places', 'collection', 'inspiration', 'planning'],

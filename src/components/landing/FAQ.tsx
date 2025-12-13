@@ -7,19 +7,19 @@ import { ChevronDown } from "lucide-react";
 const faqs = [
     {
         q: "Is this another social network?",
-        a: "No. Travel Dreams is for you, not for posting. It’s a quiet, personal space.",
+        a: "No. Tabi Dreams is for you, not for posting. It's a quiet, personal space.",
     },
     {
         q: "Can I export my data?",
-        a: "Yes. That’s the point. Your plans can always leave Travel Dreams.",
+        a: "Yes. That's the point. Your plans can always leave Tabi Dreams.",
     },
     {
         q: "Do I have to organize everything perfectly?",
         a: "No. You can start messy. Organize over time.",
     },
     {
-        q: "Is Travel Dreams a booking site?",
-        a: "No. It’s where you think, collect, and plan — not where you buy.",
+        q: "Is Tabi Dreams a booking site?",
+        a: "No. It's where you think, collect, and plan — not where you buy.",
     },
 ];
 

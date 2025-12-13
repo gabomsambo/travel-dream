@@ -39,7 +39,7 @@ export function Sidebar() {
   return (
     <div className="flex h-full w-64 flex-col bg-background border-r">
       <div className="flex h-16 items-center px-6">
-        <h1 className="text-lg font-semibold">Travel Dreams</h1>
+        <h1 className="text-lg font-semibold">Tabi Dreams</h1>
       </div>
       
       <nav className="flex-1 space-y-1 px-3">

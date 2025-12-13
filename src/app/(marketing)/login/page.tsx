@@ -51,7 +51,7 @@ function LoginForm() {
     >
       <div className="text-center mb-8">
         <Link href="/" className="inline-block text-2xl font-heading font-extrabold text-landing-primary mb-2 hover:scale-105 transition-transform">
-          Travel Dreams
+          Tabi Dreams
         </Link>
         <h1 className="text-2xl font-bold text-landing-secondary">Welcome back</h1>
         <p className="text-landing-secondary/80 text-sm mt-2">Log in to continue your adventure.</p>

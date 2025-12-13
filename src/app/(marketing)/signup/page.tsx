@@ -72,7 +72,7 @@ function SignupForm() {
     >
       <div className="text-center mb-8">
         <Link href="/" className="inline-block text-2xl font-heading font-extrabold text-landing-primary mb-2 hover:scale-105 transition-transform">
-          Travel Dreams
+          Tabi Dreams
         </Link>
         <h1 className="text-2xl font-bold text-landing-secondary">Start your journey</h1>
         <p className="text-landing-secondary/80 text-sm mt-2">Create an account to start collecting places.</p>

@@ -48,7 +48,7 @@ export function MobileNav() {
       </SheetTrigger>
       <SheetContent side="left" className="w-64">
         <SheetHeader>
-          <SheetTitle>Travel Dreams</SheetTitle>
+          <SheetTitle>Tabi Dreams</SheetTitle>
         </SheetHeader>
         <nav className="flex flex-col space-y-1 mt-6">
           {navigation.main.map((item) => {

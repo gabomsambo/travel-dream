@@ -36,7 +36,7 @@ export default function Navbar() {
         >
             <nav className="pointer-events-auto bg-white/70 backdrop-blur-xl border border-white/40 shadow-glass rounded-full px-6 py-3 flex items-center gap-8 max-w-4xl w-full justify-between">
                 <Link href="/" className="text-lg font-heading font-extrabold text-landing-primary tracking-tight">
-                    Travel Dreams
+                    Tabi Dreams
                 </Link>
 
                 <div className="hidden md:flex items-center space-x-6">

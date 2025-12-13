@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollectionById, getPlacesInCollection } from '@/lib/db-queries';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 function escapeCSV(value: string | null | undefined): string {
   const str = value || '';
@@ -14,9 +15,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id: collectionId } = await params;
 
-    const collection = await getCollectionById(collectionId);
+    const collection = await getCollectionById(collectionId, user.id);
     if (!collection) {
       return NextResponse.json(
         { status: 'error', message: 'Collection not found' },
@@ -24,7 +26,7 @@ export async function GET(
       );
     }
 
-    const places = await getPlacesInCollection(collectionId);
+    const places = await getPlacesInCollection(collectionId, user.id);
 
     const headers = [
       'Name',
@@ -67,6 +69,9 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error exporting CSV:', error);
     return NextResponse.json(
       {

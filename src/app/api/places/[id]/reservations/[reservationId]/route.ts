@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
 const ReservationUpdateSchema = z.object({
@@ -15,6 +16,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; reservationId: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { reservationId } = await params;
     const body = await request.json();
 
@@ -27,13 +29,16 @@ export async function PATCH(
     }
 
     const { updateReservation } = await import('@/lib/db-mutations');
-    const updated = await updateReservation(reservationId, validation.data);
+    const updated = await updateReservation(reservationId, validation.data, user.id);
 
     return NextResponse.json({
       status: 'success',
       reservation: updated,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     return NextResponse.json(
       { status: 'error', message: 'Failed to update reservation' },
       { status: 500 }
@@ -46,15 +51,19 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; reservationId: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { reservationId } = await params;
     const { deleteReservation } = await import('@/lib/db-mutations');
-    await deleteReservation(reservationId);
+    await deleteReservation(reservationId, user.id);
 
     return NextResponse.json({
       status: 'success',
       message: 'Reservation deleted',
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     return NextResponse.json(
       { status: 'error', message: 'Failed to delete reservation' },
       { status: 500 }

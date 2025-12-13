@@ -1,4 +1,4 @@
-import { inArray } from 'drizzle-orm';
+import { inArray, and, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { places, placesToCollections, collections } from '@/db/schema';
 import type { Place, PlaceToCollection, Collection } from '@/types/database';
@@ -11,7 +11,7 @@ import { generatePDF } from './export-generators/pdf-generator';
 import { generateKML } from './export-generators/kml-generator';
 import { generateFilename, getMimeType } from './export-utils';
 
-export async function exportData(request: ExportRequest): Promise<ExportResult> {
+export async function exportData(request: ExportRequest, userId: string): Promise<ExportResult> {
   let results: Place[] = [];
   let relationMetadata: Map<string, any> | undefined;
   let collection: Collection | null = null;
@@ -21,12 +21,12 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
     case 'collection': {
       const collectionId = request.scope.collectionId;
 
-      collection = await getCollectionById(collectionId);
+      collection = await getCollectionById(collectionId, userId);
       if (!collection) {
         throw new Error('Collection not found');
       }
 
-      results = await getPlacesInCollection(collectionId);
+      results = await getPlacesInCollection(collectionId, userId);
       baseName = collection.name;
 
       if (request.options?.includeCollectionMetadata) {
@@ -54,6 +54,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
     case 'library': {
       if (request.scope.filters) {
         results = await searchPlaces({
+          userId,
           text: request.scope.filters.searchText,
           city: request.scope.filters.city,
           country: request.scope.filters.country,
@@ -65,7 +66,7 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
           hasCoords: request.scope.filters.hasCoords
         });
       } else {
-        results = await getPlacesByStatus('library');
+        results = await getPlacesByStatus('library', userId);
       }
 
       baseName = 'library';
@@ -80,7 +81,10 @@ export async function exportData(request: ExportRequest): Promise<ExportResult> 
       results = await db
         .select()
         .from(places)
-        .where(inArray(places.id, request.scope.placeIds));
+        .where(and(
+          inArray(places.id, request.scope.placeIds),
+          eq(places.userId, userId)
+        ));
 
       baseName = 'selected_places';
       break;

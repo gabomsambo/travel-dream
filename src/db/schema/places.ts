@@ -1,10 +1,14 @@
 import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
+import { users } from './auth';
 
 export const places = sqliteTable('places', {
   // Primary key with custom prefix
   id: text('id').primaryKey().$defaultFn(() => `plc_${crypto.randomUUID()}`),
-  
+
+  // Owner of this place (nullable for migration, enforced in application)
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+
   // Basic place information
   name: text('name').notNull(),
   
@@ -100,4 +104,8 @@ export const places = sqliteTable('places', {
   priorityIdx: index('places_priority_idx').on(table.priority),
   lastVisitedIdx: index('places_last_visited_idx').on(table.lastVisited),
   plannedVisitIdx: index('places_planned_visit_idx').on(table.plannedVisit),
+
+  // User indexes for multi-tenant queries
+  userIdx: index('places_user_idx').on(table.userId),
+  userStatusIdx: index('places_user_status_idx').on(table.userId, table.status),
 }));

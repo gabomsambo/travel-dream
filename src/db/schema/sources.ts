@@ -1,10 +1,14 @@
 import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
+import { users } from './auth';
 
 export const sources = sqliteTable('sources', {
   // Primary key with custom prefix
   id: text('id').primaryKey().$defaultFn(() => `src_${crypto.randomUUID()}`),
-  
+
+  // Owner of this source (nullable for migration, enforced in application)
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+
   // Source type: 'screenshot' | 'url' | 'note'
   type: text('type').notNull(),
   
@@ -74,6 +78,7 @@ export const sources = sqliteTable('sources', {
 
 export const uploadSessions = sqliteTable('upload_sessions', {
   id: text('id').primaryKey().$defaultFn(() => `session_${crypto.randomUUID()}`),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
   startedAt: text('started_at').notNull(),
   fileCount: integer('file_count').notNull().default(0),
   completedCount: integer('completed_count').notNull().default(0),
@@ -87,4 +92,5 @@ export const uploadSessions = sqliteTable('upload_sessions', {
 }, (table) => ({
   statusIdx: index('upload_sessions_status_idx').on(table.status),
   startedAtIdx: index('upload_sessions_started_at_idx').on(table.startedAt),
+  userIdx: index('upload_sessions_user_idx').on(table.userId),
 }));

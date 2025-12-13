@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseFile } from '@/lib/import-service';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
 
@@ -49,6 +51,12 @@ export async function POST(request: NextRequest) {
       ...result.preview,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json(
+        { status: 'error', message: 'Authentication required' },
+        { status: 401 }
+      );
+    }
     console.error('[API /import/parse] Error:', error);
     return NextResponse.json(
       {

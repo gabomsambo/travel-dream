@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getPlaceWithRelations } from '@/lib/db-queries';
 import { updatePlace, deletePlace } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { PLACE_KINDS } from '@/types/database';
 
 const emptyStringToNull = (maxLength?: number) => z.preprocess(
@@ -67,8 +68,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id } = await params;
-    const placeWithRelations = await getPlaceWithRelations(id);
+    const placeWithRelations = await getPlaceWithRelations(id, user.id);
 
     if (!placeWithRelations) {
       return NextResponse.json(
@@ -79,6 +81,9 @@ export async function GET(
 
     return NextResponse.json(placeWithRelations);
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error fetching place:', error);
     return NextResponse.json(
       { status: 'error', message: 'Failed to fetch place' },
@@ -92,6 +97,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id } = await params;
     const body = await request.json();
 
@@ -110,7 +116,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await updatePlace(id, validation.data);
+    const updated = await updatePlace(id, validation.data, user.id);
 
     return NextResponse.json({
       status: 'success',
@@ -118,6 +124,9 @@ export async function PATCH(
       message: 'Place updated successfully',
     });
   } catch (error: any) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error updating place:', error);
     console.error('Error details:', {
       message: error.message,
@@ -125,7 +134,7 @@ export async function PATCH(
       cause: error.cause,
     });
 
-    if (error.message?.includes('not found')) {
+    if (error.message?.includes('not found') || error.message?.includes('unauthorized')) {
       return NextResponse.json(
         { status: 'error', message: 'Place not found' },
         { status: 404 }
@@ -148,17 +157,21 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id } = await params;
-    await deletePlace(id);
+    await deletePlace(id, user.id);
 
     return NextResponse.json({
       status: 'success',
       message: 'Place deleted successfully',
     });
   } catch (error: any) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error deleting place:', error);
 
-    if (error.message?.includes('not found')) {
+    if (error.message?.includes('not found') || error.message?.includes('unauthorized')) {
       return NextResponse.json(
         { status: 'error', message: 'Place not found' },
         { status: 404 }

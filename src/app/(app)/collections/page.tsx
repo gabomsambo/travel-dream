@@ -4,6 +4,7 @@ import { CollectionsClient } from '@/components/collections/collections-client';
 import { db } from '@/db';
 import { placesToCollections } from '@/db/schema/relations';
 import { eq, sql } from 'drizzle-orm';
+import { auth } from '@/lib/auth';
 
 export const metadata: Metadata = {
   title: 'Collections | Travel Dreams',
@@ -11,8 +12,14 @@ export const metadata: Metadata = {
 };
 
 export default async function CollectionsPage() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return null;
+  }
+  const userId = session.user.id;
+
   // Fetch all collections
-  const collections = await getAllCollections();
+  const collections = await getAllCollections(userId);
 
   // Get place counts for each collection
   const collectionsWithCounts = await Promise.all(

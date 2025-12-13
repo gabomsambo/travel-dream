@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAllCollections } from '@/lib/db-queries';
 import { createCollection } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 const CreateCollectionSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200, 'Name must be less than 200 characters'),
@@ -20,7 +21,8 @@ const CreateCollectionSchema = z.object({
 
 export async function GET() {
   try {
-    const collections = await getAllCollections();
+    const user = await requireAuthForApi();
+    const collections = await getAllCollections(user.id);
 
     return NextResponse.json({
       status: 'success',
@@ -28,6 +30,9 @@ export async function GET() {
       message: 'Collections retrieved successfully',
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error fetching collections:', error);
     return NextResponse.json(
       {
@@ -42,6 +47,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json();
     const validatedData = CreateCollectionSchema.parse(body);
 
@@ -49,7 +55,7 @@ export async function POST(request: NextRequest) {
       name: validatedData.name,
       description: validatedData.description ?? null,
       filters: validatedData.filters ?? null,
-    });
+    }, user.id);
 
     return NextResponse.json({
       status: 'success',
@@ -57,6 +63,9 @@ export async function POST(request: NextRequest) {
       message: 'Collection created successfully',
     }, { status: 201 });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {

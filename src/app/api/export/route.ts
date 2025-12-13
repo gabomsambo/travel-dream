@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ExportRequestSchema } from '@/types/export';
 import type { ExportErrorResponse } from '@/types/export';
 import { exportData } from '@/lib/export-service';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json();
 
     const validation = ExportRequestSchema.safeParse(body);
@@ -25,7 +27,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse, { status: 400 });
     }
 
-    const result = await exportData(validation.data);
+    const result = await exportData(validation.data, user.id);
 
     const buffer = typeof result.buffer === 'string'
       ? Buffer.from(result.buffer, 'utf-8')
@@ -39,6 +41,13 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({
+        status: 'error',
+        message: 'Authentication required',
+        timestamp: new Date().toISOString()
+      }, { status: 401 });
+    }
     console.error('Export error:', error);
 
     const errorResponse: ExportErrorResponse = {

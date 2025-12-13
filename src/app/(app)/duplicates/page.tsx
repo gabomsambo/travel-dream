@@ -1,10 +1,20 @@
 import { DuplicatesPageClient } from '@/components/duplicates/duplicates-page-client';
+import { auth } from '@/lib/auth';
+import { cookies } from 'next/headers';
 
 async function getDuplicateClusters() {
   try {
+    const cookieStore = await cookies();
+    const cookieHeader = cookieStore.getAll()
+      .map(c => `${c.name}=${c.value}`)
+      .join('; ');
+
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const response = await fetch(`${baseUrl}/api/places/duplicates?mode=clusters&minConfidence=0.7&limit=100`, {
-      cache: 'no-store'
+      cache: 'no-store',
+      headers: {
+        Cookie: cookieHeader,
+      },
     });
 
     if (!response.ok) {
@@ -22,6 +32,11 @@ async function getDuplicateClusters() {
 }
 
 export default async function DuplicatesPage() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return null;
+  }
+
   const clusters = await getDuplicateClusters();
 
   return (

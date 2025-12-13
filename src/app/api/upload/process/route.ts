@@ -5,6 +5,9 @@ import { db } from '@/db';
 import { sources, uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and } from 'drizzle-orm';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { llmExtractionService } from '@/lib/llm-extraction-service';
+import { batchCreatePlacesFromExtractions } from '@/lib/db-mutations';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for OCR processing
@@ -25,6 +28,7 @@ interface OCRProcessResult {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json() as OCRProcessRequest;
     const { sourceIds, sessionId } = body;
 
@@ -189,35 +193,34 @@ export async function POST(request: NextRequest) {
           if (ocrResult.text && ocrResult.text.trim().length > 20) {
             console.log(`[OCR Process] Triggering LLM processing for ${sourceRecord.id}`);
 
-            // Construct URL from request headers (works in Docker/localhost)
-            const protocol = request.headers.get('x-forwarded-proto') || 'http';
-            const host = request.headers.get('host') || 'localhost:3000';
-            const baseUrl = `${protocol}://${host}`;
-
-            // Sequential processing - await LLM completion before continuing
+            // Call LLM service directly (avoids auth redirect issues with HTTP fetch)
             try {
-              const llmResponse = await fetch(`${baseUrl}/api/llm-process`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  sourceIds: [sourceRecord.id],
-                  provider: process.env.LLM_PROVIDER || 'openai',
-                  context: {
-                    sourceType: 'screenshot',
-                    triggeredBy: 'auto-ocr-completion'
-                  }
-                })
+              await llmExtractionService.initialize();
+              llmExtractionService.updateConfig({
+                primaryProvider: (process.env.LLM_PROVIDER as 'openai' | 'anthropic') || 'openai',
+                enableFallback: true,
+                maxConcurrentExtractions: 1
               });
 
-              if (llmResponse.ok) {
-                const llmResult = await llmResponse.json();
+              const batchResult = await llmExtractionService.batchExtract([{
+                id: sourceRecord.id,
+                text: ocrResult.text,
+                context: {
+                  sourceType: 'screenshot',
+                  language: sourceRecord.lang || 'en'
+                }
+              }], { maxConcurrent: 1 });
+
+              if (batchResult.success && batchResult.results.length > 0) {
+                const dbResults = await batchCreatePlacesFromExtractions(batchResult.results, user.id);
+                const placesCreated = dbResults.reduce((sum, r) => sum + (r.places?.length || 0), 0);
                 console.log(`[OCR Process] LLM processing completed for ${sourceRecord.id}:`, {
-                  placesExtracted: llmResult.summary?.totalPlaces || 0,
-                  successful: llmResult.summary?.successful || 0,
-                  failed: llmResult.summary?.failed || 0
+                  placesExtracted: placesCreated,
+                  successful: dbResults.filter(r => !r.error).length,
+                  failed: dbResults.filter(r => r.error).length
                 });
               } else {
-                console.warn(`[OCR Process] LLM request failed for ${sourceRecord.id}: ${llmResponse.status} ${llmResponse.statusText}`);
+                console.warn(`[OCR Process] LLM extraction returned no results for ${sourceRecord.id}`);
               }
             } catch (err) {
               console.error(`[OCR Process] LLM processing error for ${sourceRecord.id}:`, err);
@@ -335,6 +338,9 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('OCR processing API error:', error);
 
     return NextResponse.json(
@@ -351,6 +357,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const { searchParams } = new URL(request.url);
     const sourceId = searchParams.get('sourceId');
 
@@ -387,6 +394,9 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('OCR status API error:', error);
 
     return NextResponse.json(

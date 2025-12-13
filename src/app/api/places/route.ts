@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchPlaces } from '@/lib/db-queries';
 import { createPlace } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 import { PLACE_KINDS, PLACE_STATUSES } from '@/types/database';
 
@@ -36,6 +37,7 @@ const CreatePlaceSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const searchParams = request.nextUrl.searchParams;
 
     const searchQuery = searchParams.get('search') || undefined;
@@ -54,6 +56,7 @@ export async function GET(request: NextRequest) {
       : undefined;
 
     const places = await searchPlaces({
+      userId: user.id,
       text: searchQuery,
       status,
       city,
@@ -71,6 +74,9 @@ export async function GET(request: NextRequest) {
       count: places.length,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error fetching places:', error);
     return NextResponse.json(
       {
@@ -84,6 +90,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json();
     const validated = CreatePlaceSchema.parse(body);
 
@@ -111,10 +118,13 @@ export async function POST(request: NextRequest) {
       confidence: validated.confidence,
     };
 
-    const place = await createPlace(placeData);
+    const place = await createPlace(placeData, user.id);
 
     return NextResponse.json(place, { status: 201 });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },

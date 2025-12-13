@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCollectionWithPlaces } from '@/lib/db-queries';
 import { updateCollection, deleteCollection } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 const UpdateCollectionSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200, 'Name must be less than 200 characters').optional(),
@@ -24,8 +25,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id } = await params;
-    const collection = await getCollectionWithPlaces(id);
+    const collection = await getCollectionWithPlaces(id, user.id);
 
     if (!collection) {
       return NextResponse.json(
@@ -43,6 +45,9 @@ export async function GET(
       message: 'Collection retrieved successfully',
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error fetching collection:', error);
     return NextResponse.json(
       {
@@ -60,11 +65,12 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id } = await params;
     const body = await request.json();
     const validatedData = UpdateCollectionSchema.parse(body);
 
-    const updatedCollection = await updateCollection(id, validatedData);
+    const updatedCollection = await updateCollection(id, validatedData, user.id);
 
     if (!updatedCollection) {
       return NextResponse.json(
@@ -82,6 +88,9 @@ export async function PATCH(
       message: 'Collection updated successfully',
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
@@ -110,15 +119,19 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id } = await params;
 
-    await deleteCollection(id);
+    await deleteCollection(id, user.id);
 
     return NextResponse.json({
       status: 'success',
       message: 'Collection deleted successfully',
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error deleting collection:', error);
     return NextResponse.json(
       {

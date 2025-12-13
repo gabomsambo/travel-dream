@@ -1,4 +1,5 @@
 // Export all table schemas
+export * from './auth'; // Auth.js tables
 export * from './sources-current'; // Use current schema that matches actual DB
 export * from './places';
 export * from './collections';
@@ -10,6 +11,7 @@ export * from './placeLinks';
 export * from './reservations';
 
 // Re-export tables for convenience
+export { users, accounts, sessions, verificationTokens } from './auth';
 export { sourcesCurrentSchema as sources } from './sources-current';
 export { places } from './places';
 export { collections } from './collections';
@@ -22,6 +24,9 @@ export { reservations } from './reservations';
 
 // Export all relations for Drizzle
 export {
+  usersRelations,
+  accountsRelations,
+  sessionsRelations,
   sourcesRelations,
   placesRelations,
   collectionsRelations,

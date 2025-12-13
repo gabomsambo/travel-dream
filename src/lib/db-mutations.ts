@@ -7,49 +7,66 @@ import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } fr
 import type { ExtractedPlace, ExtractionResult, ExtractionMetadata } from '@/types/llm-extraction';
 
 // Place mutations
-export async function createPlace(data: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>): Promise<Place> {
+export async function createPlace(
+  data: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>,
+  userId: string
+): Promise<Place> {
   return withErrorHandling(async () => {
     const newPlace: NewPlace = {
       id: generatePlaceId(),
       ...data,
+      userId,
     };
-    
+
     const [created] = await db.insert(places).values(newPlace).returning();
     return created;
   }, 'createPlace');
 }
 
-export async function updatePlace(id: string, data: Partial<Omit<NewPlace, 'id' | 'createdAt'>>): Promise<Place> {
+export async function updatePlace(
+  id: string,
+  data: Partial<Omit<NewPlace, 'id' | 'createdAt'>>,
+  userId: string
+): Promise<Place> {
   return withErrorHandling(async () => {
     const updateData = {
       ...data,
       updatedAt: new Date().toISOString(),
     };
-    
+
     const [updated] = await db.update(places)
       .set(updateData)
-      .where(eq(places.id, id))
+      .where(and(eq(places.id, id), eq(places.userId, userId)))
       .returning();
-    
+
     if (!updated) {
-      throw new Error(`Place with id ${id} not found`);
+      throw new Error(`Place with id ${id} not found or unauthorized`);
     }
-    
+
     return updated;
   }, 'updatePlace');
 }
 
-export async function archivePlace(id: string): Promise<Place> {
-  return updatePlace(id, { status: 'archived' });
+export async function archivePlace(id: string, userId: string): Promise<Place> {
+  return updatePlace(id, { status: 'archived' }, userId);
 }
 
-export async function deletePlace(id: string): Promise<void> {
+export async function deletePlace(id: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
     await withTransaction(async (tx) => {
+      // Verify ownership first
+      const [place] = await tx.select().from(places)
+        .where(and(eq(places.id, id), eq(places.userId, userId)))
+        .limit(1);
+
+      if (!place) {
+        throw new Error(`Place with id ${id} not found or unauthorized`);
+      }
+
       // Delete related records first
       await tx.delete(sourcesToPlaces).where(eq(sourcesToPlaces.placeId, id));
       await tx.delete(placesToCollections).where(eq(placesToCollections.placeId, id));
-      
+
       // Delete the place
       await tx.delete(places).where(eq(places.id, id));
     });
@@ -57,7 +74,10 @@ export async function deletePlace(id: string): Promise<void> {
 }
 
 // Source mutations
-export async function createSource(data: Omit<NewSource, 'id' | 'createdAt' | 'updatedAt'>): Promise<Source> {
+export async function createSource(
+  data: Omit<NewSource, 'id' | 'createdAt' | 'updatedAt'>,
+  userId: string
+): Promise<Source> {
   return withErrorHandling(async () => {
     // Use current schema that matches actual database structure
     const compatibleSource = {
@@ -68,6 +88,7 @@ export async function createSource(data: Omit<NewSource, 'id' | 'createdAt' | 'u
       ocrText: data.ocrText,
       lang: data.lang,
       meta: data.meta,
+      userId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -77,88 +98,117 @@ export async function createSource(data: Omit<NewSource, 'id' | 'createdAt' | 'u
   }, 'createSource');
 }
 
-export async function updateSource(id: string, data: Partial<Omit<NewSource, 'id' | 'createdAt'>>): Promise<Source> {
+export async function updateSource(
+  id: string,
+  data: Partial<Omit<NewSource, 'id' | 'createdAt'>>,
+  userId: string
+): Promise<Source> {
   return withErrorHandling(async () => {
     const updateData = {
       ...data,
       updatedAt: new Date().toISOString(),
     };
-    
+
     const [updated] = await db.update(sources)
       .set(updateData)
-      .where(eq(sources.id, id))
+      .where(and(eq(sources.id, id), eq(sources.userId, userId)))
       .returning();
-    
+
     if (!updated) {
-      throw new Error(`Source with id ${id} not found`);
+      throw new Error(`Source with id ${id} not found or unauthorized`);
     }
-    
+
     return updated;
   }, 'updateSource');
 }
 
-export async function deleteSource(id: string): Promise<void> {
+export async function deleteSource(id: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
     await withTransaction(async (tx) => {
+      // Verify ownership first
+      const [source] = await tx.select().from(sources)
+        .where(and(eq(sources.id, id), eq(sources.userId, userId)))
+        .limit(1);
+
+      if (!source) {
+        throw new Error(`Source with id ${id} not found or unauthorized`);
+      }
+
       // Delete related records first
       await tx.delete(sourcesToPlaces).where(eq(sourcesToPlaces.sourceId, id));
-      
+
       // Delete the source
-      const result = await tx.delete(sources).where(eq(sources.id, id));
-      
+      await tx.delete(sources).where(eq(sources.id, id));
     });
   }, 'deleteSource');
 }
 
 // Collection mutations
-export async function createCollection(data: Omit<NewCollection, 'id' | 'createdAt' | 'updatedAt'>): Promise<Collection> {
+export async function createCollection(
+  data: Omit<NewCollection, 'id' | 'createdAt' | 'updatedAt'>,
+  userId: string
+): Promise<Collection> {
   return withErrorHandling(async () => {
     const newCollection: NewCollection = {
       id: generateCollectionId(),
       ...data,
+      userId,
     };
-    
+
     const [created] = await db.insert(collections).values(newCollection).returning();
     return created;
   }, 'createCollection');
 }
 
-export async function updateCollection(id: string, data: Partial<Omit<NewCollection, 'id' | 'createdAt'>>): Promise<Collection> {
+export async function updateCollection(
+  id: string,
+  data: Partial<Omit<NewCollection, 'id' | 'createdAt'>>,
+  userId: string
+): Promise<Collection> {
   return withErrorHandling(async () => {
     const updateData = {
       ...data,
       updatedAt: new Date().toISOString(),
     };
-    
+
     const [updated] = await db.update(collections)
       .set(updateData)
-      .where(eq(collections.id, id))
+      .where(and(eq(collections.id, id), eq(collections.userId, userId)))
       .returning();
-    
+
     if (!updated) {
-      throw new Error(`Collection with id ${id} not found`);
+      throw new Error(`Collection with id ${id} not found or unauthorized`);
     }
-    
+
     return updated;
   }, 'updateCollection');
 }
 
-export async function deleteCollection(id: string): Promise<void> {
+export async function deleteCollection(id: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
     await withTransaction(async (tx) => {
+      // Verify ownership first
+      const [collection] = await tx.select().from(collections)
+        .where(and(eq(collections.id, id), eq(collections.userId, userId)))
+        .limit(1);
+
+      if (!collection) {
+        throw new Error(`Collection with id ${id} not found or unauthorized`);
+      }
+
       // Delete related records first
       await tx.delete(placesToCollections).where(eq(placesToCollections.collectionId, id));
 
       // Delete the collection
-      const result = await tx.delete(collections).where(eq(collections.id, id));
-
+      await tx.delete(collections).where(eq(collections.id, id));
     });
   }, 'deleteCollection');
 }
 
 export async function updateCollectionTransportMode(
   collectionId: string,
-  mode: 'drive' | 'walk'
+  mode: 'drive' | 'walk',
+  userId: string
 ): Promise<Collection> {
   return withErrorHandling(async () => {
     const [updated] = await db
@@ -167,11 +217,11 @@ export async function updateCollectionTransportMode(
         transportMode: mode,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(collections.id, collectionId))
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
       .returning();
 
     if (!updated) {
-      throw new Error(`Collection with id ${collectionId} not found`);
+      throw new Error(`Collection with id ${collectionId} not found or unauthorized`);
     }
 
     return updated;
@@ -180,9 +230,19 @@ export async function updateCollectionTransportMode(
 
 export async function togglePlacePin(
   collectionId: string,
-  placeId: string
+  placeId: string,
+  userId: string
 ): Promise<void> {
   return withErrorHandling(async () => {
+    // Verify collection ownership
+    const [collection] = await db.select().from(collections)
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
+      .limit(1);
+
+    if (!collection) {
+      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+    }
+
     const [current] = await db
       .select({ isPinned: placesToCollections.isPinned })
       .from(placesToCollections)
@@ -208,9 +268,19 @@ export async function togglePlacePin(
 export async function updatePlaceNote(
   collectionId: string,
   placeId: string,
-  note: string | null
+  note: string | null,
+  userId: string
 ): Promise<void> {
   return withErrorHandling(async () => {
+    // Verify collection ownership
+    const [collection] = await db.select().from(collections)
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
+      .limit(1);
+
+    if (!collection) {
+      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+    }
+
     await db
       .update(placesToCollections)
       .set({ note })
@@ -222,8 +292,20 @@ export async function updatePlaceNote(
 }
 
 // Relationship mutations
-export async function linkSourceToPlace(sourceId: string, placeId: string): Promise<void> {
+export async function linkSourceToPlace(sourceId: string, placeId: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
+    // Verify ownership of both source and place
+    const [source] = await db.select().from(sources)
+      .where(and(eq(sources.id, sourceId), eq(sources.userId, userId)))
+      .limit(1);
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!source || !place) {
+      throw new Error('Source or place not found or unauthorized');
+    }
+
     await db.insert(sourcesToPlaces).values({
       sourceId,
       placeId,
@@ -231,8 +313,20 @@ export async function linkSourceToPlace(sourceId: string, placeId: string): Prom
   }, 'linkSourceToPlace');
 }
 
-export async function unlinkSourceFromPlace(sourceId: string, placeId: string): Promise<void> {
+export async function unlinkSourceFromPlace(sourceId: string, placeId: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
+    // Verify ownership of both source and place
+    const [source] = await db.select().from(sources)
+      .where(and(eq(sources.id, sourceId), eq(sources.userId, userId)))
+      .limit(1);
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!source || !place) {
+      throw new Error('Source or place not found or unauthorized');
+    }
+
     await db.delete(sourcesToPlaces)
       .where(and(
         eq(sourcesToPlaces.sourceId, sourceId),
@@ -241,8 +335,25 @@ export async function unlinkSourceFromPlace(sourceId: string, placeId: string): 
   }, 'unlinkSourceFromPlace');
 }
 
-export async function addPlaceToCollection(placeId: string, collectionId: string, orderIndex?: number): Promise<void> {
+export async function addPlaceToCollection(
+  placeId: string,
+  collectionId: string,
+  userId: string,
+  orderIndex?: number
+): Promise<void> {
   return withErrorHandling(async () => {
+    // Verify ownership of both place and collection
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, placeId), eq(places.userId, userId)))
+      .limit(1);
+    const [collection] = await db.select().from(collections)
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
+      .limit(1);
+
+    if (!place || !collection) {
+      throw new Error('Place or collection not found or unauthorized');
+    }
+
     // If no order index provided, append to end
     if (orderIndex === undefined) {
       const maxOrder = await db.select({ max: count() })
@@ -251,7 +362,7 @@ export async function addPlaceToCollection(placeId: string, collectionId: string
 
       orderIndex = (maxOrder[0]?.max || 0) + 1;
     }
-    
+
     await db.insert(placesToCollections).values({
       placeId,
       collectionId,
@@ -263,8 +374,21 @@ export async function addPlaceToCollection(placeId: string, collectionId: string
   }, 'addPlaceToCollection');
 }
 
-export async function removePlaceFromCollection(placeId: string, collectionId: string): Promise<void> {
+export async function removePlaceFromCollection(
+  placeId: string,
+  collectionId: string,
+  userId: string
+): Promise<void> {
   return withErrorHandling(async () => {
+    // Verify collection ownership
+    const [collection] = await db.select().from(collections)
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
+      .limit(1);
+
+    if (!collection) {
+      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+    }
+
     console.log('[removePlaceFromCollection] Deleting placeId:', placeId, 'from collectionId:', collectionId);
 
     const result = await db.delete(placesToCollections)
@@ -282,8 +406,21 @@ export async function removePlaceFromCollection(placeId: string, collectionId: s
   }, 'removePlaceFromCollection');
 }
 
-export async function reorderPlacesInCollection(collectionId: string, placeIds: string[]): Promise<void> {
+export async function reorderPlacesInCollection(
+  collectionId: string,
+  placeIds: string[],
+  userId: string
+): Promise<void> {
   return withErrorHandling(async () => {
+    // Verify collection ownership
+    const [collection] = await db.select().from(collections)
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
+      .limit(1);
+
+    if (!collection) {
+      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+    }
+
     await withTransaction(async (tx) => {
       // Update order indexes for all places in the collection
       for (let i = 0; i < placeIds.length; i++) {
@@ -300,7 +437,8 @@ export async function reorderPlacesInCollection(collectionId: string, placeIds: 
 
 export async function saveDayBuckets(
   collectionId: string,
-  dayBuckets: any[]
+  dayBuckets: any[],
+  userId: string
 ): Promise<void> {
   return withErrorHandling(async () => {
     const { DayBucketSchema } = await import('@/types/database');
@@ -317,8 +455,12 @@ export async function saveDayBuckets(
         dayBuckets: dayBuckets as any,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(collections.id, collectionId))
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
       .returning();
+
+    if (result.length === 0) {
+      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+    }
 
     console.log('[saveDayBuckets] Update result:', result);
     console.log('[saveDayBuckets] Rows affected:', result.length);
@@ -327,7 +469,8 @@ export async function saveDayBuckets(
 
 export async function saveUnscheduledPlaces(
   collectionId: string,
-  placeIds: string[]
+  placeIds: string[],
+  userId: string
 ): Promise<void> {
   return withErrorHandling(async () => {
     console.log('[saveUnscheduledPlaces] Saving to collection:', collectionId);
@@ -340,8 +483,12 @@ export async function saveUnscheduledPlaces(
         unscheduledPlaceIds: placeIds as any,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(collections.id, collectionId))
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
       .returning();
+
+    if (result.length === 0) {
+      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+    }
 
     console.log('[saveUnscheduledPlaces] Update result:', result);
     console.log('[saveUnscheduledPlaces] Rows affected:', result.length);
@@ -351,17 +498,18 @@ export async function saveUnscheduledPlaces(
 export async function updateDayNote(
   collectionId: string,
   dayId: string,
-  note: string
+  note: string,
+  userId: string
 ): Promise<void> {
   return withErrorHandling(async () => {
     const collection = await db
       .select({ dayBuckets: collections.dayBuckets })
       .from(collections)
-      .where(eq(collections.id, collectionId))
+      .where(and(eq(collections.id, collectionId), eq(collections.userId, userId)))
       .limit(1);
 
     if (!collection[0]) {
-      throw new Error(`Collection ${collectionId} not found`);
+      throw new Error(`Collection ${collectionId} not found or unauthorized`);
     }
 
     const dayBuckets = collection[0].dayBuckets as any[];
@@ -369,67 +517,78 @@ export async function updateDayNote(
       bucket.id === dayId ? { ...bucket, dayNote: note } : bucket
     );
 
-    await saveDayBuckets(collectionId, updatedBuckets);
+    await saveDayBuckets(collectionId, updatedBuckets, userId);
   }, 'updateDayNote');
 }
 
 // Batch operations
-export async function createPlacesFromSources(sourcesData: Array<{
-  source: Omit<NewSource, 'id' | 'createdAt' | 'updatedAt'>;
-  place: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>;
-}>): Promise<Array<{ source: Source; place: Place }>> {
+export async function createPlacesFromSources(
+  sourcesData: Array<{
+    source: Omit<NewSource, 'id' | 'createdAt' | 'updatedAt'>;
+    place: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>;
+  }>,
+  userId: string
+): Promise<Array<{ source: Source; place: Place }>> {
   return withErrorHandling(async () => {
     return await withTransaction(async (tx) => {
       const results = [];
-      
+
       for (const { source: sourceData, place: placeData } of sourcesData) {
         // Create source
         const newSource: NewSource = {
           id: generateSourceId(),
           ...sourceData,
+          userId,
         };
         const [source] = await tx.insert(sources).values(newSource).returning();
-        
+
         // Create place
         const newPlace: NewPlace = {
           id: generatePlaceId(),
           ...placeData,
+          userId,
         };
         const [place] = await tx.insert(places).values(newPlace).returning();
-        
+
         // Link them
         await tx.insert(sourcesToPlaces).values({
           sourceId: source.id,
           placeId: place.id,
         });
-        
+
         results.push({ source, place });
       }
-      
+
       return results;
     });
   }, 'createPlacesFromSources');
 }
 
 // Bulk status updates
-export async function bulkUpdatePlaceStatus(placeIds: string[], status: string): Promise<number> {
+export async function bulkUpdatePlaceStatus(
+  placeIds: string[],
+  status: string,
+  userId: string
+): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    await db.update(places)
+    const result = await db.update(places)
       .set({
         status,
         updatedAt: new Date().toISOString(),
       })
-      .where(inArray(places.id, placeIds));
+      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
+      .returning();
 
-    return placeIds.length;
+    return result.length;
   }, 'bulkUpdatePlaceStatus');
 }
 
 // LLM-specific mutations
 export async function createPlaceFromExtraction(
   extractedPlace: ExtractedPlace,
+  userId: string,
   sourceId?: string
 ): Promise<Place> {
   return withErrorHandling(async () => {
@@ -439,6 +598,7 @@ export async function createPlaceFromExtraction(
       kind: extractedPlace.kind,
       description: extractedPlace.description || null,
       status: 'inbox',
+      userId,
 
       // Location information
       city: extractedPlace.location.city || null,
@@ -461,7 +621,7 @@ export async function createPlaceFromExtraction(
 
     // Link to source if provided
     if (sourceId) {
-      await linkSourceToPlace(sourceId, created.id);
+      await linkSourceToPlace(sourceId, created.id, userId);
     }
 
     return created;
@@ -471,39 +631,52 @@ export async function createPlaceFromExtraction(
 export async function updateSourceWithLLMMetadata(
   sourceId: string,
   metadata: ExtractionMetadata,
-  placesCount: number
+  placesCount: number,
+  userId: string
 ): Promise<Source> {
   return withErrorHandling(async () => {
-    const updateData = {
-      // Store LLM processing metadata
-      llmProcessed: 1,
-      llmModel: metadata.model,
-      llmProcessedAt: metadata.completed_at,
-      llmConfidence: metadata.confidence_avg,
-      llmExtractionDetails: {
-        processingTimeMs: metadata.processing_time_ms,
-        costUsd: metadata.cost_usd,
-        overall: metadata.confidence_avg,
-        errors: metadata.errors || []
-      },
-      updatedAt: new Date().toISOString(),
+    // Fetch existing source to preserve meta
+    const [existingSource] = await db.select()
+      .from(sourcesCurrentSchema)
+      .where(and(eq(sourcesCurrentSchema.id, sourceId), eq(sourcesCurrentSchema.userId, userId)))
+      .limit(1);
+
+    if (!existingSource) {
+      throw new Error(`Source with id ${sourceId} not found or unauthorized`);
+    }
+
+    // Store LLM metadata in meta.llmProcessing JSON field
+    const updatedMeta = {
+      ...existingSource.meta,
+      llmProcessing: {
+        processed: true,
+        model: metadata.model,
+        processedAt: metadata.completed_at,
+        confidence: metadata.confidence_avg,
+        placesExtracted: placesCount,
+        details: {
+          processingTimeMs: metadata.processing_time_ms,
+          costUsd: metadata.cost_usd,
+          errors: metadata.errors || []
+        }
+      }
     };
 
-    const [updated] = await db.update(sources)
-      .set(updateData)
-      .where(eq(sources.id, sourceId))
+    const [updated] = await db.update(sourcesCurrentSchema)
+      .set({
+        meta: updatedMeta,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(eq(sourcesCurrentSchema.id, sourceId), eq(sourcesCurrentSchema.userId, userId)))
       .returning();
-
-    if (!updated) {
-      throw new Error(`Source with id ${sourceId} not found`);
-    }
 
     return updated;
   }, 'updateSourceWithLLMMetadata');
 }
 
 export async function batchCreatePlacesFromExtractions(
-  extractionResults: ExtractionResult[]
+  extractionResults: ExtractionResult[],
+  userId: string
 ): Promise<Array<{ sourceId: string; places: Place[]; error?: string }>> {
   return withErrorHandling(async () => {
     return await withTransaction(async (tx) => {
@@ -522,8 +695,20 @@ export async function batchCreatePlacesFromExtractions(
 
           const createdPlaces: Place[] = [];
 
-          // Get source info for screenshot attachment
-          const [source] = await tx.select().from(sources).where(eq(sources.id, result.sourceId)).limit(1);
+          // Get source info for screenshot attachment - verify ownership
+          const [source] = await tx.select().from(sourcesCurrentSchema)
+            .where(and(eq(sourcesCurrentSchema.id, result.sourceId), eq(sourcesCurrentSchema.userId, userId)))
+            .limit(1);
+
+          if (!source) {
+            results.push({
+              sourceId: result.sourceId,
+              places: [],
+              error: 'Source not found or unauthorized'
+            });
+            continue;
+          }
+
           const meta = source?.meta as { uploadInfo?: { storedPath?: string; originalName?: string; mimeType?: string; size?: number } } | null;
           const screenshotPath = meta?.uploadInfo?.storedPath;
 
@@ -535,6 +720,7 @@ export async function batchCreatePlacesFromExtractions(
               kind: extractedPlace.kind,
               description: extractedPlace.description || null,
               status: 'inbox',
+              userId,
 
               // Location information
               city: extractedPlace.location.city || null,
@@ -576,24 +762,29 @@ export async function batchCreatePlacesFromExtractions(
             }
           }
 
-          // Update source with LLM metadata
-          const updateData = {
-            llmProcessed: 1,
-            llmModel: result.metadata.model,
-            llmProcessedAt: result.metadata.completed_at,
-            llmConfidence: result.metadata.confidence_avg,
-            llmExtractionDetails: {
-              processingTimeMs: result.metadata.processing_time_ms,
-              costUsd: result.metadata.cost_usd,
-              overall: result.metadata.confidence_avg,
-              errors: result.metadata.errors || []
-            },
-            updatedAt: new Date().toISOString(),
+          // Update source with LLM metadata in meta.llmProcessing JSON field
+          const updatedMeta = {
+            ...source.meta,
+            llmProcessing: {
+              processed: true,
+              model: result.metadata.model,
+              processedAt: result.metadata.completed_at,
+              confidence: result.metadata.confidence_avg,
+              placesExtracted: createdPlaces.length,
+              details: {
+                processingTimeMs: result.metadata.processing_time_ms,
+                costUsd: result.metadata.cost_usd,
+                errors: result.metadata.errors || []
+              }
+            }
           };
 
-          await tx.update(sources)
-            .set(updateData)
-            .where(eq(sources.id, result.sourceId));
+          await tx.update(sourcesCurrentSchema)
+            .set({
+              meta: updatedMeta,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(sourcesCurrentSchema.id, result.sourceId));
 
           results.push({
             sourceId: result.sourceId,
@@ -615,17 +806,21 @@ export async function batchCreatePlacesFromExtractions(
 }
 
 // Inbox & Review System specific mutations
-export async function mergePlaces(sourceId: string, targetId: string): Promise<Place> {
+export async function mergePlaces(
+  sourceId: string,
+  targetId: string,
+  userId: string
+): Promise<Place> {
   return withErrorHandling(async () => {
     return await withTransaction(async (tx) => {
-      // Get source and target places
+      // Get source and target places - verify ownership
       const [sourcePlace, targetPlace] = await Promise.all([
-        tx.select().from(places).where(eq(places.id, sourceId)).limit(1),
-        tx.select().from(places).where(eq(places.id, targetId)).limit(1)
+        tx.select().from(places).where(and(eq(places.id, sourceId), eq(places.userId, userId))).limit(1),
+        tx.select().from(places).where(and(eq(places.id, targetId), eq(places.userId, userId))).limit(1)
       ]);
 
       if (!sourcePlace[0] || !targetPlace[0]) {
-        throw new Error('Source or target place not found');
+        throw new Error('Source or target place not found or unauthorized');
       }
 
       const source = sourcePlace[0];
@@ -698,7 +893,8 @@ export async function mergePlaces(sourceId: string, targetId: string): Promise<P
 }
 
 export async function bulkMergePlaces(
-  clusters: Array<{ targetId: string; sourceIds: string[]; confidence: number }>
+  clusters: Array<{ targetId: string; sourceIds: string[]; confidence: number }>,
+  userId: string
 ): Promise<{ success: number; failed: number; results: any[] }> {
   return withErrorHandling(async () => {
     const results = [];
@@ -708,12 +904,16 @@ export async function bulkMergePlaces(
     for (const cluster of clusters) {
       try {
         await withTransaction(async (tx) => {
+          // Verify ownership of all places
           const [targetPlace] = await tx.select().from(places)
-            .where(eq(places.id, cluster.targetId)).limit(1);
+            .where(and(eq(places.id, cluster.targetId), eq(places.userId, userId))).limit(1);
           const sourcePlaces = await tx.select().from(places)
-            .where(inArray(places.id, cluster.sourceIds));
+            .where(and(inArray(places.id, cluster.sourceIds), eq(places.userId, userId)));
 
-          if (!targetPlace) throw new Error('Target place not found');
+          if (!targetPlace) throw new Error('Target place not found or unauthorized');
+          if (sourcePlaces.length !== cluster.sourceIds.length) {
+            throw new Error('One or more source places not found or unauthorized');
+          }
 
           const sourceSnapshots = sourcePlaces.map((p: Place) => ({ ...p }));
 
@@ -832,7 +1032,7 @@ export async function bulkMergePlaces(
   }, 'bulkMergePlaces');
 }
 
-export async function undoMerge(mergeLogId: string): Promise<void> {
+export async function undoMerge(mergeLogId: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
     await withTransaction(async (tx) => {
       const [log] = await tx.select().from(mergeLogs)
@@ -840,6 +1040,15 @@ export async function undoMerge(mergeLogId: string): Promise<void> {
 
       if (!log || log.undone) {
         throw new Error('Merge log not found or already undone');
+      }
+
+      // Verify ownership - check that the target place belongs to user
+      const [targetPlace] = await tx.select().from(places)
+        .where(and(eq(places.id, log.targetId), eq(places.userId, userId)))
+        .limit(1);
+
+      if (!targetPlace) {
+        throw new Error('Unauthorized to undo this merge');
       }
 
       for (const snapshot of (log.sourceSnapshots as any[]) || []) {
@@ -856,49 +1065,62 @@ export async function undoMerge(mergeLogId: string): Promise<void> {
   }, 'undoMerge');
 }
 
-export async function batchArchivePlaces(placeIds: string[]): Promise<number> {
+export async function batchArchivePlaces(placeIds: string[], userId: string): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    await db.update(places)
+    const result = await db.update(places)
       .set({
         status: 'archived',
         updatedAt: new Date().toISOString(),
       })
-      .where(inArray(places.id, placeIds));
+      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
+      .returning();
 
-    return placeIds.length;
+    return result.length;
   }, 'batchArchivePlaces');
 }
 
 // Enhanced bulk operations for inbox workflow
-export async function bulkConfirmPlaces(placeIds: string[]): Promise<number> {
+export async function bulkConfirmPlaces(placeIds: string[], userId: string): Promise<number> {
   return withErrorHandling(async () => {
-    return await bulkUpdatePlaceStatus(placeIds, 'library');
+    return await bulkUpdatePlaceStatus(placeIds, 'library', userId);
   }, 'bulkConfirmPlaces');
 }
 
-export async function bulkMovePlacesToReview(placeIds: string[]): Promise<number> {
+export async function bulkMovePlacesToReview(placeIds: string[], userId: string): Promise<number> {
   return withErrorHandling(async () => {
-    return await bulkUpdatePlaceStatus(placeIds, 'review');
+    return await bulkUpdatePlaceStatus(placeIds, 'review', userId);
   }, 'bulkMovePlacesToReview');
 }
 
-export async function createAttachment(data: {
-  placeId: string;
-  type: string;
-  uri: string;
-  filename: string;
-  mimeType?: string;
-  fileSize?: number;
-  width?: number;
-  height?: number;
-  thumbnailUri?: string;
-  caption?: string;
-  takenAt?: string;
-  isPrimary?: number;
-}) {
+export async function createAttachment(
+  data: {
+    placeId: string;
+    type: string;
+    uri: string;
+    filename: string;
+    mimeType?: string;
+    fileSize?: number;
+    width?: number;
+    height?: number;
+    thumbnailUri?: string;
+    caption?: string;
+    takenAt?: string;
+    isPrimary?: number;
+  },
+  userId: string
+) {
   return withErrorHandling(async () => {
+    // Verify place ownership
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, data.placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!place) {
+      throw new Error(`Place ${data.placeId} not found or unauthorized`);
+    }
+
     const { attachments } = await import('@/db/schema');
 
     const [attachment] = await db
@@ -910,10 +1132,27 @@ export async function createAttachment(data: {
   }, 'createAttachment');
 }
 
-export async function deleteAttachment(id: string) {
+export async function deleteAttachment(id: string, userId: string) {
   return withErrorHandling(async () => {
     const { attachments } = await import('@/db/schema');
-    const { eq } = await import('drizzle-orm');
+    const { eq, and } = await import('drizzle-orm');
+
+    // Get attachment and verify place ownership
+    const [attachment] = await db.select().from(attachments)
+      .where(eq(attachments.id, id))
+      .limit(1);
+
+    if (!attachment) {
+      throw new Error(`Attachment ${id} not found`);
+    }
+
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, attachment.placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!place) {
+      throw new Error('Unauthorized to delete this attachment');
+    }
 
     await db
       .delete(attachments)
@@ -923,15 +1162,27 @@ export async function deleteAttachment(id: string) {
   }, 'deleteAttachment');
 }
 
-export async function createPlaceLink(data: {
-  placeId: string;
-  url: string;
-  title?: string;
-  description?: string;
-  type?: string;
-  platform?: string;
-}) {
+export async function createPlaceLink(
+  data: {
+    placeId: string;
+    url: string;
+    title?: string;
+    description?: string;
+    type?: string;
+    platform?: string;
+  },
+  userId: string
+) {
   return withErrorHandling(async () => {
+    // Verify place ownership
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, data.placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!place) {
+      throw new Error(`Place ${data.placeId} not found or unauthorized`);
+    }
+
     const { placeLinks } = await import('@/db/schema');
 
     const [link] = await db
@@ -943,10 +1194,27 @@ export async function createPlaceLink(data: {
   }, 'createPlaceLink');
 }
 
-export async function deletePlaceLink(id: string) {
+export async function deletePlaceLink(id: string, userId: string) {
   return withErrorHandling(async () => {
     const { placeLinks } = await import('@/db/schema');
-    const { eq } = await import('drizzle-orm');
+    const { eq, and } = await import('drizzle-orm');
+
+    // Get link and verify place ownership
+    const [link] = await db.select().from(placeLinks)
+      .where(eq(placeLinks.id, id))
+      .limit(1);
+
+    if (!link) {
+      throw new Error(`Link ${id} not found`);
+    }
+
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, link.placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!place) {
+      throw new Error('Unauthorized to delete this link');
+    }
 
     await db
       .delete(placeLinks)
@@ -956,20 +1224,32 @@ export async function deletePlaceLink(id: string) {
   }, 'deletePlaceLink');
 }
 
-export async function createReservation(data: {
-  placeId: string;
-  reservationDate: string;
-  reservationTime?: string;
-  confirmationNumber?: string;
-  status?: string;
-  partySize?: number;
-  bookingPlatform?: string;
-  bookingUrl?: string;
-  specialRequests?: string;
-  totalCost?: string;
-  notes?: string;
-}) {
+export async function createReservation(
+  data: {
+    placeId: string;
+    reservationDate: string;
+    reservationTime?: string;
+    confirmationNumber?: string;
+    status?: string;
+    partySize?: number;
+    bookingPlatform?: string;
+    bookingUrl?: string;
+    specialRequests?: string;
+    totalCost?: string;
+    notes?: string;
+  },
+  userId: string
+) {
   return withErrorHandling(async () => {
+    // Verify place ownership
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, data.placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!place) {
+      throw new Error(`Place ${data.placeId} not found or unauthorized`);
+    }
+
     const { reservations } = await import('@/db/schema');
 
     const [reservation] = await db
@@ -990,11 +1270,29 @@ export async function updateReservation(
     bookingPlatform?: string | null;
     status?: string;
     notes?: string | null;
-  }
+  },
+  userId: string
 ) {
   return withErrorHandling(async () => {
     const { reservations } = await import('@/db/schema');
-    const { eq } = await import('drizzle-orm');
+    const { eq, and } = await import('drizzle-orm');
+
+    // Get reservation and verify place ownership
+    const [reservation] = await db.select().from(reservations)
+      .where(eq(reservations.id, id))
+      .limit(1);
+
+    if (!reservation) {
+      throw new Error(`Reservation ${id} not found`);
+    }
+
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, reservation.placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!place) {
+      throw new Error('Unauthorized to update this reservation');
+    }
 
     const [updated] = await db
       .update(reservations)
@@ -1006,10 +1304,27 @@ export async function updateReservation(
   }, 'updateReservation');
 }
 
-export async function deleteReservation(id: string) {
+export async function deleteReservation(id: string, userId: string) {
   return withErrorHandling(async () => {
     const { reservations } = await import('@/db/schema');
-    const { eq } = await import('drizzle-orm');
+    const { eq, and } = await import('drizzle-orm');
+
+    // Get reservation and verify place ownership
+    const [reservation] = await db.select().from(reservations)
+      .where(eq(reservations.id, id))
+      .limit(1);
+
+    if (!reservation) {
+      throw new Error(`Reservation ${id} not found`);
+    }
+
+    const [place] = await db.select().from(places)
+      .where(and(eq(places.id, reservation.placeId), eq(places.userId, userId)))
+      .limit(1);
+
+    if (!place) {
+      throw new Error('Unauthorized to delete this reservation');
+    }
 
     await db
       .delete(reservations)
@@ -1019,22 +1334,23 @@ export async function deleteReservation(id: string) {
   }, 'deleteReservation');
 }
 
-export async function batchRestorePlaces(placeIds: string[]): Promise<number> {
+export async function batchRestorePlaces(placeIds: string[], userId: string): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    await db.update(places)
+    const result = await db.update(places)
       .set({
         status: 'library',
         updatedAt: new Date().toISOString(),
       })
-      .where(inArray(places.id, placeIds));
+      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
+      .returning();
 
-    return placeIds.length;
+    return result.length;
   }, 'batchRestorePlaces');
 }
 
-export async function batchDeletePlaces(placeIds: string[]): Promise<number> {
+export async function batchDeletePlaces(placeIds: string[], userId: string): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
@@ -1042,6 +1358,13 @@ export async function batchDeletePlaces(placeIds: string[]): Promise<number> {
       let count = 0;
 
       for (const placeId of placeIds) {
+        // Verify ownership
+        const [place] = await tx.select().from(places)
+          .where(and(eq(places.id, placeId), eq(places.userId, userId)))
+          .limit(1);
+
+        if (!place) continue; // Skip places not owned by user
+
         await tx.delete(sourcesToPlaces).where(eq(sourcesToPlaces.placeId, placeId));
         await tx.delete(placesToCollections).where(eq(placesToCollections.placeId, placeId));
 
@@ -1059,6 +1382,7 @@ export async function batchDeletePlaces(placeIds: string[]): Promise<number> {
 
 export async function batchCreatePlaces(
   placesData: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>[],
+  userId: string,
   options?: {
     collectionId?: string;
     defaultStatus?: 'inbox' | 'library';
@@ -1068,6 +1392,17 @@ export async function batchCreatePlaces(
   failed: Array<{ index: number; error: string }>;
 }> {
   return withErrorHandling(async () => {
+    // If collectionId provided, verify ownership
+    if (options?.collectionId) {
+      const [collection] = await db.select().from(collections)
+        .where(and(eq(collections.id, options.collectionId), eq(collections.userId, userId)))
+        .limit(1);
+
+      if (!collection) {
+        throw new Error(`Collection ${options.collectionId} not found or unauthorized`);
+      }
+    }
+
     return await withTransaction(async (tx) => {
       const success: Place[] = [];
       const failed: Array<{ index: number; error: string }> = [];
@@ -1078,6 +1413,7 @@ export async function batchCreatePlaces(
           const newPlace: NewPlace = {
             id: generatePlaceId(),
             ...placeData,
+            userId,
             status: placeData.status || options?.defaultStatus || 'inbox',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),

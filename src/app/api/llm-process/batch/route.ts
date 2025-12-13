@@ -7,6 +7,7 @@ import { uploadSessions, sources } from '@/db/schema';
 import { db } from '@/db';
 import { eq, inArray, and, or, isNull, sql, desc } from 'drizzle-orm';
 import type { ExtractionContext } from '@/types/llm-extraction';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 export const maxDuration = 900; // 15 minutes for large batch processing
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
+    const user = await requireAuthForApi();
     const body: BatchProcessingRequest = await request.json();
     const {
       provider = 'openai',
@@ -97,7 +99,7 @@ export async function POST(request: NextRequest) {
         prioritizeManual: priorityMode === 'manual_first'
       };
 
-      sourcesToProcess = await getSourcesForLLMProcessing(queryOptions);
+      sourcesToProcess = await getSourcesForLLMProcessing(user.id, queryOptions);
 
       // Apply additional sorting for priority modes
       if (priorityMode === 'recent_first') {
@@ -222,7 +224,7 @@ export async function POST(request: NextRequest) {
 
         // Store results in database
         if (chunkResult.success && chunkResult.results.length > 0) {
-          const dbResults = await batchCreatePlacesFromExtractions(chunkResult.results);
+          const dbResults = await batchCreatePlacesFromExtractions(chunkResult.results, user.id);
 
           // Collect processing results
           chunkResult.results.forEach((result, index) => {
@@ -316,6 +318,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(batchResult);
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error(`[${batchId}] Batch processing error:`, error);
 
     return NextResponse.json(
@@ -343,12 +348,13 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     // Get batch processing queue status and available sources
     const { searchParams } = new URL(request.url);
     const priorityMode = searchParams.get('priorityMode') || 'manual_first';
     const limit = parseInt(searchParams.get('limit') || '100');
 
-    const sources = await getSourcesForLLMProcessing({
+    const sources = await getSourcesForLLMProcessing(user.id, {
       limit,
       requireOcrText: true,
       prioritizeManual: priorityMode === 'manual_first'
@@ -403,6 +409,9 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Batch queue API error:', error);
 
     return NextResponse.json(

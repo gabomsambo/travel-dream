@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { parseAddressComponents } from '@/lib/address-parser';
 
 interface PlaceDetailsResponse {
@@ -99,45 +100,46 @@ function transformGoogleHoursToAppFormat(
 }
 
 export async function GET(request: NextRequest) {
-  const placeId = request.nextUrl.searchParams.get('placeId');
-  const sessionToken = request.nextUrl.searchParams.get('sessionToken');
-
-  if (!placeId) {
-    return NextResponse.json(
-      { error: 'placeId is required' },
-      { status: 400 }
-    );
-  }
-
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) {
-    console.error('GOOGLE_PLACES_API_KEY not configured');
-    return NextResponse.json(
-      { error: 'Google Places API not configured' },
-      { status: 500 }
-    );
-  }
-
-  const fields = [
-    'place_id',
-    'name',
-    'formatted_address',
-    'geometry',
-    'address_components',
-    'opening_hours',
-  ].join(',');
-
-  const params = new URLSearchParams({
-    place_id: placeId,
-    key: apiKey,
-    fields,
-  });
-
-  if (sessionToken) {
-    params.append('sessiontoken', sessionToken);
-  }
-
   try {
+    await requireAuthForApi();
+    const placeId = request.nextUrl.searchParams.get('placeId');
+    const sessionToken = request.nextUrl.searchParams.get('sessionToken');
+
+    if (!placeId) {
+      return NextResponse.json(
+        { error: 'placeId is required' },
+        { status: 400 }
+      );
+    }
+
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      console.error('GOOGLE_PLACES_API_KEY not configured');
+      return NextResponse.json(
+        { error: 'Google Places API not configured' },
+        { status: 500 }
+      );
+    }
+
+    const fields = [
+      'place_id',
+      'name',
+      'formatted_address',
+      'geometry',
+      'address_components',
+      'opening_hours',
+    ].join(',');
+
+    const params = new URLSearchParams({
+      place_id: placeId,
+      key: apiKey,
+      fields,
+    });
+
+    if (sessionToken) {
+      params.append('sessiontoken', sessionToken);
+    }
+
     const response = await fetch(
       `https://maps.googleapis.com/maps/api/place/details/json?${params}`
     );
@@ -178,6 +180,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(locationData);
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error calling Google Places Details:', error);
     return NextResponse.json(
       { error: 'Failed to fetch place details' },

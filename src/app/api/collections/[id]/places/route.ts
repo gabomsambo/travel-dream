@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { addPlaceToCollection } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 const AddPlacesSchema = z.object({
   placeIds: z.array(z.string())
@@ -13,6 +14,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id: collectionId } = await params;
     const body = await request.json();
     const { placeIds } = AddPlacesSchema.parse(body);
@@ -24,7 +26,7 @@ export async function POST(
 
     for (const placeId of placeIds) {
       try {
-        await addPlaceToCollection(placeId, collectionId);
+        await addPlaceToCollection(placeId, collectionId, user.id);
         results.successful.push(placeId);
       } catch (error) {
         results.failed.push({
@@ -44,6 +46,9 @@ export async function POST(
       results,
     }, { status: allSuccessful ? 200 : 207 });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {

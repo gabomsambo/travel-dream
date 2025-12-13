@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { bulkMergePlaces } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -15,6 +16,7 @@ const BulkMergeSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json();
 
     const validation = BulkMergeSchema.safeParse(body);
@@ -34,7 +36,7 @@ export async function POST(request: NextRequest) {
 
     const { clusters } = validation.data;
 
-    const result = await bulkMergePlaces(clusters);
+    const result = await bulkMergePlaces(clusters, user.id);
 
     return NextResponse.json({
       status: 'success',
@@ -45,6 +47,9 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('[API] Bulk merge error:', error);
     return NextResponse.json(
       {

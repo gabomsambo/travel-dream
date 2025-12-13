@@ -1,10 +1,14 @@
 import { sqliteTable, text, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
+import { users } from './auth';
 
 // Current database schema (without LLM columns that don't exist yet)
 export const sourcesCurrentSchema = sqliteTable('sources', {
   // Primary key with custom prefix
   id: text('id').primaryKey().$defaultFn(() => `src_${crypto.randomUUID()}`),
+
+  // Owner of this source (nullable for migration, enforced in application)
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
 
   // Source type: 'screenshot' | 'url' | 'note'
   type: text('type').notNull(),
@@ -47,6 +51,18 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
       ocrError?: string;
       uploadedAt?: string;
     };
+    llmProcessing?: {
+      processed: boolean;
+      model: string;
+      processedAt: string;
+      confidence: number;
+      placesExtracted?: number;
+      details: {
+        processingTimeMs: number;
+        costUsd: number;
+        errors: string[];
+      };
+    };
   }>(),
 
   // Timestamps
@@ -57,4 +73,5 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
   typeIdx: index('sources_type_idx').on(table.type),
   uriIdx: index('sources_uri_idx').on(table.uri),
   createdAtIdx: index('sources_created_at_idx').on(table.createdAt),
+  userIdx: index('sources_user_idx').on(table.userId),
 }));

@@ -5,13 +5,20 @@ import { Badge } from "@/components/adapters/badge"
 import { Image, Info } from "lucide-react"
 import { getSourcesByType, getPlacesByStatus, getInboxStats } from "@/lib/db-queries"
 import { Suspense } from "react"
+import { auth } from "@/lib/auth"
 
 export default async function InboxPage() {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return null
+  }
+  const userId = session.user.id
+
   // Fetch real data from database
   const [places, screenshots, inboxStats] = await Promise.all([
-    getPlacesByStatus('inbox'),
-    getSourcesByType('screenshot'),
-    getInboxStats()
+    getPlacesByStatus('inbox', userId),
+    getSourcesByType('screenshot', userId),
+    getInboxStats(userId)
   ])
 
   const totalPlaces = places.length

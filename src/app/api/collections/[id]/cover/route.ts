@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateCollection } from '@/lib/db-mutations';
 import { getCollectionById } from '@/lib/db-queries';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import sharp from 'sharp';
 import { writeFile, mkdir, unlink, rm } from 'fs/promises';
 import path from 'path';
@@ -14,9 +15,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id: collectionId } = await params;
 
-    const collection = await getCollectionById(collectionId);
+    const collection = await getCollectionById(collectionId, user.id);
     if (!collection) {
       return NextResponse.json(
         { status: 'error', message: 'Collection not found' },
@@ -89,7 +91,7 @@ export async function POST(
     const thumbnailUrl = `/uploads/collections/${collectionId}/${thumbnailFilename}`;
 
     // Update collection with new cover
-    await updateCollection(collectionId, { coverImageUrl });
+    await updateCollection(collectionId, { coverImageUrl }, user.id);
 
     return NextResponse.json({
       status: 'success',
@@ -98,6 +100,9 @@ export async function POST(
       message: 'Cover image uploaded successfully',
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Cover upload error:', error);
     return NextResponse.json(
       {
@@ -114,9 +119,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id: collectionId } = await params;
 
-    const collection = await getCollectionById(collectionId);
+    const collection = await getCollectionById(collectionId, user.id);
     if (!collection) {
       return NextResponse.json(
         { status: 'error', message: 'Collection not found' },
@@ -135,13 +141,16 @@ export async function DELETE(
     }
 
     // Set coverImageUrl to null
-    await updateCollection(collectionId, { coverImageUrl: null });
+    await updateCollection(collectionId, { coverImageUrl: null }, user.id);
 
     return NextResponse.json({
       status: 'success',
       message: 'Cover image removed successfully',
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Cover delete error:', error);
     return NextResponse.json(
       {

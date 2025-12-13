@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 interface PlacePrediction {
   place_id: string;
@@ -16,33 +17,34 @@ interface AutocompleteResponse {
 }
 
 export async function GET(request: NextRequest) {
-  const input = request.nextUrl.searchParams.get('input');
-  const sessionToken = request.nextUrl.searchParams.get('sessionToken');
-
-  if (!input || input.length < 2) {
-    return NextResponse.json({ predictions: [] });
-  }
-
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) {
-    console.error('GOOGLE_PLACES_API_KEY not configured');
-    return NextResponse.json(
-      { error: 'Google Places API not configured' },
-      { status: 500 }
-    );
-  }
-
-  const params = new URLSearchParams({
-    input,
-    key: apiKey,
-    types: 'establishment|geocode',
-  });
-
-  if (sessionToken) {
-    params.append('sessiontoken', sessionToken);
-  }
-
   try {
+    await requireAuthForApi();
+    const input = request.nextUrl.searchParams.get('input');
+    const sessionToken = request.nextUrl.searchParams.get('sessionToken');
+
+    if (!input || input.length < 2) {
+      return NextResponse.json({ predictions: [] });
+    }
+
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      console.error('GOOGLE_PLACES_API_KEY not configured');
+      return NextResponse.json(
+        { error: 'Google Places API not configured' },
+        { status: 500 }
+      );
+    }
+
+    const params = new URLSearchParams({
+      input,
+      key: apiKey,
+      types: 'establishment|geocode',
+    });
+
+    if (sessionToken) {
+      params.append('sessiontoken', sessionToken);
+    }
+
     const response = await fetch(
       `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params}`
     );
@@ -69,6 +71,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ predictions });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Error calling Google Places Autocomplete:', error);
     return NextResponse.json(
       { error: 'Failed to fetch place suggestions' },

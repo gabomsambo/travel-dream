@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withErrorHandling } from '@/lib/db-utils';
 import { bulkConfirmPlaces, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -33,6 +34,7 @@ interface BulkActionResult {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body: BulkActionRequest = await request.json();
 
     // Validate request body
@@ -67,16 +69,16 @@ export async function POST(request: NextRequest) {
     try {
       switch (action) {
         case 'confirm':
-          updatedCount = await bulkConfirmPlaces(uniquePlaceIds);
+          updatedCount = await bulkConfirmPlaces(uniquePlaceIds, user.id);
           break;
         case 'archive':
-          updatedCount = await batchArchivePlaces(uniquePlaceIds);
+          updatedCount = await batchArchivePlaces(uniquePlaceIds, user.id);
           break;
         case 'restore':
-          updatedCount = await batchRestorePlaces(uniquePlaceIds);
+          updatedCount = await batchRestorePlaces(uniquePlaceIds, user.id);
           break;
         case 'delete':
-          updatedCount = await batchDeletePlaces(uniquePlaceIds);
+          updatedCount = await batchDeletePlaces(uniquePlaceIds, user.id);
           console.log(`Permanently deleted ${updatedCount} places`);
           break;
         default:
@@ -157,6 +159,9 @@ export async function POST(request: NextRequest) {
     );
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Bulk actions API error:', error);
     console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
 

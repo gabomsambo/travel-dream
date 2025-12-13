@@ -3,6 +3,7 @@ import { ArchiveClient } from "@/components/archive/archive-client"
 import { searchPlaces } from "@/lib/db-queries"
 import { getCoverImagesForPlaces, type PlaceWithCover } from "@/lib/library-adapters"
 import type { Place } from "@/types/database"
+import { auth } from "@/lib/auth"
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
@@ -30,6 +31,12 @@ function ArchiveFiltersSkeleton() {
 }
 
 export default async function ArchivePage({ searchParams }: PageProps) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return null
+  }
+  const userId = session.user.id
+
   const params = await searchParams
 
   const filters = {
@@ -42,6 +49,7 @@ export default async function ArchivePage({ searchParams }: PageProps) {
   }
 
   const places = await searchPlaces({
+    userId,
     status: 'archived',
     text: filters.search || undefined,
     kind: filters.kind !== 'all' ? filters.kind : undefined,

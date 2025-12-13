@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAttachment } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import sharp from 'sharp';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
@@ -12,6 +13,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id: placeId } = await params;
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -78,7 +80,7 @@ export async function POST(
       height: metadata.height,
       thumbnailUri,
       caption: caption || undefined,
-    });
+    }, user.id);
 
     return NextResponse.json({
       status: 'success',
@@ -87,6 +89,9 @@ export async function POST(
       thumbnailUrl: thumbnailUri,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Attachment upload error:', error);
     return NextResponse.json(
       {

@@ -1,12 +1,15 @@
 import { Sidebar } from '@/components/navigation/sidebar'
 import { Header } from '@/components/layout/header'
 import { GlobalHotkeys } from '@/components/global-hotkeys'
+import { requireAuth } from '@/lib/auth-helpers'
 
-export default function AppLayout({
+export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  await requireAuth()
+
   return (
     <>
       <GlobalHotkeys />

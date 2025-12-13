@@ -2,18 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withErrorHandling } from '@/lib/db-utils';
 import { getLLMProcessingStats } from '@/lib/db-queries';
 import { llmExtractionService } from '@/lib/llm-extraction-service';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for streaming
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const stream = searchParams.get('stream') === 'true';
-  const sessionId = searchParams.get('sessionId');
+  try {
+    const user = await requireAuthForApi();
+    const { searchParams } = new URL(request.url);
+    const stream = searchParams.get('stream') === 'true';
+    const sessionId = searchParams.get('sessionId');
 
-  if (stream) {
-    // Server-Sent Events streaming response
-    return new Response(
+    if (stream) {
+      // Server-Sent Events streaming response
+      return new Response(
       new ReadableStream({
         async start(controller) {
           const encoder = new TextEncoder();
@@ -30,7 +33,7 @@ export async function GET(request: NextRequest) {
           const sendStatus = async () => {
             try {
               // Get overall LLM processing statistics
-              const stats = await getLLMProcessingStats();
+              const stats = await getLLMProcessingStats(user.id);
 
               // Get current service status
               const serviceStats = await llmExtractionService.getServiceStats();
@@ -139,12 +142,11 @@ export async function GET(request: NextRequest) {
         }
       }
     );
-  }
+    }
 
-  // Non-streaming response for single status check
-  try {
+    // Non-streaming response for single status check
     const stats = await withErrorHandling(async () => {
-      return await getLLMProcessingStats();
+      return await getLLMProcessingStats(user.id);
     }, 'getLLMProcessingStats');
 
     const serviceStats = await withErrorHandling(async () => {
@@ -240,6 +242,9 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('LLM status API error:', error);
 
     return NextResponse.json(

@@ -4,6 +4,7 @@ import { LibraryStatsCards } from "@/components/library/library-stats-cards"
 import { searchPlaces, getLibraryStatsEnhanced } from "@/lib/db-queries"
 import { getCoverImagesForPlaces, type PlaceWithCover } from "@/lib/library-adapters"
 import type { Place } from "@/types/database"
+import { auth } from "@/lib/auth"
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
@@ -31,6 +32,12 @@ function LibraryFiltersSkeleton() {
 }
 
 export default async function LibraryPage({ searchParams }: PageProps) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return null
+  }
+  const userId = session.user.id
+
   // Next.js 15: searchParams is a Promise
   const params = await searchParams
 
@@ -46,6 +53,7 @@ export default async function LibraryPage({ searchParams }: PageProps) {
 
   // Fetch all library places
   const places = await searchPlaces({
+    userId,
     status: 'library',
     text: filters.search || undefined,
     kind: filters.kind !== 'all' ? filters.kind : undefined,
@@ -66,7 +74,7 @@ export default async function LibraryPage({ searchParams }: PageProps) {
   }))
 
   // Fetch library stats
-  const stats = await getLibraryStatsEnhanced()
+  const stats = await getLibraryStatsEnhanced(userId)
 
   // Compute dynamic filter options from actual library data
   const filterOptions = {

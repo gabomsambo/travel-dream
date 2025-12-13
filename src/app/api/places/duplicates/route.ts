@@ -11,6 +11,7 @@ import {
 import { db } from '@/db';
 import { places, dismissedDuplicates } from '@/db/schema';
 import { eq, inArray, and, ne } from 'drizzle-orm';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 import type { Place } from '@/types/database';
 
@@ -100,6 +101,7 @@ function filterDismissedClusters(
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const { searchParams } = new URL(request.url);
 
     // Parse and validate query parameters
@@ -410,6 +412,9 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Duplicate detection API error:', error);
     console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
 

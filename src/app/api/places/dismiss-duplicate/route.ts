@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { dismissedDuplicates } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -22,6 +23,7 @@ const UndismissRequestSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json();
     const validation = DismissRequestSchema.safeParse(body);
 
@@ -65,6 +67,9 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Dismiss duplicate API error:', error);
 
     return NextResponse.json(
@@ -80,6 +85,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json();
     const validation = UndismissRequestSchema.safeParse(body);
 
@@ -121,6 +127,9 @@ export async function DELETE(request: NextRequest) {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Undismiss duplicate API error:', error);
 
     return NextResponse.json(
@@ -136,6 +145,7 @@ export async function DELETE(request: NextRequest) {
 
 export async function GET() {
   try {
+    const user = await requireAuthForApi();
     const dismissed = await db.select().from(dismissedDuplicates);
 
     return NextResponse.json({
@@ -150,6 +160,9 @@ export async function GET() {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Get dismissed duplicates API error:', error);
 
     return NextResponse.json(

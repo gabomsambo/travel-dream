@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { ExportClient } from '@/components/export/export-client';
 import { getAllCollections, getPlacesByStatus } from '@/lib/db-queries';
+import { auth } from '@/lib/auth';
 
 function ExportPageSkeleton() {
   return (
@@ -19,9 +20,15 @@ function ExportPageSkeleton() {
 }
 
 export default async function ExportPage() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return null;
+  }
+  const userId = session.user.id;
+
   const [collections, libraryPlaces] = await Promise.all([
-    getAllCollections(),
-    getPlacesByStatus('library')
+    getAllCollections(userId),
+    getPlacesByStatus('library', userId)
   ]);
 
   const filterOptions = {

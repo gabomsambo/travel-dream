@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { db, testConnection } from '@/db';
 import { sql } from 'drizzle-orm';
 import { getPlaceStats } from '@/lib/db-queries';
 
 export async function GET() {
   try {
+    const user = await requireAuthForApi();
+
     // Test basic connection
     const isConnected = await testConnection();
     
@@ -32,7 +35,7 @@ export async function GET() {
     let stats = null;
     try {
       if (tables.includes('places')) {
-        stats = await getPlaceStats();
+        stats = await getPlaceStats(user.id);
       }
     } catch (error) {
       console.warn('Could not fetch stats:', error);
@@ -66,10 +69,13 @@ export async function GET() {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Database test error:', error);
-    
+
     return NextResponse.json(
-      { 
+      {
         status: 'error',
         connected: false,
         message: error instanceof Error ? error.message : 'Unknown error',

@@ -6,79 +6,82 @@ import { withErrorHandling } from './db-utils';
 import type { Place, Source, Collection, PlaceWithSources } from '@/types/database';
 
 // Place queries
-export async function getPlaceById(id: string): Promise<Place | null> {
+export async function getPlaceById(id: string, userId: string): Promise<Place | null> {
   return withErrorHandling(async () => {
-    const result = await db.select().from(places).where(eq(places.id, id)).limit(1);
+    const result = await db.select().from(places)
+      .where(and(eq(places.id, id), eq(places.userId, userId)))
+      .limit(1);
     return result[0] || null;
   }, 'getPlaceById');
 }
 
-export async function getPlacesByCity(city: string): Promise<Place[]> {
+export async function getPlacesByCity(city: string, userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
     return await db.select()
       .from(places)
-      .where(eq(places.city, city))
+      .where(and(eq(places.city, city), eq(places.userId, userId)))
       .orderBy(asc(places.name));
   }, 'getPlacesByCity');
 }
 
-export async function getPlacesByCountry(country: string): Promise<Place[]> {
+export async function getPlacesByCountry(country: string, userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
     return await db.select()
       .from(places)
-      .where(eq(places.country, country))
+      .where(and(eq(places.country, country), eq(places.userId, userId)))
       .orderBy(asc(places.city), asc(places.name));
   }, 'getPlacesByCountry');
 }
 
-export async function getPlacesByKind(kind: string): Promise<Place[]> {
+export async function getPlacesByKind(kind: string, userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
     return await db.select()
       .from(places)
-      .where(eq(places.kind, kind))
+      .where(and(eq(places.kind, kind), eq(places.userId, userId)))
       .orderBy(desc(places.ratingSelf), asc(places.name));
   }, 'getPlacesByKind');
 }
 
-export async function getPlacesByStatus(status: string): Promise<Place[]> {
+export async function getPlacesByStatus(status: string, userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
     return await db.select()
       .from(places)
-      .where(eq(places.status, status))
+      .where(and(eq(places.status, status), eq(places.userId, userId)))
       .orderBy(desc(places.createdAt));
   }, 'getPlacesByStatus');
 }
 
 // Tag-based queries (JSON field search)
-export async function getPlacesByTags(tags: string[]): Promise<Place[]> {
+export async function getPlacesByTags(tags: string[], userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
     // For SQLite JSON queries, we need to use LIKE with JSON patterns
-    const conditions = tags.map(tag => 
+    const conditions = tags.map(tag =>
       like(places.tags, `%"${tag}"%`)
     );
-    
+
     return await db.select()
       .from(places)
-      .where(or(...conditions))
+      .where(and(eq(places.userId, userId), or(...conditions)))
       .orderBy(desc(places.ratingSelf), asc(places.name));
   }, 'getPlacesByTags');
 }
 
-export async function getPlacesByVibes(vibes: string[]): Promise<Place[]> {
+export async function getPlacesByVibes(vibes: string[], userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
-    const conditions = vibes.map(vibe => 
+    const conditions = vibes.map(vibe =>
       like(places.vibes, `%"${vibe}"%`)
     );
-    
+
     return await db.select()
       .from(places)
-      .where(or(...conditions))
+      .where(and(eq(places.userId, userId), or(...conditions)))
       .orderBy(desc(places.ratingSelf), asc(places.name));
   }, 'getPlacesByVibes');
 }
 
 // Complex search function
 export async function searchPlaces(query: {
+  userId: string;
   text?: string;
   city?: string;
   country?: string;
@@ -91,8 +94,8 @@ export async function searchPlaces(query: {
   limit?: number;
 }): Promise<Place[]> {
   return withErrorHandling(async () => {
-    let conditions = [];
-    
+    let conditions: (SQL | undefined)[] = [eq(places.userId, query.userId)];
+
     // Text search in name and notes
     if (query.text) {
       const textCondition = or(
@@ -101,50 +104,50 @@ export async function searchPlaces(query: {
       );
       conditions.push(textCondition);
     }
-    
+
     // Location filters
     if (query.city) {
       conditions.push(eq(places.city, query.city));
     }
-    
+
     if (query.country) {
       conditions.push(eq(places.country, query.country));
     }
-    
+
     if (query.kind) {
       conditions.push(eq(places.kind, query.kind));
     }
-    
+
     if (query.status) {
       conditions.push(eq(places.status, query.status));
     }
-    
+
     // Rating filter
     if (query.minRating !== undefined) {
       conditions.push(sql`${places.ratingSelf} >= ${query.minRating}`);
     }
-    
+
     // Coordinates filter
     if (query.hasCoords) {
       conditions.push(sql`${places.coords} IS NOT NULL`);
     }
-    
+
     // Tag filters
     if (query.tags && query.tags.length > 0) {
-      const tagConditions = query.tags.map(tag => 
+      const tagConditions = query.tags.map(tag =>
         like(places.tags, `%"${tag}"%`)
       );
       conditions.push(or(...tagConditions));
     }
-    
+
     // Vibe filters
     if (query.vibes && query.vibes.length > 0) {
-      const vibeConditions = query.vibes.map(vibe => 
+      const vibeConditions = query.vibes.map(vibe =>
         like(places.vibes, `%"${vibe}"%`)
       );
       conditions.push(or(...vibeConditions));
     }
-    
+
     let dbQuery = db.select().from(places);
 
     if (conditions.length > 0) {
@@ -156,29 +159,31 @@ export async function searchPlaces(query: {
     if (query.limit) {
       dbQuery = dbQuery.limit(query.limit) as typeof dbQuery;
     }
-    
+
     return await dbQuery;
   }, 'searchPlaces');
 }
 
 // Source queries
-export async function getSourceById(id: string): Promise<Source | null> {
+export async function getSourceById(id: string, userId: string): Promise<Source | null> {
   return withErrorHandling(async () => {
-    const result = await db.select().from(sourcesCurrentSchema).where(eq(sourcesCurrentSchema.id, id)).limit(1);
+    const result = await db.select().from(sourcesCurrentSchema)
+      .where(and(eq(sourcesCurrentSchema.id, id), eq(sourcesCurrentSchema.userId, userId)))
+      .limit(1);
     return result[0] || null;
   }, 'getSourceById');
 }
 
-export async function getSourcesByType(type: string): Promise<Source[]> {
+export async function getSourcesByType(type: string, userId: string): Promise<Source[]> {
   return withErrorHandling(async () => {
     return await db.select()
       .from(sourcesCurrentSchema)
-      .where(eq(sourcesCurrentSchema.type, type))
+      .where(and(eq(sourcesCurrentSchema.type, type), eq(sourcesCurrentSchema.userId, userId)))
       .orderBy(desc(sourcesCurrentSchema.createdAt));
   }, 'getSourcesByType');
 }
 
-export async function getSourcesForPlace(placeId: string): Promise<Source[]> {
+export async function getSourcesForPlace(placeId: string, userId: string): Promise<Source[]> {
   return withErrorHandling(async () => {
     return await db.select({
       id: sourcesCurrentSchema.id,
@@ -190,31 +195,35 @@ export async function getSourcesForPlace(placeId: string): Promise<Source[]> {
       meta: sourcesCurrentSchema.meta,
       createdAt: sourcesCurrentSchema.createdAt,
       updatedAt: sourcesCurrentSchema.updatedAt,
+      userId: sourcesCurrentSchema.userId,
     })
       .from(sourcesCurrentSchema)
       .innerJoin(sourcesToPlaces, eq(sourcesCurrentSchema.id, sourcesToPlaces.sourceId))
-      .where(eq(sourcesToPlaces.placeId, placeId))
+      .where(and(eq(sourcesToPlaces.placeId, placeId), eq(sourcesCurrentSchema.userId, userId)))
       .orderBy(desc(sourcesCurrentSchema.createdAt));
   }, 'getSourcesForPlace');
 }
 
 // Collection queries
-export async function getCollectionById(id: string): Promise<Collection | null> {
+export async function getCollectionById(id: string, userId: string): Promise<Collection | null> {
   return withErrorHandling(async () => {
-    const result = await db.select().from(collections).where(eq(collections.id, id)).limit(1);
+    const result = await db.select().from(collections)
+      .where(and(eq(collections.id, id), eq(collections.userId, userId)))
+      .limit(1);
     return result[0] || null;
   }, 'getCollectionById');
 }
 
-export async function getAllCollections(): Promise<Collection[]> {
+export async function getAllCollections(userId: string): Promise<Collection[]> {
   return withErrorHandling(async () => {
     return await db.select()
       .from(collections)
+      .where(eq(collections.userId, userId))
       .orderBy(desc(collections.updatedAt));
   }, 'getAllCollections');
 }
 
-export async function getPlacesInCollection(collectionId: string): Promise<Place[]> {
+export async function getPlacesInCollection(collectionId: string, userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
     return await db.select({
       id: places.id,
@@ -241,6 +250,7 @@ export async function getPlacesInCollection(collectionId: string): Promise<Place
       confidence: places.confidence,
       createdAt: places.createdAt,
       updatedAt: places.updatedAt,
+      userId: places.userId,
       website: places.website,
       phone: places.phone,
       email: places.email,
@@ -258,23 +268,25 @@ export async function getPlacesInCollection(collectionId: string): Promise<Place
     })
       .from(places)
       .innerJoin(placesToCollections, eq(places.id, placesToCollections.placeId))
-      .where(eq(placesToCollections.collectionId, collectionId))
+      .innerJoin(collections, eq(placesToCollections.collectionId, collections.id))
+      .where(and(eq(placesToCollections.collectionId, collectionId), eq(collections.userId, userId)))
       .orderBy(asc(placesToCollections.orderIndex), asc(places.name));
   }, 'getPlacesInCollection');
 }
 
 export async function getCollectionWithPlaces(
-  collectionId: string
+  collectionId: string,
+  userId: string
 ): Promise<(Collection & { places: Place[] }) | null> {
   return withErrorHandling(async () => {
-    const collection = await getCollectionById(collectionId);
+    const collection = await getCollectionById(collectionId, userId);
     if (!collection) return null;
 
-    const places = await getPlacesInCollection(collectionId);
+    const collectionPlaces = await getPlacesInCollection(collectionId, userId);
 
     return {
       ...collection,
-      places,
+      places: collectionPlaces,
     };
   }, 'getCollectionWithPlaces');
 }
@@ -282,6 +294,7 @@ export async function getCollectionWithPlaces(
 export async function getDayPlaces(
   collectionId: string,
   placeIds: string[],
+  userId: string,
   lockedPlaceIds?: string[]
 ): Promise<Place[]> {
   return withErrorHandling(async () => {
@@ -312,6 +325,7 @@ export async function getDayPlaces(
       confidence: places.confidence,
       createdAt: places.createdAt,
       updatedAt: places.updatedAt,
+      userId: places.userId,
       website: places.website,
       phone: places.phone,
       email: places.email,
@@ -329,9 +343,11 @@ export async function getDayPlaces(
     })
       .from(places)
       .innerJoin(placesToCollections, eq(places.id, placesToCollections.placeId))
+      .innerJoin(collections, eq(placesToCollections.collectionId, collections.id))
       .where(and(
         eq(placesToCollections.collectionId, collectionId),
-        inArray(places.id, placeIds)
+        inArray(places.id, placeIds),
+        eq(collections.userId, userId)
       ));
 
     const placeMap = new Map(allPlaces.map(p => [p.id, p]));
@@ -352,17 +368,18 @@ export async function getDayPlaces(
 
 export async function getUnscheduledPlaces(
   collectionId: string,
-  unscheduledPlaceIds: string[]
+  unscheduledPlaceIds: string[],
+  userId: string
 ): Promise<Place[]> {
   return withErrorHandling(async () => {
     if (unscheduledPlaceIds.length === 0) return [];
 
-    return getDayPlaces(collectionId, unscheduledPlaceIds);
+    return getDayPlaces(collectionId, unscheduledPlaceIds, userId);
   }, 'getUnscheduledPlaces');
 }
 
 // Statistics queries
-export async function getPlaceStats(): Promise<{
+export async function getPlaceStats(userId: string): Promise<{
   total: number;
   byStatus: Record<string, number>;
   byKind: Record<string, number>;
@@ -370,19 +387,19 @@ export async function getPlaceStats(): Promise<{
 }> {
   return withErrorHandling(async () => {
     const [totalResult, statusResults, kindResults, countryResults] = await Promise.all([
-      db.select({ count: sql<number>`count(*)` }).from(places),
-      db.select({ 
-        status: places.status, 
-        count: sql<number>`count(*)` 
-      }).from(places).groupBy(places.status),
-      db.select({ 
-        kind: places.kind, 
-        count: sql<number>`count(*)` 
-      }).from(places).groupBy(places.kind),
-      db.select({ 
-        country: places.country, 
-        count: sql<number>`count(*)` 
-      }).from(places).where(sql`${places.country} IS NOT NULL`).groupBy(places.country),
+      db.select({ count: sql<number>`count(*)` }).from(places).where(eq(places.userId, userId)),
+      db.select({
+        status: places.status,
+        count: sql<number>`count(*)`
+      }).from(places).where(eq(places.userId, userId)).groupBy(places.status),
+      db.select({
+        kind: places.kind,
+        count: sql<number>`count(*)`
+      }).from(places).where(eq(places.userId, userId)).groupBy(places.kind),
+      db.select({
+        country: places.country,
+        count: sql<number>`count(*)`
+      }).from(places).where(and(eq(places.userId, userId), sql`${places.country} IS NOT NULL`)).groupBy(places.country),
     ]);
 
     return {
@@ -395,7 +412,7 @@ export async function getPlaceStats(): Promise<{
 }
 
 // LLM-specific queries - Updated to work with current schema
-export async function getSourcesForLLMProcessing(options: {
+export async function getSourcesForLLMProcessing(userId: string, options: {
   limit?: number;
   requireOcrText?: boolean;
   prioritizeManual?: boolean;
@@ -407,7 +424,7 @@ export async function getSourcesForLLMProcessing(options: {
       prioritizeManual = true
     } = options;
 
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [eq(sourcesCurrentSchema.userId, userId)];
 
     // Only sources with OCR text available
     if (requireOcrText) {
@@ -439,7 +456,7 @@ export async function getSourcesForLLMProcessing(options: {
   }, 'getSourcesForLLMProcessing');
 }
 
-export async function getPlacesByConfidenceRange(options: {
+export async function getPlacesByConfidenceRange(userId: string, options: {
   minConfidence?: number;
   maxConfidence?: number;
   limit?: number;
@@ -453,7 +470,7 @@ export async function getPlacesByConfidenceRange(options: {
       status
     } = options;
 
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [eq(places.userId, userId)];
 
     // Confidence range filter
     conditions.push(between(places.confidence, minConfidence, maxConfidence));
@@ -479,162 +496,8 @@ export async function getPlacesByConfidenceRange(options: {
   }, 'getPlacesByConfidenceRange');
 }
 
-// Temporarily disabled due to schema migration - will be re-enabled when LLM columns are added
-/*
-export async function getLLMProcessingStats(): Promise<{
-  sources: {
-    total: number;
-    processed: number;
-    pending: number;
-    failed: number;
-  };
-  places: {
-    total_llm_generated: number;
-    by_confidence: {
-      high: number; // 0.8-1.0
-      medium: number; // 0.5-0.79
-      low: number; // 0.0-0.49
-    };
-    avg_confidence: number;
-  };
-  processing: {
-    total_cost_usd: number;
-    avg_processing_time_ms: number;
-    most_used_model: string;
-    last_24h_processed: number;
-  };
-}> {
-  // Return default stats to avoid database schema errors
-  return {
-    sources: {
-      total: 0,
-      processed: 0,
-      pending: 0,
-      failed: 0,
-    },
-    places: {
-      total_llm_generated: 0,
-      by_confidence: {
-        high: 0,
-        medium: 0,
-        low: 0,
-      },
-      avg_confidence: 0,
-    },
-    processing: {
-      total_cost_usd: 0,
-      avg_processing_time_ms: 0,
-      most_used_model: 'unknown',
-      last_24h_processed: 0,
-    };
-      // Total sources
-      db.select({ count: sql<number>`count(*)` }).from(sources),
-
-      // Processed sources
-      db.select({ count: sql<number>`count(*)` })
-        .from(sources)
-        .where(eq(sources.llmProcessed, 1)),
-
-      // Pending sources (has OCR text but not processed)
-      db.select({ count: sql<number>`count(*)` })
-        .from(sources)
-        .where(and(
-          sql`${sources.ocrText} IS NOT NULL`,
-          or(eq(sources.llmProcessed, 0), isNull(sources.llmProcessed))
-        )),
-
-      // Failed sources (processed but with errors)
-      db.select({ count: sql<number>`count(*)` })
-        .from(sources)
-        .where(and(
-          eq(sources.llmProcessed, 1),
-          sql`json_extract(${sources.llmExtractionDetails}, '$.errors') IS NOT NULL`
-        )),
-
-      // Total LLM-generated places
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(sql`${places.confidence} IS NOT NULL`),
-
-      // High confidence places (0.8-1.0)
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(between(places.confidence, 0.8, 1.0)),
-
-      // Medium confidence places (0.5-0.79)
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(between(places.confidence, 0.5, 0.79)),
-
-      // Low confidence places (0.0-0.49)
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(between(places.confidence, 0.0, 0.49)),
-
-      // Average confidence
-      db.select({ avg: sql<number>`avg(${places.confidence})` })
-        .from(places)
-        .where(sql`${places.confidence} IS NOT NULL`),
-
-      // Total cost
-      db.select({ sum: sql<number>`sum(json_extract(${sources.llmExtractionDetails}, '$.costUsd'))` })
-        .from(sources)
-        .where(sql`json_extract(${sources.llmExtractionDetails}, '$.costUsd') IS NOT NULL`),
-
-      // Average processing time
-      db.select({ avg: sql<number>`avg(json_extract(${sources.llmExtractionDetails}, '$.processingTimeMs'))` })
-        .from(sources)
-        .where(sql`json_extract(${sources.llmExtractionDetails}, '$.processingTimeMs') IS NOT NULL`),
-
-      // Most used model
-      db.select({
-        model: sources.llmModel,
-        count: sql<number>`count(*)`
-      })
-        .from(sources)
-        .where(sql`${sources.llmModel} IS NOT NULL`)
-        .groupBy(sources.llmModel)
-        .orderBy(sql`count(*) DESC`)
-        .limit(1),
-
-      // Last 24h processed
-      db.select({ count: sql<number>`count(*)` })
-        .from(sources)
-        .where(and(
-          eq(sources.llmProcessed, 1),
-          sql`datetime(${sources.llmProcessedAt}) > datetime('now', '-24 hours')`
-        ))
-    ]);
-
-    return {
-      sources: {
-        total: sourceStats[0]?.count || 0,
-        processed: sourcesProcessed[0]?.count || 0,
-        pending: sourcesPending[0]?.count || 0,
-        failed: sourcesFailed[0]?.count || 0,
-      },
-      places: {
-        total_llm_generated: placesLLMGenerated[0]?.count || 0,
-        by_confidence: {
-          high: placesHighConf[0]?.count || 0,
-          medium: placesMedConf[0]?.count || 0,
-          low: placesLowConf[0]?.count || 0,
-        },
-        avg_confidence: avgConfidence[0]?.avg || 0,
-      },
-      processing: {
-        total_cost_usd: totalCost[0]?.sum || 0,
-        avg_processing_time_ms: avgProcessingTime[0]?.avg || 0,
-        most_used_model: modelUsage[0]?.model || 'unknown',
-        last_24h_processed: 0,
-      },
-    };
-  }, 'getLLMProcessingStats');
-}
-*/
-
 // Temporary replacement function
-export async function getLLMProcessingStats() {
+export async function getLLMProcessingStats(userId: string) {
   return {
     sources: { total: 0, processed: 0, pending: 0, failed: 0 },
     places: { total_llm_generated: 0, by_confidence: { high: 0, medium: 0, low: 0 }, avg_confidence: 0 },
@@ -643,13 +506,13 @@ export async function getLLMProcessingStats() {
 }
 
 // Utility query for LLM workflow integration
-export async function getSourcesWithPlaces(sourceIds: string[]): Promise<Array<Source & { places: Place[] }>> {
+export async function getSourcesWithPlaces(sourceIds: string[], userId: string): Promise<Array<Source & { places: Place[] }>> {
   return withErrorHandling(async () => {
     if (sourceIds.length === 0) return [];
 
     const sourcesData = await db.select()
       .from(sources)
-      .where(inArray(sources.id, sourceIds));
+      .where(and(inArray(sources.id, sourceIds), eq(sources.userId, userId)));
 
     const results = [];
     for (const source of sourcesData) {
@@ -689,10 +552,11 @@ export async function getSourcesWithPlaces(sourceIds: string[]): Promise<Array<S
         recommendedBy: places.recommendedBy,
         companions: places.companions,
         practicalInfo: places.practicalInfo,
+        userId: places.userId,
       })
         .from(places)
         .innerJoin(sourcesToPlaces, eq(places.id, sourcesToPlaces.placeId))
-        .where(eq(sourcesToPlaces.sourceId, source.id));
+        .where(and(eq(sourcesToPlaces.sourceId, source.id), eq(places.userId, userId)));
 
       results.push({
         ...source,
@@ -705,7 +569,7 @@ export async function getSourcesWithPlaces(sourceIds: string[]): Promise<Array<S
 }
 
 // Inbox-specific queries for inbox & review system
-export async function getInboxStats(): Promise<{
+export async function getInboxStats(userId: string): Promise<{
   total: number;
   byConfidence: {
     high: number;    // 90%+
@@ -728,13 +592,14 @@ export async function getInboxStats(): Promise<{
       // Total inbox items
       db.select({ count: sql<number>`count(*)` })
         .from(places)
-        .where(eq(places.status, 'inbox')),
+        .where(and(eq(places.status, 'inbox'), eq(places.userId, userId))),
 
       // High confidence (90%+)
       db.select({ count: sql<number>`count(*)` })
         .from(places)
         .where(and(
           eq(places.status, 'inbox'),
+          eq(places.userId, userId),
           sql`${places.confidence} >= 0.9`
         )),
 
@@ -743,6 +608,7 @@ export async function getInboxStats(): Promise<{
         .from(places)
         .where(and(
           eq(places.status, 'inbox'),
+          eq(places.userId, userId),
           sql`${places.confidence} >= 0.8 AND ${places.confidence} < 0.9`
         )),
 
@@ -751,6 +617,7 @@ export async function getInboxStats(): Promise<{
         .from(places)
         .where(and(
           eq(places.status, 'inbox'),
+          eq(places.userId, userId),
           sql`${places.confidence} >= 0.6 AND ${places.confidence} < 0.8`
         )),
 
@@ -759,6 +626,7 @@ export async function getInboxStats(): Promise<{
         .from(places)
         .where(and(
           eq(places.status, 'inbox'),
+          eq(places.userId, userId),
           sql`${places.confidence} < 0.6`
         )),
 
@@ -767,6 +635,7 @@ export async function getInboxStats(): Promise<{
         .from(places)
         .where(and(
           eq(places.status, 'inbox'),
+          eq(places.userId, userId),
           sql`${places.confidence} IS NOT NULL`
         ))
     ]);
@@ -794,7 +663,7 @@ export async function getInboxStats(): Promise<{
   }, 'getInboxStats');
 }
 
-export async function findSimilarPlaces(placeId: string, options: {
+export async function findSimilarPlaces(placeId: string, userId: string, options: {
   similarityThreshold?: number;
   maxResults?: number;
   includeArchived?: boolean;
@@ -813,7 +682,7 @@ export async function findSimilarPlaces(placeId: string, options: {
     // Get the target place first
     const targetPlace = await db.select()
       .from(places)
-      .where(eq(places.id, placeId))
+      .where(and(eq(places.id, placeId), eq(places.userId, userId)))
       .limit(1);
 
     if (!targetPlace[0]) {
@@ -831,6 +700,7 @@ export async function findSimilarPlaces(placeId: string, options: {
     const candidates = await db.select()
       .from(places)
       .where(and(
+        eq(places.userId, userId),
         sql`${places.id} != ${placeId}`, // Exclude the target place itself
         or(...statusConditions)
       ));
@@ -892,24 +762,26 @@ export async function findSimilarPlaces(placeId: string, options: {
   }, 'findSimilarPlaces');
 }
 
-export async function getAttachmentsForPlace(placeId: string) {
+export async function getAttachmentsForPlace(placeId: string, userId: string) {
   return withErrorHandling(async () => {
     const { attachments } = await import('@/db/schema');
-    const { eq, desc } = await import('drizzle-orm');
+    const { eq, and, desc } = await import('drizzle-orm');
 
     const results = await db
       .select()
       .from(attachments)
-      .where(eq(attachments.placeId, placeId))
+      .innerJoin(places, eq(attachments.placeId, places.id))
+      .where(and(eq(attachments.placeId, placeId), eq(places.userId, userId)))
       .orderBy(desc(attachments.createdAt));
 
-    return results;
+    return results.map(r => r.attachments);
   }, 'getAttachmentsForPlace');
 }
 
 export async function getCollectionAvailableImages(
   collectionId: string,
-  source: 'collection' | 'all'
+  source: 'collection' | 'all',
+  userId: string
 ): Promise<Array<{
   id: string;
   uri: string;
@@ -922,6 +794,10 @@ export async function getCollectionAvailableImages(
     const { eq, and, inArray } = await import('drizzle-orm');
 
     if (source === 'collection') {
+      // Verify collection ownership first
+      const collection = await getCollectionById(collectionId, userId);
+      if (!collection) return [];
+
       // Get place IDs in this collection
       const collectionPlaces = await db
         .select({ placeId: placesToCollections.placeId })
@@ -948,6 +824,7 @@ export async function getCollectionAvailableImages(
         .where(
           and(
             eq(attachments.type, 'photo'),
+            eq(places.userId, userId),
             inArray(attachments.placeId, placeIds)
           )
         )
@@ -955,7 +832,7 @@ export async function getCollectionAvailableImages(
 
       return results;
     } else {
-      // Get all photo attachments from all places
+      // Get all photo attachments from all user's places
       const results = await db
         .select({
           id: attachments.id,
@@ -966,7 +843,7 @@ export async function getCollectionAvailableImages(
         })
         .from(attachments)
         .innerJoin(places, eq(attachments.placeId, places.id))
-        .where(eq(attachments.type, 'photo'))
+        .where(and(eq(attachments.type, 'photo'), eq(places.userId, userId)))
         .orderBy(desc(attachments.createdAt))
         .limit(100); // Limit to 100 images for performance
 
@@ -975,45 +852,47 @@ export async function getCollectionAvailableImages(
   }, 'getCollectionAvailableImages');
 }
 
-export async function getLinksForPlace(placeId: string) {
+export async function getLinksForPlace(placeId: string, userId: string) {
   return withErrorHandling(async () => {
     const { placeLinks } = await import('@/db/schema');
-    const { eq, desc } = await import('drizzle-orm');
+    const { eq, and, desc } = await import('drizzle-orm');
 
     const results = await db
       .select()
       .from(placeLinks)
-      .where(eq(placeLinks.placeId, placeId))
+      .innerJoin(places, eq(placeLinks.placeId, places.id))
+      .where(and(eq(placeLinks.placeId, placeId), eq(places.userId, userId)))
       .orderBy(desc(placeLinks.createdAt));
 
-    return results;
+    return results.map(r => r.place_links);
   }, 'getLinksForPlace');
 }
 
-export async function getReservationsForPlace(placeId: string) {
+export async function getReservationsForPlace(placeId: string, userId: string) {
   return withErrorHandling(async () => {
     const { reservations } = await import('@/db/schema');
-    const { eq, desc } = await import('drizzle-orm');
+    const { eq, and, desc } = await import('drizzle-orm');
 
     const results = await db
       .select()
       .from(reservations)
-      .where(eq(reservations.placeId, placeId))
+      .innerJoin(places, eq(reservations.placeId, places.id))
+      .where(and(eq(reservations.placeId, placeId), eq(places.userId, userId)))
       .orderBy(desc(reservations.reservationDate));
 
-    return results;
+    return results.map(r => r.reservations);
   }, 'getReservationsForPlace');
 }
 
-export async function getPlaceWithRelations(placeId: string) {
+export async function getPlaceWithRelations(placeId: string, userId: string) {
   return withErrorHandling(async () => {
     const { places, sourcesCurrentSchema } = await import('@/db/schema');
-    const { eq } = await import('drizzle-orm');
+    const { eq, and } = await import('drizzle-orm');
 
     const place = await db
       .select()
       .from(places)
-      .where(eq(places.id, placeId))
+      .where(and(eq(places.id, placeId), eq(places.userId, userId)))
       .limit(1)
       .then(rows => rows[0]);
 
@@ -1022,10 +901,10 @@ export async function getPlaceWithRelations(placeId: string) {
     }
 
     const [attachments, links, reservations, sources] = await Promise.all([
-      getAttachmentsForPlace(placeId),
-      getLinksForPlace(placeId),
-      getReservationsForPlace(placeId),
-      getSourcesForPlace(placeId),
+      getAttachmentsForPlace(placeId, userId),
+      getLinksForPlace(placeId, userId),
+      getReservationsForPlace(placeId, userId),
+      getSourcesForPlace(placeId, userId),
     ]);
 
     return {
@@ -1038,64 +917,65 @@ export async function getPlaceWithRelations(placeId: string) {
   }, 'getPlaceWithRelations');
 }
 
-export async function getLibraryStatsEnhanced() {
+export async function getLibraryStatsEnhanced(userId: string) {
   return withErrorHandling(async () => {
     const { places } = await import('@/db/schema');
-    const { eq, count, sql } = await import('drizzle-orm');
+    const { eq, and, count, sql } = await import('drizzle-orm');
 
     const totalPlaces = await db
       .select({ count: count() })
       .from(places)
-      .where(eq(places.status, 'library'))
+      .where(and(eq(places.status, 'library'), eq(places.userId, userId)))
       .then(rows => rows[0]?.count || 0);
 
     const visitedCount = await db
       .select({ count: count() })
       .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.visitStatus} = 'visited'`)
+      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.visitStatus} = 'visited'`)
       .then(rows => rows[0]?.count || 0);
 
     const plannedCount = await db
       .select({ count: count() })
       .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.visitStatus} = 'planned'`)
+      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.visitStatus} = 'planned'`)
       .then(rows => rows[0]?.count || 0);
 
     const notVisitedCount = await db
       .select({ count: count() })
       .from(places)
-      .where(sql`${places.status} = 'library' AND (${places.visitStatus} = 'not_visited' OR ${places.visitStatus} IS NULL)`)
+      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND (${places.visitStatus} = 'not_visited' OR ${places.visitStatus} IS NULL)`)
       .then(rows => rows[0]?.count || 0);
 
     const highPriorityCount = await db
       .select({ count: count() })
       .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.priority} >= 4`)
+      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.priority} >= 4`)
       .then(rows => rows[0]?.count || 0);
 
     const mediumPriorityCount = await db
       .select({ count: count() })
       .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.priority} >= 2 AND ${places.priority} < 4`)
+      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.priority} >= 2 AND ${places.priority} < 4`)
       .then(rows => rows[0]?.count || 0);
 
     const lowPriorityCount = await db
       .select({ count: count() })
       .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.priority} < 2`)
+      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.priority} < 2`)
       .then(rows => rows[0]?.count || 0);
 
     const uniqueCountries = await db
       .select({ country: places.country })
       .from(places)
-      .where(eq(places.status, 'library'))
+      .where(and(eq(places.status, 'library'), eq(places.userId, userId)))
       .then(rows => new Set(rows.map(r => r.country).filter(Boolean)).size);
 
     const { attachments } = await import('@/db/schema');
     const withPhotosCount = await db
       .select({ placeId: attachments.placeId })
       .from(attachments)
-      .where(eq(attachments.type, 'photo'))
+      .innerJoin(places, eq(attachments.placeId, places.id))
+      .where(and(eq(attachments.type, 'photo'), eq(places.userId, userId)))
       .then(rows => new Set(rows.map(r => r.placeId)).size);
 
     return {

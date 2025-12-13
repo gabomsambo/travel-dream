@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createPlaceLink } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -17,6 +18,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id: placeId } = await params;
     const body = await request.json();
 
@@ -25,13 +27,16 @@ export async function POST(
     const link = await createPlaceLink({
       placeId,
       ...validatedData,
-    });
+    }, user.id);
 
     return NextResponse.json({
       status: 'success',
       link,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {

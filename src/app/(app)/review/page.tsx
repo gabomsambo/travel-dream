@@ -3,17 +3,24 @@ import { Loader2 } from "lucide-react"
 import { ReviewClient } from "@/components/review/review-client"
 import { getPlaceById, getSourcesForPlace, getPlacesByStatus } from "@/lib/db-queries"
 import { Suspense } from "react"
+import { auth } from "@/lib/auth"
 
 interface ReviewPageProps {
   searchParams: Promise<{ placeId?: string }>
 }
 
 export default async function ReviewPage({ searchParams }: ReviewPageProps) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return null
+  }
+  const userId = session.user.id
+
   const { placeId } = await searchParams
 
   if (placeId) {
-    const place = await getPlaceById(placeId)
-    const sources = place ? await getSourcesForPlace(placeId) : []
+    const place = await getPlaceById(placeId, userId)
+    const sources = place ? await getSourcesForPlace(placeId, userId) : []
 
     return (
       <div className="space-y-6">
@@ -33,7 +40,7 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
     )
   }
 
-  const inboxPlaces = await getPlacesByStatus('inbox')
+  const inboxPlaces = await getPlacesByStatus('inbox', userId)
 
   return (
     <div className="space-y-6">

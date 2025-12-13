@@ -8,6 +8,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { db } from '@/db';
 import { eq, inArray, and, or, isNull, sql } from 'drizzle-orm';
 import type { ExtractionContext } from '@/types/llm-extraction';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 export const maxDuration = 600; // 10 minutes for LLM processing
@@ -32,6 +33,7 @@ interface LLMProcessingResult {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body: LLMProcessingRequest = await request.json();
     const {
       sourceIds,
@@ -113,7 +115,8 @@ export async function POST(request: NextRequest) {
       }
 
       // Skip if already processed (unless explicitly requested)
-      if (source.llmProcessed && !sourceIds) {
+      // Check meta.llmProcessing.processed instead of non-existent llmProcessed column
+      if (source.meta?.llmProcessing?.processed && !sourceIds) {
         return false;
       }
 
@@ -174,7 +177,7 @@ export async function POST(request: NextRequest) {
 
       // Store results in database
       if (batchResult.success && batchResult.results.length > 0) {
-        const dbResults = await batchCreatePlacesFromExtractions(batchResult.results);
+        const dbResults = await batchCreatePlacesFromExtractions(batchResult.results, user.id);
 
         // Collect processing results
         batchResult.results.forEach((result, index) => {
@@ -241,6 +244,9 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('LLM processing API error:', error);
 
     return NextResponse.json(
@@ -257,12 +263,13 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     // Get sources available for LLM processing
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
     const includeProcessed = searchParams.get('includeProcessed') === 'true';
 
-    const sources = await getSourcesForLLMProcessing({
+    const sources = await getSourcesForLLMProcessing(user.id, {
       limit,
       requireOcrText: true,
       prioritizeManual: true
@@ -304,6 +311,9 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('LLM queue API error:', error);
 
     return NextResponse.json(

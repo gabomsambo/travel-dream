@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { validateRows, preparePlacesForImport } from '@/lib/import-service';
 import { batchCreatePlaces } from '@/lib/db-mutations';
 import type { ColumnMapping, ImportOptions, ImportResult } from '@/types/import';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 
@@ -25,6 +26,7 @@ const ExecuteRequestSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json();
 
     const validated = ExecuteRequestSchema.safeParse(body);
@@ -80,6 +82,7 @@ export async function POST(request: NextRequest) {
 
     const createResult = await batchCreatePlaces(
       placesToCreate.map(p => p.data),
+      user.id,
       {
         collectionId: options.collectionId,
         defaultStatus: options.confidentMode ? undefined : 'inbox',
@@ -114,6 +117,12 @@ export async function POST(request: NextRequest) {
       result,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json(
+        { status: 'error', message: 'Authentication required' },
+        { status: 401 }
+      );
+    }
     console.error('[API /import/execute] Error:', error);
     return NextResponse.json(
       {

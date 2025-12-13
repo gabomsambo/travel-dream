@@ -1,11 +1,13 @@
 import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
+import { users, accounts, sessions } from './auth';
 import { sources } from './sources';
 import { places } from './places';
 import { collections } from './collections';
 import { attachments } from './attachments';
 import { placeLinks } from './placeLinks';
 import { reservations } from './reservations';
+import { sourcesCurrentSchema } from './sources-current';
 
 // Join table for sources to places (many-to-many)
 export const sourcesToPlaces = sqliteTable('sources_to_places', {
@@ -33,11 +35,43 @@ export const placesToCollections = sqliteTable('places_to_collections', {
 }));
 
 // Drizzle relations for type-safe queries
-export const sourcesRelations = relations(sources, ({ many }) => ({
+
+// User relations (Auth.js)
+export const usersRelations = relations(users, ({ many }) => ({
+  accounts: many(accounts),
+  sessions: many(sessions),
+  places: many(places),
+  sources: many(sourcesCurrentSchema),
+  collections: many(collections),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, {
+    fields: [accounts.userId],
+    references: [users.id],
+  }),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const sourcesRelations = relations(sources, ({ one, many }) => ({
+  user: one(users, {
+    fields: [sources.userId],
+    references: [users.id],
+  }),
   sourcesToPlaces: many(sourcesToPlaces),
 }));
 
-export const placesRelations = relations(places, ({ many }) => ({
+export const placesRelations = relations(places, ({ one, many }) => ({
+  user: one(users, {
+    fields: [places.userId],
+    references: [users.id],
+  }),
   sourcesToPlaces: many(sourcesToPlaces),
   placesToCollections: many(placesToCollections),
   attachments: many(attachments),
@@ -45,7 +79,11 @@ export const placesRelations = relations(places, ({ many }) => ({
   reservations: many(reservations),
 }));
 
-export const collectionsRelations = relations(collections, ({ many }) => ({
+export const collectionsRelations = relations(collections, ({ one, many }) => ({
+  user: one(users, {
+    fields: [collections.userId],
+    references: [users.id],
+  }),
   placesToCollections: many(placesToCollections),
 }));
 

@@ -5,6 +5,7 @@ import { createSource } from '@/lib/db-mutations';
 import { uploadSessions, sources } from '@/db/schema';
 import { db } from '@/db';
 import { eq } from 'drizzle-orm';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for large uploads
@@ -20,6 +21,7 @@ interface UploadResult {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const formData = await request.formData();
     const files = formData.getAll('files') as File[];
     const sessionId = formData.get('sessionId') as string;
@@ -51,8 +53,9 @@ export async function POST(request: NextRequest) {
 
     if (!session) {
       // Create new session
-      session = {
+      const newSession = {
         id: sessionId,
+        userId: user.id,
         startedAt: new Date().toISOString(),
         fileCount: files.length,
         completedCount: 0,
@@ -65,7 +68,8 @@ export async function POST(request: NextRequest) {
         }
       };
 
-      await db.insert(uploadSessions).values(session);
+      await db.insert(uploadSessions).values(newSession);
+      session = newSession;
     }
 
     const results: UploadResult[] = [];
@@ -112,7 +116,7 @@ export async function POST(request: NextRequest) {
                     uploadedAt: new Date().toISOString(),
                   }
                 }
-              });
+              }, user.id);
             }, 'uploadCreateSource');
 
             return {
@@ -164,20 +168,22 @@ export async function POST(request: NextRequest) {
     }));
 
     await withErrorHandling(async () => {
-      await db.update(uploadSessions)
-        .set({
-          completedCount: session.completedCount + successCount,
-          failedCount: session.failedCount + failedCount,
-          status: (session.completedCount + successCount + session.failedCount + failedCount >= session.fileCount)
-            ? 'completed' as const
-            : 'active' as const,
-          meta: {
-            uploadedFiles: [...(session.meta?.uploadedFiles || []), ...uploadedFiles],
-            processingQueue: [...(session.meta?.processingQueue || []), ...uploadedFiles],
-            errors: [...(session.meta?.errors || []), ...errors]
-          }
-        })
-        .where(eq(uploadSessions.id, sessionId));
+      if (session) {
+        await db.update(uploadSessions)
+          .set({
+            completedCount: session.completedCount + successCount,
+            failedCount: session.failedCount + failedCount,
+            status: (session.completedCount + successCount + session.failedCount + failedCount >= session.fileCount)
+              ? 'completed' as const
+              : 'active' as const,
+            meta: {
+              uploadedFiles: [...(session.meta?.uploadedFiles || []), ...uploadedFiles],
+              processingQueue: [...(session.meta?.processingQueue || []), ...uploadedFiles],
+              errors: [...(session.meta?.errors || []), ...errors]
+            }
+          })
+          .where(eq(uploadSessions.id, sessionId));
+      }
     }, 'updateUploadSession');
 
     return NextResponse.json({
@@ -194,6 +200,9 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Upload API error:', error);
 
     return NextResponse.json(
@@ -210,6 +219,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
 
@@ -239,6 +249,9 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Upload status API error:', error);
 
     return NextResponse.json(

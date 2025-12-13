@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withErrorHandling } from '@/lib/db-utils';
 import { mergePlaces } from '@/lib/db-mutations';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -18,6 +19,7 @@ interface MergeRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body: MergeRequest = await request.json();
 
     // Validate request body
@@ -52,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Perform the merge operation
-    const mergedPlace = await mergePlaces(sourceId, targetId);
+    const mergedPlace = await mergePlaces(sourceId, targetId, user.id);
 
     return NextResponse.json(
       {
@@ -79,6 +81,9 @@ export async function POST(request: NextRequest) {
     );
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Merge places API error:', error);
 
     // Handle specific error cases

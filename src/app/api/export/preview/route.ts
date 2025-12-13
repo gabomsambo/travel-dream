@@ -4,6 +4,7 @@ import { getPlacesInCollection, getPlacesByStatus, searchPlaces } from '@/lib/db
 import { getFieldsForPreset } from '@/lib/export-field-metadata';
 import type { PreviewResponse } from '@/types/export';
 import type { Place } from '@/types/database';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 const PreviewRequestSchema = z.object({
   scope: z.discriminatedUnion('type', [
@@ -61,6 +62,7 @@ function estimateFileSize(count: number, fieldCount: number): number {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const { searchParams } = new URL(request.url);
 
     const scopeParam = searchParams.get('scope');
@@ -106,12 +108,13 @@ export async function GET(request: NextRequest) {
 
     switch (scope.type) {
       case 'collection':
-        allPlaces = await getPlacesInCollection(scope.collectionId);
+        allPlaces = await getPlacesInCollection(scope.collectionId, user.id);
         break;
 
       case 'library':
         if (scope.filters) {
           allPlaces = await searchPlaces({
+            userId: user.id,
             text: scope.filters.searchText,
             city: scope.filters.city,
             country: scope.filters.country,
@@ -123,7 +126,7 @@ export async function GET(request: NextRequest) {
             hasCoords: scope.filters.hasCoords
           });
         } else {
-          allPlaces = await getPlacesByStatus('library');
+          allPlaces = await getPlacesByStatus('library', user.id);
         }
         break;
 
@@ -139,11 +142,14 @@ export async function GET(request: NextRequest) {
         }
         const { db } = await import('@/db');
         const { places } = await import('@/db/schema');
-        const { inArray } = await import('drizzle-orm');
+        const { inArray, and, eq } = await import('drizzle-orm');
         allPlaces = await db
           .select()
           .from(places)
-          .where(inArray(places.id, scope.placeIds));
+          .where(and(
+            inArray(places.id, scope.placeIds),
+            eq(places.userId, user.id)
+          ));
         break;
     }
 
@@ -167,6 +173,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(response);
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Authentication required',
+        count: 0,
+        preview: [],
+        stats: { byKind: {} },
+        estimatedSize: 0
+      }, { status: 401 });
+    }
     console.error('Preview error:', error);
 
     return NextResponse.json({

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getPlacesInCollection } from '@/lib/db-queries';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { point } from '@turf/helpers';
 import distance from '@turf/distance';
 import type { Place, DayBucket } from '@/types/database';
@@ -22,11 +23,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireAuthForApi();
     const { id } = await params;
     const body = await request.json();
     const { hoursPerDay, transportMode } = AutoScheduleSchema.parse(body);
 
-    const places = await getPlacesInCollection(id);
+    const places = await getPlacesInCollection(id, user.id);
 
     if (places.length === 0) {
       return NextResponse.json({
@@ -91,6 +93,9 @@ export async function POST(
       dayBuckets,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { status: 'error', errors: error.errors },

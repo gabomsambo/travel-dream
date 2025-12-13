@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { uploadSessions, sources } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, desc } from 'drizzle-orm';
+import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 
@@ -19,6 +20,7 @@ interface UpdateSessionRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const body = await request.json() as CreateSessionRequest;
     const { fileCount = 0, metadata = {} } = body;
 
@@ -27,6 +29,7 @@ export async function POST(request: NextRequest) {
     const newSession = await withErrorHandling(async () => {
       const sessionData = {
         id: sessionId,
+        userId: user.id,
         startedAt: new Date().toISOString(),
         fileCount,
         completedCount: 0,
@@ -51,6 +54,9 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Create session API error:', error);
 
     return NextResponse.json(
@@ -66,6 +72,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
     const limit = parseInt(searchParams.get('limit') || '10');
@@ -145,6 +152,9 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Get sessions API error:', error);
 
     return NextResponse.json(
@@ -160,6 +170,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
 
@@ -212,6 +223,9 @@ export async function PATCH(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Update session API error:', error);
 
     return NextResponse.json(
@@ -227,6 +241,7 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await requireAuthForApi();
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
     const cleanup = searchParams.get('cleanup') === 'true';
@@ -308,6 +323,9 @@ export async function DELETE(request: NextRequest) {
     });
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     console.error('Delete session API error:', error);
 
     return NextResponse.json(

@@ -26,6 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { toast } from 'sonner'
 
 interface UploadDialogProps {
   open: boolean
@@ -69,6 +70,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
   const [isProcessingOCR, setIsProcessingOCR] = useState(false)
   const [hasStartedProcessing, setHasStartedProcessing] = useState(false)
   const [error, setError] = useState<string>('')
+  const [pendingSourceIds, setPendingSourceIds] = useState<string[]>([])
 
   // Warning dialog state
   const [showTabSwitchWarning, setShowTabSwitchWarning] = useState(false)
@@ -166,72 +168,73 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
     }
   }
 
-  const handleUploadComplete = async (results: any[]) => {
+  const handleUploadComplete = (results: any[]) => {
     console.log('[UploadDialog] handleUploadComplete called with', results.length, 'results')
-    console.log('[UploadDialog] Full results object:', results)
 
     if (results.length === 0) {
       console.warn('[UploadDialog] No results to process, returning early')
       return
     }
 
+    // Extract source IDs and accumulate them (don't auto-process)
+    const newSourceIds: string[] = []
+
+    for (const result of results) {
+      // New Vercel Blob format: { sourceId, blobUrl, ... }
+      if (result.sourceId) {
+        console.log('[UploadDialog] Found sourceId (Blob format):', result.sourceId)
+        newSourceIds.push(result.sourceId)
+        continue
+      }
+
+      // Legacy react-uploady format
+      if (result.state === 'finished' && result.uploadResponse) {
+        try {
+          let response = result.uploadResponse.data
+          if (typeof response === 'string') {
+            response = JSON.parse(response)
+          }
+
+          if (response.status === 'success' && response.results) {
+            const successfulResults = response.results.filter((r: any) => r.success)
+            successfulResults.forEach((r: any) => {
+              if (r.sourceId) {
+                newSourceIds.push(r.sourceId)
+              }
+            })
+          }
+        } catch (parseError) {
+          console.error('[UploadDialog] Failed to parse upload response:', parseError)
+        }
+      }
+    }
+
+    console.log('[UploadDialog] Accumulated sourceIds:', newSourceIds)
+
+    if (newSourceIds.length > 0) {
+      setPendingSourceIds(prev => {
+        const existingSet = new Set(prev)
+        const uniqueNew = newSourceIds.filter(id => !existingSet.has(id))
+        return [...prev, ...uniqueNew]
+      })
+    }
+  }
+
+  const startProcessing = async () => {
+    if (pendingSourceIds.length === 0) return
+
     setCurrentStep('processing')
     setIsProcessingOCR(true)
     setHasStartedProcessing(true)
+    setError('')
 
     try {
-      // Extract source IDs - handle both Vercel Blob format and legacy react-uploady format
-      const sourceIds: string[] = []
-
-      for (const result of results) {
-        // New Vercel Blob format: { sourceId, blobUrl, ... }
-        if (result.sourceId) {
-          console.log('[UploadDialog] Found sourceId (Blob format):', result.sourceId)
-          sourceIds.push(result.sourceId)
-          continue
-        }
-
-        // Legacy react-uploady format
-        console.log('[UploadDialog] Processing result (legacy format):', {
-          state: result.state,
-          hasUploadResponse: !!result.uploadResponse,
-          uploadResponse: result.uploadResponse
-        })
-
-        if (result.state === 'finished' && result.uploadResponse) {
-          try {
-            let response = result.uploadResponse.data
-            if (typeof response === 'string') {
-              response = JSON.parse(response)
-            }
-
-            if (response.status === 'success' && response.results) {
-              const successfulResults = response.results.filter((r: any) => r.success)
-              successfulResults.forEach((r: any) => {
-                if (r.sourceId) {
-                  sourceIds.push(r.sourceId)
-                }
-              })
-            }
-          } catch (parseError) {
-            console.error('[UploadDialog] Failed to parse upload response:', parseError)
-          }
-        }
-      }
-
-      console.log('[UploadDialog] Extracted sourceIds:', sourceIds)
-
-      if (sourceIds.length === 0) {
-        throw new Error('No successful uploads to process')
-      }
-
-      // Start OCR processing
-      console.log('[UploadDialog] Calling /api/upload/process with', sourceIds.length, 'sources')
+      console.log('[UploadDialog] Starting OCR processing for', pendingSourceIds.length, 'sources')
       const response = await fetch('/api/upload/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sourceIds,
+          sourceIds: pendingSourceIds,
           sessionId
         })
       })
@@ -254,6 +257,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
 
   const handleUploadError = (error: string) => {
     setError(error)
+    toast.error(error, { duration: 2000 })
   }
 
   // Check if there's unsaved progress on current tab
@@ -262,7 +266,8 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
       return uploadStats.uploadedFiles > 0 ||
              uploadStats.ocrProcessed > 0 ||
              currentStep !== 'upload' ||
-             hasStartedProcessing
+             hasStartedProcessing ||
+             pendingSourceIds.length > 0
     }
     if (activeTab === 'import') {
       return importStep !== 'upload'
@@ -298,6 +303,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
       setHasStartedProcessing(false)
       setError('')
       setImportStep('upload')
+      setPendingSourceIds([])
       setActiveTab(pendingTab)
     }
     setPendingTab(null)
@@ -341,6 +347,7 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
     setHasStartedProcessing(false)
     setError('')
     setImportStep('upload')
+    setPendingSourceIds([])
 
     onOpenChange(false)
 
@@ -463,12 +470,25 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
             {/* Screenshot Upload Content */}
             <div className="min-h-[300px]">
               {currentStep === 'upload' && sessionId && (
-                <ScreenshotUploader
-                  sessionId={sessionId}
-                  onUploadComplete={handleUploadComplete}
-                  onUploadError={handleUploadError}
-                  maxFiles={100}
-                />
+                <>
+                  <ScreenshotUploader
+                    sessionId={sessionId}
+                    onUploadComplete={handleUploadComplete}
+                    onUploadError={handleUploadError}
+                    maxFiles={20}
+                  />
+
+                  {pendingSourceIds.length > 0 && (
+                    <div className="mt-4 flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <span className="text-sm text-blue-800">
+                        {pendingSourceIds.length} file{pendingSourceIds.length !== 1 ? 's' : ''} ready to process
+                      </span>
+                      <Button onClick={startProcessing}>
+                        Start Processing
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
 
               {(currentStep === 'processing' || currentStep === 'complete') && (

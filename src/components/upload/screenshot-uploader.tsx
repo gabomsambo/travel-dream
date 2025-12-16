@@ -27,7 +27,7 @@ interface ScreenshotUploaderProps {
   className?: string
 }
 
-const MAX_FILES_PER_BATCH = 10
+const MAX_FILES_PER_BATCH = 20
 
 export function ScreenshotUploader({
   sessionId,
@@ -45,7 +45,7 @@ export function ScreenshotUploader({
 
   const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
 
-  const validateFile = (file: File): { isValid: boolean; error?: string } => {
+  const validateFile = useCallback((file: File): { isValid: boolean; error?: string } => {
     if (!allowedTypes.includes(file.type)) {
       return {
         isValid: false,
@@ -61,9 +61,9 @@ export function ScreenshotUploader({
     }
 
     return { isValid: true }
-  }
+  }, [maxFileSize])
 
-  const uploadFileToBlob = async (file: File, fileId: string): Promise<{ blobUrl: string; sourceId: string }> => {
+  const uploadFileToBlob = useCallback(async (file: File, fileId: string): Promise<{ blobUrl: string; sourceId: string }> => {
     // Generate a unique filename with timestamp
     const timestamp = Date.now()
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
@@ -105,9 +105,9 @@ export function ScreenshotUploader({
 
     const result = await response.json()
     return { blobUrl: blob.url, sourceId: result.sourceId }
-  }
+  }, [sessionId])
 
-  const processFiles = async (files: File[]) => {
+  const processFiles = useCallback(async (files: File[]) => {
     const validFiles: File[] = []
     const errors: string[] = []
 
@@ -211,7 +211,7 @@ export function ScreenshotUploader({
       console.log(`[ScreenshotUploader] All uploads completed, triggering OCR for ${completedUploadsRef.current.length} files`)
       onUploadComplete?.(completedUploadsRef.current)
     }
-  }
+  }, [uploadedFiles, maxFiles, onUploadComplete, onUploadError, validateFile, uploadFileToBlob])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -221,7 +221,7 @@ export function ScreenshotUploader({
     if (files.length > 0) {
       processFiles(files)
     }
-  }, [uploadedFiles.size, maxFiles])
+  }, [processFiles])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -242,7 +242,7 @@ export function ScreenshotUploader({
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
-  }, [uploadedFiles.size, maxFiles])
+  }, [processFiles])
 
   const removeFile = (fileId: string) => {
     setUploadedFiles(prev => {

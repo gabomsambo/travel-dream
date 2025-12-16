@@ -46,6 +46,7 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
       mimeType?: string;
       storedPath?: string;
       thumbnailPath?: string;
+      storageType?: 'local' | 'vercel-blob';
       ocrStatus?: string;
       ocrConfidence?: number;
       ocrError?: string;

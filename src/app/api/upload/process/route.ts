@@ -109,19 +109,33 @@ export async function POST(request: NextRequest) {
             .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
         }, 'updateOCRProcessingStatus');
 
-        // Get file path
-        const filePath = sourceRecord.uri;
-        if (!filePath) {
+        // Get file path/URL
+        const fileUri = sourceRecord.uri;
+        if (!fileUri) {
           throw new Error('No file path found in source record');
         }
 
-        // Read file from public directory
-        const fullPath = `./public${filePath}`;
-        console.log(`[OCR Process] Reading file from ${fullPath}`);
-        const fs = await import('fs/promises');
+        // Check if this is a blob URL or local file
+        const isBlob = fileUri.startsWith('http://') || fileUri.startsWith('https://');
+        console.log(`[OCR Process] Reading file from ${isBlob ? 'blob' : 'local'}: ${fileUri}`);
+
+        let fileBuffer: Buffer;
 
         try {
-          const fileBuffer = await fs.readFile(fullPath);
+          if (isBlob) {
+            // Fetch from Vercel Blob URL
+            const response = await fetch(fileUri);
+            if (!response.ok) {
+              throw new Error(`Failed to fetch blob: ${response.status} ${response.statusText}`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            fileBuffer = Buffer.from(arrayBuffer);
+          } else {
+            // Read from local filesystem (fallback for local dev)
+            const fs = await import('fs/promises');
+            const fullPath = `./public${fileUri}`;
+            fileBuffer = await fs.readFile(fullPath);
+          }
           console.log(`[OCR Process] File read successfully, size: ${fileBuffer.length} bytes`);
 
           // Validate buffer

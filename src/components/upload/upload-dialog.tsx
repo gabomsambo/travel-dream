@@ -180,11 +180,19 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
     setHasStartedProcessing(true)
 
     try {
-      // Extract source IDs from react-uploady upload results
+      // Extract source IDs - handle both Vercel Blob format and legacy react-uploady format
       const sourceIds: string[] = []
 
       for (const result of results) {
-        console.log('[UploadDialog] Processing result:', {
+        // New Vercel Blob format: { sourceId, blobUrl, ... }
+        if (result.sourceId) {
+          console.log('[UploadDialog] Found sourceId (Blob format):', result.sourceId)
+          sourceIds.push(result.sourceId)
+          continue
+        }
+
+        // Legacy react-uploady format
+        console.log('[UploadDialog] Processing result (legacy format):', {
           state: result.state,
           hasUploadResponse: !!result.uploadResponse,
           uploadResponse: result.uploadResponse
@@ -192,28 +200,21 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
 
         if (result.state === 'finished' && result.uploadResponse) {
           try {
-            // Handle both string and object responses
             let response = result.uploadResponse.data
             if (typeof response === 'string') {
-              console.log('[UploadDialog] Parsing string response')
               response = JSON.parse(response)
             }
 
-            console.log('[UploadDialog] Parsed response:', response)
-
             if (response.status === 'success' && response.results) {
               const successfulResults = response.results.filter((r: any) => r.success)
-              console.log('[UploadDialog] Found', successfulResults.length, 'successful uploads')
-
               successfulResults.forEach((r: any) => {
                 if (r.sourceId) {
-                  console.log('[UploadDialog] Adding sourceId:', r.sourceId)
                   sourceIds.push(r.sourceId)
                 }
               })
             }
           } catch (parseError) {
-            console.error('[UploadDialog] Failed to parse upload response:', parseError, result.uploadResponse)
+            console.error('[UploadDialog] Failed to parse upload response:', parseError)
           }
         }
       }

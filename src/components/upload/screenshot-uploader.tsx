@@ -1,10 +1,8 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { Upload, X, Image, AlertCircle } from 'lucide-react'
-import Uploady, { useItemProgressListener, useBatchStartListener, useItemFinishListener } from '@rpldy/uploady'
-import UploadDropZone from '@rpldy/upload-drop-zone'
-import UploadButton from '@rpldy/upload-button'
+import { useState, useRef, useCallback } from 'react'
+import { Upload, X, Image, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { upload } from '@vercel/blob/client'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Card } from "@/components/adapters/card"
@@ -16,6 +14,8 @@ interface UploadedFile {
   status: 'pending' | 'uploading' | 'completed' | 'failed'
   error?: string
   previewUrl?: string
+  blobUrl?: string
+  sourceId?: string
 }
 
 interface ScreenshotUploaderProps {
@@ -27,19 +27,21 @@ interface ScreenshotUploaderProps {
   className?: string
 }
 
-// Inner component that contains the uploader logic and hooks
-const MAX_FILES_PER_BATCH = 10 // Safe limit for 5-min Vercel Pro timeout
+const MAX_FILES_PER_BATCH = 10
 
-function ScreenshotUploaderInner({
+export function ScreenshotUploader({
   sessionId,
   onUploadComplete,
   onUploadError,
   maxFiles = MAX_FILES_PER_BATCH,
-  maxFileSize = 10 * 1024 * 1024, // 10MB
+  maxFileSize = 10 * 1024 * 1024,
   className
 }: ScreenshotUploaderProps) {
   const [uploadedFiles, setUploadedFiles] = useState<Map<string, UploadedFile>>(new Map())
   const [isDragOver, setIsDragOver] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const completedUploadsRef = useRef<any[]>([])
 
   const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
 
@@ -61,7 +63,51 @@ function ScreenshotUploaderInner({
     return { isValid: true }
   }
 
-  const handleFileSelect = useCallback((files: File[]) => {
+  const uploadFileToBlob = async (file: File, fileId: string): Promise<{ blobUrl: string; sourceId: string }> => {
+    // Generate a unique filename with timestamp
+    const timestamp = Date.now()
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const filename = `screenshots/${sessionId}/${timestamp}-${fileId}.${ext}`
+
+    // Upload directly to Vercel Blob (bypasses serverless function limits)
+    const blob = await upload(filename, file, {
+      access: 'public',
+      handleUploadUrl: '/api/blob/upload',
+      onUploadProgress: (progress) => {
+        const percent = Math.round((progress.loaded / progress.total) * 100)
+        setUploadedFiles(prev => {
+          const newMap = new Map(prev)
+          const existing = newMap.get(fileId)
+          if (existing) {
+            newMap.set(fileId, { ...existing, progress: percent })
+          }
+          return newMap
+        })
+      },
+    })
+
+    // Now create source record with the blob URL
+    const response = await fetch('/api/upload/blob-complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        blobUrl: blob.url,
+        originalName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to create source record')
+    }
+
+    const result = await response.json()
+    return { blobUrl: blob.url, sourceId: result.sourceId }
+  }
+
+  const processFiles = async (files: File[]) => {
     const validFiles: File[] = []
     const errors: string[] = []
 
@@ -69,18 +115,6 @@ function ScreenshotUploaderInner({
       const validation = validateFile(file)
       if (validation.isValid) {
         validFiles.push(file)
-
-        // Create preview URL for images
-        const previewUrl = URL.createObjectURL(file)
-
-        // Add to uploaded files map
-        setUploadedFiles(prev => new Map(prev.set(file.name, {
-          id: file.name,
-          file,
-          progress: 0,
-          status: 'pending',
-          previewUrl
-        })))
       } else {
         errors.push(`${file.name}: ${validation.error}`)
       }
@@ -95,8 +129,120 @@ function ScreenshotUploaderInner({
       return
     }
 
-    return validFiles
-  }, [uploadedFiles.size, maxFiles, maxFileSize, onUploadError])
+    if (validFiles.length === 0) return
+
+    setIsUploading(true)
+    completedUploadsRef.current = []
+
+    // Add files to state with pending status
+    const newFiles = new Map(uploadedFiles)
+    validFiles.forEach(file => {
+      const fileId = `${file.name}-${Date.now()}`
+      const previewUrl = URL.createObjectURL(file)
+      newFiles.set(fileId, {
+        id: fileId,
+        file,
+        progress: 0,
+        status: 'uploading',
+        previewUrl
+      })
+    })
+    setUploadedFiles(newFiles)
+
+    // Upload files concurrently (max 3 at a time)
+    const CONCURRENT_LIMIT = 3
+    const fileEntries = Array.from(newFiles.entries()).filter(
+      ([_, f]) => f.status === 'uploading'
+    )
+
+    for (let i = 0; i < fileEntries.length; i += CONCURRENT_LIMIT) {
+      const batch = fileEntries.slice(i, i + CONCURRENT_LIMIT)
+
+      await Promise.allSettled(
+        batch.map(async ([fileId, fileData]) => {
+          try {
+            const result = await uploadFileToBlob(fileData.file, fileId)
+
+            setUploadedFiles(prev => {
+              const newMap = new Map(prev)
+              const existing = newMap.get(fileId)
+              if (existing) {
+                newMap.set(fileId, {
+                  ...existing,
+                  status: 'completed',
+                  progress: 100,
+                  blobUrl: result.blobUrl,
+                  sourceId: result.sourceId
+                })
+              }
+              return newMap
+            })
+
+            completedUploadsRef.current.push({
+              id: fileId,
+              sourceId: result.sourceId,
+              blobUrl: result.blobUrl,
+              file: { name: fileData.file.name }
+            })
+          } catch (error) {
+            console.error(`[ScreenshotUploader] Upload failed for ${fileId}:`, error)
+
+            setUploadedFiles(prev => {
+              const newMap = new Map(prev)
+              const existing = newMap.get(fileId)
+              if (existing) {
+                newMap.set(fileId, {
+                  ...existing,
+                  status: 'failed',
+                  error: error instanceof Error ? error.message : 'Upload failed'
+                })
+              }
+              return newMap
+            })
+          }
+        })
+      )
+    }
+
+    setIsUploading(false)
+
+    // Trigger completion callback with all successful uploads
+    if (completedUploadsRef.current.length > 0) {
+      console.log(`[ScreenshotUploader] All uploads completed, triggering OCR for ${completedUploadsRef.current.length} files`)
+      onUploadComplete?.(completedUploadsRef.current)
+    }
+  }
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) {
+      processFiles(files)
+    }
+  }, [uploadedFiles.size, maxFiles])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+  }, [])
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length > 0) {
+      processFiles(files)
+    }
+    // Reset input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [uploadedFiles.size, maxFiles])
 
   const removeFile = (fileId: string) => {
     setUploadedFiles(prev => {
@@ -119,89 +265,6 @@ function ScreenshotUploaderInner({
     setUploadedFiles(new Map())
   }
 
-  // Refs defined at parent scope to persist across re-renders
-  const batchSizeRef = useRef<number>(0)
-  const completedItemsRef = useRef<any[]>([])
-
-  // Component that uses Uploady hooks (must be inside Uploady provider)
-  function UploadyHooks() {
-
-    // React-Uploady event listeners
-    useBatchStartListener((batch) => {
-      console.log(`[ScreenshotUploader] Starting upload batch with ${batch.items.length} files`)
-      completedItemsRef.current = [] // Reset completed items for new batch
-      batchSizeRef.current = batch.items.length // Track batch size
-      console.log('[ScreenshotUploader] Batch size set to:', batchSizeRef.current)
-
-      // Add files to our state when batch starts
-      batch.items.forEach((item, index) => {
-        console.log(`[ScreenshotUploader] Batch item ${index + 1}:`, item.file?.name)
-        if (item.file) {
-          const previewUrl = URL.createObjectURL(item.file as unknown as Blob)
-          setUploadedFiles(prev => new Map(prev.set(item.file.name, {
-            id: item.file.name,
-            file: item.file as unknown as File,
-            progress: 0,
-            status: 'uploading',
-            previewUrl
-          })))
-        }
-      })
-    })
-
-    useItemProgressListener((item) => {
-      setUploadedFiles(prev => {
-        const newMap = new Map(prev)
-        const existing = newMap.get(item.file?.name || item.id)
-        if (existing) {
-          newMap.set(item.file?.name || item.id, {
-            ...existing,
-            progress: item.completed,
-            status: item.completed === 100 ? 'completed' : 'uploading'
-          })
-        }
-        return newMap
-      })
-    })
-
-    useItemFinishListener((item) => {
-      console.log('[ScreenshotUploader] Item finished:', {
-        fileName: item.file?.name,
-        state: item.state,
-        id: item.id
-      })
-
-      setUploadedFiles(prev => {
-        const newMap = new Map(prev)
-        const existing = newMap.get(item.file?.name || item.id)
-        if (existing) {
-          newMap.set(item.file?.name || item.id, {
-            ...existing,
-            status: item.state === 'finished' ? 'completed' : 'failed',
-            error: item.state === 'error' ? 'Upload failed' : undefined
-          })
-        }
-        return newMap
-      })
-
-      // Collect completed items
-      completedItemsRef.current.push(item)
-      console.log(`[ScreenshotUploader] Completed items collected: ${completedItemsRef.current.length}`)
-      console.log(`[ScreenshotUploader] Batch size target: ${batchSizeRef.current}`)
-
-      // Only trigger completion callback when ALL items in batch have finished
-      if (completedItemsRef.current.length === batchSizeRef.current) {
-        console.log(`[ScreenshotUploader] ✓ All ${batchSizeRef.current} uploads completed, triggering OCR processing`)
-        console.log('[ScreenshotUploader] Calling onUploadComplete with items:', completedItemsRef.current)
-        onUploadComplete?.(completedItemsRef.current)
-      } else {
-        console.log(`[ScreenshotUploader] Upload progress: ${completedItemsRef.current.length}/${batchSizeRef.current} completed (waiting for more...)`)
-      }
-    })
-
-    return null // This component only handles hooks
-  }
-
   const filesArray = Array.from(uploadedFiles.values())
   const completedFiles = filesArray.filter(f => f.status === 'completed').length
   const failedFiles = filesArray.filter(f => f.status === 'failed').length
@@ -209,11 +272,25 @@ function ScreenshotUploaderInner({
 
   return (
     <div className={className}>
-      <UploadyHooks />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFileSelect}
+        className="hidden"
+      />
 
-      <UploadDropZone
-        onDragOverClassName="border-blue-500 bg-blue-50"
-        className="border-2 border-dashed rounded-lg p-8 transition-colors duration-200 border-gray-300 hover:border-gray-400"
+      <div
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        className={`border-2 border-dashed rounded-lg p-8 transition-colors duration-200 cursor-pointer ${
+          isDragOver
+            ? 'border-blue-500 bg-blue-50'
+            : 'border-gray-300 hover:border-gray-400'
+        }`}
+        onClick={() => fileInputRef.current?.click()}
       >
         <div className="text-center">
           <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
@@ -223,14 +300,20 @@ function ScreenshotUploaderInner({
           <div className="text-sm text-gray-500 mb-4">
             Supports PNG, JPEG, WebP, HEIC (max {Math.round(maxFileSize / (1024 * 1024))}MB each, up to {maxFiles} photos per batch)
           </div>
-          <UploadButton className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2">
-            <>
-              <Image className="mr-2 h-4 w-4" />
-              Select Screenshots
-            </>
-          </UploadButton>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation()
+              fileInputRef.current?.click()
+            }}
+            disabled={isUploading}
+          >
+            <Image className="mr-2 h-4 w-4" />
+            Select Screenshots
+          </Button>
         </div>
-      </UploadDropZone>
+      </div>
 
       {/* Upload Progress Summary */}
       {filesArray.length > 0 && (
@@ -260,6 +343,7 @@ function ScreenshotUploaderInner({
             size="sm"
             onClick={clearAllFiles}
             className="text-red-600 hover:text-red-700"
+            disabled={isUploading}
           >
             Clear All
           </Button>
@@ -303,6 +387,7 @@ function ScreenshotUploaderInner({
                     )}
                     {file.status === 'completed' && (
                       <Badge variant="default" className="text-xs">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
                         Done
                       </Badge>
                     )}
@@ -321,6 +406,7 @@ function ScreenshotUploaderInner({
                   size="icon"
                   onClick={() => removeFile(file.id)}
                   className="h-8 w-8 text-gray-400 hover:text-red-600"
+                  disabled={file.status === 'uploading'}
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -349,27 +435,5 @@ function ScreenshotUploaderInner({
         </div>
       )}
     </div>
-  )
-}
-
-// Main exported component that wraps the inner component with Uploady provider
-export function ScreenshotUploader(props: ScreenshotUploaderProps) {
-  const maxFiles = props.maxFiles ?? MAX_FILES_PER_BATCH
-
-  return (
-    <Uploady
-      destination={{
-        url: "/api/upload",
-        method: "POST",
-        params: { sessionId: props.sessionId },
-        filesParamName: "files"
-      }}
-      multiple={true}
-      autoUpload={true}
-      accept="image/*"
-      maxGroupSize={maxFiles}
-    >
-      <ScreenshotUploaderInner {...props} maxFiles={maxFiles} />
-    </Uploady>
   )
 }

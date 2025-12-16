@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Menu } from "lucide-react"
@@ -11,11 +12,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/adapters/sheet"
-import { 
-  Inbox, 
+import {
+  Inbox,
   GitPullRequest,
-  Library, 
-  FolderOpen, 
+  Library,
+  FolderOpen,
   Settings,
   Download,
   Map
@@ -37,9 +38,14 @@ const navigation = {
 
 export function MobileNav() {
   const pathname = usePathname()
+  const [open, setOpen] = useState(false)
+
+  const handleNavClick = () => {
+    setOpen(false)
+  }
 
   return (
-    <Sheet>
+    <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button variant="ghost" size="icon" className="md:hidden">
           <Menu className="h-5 w-5" />
@@ -54,7 +60,7 @@ export function MobileNav() {
           {navigation.main.map((item) => {
             const isActive = pathname === item.href
             return (
-              <Link key={item.name} href={item.href}>
+              <Link key={item.name} href={item.href} onClick={handleNavClick}>
                 <Button
                   variant={isActive ? "secondary" : "ghost"}
                   className="w-full justify-start"
@@ -69,13 +75,13 @@ export function MobileNav() {
               </Link>
             )
           })}
-          
+
           <div className="my-4 border-t" />
-          
+
           {navigation.secondary.map((item) => {
             const isActive = pathname === item.href
             return (
-              <Link key={item.name} href={item.href}>
+              <Link key={item.name} href={item.href} onClick={handleNavClick}>
                 <Button
                   variant={isActive ? "secondary" : "ghost"}
                   className="w-full justify-start"

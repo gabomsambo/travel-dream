@@ -38,7 +38,7 @@ function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="relative h-8 w-8 rounded-full">
+        <Button variant="ghost" size="sm" className="relative h-8 w-8 rounded-full p-0">
           {session.user.image ? (
             <img
               src={session.user.image}

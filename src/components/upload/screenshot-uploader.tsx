@@ -28,11 +28,13 @@ interface ScreenshotUploaderProps {
 }
 
 // Inner component that contains the uploader logic and hooks
+const MAX_FILES_PER_BATCH = 10 // Safe limit for 5-min Vercel Pro timeout
+
 function ScreenshotUploaderInner({
   sessionId,
   onUploadComplete,
   onUploadError,
-  maxFiles = 100,
+  maxFiles = MAX_FILES_PER_BATCH,
   maxFileSize = 10 * 1024 * 1024, // 10MB
   className
 }: ScreenshotUploaderProps) {
@@ -219,7 +221,7 @@ function ScreenshotUploaderInner({
             Drop screenshots here or click to browse
           </div>
           <div className="text-sm text-gray-500 mb-4">
-            Supports PNG, JPEG, WebP, HEIC (max {Math.round(maxFileSize / (1024 * 1024))}MB each)
+            Supports PNG, JPEG, WebP, HEIC (max {Math.round(maxFileSize / (1024 * 1024))}MB each, up to {maxFiles} photos per batch)
           </div>
           <UploadButton className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2">
             <>
@@ -352,6 +354,8 @@ function ScreenshotUploaderInner({
 
 // Main exported component that wraps the inner component with Uploady provider
 export function ScreenshotUploader(props: ScreenshotUploaderProps) {
+  const maxFiles = props.maxFiles ?? MAX_FILES_PER_BATCH
+
   return (
     <Uploady
       destination={{
@@ -363,8 +367,9 @@ export function ScreenshotUploader(props: ScreenshotUploaderProps) {
       multiple={true}
       autoUpload={true}
       accept="image/*"
+      maxGroupSize={maxFiles}
     >
-      <ScreenshotUploaderInner {...props} />
+      <ScreenshotUploaderInner {...props} maxFiles={maxFiles} />
     </Uploady>
   )
 }

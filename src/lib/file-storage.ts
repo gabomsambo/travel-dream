@@ -31,9 +31,9 @@ export interface StorageConfig {
 
 export const DEFAULT_STORAGE_CONFIG: StorageConfig = {
   maxFileSize: 10 * 1024 * 1024, // 10MB
-  thumbnailSize: { width: 300, height: 300 },
+  thumbnailSize: { width: 400, height: 400 }, // Larger thumbnails for better previews
   allowedFormats: ['jpeg', 'jpg', 'png', 'webp', 'heic', 'heif', 'avif', 'tiff'],
-  quality: 80,
+  quality: 85, // Higher quality with Vercel Pro
 };
 
 export class FileStorageService {

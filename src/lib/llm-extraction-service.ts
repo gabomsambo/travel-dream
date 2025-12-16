@@ -39,11 +39,11 @@ export interface LLMExtractionConfig {
   };
 }
 
-// Default service configuration
+// Default service configuration (optimized for Vercel Pro with 4GB memory)
 const DEFAULT_CONFIG: LLMExtractionConfig = {
   primaryProvider: 'openai',
   fallbackProvider: 'anthropic',
-  maxConcurrentExtractions: 3,
+  maxConcurrentExtractions: 5,
   enableFallback: true,
   timeout: 30000,
   retryAttempts: 3,

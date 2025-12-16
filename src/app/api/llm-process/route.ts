@@ -150,8 +150,8 @@ export async function POST(request: NextRequest) {
       maxConcurrentExtractions: Math.min(batchSize, 5) // Respect rate limits
     });
 
-    // Process sources in batches
-    const CONCURRENT_LIMIT = Math.min(batchSize, 3); // Conservative for LLM APIs
+    // Process sources in batches (optimized for Vercel Pro with more memory)
+    const CONCURRENT_LIMIT = Math.min(batchSize, 5);
     for (let i = 0; i < validSources.length; i += CONCURRENT_LIMIT) {
       const batch = validSources.slice(i, i + CONCURRENT_LIMIT);
 

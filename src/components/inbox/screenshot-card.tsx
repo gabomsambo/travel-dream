@@ -27,7 +27,8 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
 
   const uploadInfo = source.meta?.uploadInfo
   const ocrStatus = uploadInfo?.ocrStatus || 'unknown'
-  const thumbnailPath = uploadInfo?.thumbnailPath
+  // Use thumbnailPath if available, otherwise fall back to uri (for Vercel Blob uploads)
+  const thumbnailPath = uploadInfo?.thumbnailPath || source.uri
   const originalName = uploadInfo?.originalName || 'Unknown'
   const confidence = uploadInfo?.ocrConfidence
 

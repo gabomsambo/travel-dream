@@ -2,11 +2,12 @@
 
 import { useState } from "react"
 import dynamic from "next/dynamic"
-import { Upload, Star, X } from "lucide-react"
+import { Star, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/adapters/button"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
+import { PhotoUploader } from "@/components/upload/photo-uploader"
 import type { PlaceWithRelations } from "@/types/database"
 
 // Dynamic import to reduce bundle size
@@ -22,7 +23,6 @@ interface MediaSectionProps {
 export function MediaSection({ place }: MediaSectionProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
-  const [uploading, setUploading] = useState(false)
   const photos = place.attachments.filter(a => a.type === 'photo')
 
   const openLightbox = (index: number) => {
@@ -30,34 +30,8 @@ export function MediaSection({ place }: MediaSectionProps) {
     setLightboxOpen(true)
   }
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-
-    setUploading(true)
-
-    try {
-      // Upload files one at a time
-      for (const file of Array.from(files)) {
-        const formData = new FormData()
-        formData.append('file', file) // CRITICAL: singular "file"
-
-        const response = await fetch(`/api/places/${place.id}/attachments`, {
-          method: 'POST',
-          body: formData,
-        })
-
-        if (!response.ok) {
-          throw new Error('Upload failed')
-        }
-      }
-
-      window.location.reload()
-    } catch (error) {
-      alert('Failed to upload photos')
-    } finally {
-      setUploading(false)
-    }
+  const handleUploadComplete = () => {
+    window.location.reload()
   }
 
   const handleSetCover = async (attachmentId: string) => {
@@ -107,25 +81,11 @@ export function MediaSection({ place }: MediaSectionProps) {
       <CardHeader>
         <div className="flex justify-between items-center">
           <CardTitle>📸 Media Gallery</CardTitle>
-          <div>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleUpload}
-              className="hidden"
-              id="photo-upload"
-              disabled={uploading}
-            />
-            <label htmlFor="photo-upload">
-              <Button variant="outline" disabled={uploading} asChild>
-                <span>
-                  <Upload className="h-4 w-4 mr-2" />
-                  {uploading ? 'Uploading...' : 'Upload Photos'}
-                </span>
-              </Button>
-            </label>
-          </div>
+          <PhotoUploader
+            placeId={place.id}
+            onUploadComplete={handleUploadComplete}
+            compact
+          />
         </div>
       </CardHeader>
       <CardContent>

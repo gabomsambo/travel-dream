@@ -2,12 +2,11 @@
 
 import { useState } from "react"
 import dynamic from "next/dynamic"
-import { Upload, X, Image as ImageIcon, Star } from "lucide-react"
+import { X, Image as ImageIcon, Star } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/adapters/button"
-import { Input } from "@/components/adapters/input"
-import { Label } from "@/components/adapters/label"
 import { Card } from "@/components/adapters/card"
+import { PhotoUploader } from "@/components/upload/photo-uploader"
 import type { PlaceWithRelations } from "@/types/database"
 
 const PhotoLightbox = dynamic(() =>
@@ -20,9 +19,7 @@ interface MediaTabProps {
   onUpdate?: () => Promise<void>
 }
 
-export function MediaTab({ place }: MediaTabProps) {
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
+export function MediaTab({ place, onUpdate }: MediaTabProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
 
@@ -33,37 +30,9 @@ export function MediaTab({ place }: MediaTabProps) {
     setLightboxOpen(true)
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-
-    setUploading(true)
-    setUploadError(null)
-
-    try {
-      for (const file of Array.from(files)) {
-        const formData = new FormData()
-        formData.append("file", file)
-
-        const response = await fetch(`/api/places/${place.id}/attachments`, {
-          method: "POST",
-          body: formData,
-        })
-
-        if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.message || "Upload failed")
-        }
-      }
-
-      window.location.reload()
-    } catch (error) {
-      setUploadError(
-        error instanceof Error ? error.message : "Failed to upload photos"
-      )
-    } finally {
-      setUploading(false)
-    }
+  const handleUploadComplete = () => {
+    // Refresh the page to show new photos
+    window.location.reload()
   }
 
   const handleDelete = async (attachmentId: string) => {
@@ -109,46 +78,12 @@ export function MediaTab({ place }: MediaTabProps) {
 
   return (
     <div className="space-y-6">
-      <div className="border-2 border-dashed rounded-lg p-6">
-        <div className="text-center">
-          <Upload className="mx-auto h-10 w-10 text-gray-400 mb-3" />
-          <Label
-            htmlFor="photo-upload"
-            className="cursor-pointer text-sm font-medium"
-          >
-            <span className="text-blue-600 hover:text-blue-700">
-              Click to upload photos
-            </span>
-            <span className="text-muted-foreground"> or drag and drop</span>
-          </Label>
-          <Input
-            id="photo-upload"
-            type="file"
-            multiple
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileUpload}
-            disabled={uploading}
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            PNG, JPG, WebP up to 10MB each
-          </p>
-        </div>
-      </div>
+      <PhotoUploader
+        placeId={place.id}
+        onUploadComplete={handleUploadComplete}
+      />
 
-      {uploadError && (
-        <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md">
-          {uploadError}
-        </div>
-      )}
-
-      {uploading && (
-        <div className="text-sm text-blue-600 bg-blue-50 p-3 rounded-md">
-          Uploading photos...
-        </div>
-      )}
-
-      {photos.length === 0 && !uploading && (
+      {photos.length === 0 && (
         <div className="text-center py-8 text-muted-foreground">
           <ImageIcon className="mx-auto h-12 w-12 mb-2 opacity-30" />
           <p>No photos yet. Upload some to get started!</p>

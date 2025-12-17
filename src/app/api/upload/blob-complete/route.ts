@@ -3,7 +3,7 @@ import { withErrorHandling, generateSourceId } from '@/lib/db-utils';
 import { createSource } from '@/lib/db-mutations';
 import { uploadSessions } from '@/db/schema';
 import { db } from '@/db';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
@@ -82,18 +82,33 @@ export async function POST(request: NextRequest) {
       }, user.id);
     }, 'createSourceFromBlob');
 
-    // Update session
+    // Update session with atomic operations to prevent race conditions
     await withErrorHandling(async () => {
-      await db.update(uploadSessions)
-        .set({
-          completedCount: (session?.completedCount || 0) + 1,
-          meta: {
-            uploadedFiles: [...(session?.meta?.uploadedFiles || []), sourceData.id],
-            processingQueue: [...(session?.meta?.processingQueue || []), sourceData.id],
-            errors: session?.meta?.errors || []
-          }
-        })
-        .where(eq(uploadSessions.id, sessionId));
+      await db.transaction(async (tx) => {
+        // Step 1: Atomic increment (no stale data issue)
+        await tx.update(uploadSessions)
+          .set({
+            completedCount: sql`${uploadSessions.completedCount} + 1`
+          })
+          .where(eq(uploadSessions.id, sessionId));
+
+        // Step 2: Re-fetch session with updated count to get fresh metadata
+        const updatedSession = await tx.select()
+          .from(uploadSessions)
+          .where(eq(uploadSessions.id, sessionId))
+          .get();
+
+        // Step 3: Append to arrays with fresh data (within same transaction)
+        await tx.update(uploadSessions)
+          .set({
+            meta: {
+              uploadedFiles: [...(updatedSession?.meta?.uploadedFiles || []), sourceData.id],
+              processingQueue: [...(updatedSession?.meta?.processingQueue || []), sourceData.id],
+              errors: updatedSession?.meta?.errors || []
+            }
+          })
+          .where(eq(uploadSessions.id, sessionId));
+      });
     }, 'updateSessionAfterBlob');
 
     return NextResponse.json({

@@ -52,6 +52,7 @@ interface UploadStats {
   ocrProcessed: number
   ocrPending: number
   ocrFailed: number
+  llmFailed: number
 }
 
 export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogProps) {
@@ -64,7 +65,8 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
     failedUploads: 0,
     ocrProcessed: 0,
     ocrPending: 0,
-    ocrFailed: 0
+    ocrFailed: 0,
+    llmFailed: 0
   })
   const [currentStep, setCurrentStep] = useState<'upload' | 'processing' | 'complete'>('upload')
   const [isProcessingOCR, setIsProcessingOCR] = useState(false)
@@ -137,14 +139,16 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
       const data = await response.json()
       setSession(data.session)
 
-      // Update stats
+      // Update stats - separate LLM errors from OCR errors
+      const sessionErrors = data.session.meta?.errors || []
       const newStats: UploadStats = {
         totalFiles: data.session.fileCount || 0,
         uploadedFiles: data.session.completedCount || 0,
         failedUploads: data.session.failedCount || 0,
         ocrProcessed: 0,
         ocrPending: data.session.meta?.processingQueue?.length || 0,
-        ocrFailed: data.session.meta?.errors?.length || 0
+        ocrFailed: sessionErrors.filter((e: any) => !e.error?.startsWith('LLM:')).length,
+        llmFailed: sessionErrors.filter((e: any) => e.error?.startsWith('LLM:')).length
       }
 
       // Count OCR processed files
@@ -296,7 +300,8 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
         failedUploads: 0,
         ocrProcessed: 0,
         ocrPending: 0,
-        ocrFailed: 0
+        ocrFailed: 0,
+        llmFailed: 0
       })
       setCurrentStep('upload')
       setIsProcessingOCR(false)
@@ -340,7 +345,8 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
       failedUploads: 0,
       ocrProcessed: 0,
       ocrPending: 0,
-      ocrFailed: 0
+      ocrFailed: 0,
+      llmFailed: 0
     })
     setCurrentStep('upload')
     setIsProcessingOCR(false)
@@ -462,6 +468,11 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
                 {uploadStats.ocrFailed > 0 && (
                   <Badge variant="destructive">
                     {uploadStats.ocrFailed} OCR failed
+                  </Badge>
+                )}
+                {uploadStats.llmFailed > 0 && (
+                  <Badge variant="destructive">
+                    {uploadStats.llmFailed} LLM failed
                   </Badge>
                 )}
               </div>

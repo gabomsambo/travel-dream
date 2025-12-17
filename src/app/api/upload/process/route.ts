@@ -12,6 +12,35 @@ import { batchCreatePlacesFromExtractions } from '@/lib/db-mutations';
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for OCR processing
 
+// Helper to add LLM errors to session for UI visibility
+async function addSessionError(sessionId: string | undefined, fileId: string, error: string) {
+  if (!sessionId) return;
+
+  try {
+    const session = await db.select()
+      .from(uploadSessions)
+      .where(eq(uploadSessions.id, sessionId))
+      .get();
+
+    if (session) {
+      await db.update(uploadSessions)
+        .set({
+          meta: {
+            uploadedFiles: session.meta?.uploadedFiles || [],
+            processingQueue: session.meta?.processingQueue || [],
+            errors: [
+              ...(session.meta?.errors || []),
+              { fileId, error }
+            ]
+          }
+        })
+        .where(eq(uploadSessions.id, sessionId));
+    }
+  } catch (err) {
+    console.error('[OCR Process] Failed to add session error:', err);
+  }
+}
+
 interface OCRProcessRequest {
   sourceIds: string[];
   sessionId?: string;
@@ -207,6 +236,23 @@ export async function POST(request: NextRequest) {
           if (ocrResult.text && ocrResult.text.trim().length > 20) {
             console.log(`[OCR Process] Triggering LLM processing for ${sourceRecord.id}`);
 
+            // Fetch fresh source data for LLM status updates (sourceRecord.meta is stale after OCR update)
+            const getFreshSourceMeta = async () => {
+              try {
+                const freshSource = await db.select()
+                  .from(sourcesCurrentSchema)
+                  .where(eq(sourcesCurrentSchema.id, sourceRecord.id))
+                  .get();
+                if (!freshSource) return {};
+                if (typeof freshSource.meta === 'string') {
+                  return JSON.parse(freshSource.meta);
+                }
+                return freshSource.meta || {};
+              } catch {
+                return {};
+              }
+            };
+
             // Call LLM service directly (avoids auth redirect issues with HTTP fetch)
             try {
               await llmExtractionService.initialize();
@@ -228,19 +274,115 @@ export async function POST(request: NextRequest) {
               if (batchResult.success && batchResult.results.length > 0) {
                 const dbResults = await batchCreatePlacesFromExtractions(batchResult.results, user.id);
                 const placesCreated = dbResults.reduce((sum, r) => sum + (r.places?.length || 0), 0);
+
+                // Update source with LLM success metadata (fetch fresh meta to preserve ocrStatus)
+                const successMeta = await getFreshSourceMeta();
+                await db.update(sourcesCurrentSchema)
+                  .set({
+                    meta: {
+                      ...successMeta,
+                      uploadInfo: { ...(successMeta as any).uploadInfo },
+                      llmProcessing: {
+                        processed: true,
+                        model: process.env.LLM_PROVIDER || 'openai',
+                        processedAt: new Date().toISOString(),
+                        placesExtracted: placesCreated,
+                        confidence: batchResult.results[0]?.metadata?.confidence_avg || 0
+                      }
+                    },
+                    updatedAt: new Date().toISOString()
+                  })
+                  .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
+
                 console.log(`[OCR Process] LLM processing completed for ${sourceRecord.id}:`, {
                   placesExtracted: placesCreated,
                   successful: dbResults.filter(r => !r.error).length,
                   failed: dbResults.filter(r => r.error).length
                 });
               } else {
+                // Track LLM failure (no results returned)
+                const errorMsg = 'No places found in text';
+                const noResultsMeta = await getFreshSourceMeta();
+
+                await db.update(sourcesCurrentSchema)
+                  .set({
+                    meta: {
+                      ...noResultsMeta,
+                      uploadInfo: { ...(noResultsMeta as any).uploadInfo },
+                      llmProcessing: {
+                        processed: false,
+                        error: errorMsg,
+                        processedAt: new Date().toISOString()
+                      }
+                    },
+                    updatedAt: new Date().toISOString()
+                  })
+                  .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
+
+                await addSessionError(sessionId, sourceRecord.id, `LLM: ${errorMsg}`);
                 console.warn(`[OCR Process] LLM extraction returned no results for ${sourceRecord.id}`);
               }
             } catch (err) {
+              // Track LLM error with details
+              const errorMsg = err instanceof Error ? err.message : 'Unknown LLM error';
+              const errorMeta = await getFreshSourceMeta();
+
+              await db.update(sourcesCurrentSchema)
+                .set({
+                  meta: {
+                    ...errorMeta,
+                    uploadInfo: { ...(errorMeta as any).uploadInfo },
+                    llmProcessing: {
+                      processed: false,
+                      error: errorMsg,
+                      processedAt: new Date().toISOString()
+                    }
+                  },
+                  updatedAt: new Date().toISOString()
+                })
+                .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
+
+              await addSessionError(sessionId, sourceRecord.id, `LLM: ${errorMsg}`);
               console.error(`[OCR Process] LLM processing error for ${sourceRecord.id}:`, err);
             }
           } else {
-            console.log(`[OCR Process] Skipping LLM - text too short (${ocrResult.text?.length || 0} chars)`);
+            // Track skipped LLM (text too short)
+            const skipReason = `Text too short (${ocrResult.text?.length || 0} chars)`;
+
+            // Fetch fresh meta for skip status update (to preserve ocrStatus)
+            const getSkipMeta = async () => {
+              try {
+                const freshSource = await db.select()
+                  .from(sourcesCurrentSchema)
+                  .where(eq(sourcesCurrentSchema.id, sourceRecord.id))
+                  .get();
+                if (!freshSource) return {};
+                if (typeof freshSource.meta === 'string') {
+                  return JSON.parse(freshSource.meta);
+                }
+                return freshSource.meta || {};
+              } catch {
+                return {};
+              }
+            };
+            const skipMeta = await getSkipMeta();
+
+            await db.update(sourcesCurrentSchema)
+              .set({
+                meta: {
+                  ...skipMeta,
+                  uploadInfo: { ...(skipMeta as any).uploadInfo },
+                  llmProcessing: {
+                    processed: false,
+                    error: skipReason,
+                    processedAt: new Date().toISOString()
+                  }
+                },
+                updatedAt: new Date().toISOString()
+              })
+              .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
+
+            console.log(`[OCR Process] Skipping LLM - ${skipReason}`);
           }
 
           results.push({

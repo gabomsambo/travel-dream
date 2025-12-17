@@ -21,6 +21,7 @@ interface UploadStats {
   ocrProcessed: number
   ocrPending: number
   ocrFailed: number
+  llmFailed?: number
 }
 
 interface UploadProgressProps {
@@ -40,6 +41,9 @@ interface ProcessedFile {
   thumbnailPath?: string
   storedPath?: string
   error?: string
+  llmStatus?: 'pending' | 'completed' | 'failed'
+  llmError?: string
+  placesExtracted?: number
 }
 
 export function UploadProgress({
@@ -70,16 +74,25 @@ export function UploadProgress({
       const data = await response.json()
 
       if (data.session?.sources) {
-        const processedFiles: ProcessedFile[] = data.session.sources.map((source: any) => ({
-          id: source.id,
-          originalName: source.meta?.uploadInfo?.originalName || 'Unknown',
-          status: getFileStatus(source.meta?.uploadInfo?.ocrStatus),
-          ocrText: source.ocrText,
-          confidence: source.meta?.uploadInfo?.ocrConfidence,
-          thumbnailPath: source.meta?.uploadInfo?.thumbnailPath,
-          storedPath: source.meta?.uploadInfo?.storedPath,
-          error: source.meta?.uploadInfo?.ocrStatus === 'failed' ? 'OCR processing failed' : undefined
-        }))
+        const processedFiles: ProcessedFile[] = data.session.sources.map((source: any) => {
+          const llmProcessing = source.meta?.llmProcessing
+
+          return {
+            id: source.id,
+            originalName: source.meta?.uploadInfo?.originalName || 'Unknown',
+            status: getFileStatus(source.meta?.uploadInfo?.ocrStatus),
+            ocrText: source.ocrText,
+            confidence: source.meta?.uploadInfo?.ocrConfidence,
+            thumbnailPath: source.meta?.uploadInfo?.thumbnailPath,
+            storedPath: source.meta?.uploadInfo?.storedPath,
+            error: source.meta?.uploadInfo?.ocrStatus === 'failed' ? 'OCR processing failed' : undefined,
+            llmStatus: llmProcessing?.processed === true ? 'completed' :
+                       llmProcessing?.processed === false ? 'failed' :
+                       'pending',
+            llmError: llmProcessing?.error,
+            placesExtracted: llmProcessing?.placesExtracted || 0
+          }
+        })
 
         setFiles(processedFiles)
       }
@@ -240,6 +253,19 @@ export function UploadProgress({
                     {file.error && (
                       <div className="text-xs text-red-600 mt-1">
                         {file.error}
+                      </div>
+                    )}
+
+                    {/* LLM Status Display */}
+                    {file.llmStatus === 'completed' && file.placesExtracted !== undefined && (
+                      <div className="text-xs text-green-600 mt-1">
+                        {file.placesExtracted} place{file.placesExtracted !== 1 ? 's' : ''} extracted
+                      </div>
+                    )}
+
+                    {file.llmStatus === 'failed' && file.llmError && (
+                      <div className="text-xs text-orange-600 mt-1">
+                        LLM: {file.llmError}
                       </div>
                     )}
                   </div>

@@ -16,6 +16,12 @@ export default auth(async (req) => {
     pathname.startsWith('/api/auth/callback') ||
     pathname.includes('.');
 
+  // Cron endpoints handle their own auth via CRON_SECRET header — bypass
+  // both NextAuth session check AND rate limiting (system-to-system call)
+  if (pathname.startsWith('/api/mass-upload/cron')) {
+    return NextResponse.next();
+  }
+
   if (isStaticOrApi) {
     return NextResponse.next();
   }

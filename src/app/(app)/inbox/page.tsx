@@ -1,8 +1,10 @@
 import { PageHeader } from "@/components/layout/page-header"
 import { InboxClient } from "@/components/inbox/inbox-client"
 import { ScreenshotGrid } from "@/components/inbox/screenshot-grid"
+import { ProcessingBanner } from "@/components/mass-upload/processing-banner"
 import { Badge } from "@/components/adapters/badge"
-import { Image, Info } from "lucide-react"
+import { Image, Info, CloudUpload } from "lucide-react"
+import Link from "next/link"
 import { getSourcesByType, getPlacesByStatus, getInboxStats } from "@/lib/db-queries"
 import { Suspense } from "react"
 import { auth } from "@/lib/auth"
@@ -35,6 +37,8 @@ export default async function InboxPage() {
         title="Inbox"
         description={`${totalPlaces} places and ${totalScreenshots} screenshots to review`}
       />
+
+      <ProcessingBanner />
 
       {/* Screenshots Section */}
       {totalScreenshots > 0 && (
@@ -97,9 +101,18 @@ export default async function InboxPage() {
       {/* Empty State for when no screenshots and no places */}
       {totalPlaces === 0 && totalScreenshots === 0 && (
         <div className="text-center py-12">
-          <Image className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Inbox is empty</h3>
-          <p className="text-gray-500">Upload some screenshots or add places to get started.</p>
+          <CloudUpload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Your inbox is empty</h3>
+          <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+            Upload travel screenshots and let AI extract places with coordinates automatically.
+          </p>
+          <Link
+            href="/mass-upload"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <CloudUpload className="mr-2 h-4 w-4" />
+            Mass Upload Screenshots
+          </Link>
         </div>
       )}
     </div>

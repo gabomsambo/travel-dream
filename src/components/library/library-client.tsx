@@ -99,83 +99,28 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     initializeSearchIndex(initialPlaces)
   }, [initialPlaces])
 
-  // Update URL when filters change
+  // Update URL when filters change — uses replaceState to avoid triggering
+  // a Next.js server re-render that would overwrite client-side filtered results
   useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString())
+    const params = new URLSearchParams()
 
-    // Only set non-default values
-    if (debouncedSearch) {
-      params.set('search', debouncedSearch)
-    } else {
-      params.delete('search')
-    }
+    if (debouncedSearch) params.set('search', debouncedSearch)
+    if (kind !== 'all') params.set('kind', kind)
+    if (city !== 'all') params.set('city', city)
+    if (country !== 'all') params.set('country', country)
+    if (selectedTags instanceof Set && selectedTags.size > 0) params.set('tags', Array.from(selectedTags).join(','))
+    if (selectedVibes instanceof Set && selectedVibes.size > 0) params.set('vibes', Array.from(selectedVibes).join(','))
+    if (rating > 0) params.set('rating', rating.toString())
+    if (visitStatus instanceof Set && visitStatus.size > 0) params.set('visitStatus', Array.from(visitStatus).join(','))
+    if (hasPhotosOnly) params.set('hasPhotosOnly', 'true')
+    if (view !== 'grid') params.set('view', view)
+    if (sort !== 'date-newest') params.set('sort', sort)
 
-    if (kind !== 'all') {
-      params.set('kind', kind)
-    } else {
-      params.delete('kind')
-    }
-
-    if (city !== 'all') {
-      params.set('city', city)
-    } else {
-      params.delete('city')
-    }
-
-    if (country !== 'all') {
-      params.set('country', country)
-    } else {
-      params.delete('country')
-    }
-
-    if (selectedTags instanceof Set && selectedTags.size > 0) {
-      params.set('tags', Array.from(selectedTags).join(','))
-    } else {
-      params.delete('tags')
-    }
-
-    if (selectedVibes instanceof Set && selectedVibes.size > 0) {
-      params.set('vibes', Array.from(selectedVibes).join(','))
-    } else {
-      params.delete('vibes')
-    }
-
-    if (rating > 0) {
-      params.set('rating', rating.toString())
-    } else {
-      params.delete('rating')
-    }
-
-    if (visitStatus instanceof Set && visitStatus.size > 0) {
-      params.set('visitStatus', Array.from(visitStatus).join(','))
-    } else {
-      params.delete('visitStatus')
-    }
-
-    if (hasPhotosOnly) {
-      params.set('hasPhotosOnly', 'true')
-    } else {
-      params.delete('hasPhotosOnly')
-    }
-
-    if (view !== 'grid') {
-      params.set('view', view)
-    } else {
-      params.delete('view')
-    }
-
-    if (sort !== 'date-newest') {
-      params.set('sort', sort)
-    } else {
-      params.delete('sort')
-    }
-
-    // Preserve pathname and update only params
     const queryString = params.toString()
     const newUrl = queryString ? `${pathname}?${queryString}` : pathname
-    router.push(newUrl)
+    window.history.replaceState(null, '', newUrl)
   }, [debouncedSearch, kind, city, country, selectedTags, selectedVibes, rating,
-      visitStatus, hasPhotosOnly, view, sort, pathname, router, searchParams])
+      visitStatus, hasPhotosOnly, view, sort, pathname])
 
   // Client-side filtering with useMemo
   const filteredPlaces = useMemo(() => {

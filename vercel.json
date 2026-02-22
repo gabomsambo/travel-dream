@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/mass-upload/cron",
+      "schedule": "* * * * *"
+    }
+  ],
   "functions": {
     "src/app/api/upload/route.ts": {
       "maxDuration": 300
@@ -21,6 +27,10 @@
     },
     "src/app/api/places/bulk-merge/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/mass-upload/cron/route.ts": {
+      "maxDuration": 60,
+      "memory": 3008
     }
   }
 }

@@ -122,6 +122,13 @@ export function useNavigationHotkeys(openCommandPalette?: () => void) {
       category: 'Navigation'
     },
     {
+      key: 'u',
+      cmd: true,
+      action: () => router?.push('/mass-upload'),
+      description: 'Go to Mass Upload',
+      category: 'Navigation'
+    },
+    {
       key: 'k',
       cmd: true,
       action: () => openCommandPalette?.(),

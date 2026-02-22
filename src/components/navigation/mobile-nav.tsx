@@ -19,12 +19,14 @@ import {
   FolderOpen,
   Settings,
   Download,
-  Map
+  Map,
+  CloudUpload
 } from "lucide-react"
 
 const navigation = {
   main: [
     { name: 'Inbox', href: '/inbox', icon: Inbox, shortcut: 'I' },
+    { name: 'Mass Upload', href: '/mass-upload', icon: CloudUpload, shortcut: 'U' },
     { name: 'Review', href: '/review', icon: GitPullRequest, shortcut: 'R' },
     { name: 'Library', href: '/library', icon: Library, shortcut: 'L' },
     { name: 'Collections', href: '/collections', icon: FolderOpen, shortcut: 'C' },

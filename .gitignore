@@ -196,6 +196,7 @@ CLAUDE.md
 
 # Planning/Requirements Documents (internal use)
 PRPs/
+PRPs/**
 
 # Development notes and troubleshooting docs
 # Using patterns for cleaner maintenance
@@ -222,6 +223,7 @@ PRPs/
 *_UPDATE.md
 
 # Specific files not caught by patterns above
+LOCAL_SETUP.md
 INITIAL.md
 INITIAL_PRP*.md
 INITAL_PRP*.md
@@ -230,3 +232,6 @@ UI_transfer.md
 # Debug/test scripts in scripts folder
 scripts/test-*.ts
 scripts/test-*.js
+
+example-photos/
+example-photos2/

@@ -1,4 +1,4 @@
-import { sqliteTable, text, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
 
@@ -69,10 +69,18 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
   // Timestamps
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+
+  // Mass upload processing queue
+  processingStatus: text('processing_status').default('pending'),
+  // Values: 'pending' | 'uploaded' | 'queued' | 'extracting' | 'enriching' | 'completed' | 'failed'
+  processingAttempts: integer('processing_attempts').default(0),
+  processingError: text('processing_error'),
+  processingStartedAt: text('processing_started_at'),
 }, (table) => ({
   // Indexes for performance
   typeIdx: index('sources_type_idx').on(table.type),
   uriIdx: index('sources_uri_idx').on(table.uri),
   createdAtIdx: index('sources_created_at_idx').on(table.createdAt),
   userIdx: index('sources_user_idx').on(table.userId),
+  processingStatusIdx: index('sources_processing_status_idx').on(table.processingStatus, table.userId),
 }));

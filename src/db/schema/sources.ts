@@ -67,6 +67,13 @@ export const sources = sqliteTable('sources', {
   // Timestamps
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+
+  // Mass upload processing queue
+  processingStatus: text('processing_status').default('pending'),
+  // Values: 'pending' | 'uploaded' | 'queued' | 'extracting' | 'enriching' | 'completed' | 'failed'
+  processingAttempts: integer('processing_attempts').default(0),
+  processingError: text('processing_error'),
+  processingStartedAt: text('processing_started_at'),
 }, (table) => ({
   // Indexes for performance
   typeIdx: index('sources_type_idx').on(table.type),
@@ -74,6 +81,7 @@ export const sources = sqliteTable('sources', {
   createdAtIdx: index('sources_created_at_idx').on(table.createdAt),
   llmProcessedIdx: index('sources_llm_processed_idx').on(table.llmProcessed),
   llmConfidenceIdx: index('sources_llm_confidence_idx').on(table.llmConfidence),
+  processingStatusIdx: index('sources_processing_status_idx').on(table.processingStatus, table.userId),
 }));
 
 export const uploadSessions = sqliteTable('upload_sessions', {

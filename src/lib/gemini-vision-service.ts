@@ -17,7 +17,7 @@ export interface GeminiVisionConfig {
 }
 
 export const DEFAULT_GEMINI_CONFIG: Partial<GeminiVisionConfig> = {
-  model: 'gemini-2.0-flash-exp',
+  model: 'gemini-2.5-flash',
   maxRetries: 3,
   retryDelayMs: 1000,
 };

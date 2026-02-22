@@ -1,7 +1,6 @@
 import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 import { users, accounts, sessions } from './auth';
-import { sources } from './sources';
 import { places } from './places';
 import { collections } from './collections';
 import { attachments } from './attachments';
@@ -11,7 +10,7 @@ import { sourcesCurrentSchema } from './sources-current';
 
 // Join table for sources to places (many-to-many)
 export const sourcesToPlaces = sqliteTable('sources_to_places', {
-  sourceId: text('source_id').notNull().references(() => sources.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => sourcesCurrentSchema.id, { onDelete: 'cascade' }),
   placeId: text('place_id').notNull().references(() => places.id, { onDelete: 'cascade' }),
 }, (table) => ({
   pk: primaryKey({ columns: [table.sourceId, table.placeId] }),
@@ -59,9 +58,9 @@ export const sessionsRelations = relations(sessions, ({ one }) => ({
   }),
 }));
 
-export const sourcesRelations = relations(sources, ({ one, many }) => ({
+export const sourcesRelations = relations(sourcesCurrentSchema, ({ one, many }) => ({
   user: one(users, {
-    fields: [sources.userId],
+    fields: [sourcesCurrentSchema.userId],
     references: [users.id],
   }),
   sourcesToPlaces: many(sourcesToPlaces),
@@ -88,9 +87,9 @@ export const collectionsRelations = relations(collections, ({ one, many }) => ({
 }));
 
 export const sourcesToPlacesRelations = relations(sourcesToPlaces, ({ one }) => ({
-  source: one(sources, {
+  source: one(sourcesCurrentSchema, {
     fields: [sourcesToPlaces.sourceId],
-    references: [sources.id],
+    references: [sourcesCurrentSchema.id],
   }),
   place: one(places, {
     fields: [sourcesToPlaces.placeId],

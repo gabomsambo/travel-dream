@@ -51,16 +51,10 @@ export default async function LibraryPage({ searchParams }: PageProps) {
     vibes: (params.vibes as string)?.split(',').filter(Boolean) || []
   }
 
-  // Fetch all library places
+  // Fetch all library places — filtering is done client-side via Fuse.js + useMemo
   const places = await searchPlaces({
     userId,
     status: 'library',
-    text: filters.search || undefined,
-    kind: filters.kind !== 'all' ? filters.kind : undefined,
-    city: filters.city !== 'all' ? filters.city : undefined,
-    country: filters.country !== 'all' ? filters.country : undefined,
-    tags: filters.tags.length > 0 ? filters.tags : undefined,
-    vibes: filters.vibes.length > 0 ? filters.vibes : undefined
   })
 
   // Fetch cover images for all places

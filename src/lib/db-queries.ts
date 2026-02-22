@@ -196,6 +196,10 @@ export async function getSourcesForPlace(placeId: string, userId: string): Promi
       createdAt: sourcesCurrentSchema.createdAt,
       updatedAt: sourcesCurrentSchema.updatedAt,
       userId: sourcesCurrentSchema.userId,
+      processingStatus: sourcesCurrentSchema.processingStatus,
+      processingAttempts: sourcesCurrentSchema.processingAttempts,
+      processingError: sourcesCurrentSchema.processingError,
+      processingStartedAt: sourcesCurrentSchema.processingStartedAt,
     })
       .from(sourcesCurrentSchema)
       .innerJoin(sourcesToPlaces, eq(sourcesCurrentSchema.id, sourcesToPlaces.sourceId))
@@ -915,6 +919,33 @@ export async function getPlaceWithRelations(placeId: string, userId: string) {
       sources,
     };
   }, 'getPlaceWithRelations');
+}
+
+// Mass upload cron queries
+export async function getQueuedSources(limit: number = 3): Promise<Source[]> {
+  return withErrorHandling(async () => {
+    return await db.select()
+      .from(sourcesCurrentSchema)
+      .where(eq(sourcesCurrentSchema.processingStatus, 'queued'))
+      .orderBy(asc(sourcesCurrentSchema.createdAt))
+      .limit(limit);
+  }, 'getQueuedSources');
+}
+
+export async function getProcessingStatusCounts(sourceIds: string[]): Promise<Record<string, number>> {
+  return withErrorHandling(async () => {
+    if (sourceIds.length === 0) return {};
+
+    const rows = await db.select({
+      status: sourcesCurrentSchema.processingStatus,
+      count: sql<number>`count(*)`,
+    })
+    .from(sourcesCurrentSchema)
+    .where(inArray(sourcesCurrentSchema.id, sourceIds))
+    .groupBy(sourcesCurrentSchema.processingStatus);
+
+    return Object.fromEntries(rows.map(r => [r.status || 'unknown', Number(r.count)]));
+  }, 'getProcessingStatusCounts');
 }
 
 export async function getLibraryStatsEnhanced(userId: string) {

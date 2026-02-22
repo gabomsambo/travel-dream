@@ -1,10 +1,11 @@
-import { eq, and, inArray, count } from 'drizzle-orm';
+import { eq, and, inArray, count, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId } from './db-utils';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
 import type { ExtractedPlace, ExtractionResult, ExtractionMetadata } from '@/types/llm-extraction';
+import type { PipelinePlace } from '@/types/extraction-pipeline';
 
 // Place mutations
 export async function createPlace(
@@ -1440,4 +1441,114 @@ export async function batchCreatePlaces(
       return { success, failed };
     });
   }, 'batchCreatePlaces');
+}
+
+// Mass upload pipeline — create places from enriched pipeline results
+export async function createPlacesFromPipeline(
+  pipelinePlaces: PipelinePlace[],
+  sourceId: string,
+  userId: string
+): Promise<Place[]> {
+  return withErrorHandling(async () => {
+    return await withTransaction(async (tx) => {
+      // Get source to verify ownership and get screenshot URL
+      const [source] = await tx.select()
+        .from(sourcesCurrentSchema)
+        .where(and(eq(sourcesCurrentSchema.id, sourceId), eq(sourcesCurrentSchema.userId, userId)))
+        .limit(1);
+
+      if (!source) throw new Error(`Source ${sourceId} not found or unauthorized`);
+
+      const screenshotUri = source.uri;
+      const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; size?: number } } | null;
+      const createdPlaces: Place[] = [];
+
+      for (const p of pipelinePlaces) {
+        // ── Dedup check ──────────────────────────────────────────────────
+        let existingPlace: Place | undefined;
+
+        if (p.googlePlaceId) {
+          const [found] = await tx.select().from(places)
+            .where(and(
+              eq(places.googlePlaceId, p.googlePlaceId),
+              eq(places.userId, userId)
+            ))
+            .limit(1);
+          existingPlace = found;
+        }
+
+        if (!existingPlace && p.name) {
+          const [found] = await tx.select().from(places)
+            .where(and(
+              eq(places.userId, userId),
+              sql`LOWER(${places.name}) = LOWER(${p.name})`,
+              p.city ? sql`LOWER(${places.city}) = LOWER(${p.city})` : sql`${places.city} IS NULL`,
+              p.country ? sql`LOWER(${places.country}) = LOWER(${p.country})` : sql`${places.country} IS NULL`
+            ))
+            .limit(1);
+          existingPlace = found;
+        }
+
+        if (existingPlace) {
+          // Duplicate found — link source to existing place, skip insert
+          await tx.insert(sourcesToPlaces).values({
+            sourceId,
+            placeId: existingPlace.id,
+          }).onConflictDoNothing();
+          createdPlaces.push(existingPlace);
+          continue;
+        }
+
+        // ── Create new place ─────────────────────────────────────────────
+        const newPlace: NewPlace = {
+          id: generatePlaceId(),
+          name: p.name,
+          kind: p.kind,
+          description: p.description || null,
+          status: 'inbox',
+          userId,
+          city: p.city || null,
+          admin: p.admin || null,
+          country: p.country || null,
+          address: p.address || null,
+          coords: p.coords || null,
+          googlePlaceId: p.googlePlaceId || null,
+          confidence: p.confidence,
+          price_level: p.price_level || null,
+          best_time: p.best_time || null,
+          activities: p.activities || null,
+          cuisine: p.cuisine || null,
+          amenities: p.amenities || null,
+          tags: p.tags || null,
+          vibes: p.vibes || null,
+          practicalInfo: p.practicalInfo || null,
+          recommendedBy: p.recommendedBy || null,
+        };
+
+        const [place] = await tx.insert(places).values(newPlace).returning();
+        createdPlaces.push(place);
+
+        // Link source → place
+        await tx.insert(sourcesToPlaces).values({
+          sourceId,
+          placeId: place.id,
+        }).onConflictDoNothing();
+
+        // Attach screenshot as primary photo
+        if (screenshotUri) {
+          await tx.insert(attachments).values({
+            placeId: place.id,
+            type: 'photo',
+            uri: screenshotUri,
+            filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
+            mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
+            fileSize: meta?.uploadInfo?.size || null,
+            isPrimary: 1,
+          });
+        }
+      }
+
+      return createdPlaces;
+    });
+  }, 'createPlacesFromPipeline');
 }

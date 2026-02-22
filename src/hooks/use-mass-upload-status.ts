@@ -12,6 +12,7 @@ interface MassUploadStatusCounts {
   enriching: number
   completed: number
   failed: number
+  cancelled: number
 }
 
 interface UseMassUploadStatusState {
@@ -37,6 +38,7 @@ const initialCounts: MassUploadStatusCounts = {
   enriching: 0,
   completed: 0,
   failed: 0,
+  cancelled: 0,
 }
 
 const initialState: UseMassUploadStatusState = {
@@ -87,11 +89,12 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
         enriching: data.counts.enriching || 0,
         completed: data.counts.completed || 0,
         failed: data.counts.failed || 0,
+        cancelled: data.counts.cancelled || 0,
       }
 
       const activeCount = counts.queued + counts.extracting + counts.enriching
       const isActive = activeCount > 0
-      const hasTerminalSources = counts.completed > 0 || counts.failed > 0
+      const hasTerminalSources = counts.completed > 0 || counts.failed > 0 || counts.cancelled > 0
       const isComplete = !isActive && hasTerminalSources && (data.total || 0) > 0
 
       setState({

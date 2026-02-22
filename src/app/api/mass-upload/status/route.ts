@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
         enriching: counts['enriching'] || 0,
         completed: counts['completed'] || 0,
         failed: counts['failed'] || 0,
+        cancelled: counts['cancelled'] || 0,
       },
       total: sourceIds.length,
       placesCreated,

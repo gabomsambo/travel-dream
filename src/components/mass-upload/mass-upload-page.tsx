@@ -11,6 +11,7 @@ import {
   ArrowRight,
   CloudUpload,
   Inbox,
+  Ban,
 } from 'lucide-react'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
@@ -48,6 +49,7 @@ export function MassUploadPage() {
   const completedUploadsRef = useRef<string[]>([])
 
   const status = useMassUploadStatus()
+  const [isCancelling, setIsCancelling] = useState(false)
   const [isTriggering, setIsTriggering] = useState(false)
   const [triggerResult, setTriggerResult] = useState<string | null>(null)
 
@@ -353,6 +355,28 @@ export function MassUploadPage() {
     }
   }, [sessionId, status])
 
+  const handleCancelProcessing = useCallback(async () => {
+    if (!sessionId) return
+    setIsCancelling(true)
+    try {
+      const res = await fetch('/api/mass-upload/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+      const data = await res.json()
+      if (data.status === 'success') {
+        toast.success(`Cancelled ${data.cancelled} remaining screenshot${data.cancelled !== 1 ? 's' : ''}`)
+      } else {
+        toast.error(data.message || 'Failed to cancel')
+      }
+    } catch {
+      toast.error('Failed to cancel processing')
+    } finally {
+      setIsCancelling(false)
+    }
+  }, [sessionId])
+
   const filesArray = Array.from(files.values())
   const completedFiles = filesArray.filter(f => f.status === 'completed').length
   const failedFiles = filesArray.filter(f => f.status === 'failed').length
@@ -379,6 +403,11 @@ export function MassUploadPage() {
             {status.counts.failed > 0 && (
               <p className="text-sm text-red-600 mb-4">
                 {status.counts.failed} screenshot{status.counts.failed !== 1 ? 's' : ''} failed to process
+              </p>
+            )}
+            {status.counts.cancelled > 0 && (
+              <p className="text-sm text-muted-foreground mb-4">
+                {status.counts.cancelled} screenshot{status.counts.cancelled !== 1 ? 's' : ''} cancelled
               </p>
             )}
             <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
@@ -432,6 +461,9 @@ export function MassUploadPage() {
                 {status.counts.failed > 0 && (
                   <Badge variant="destructive">{status.counts.failed} failed</Badge>
                 )}
+                {status.counts.cancelled > 0 && (
+                  <Badge variant="outline">{status.counts.cancelled} cancelled</Badge>
+                )}
               </div>
 
               {/* Dev-only: manual cron trigger */}
@@ -480,6 +512,33 @@ export function MassUploadPage() {
               <p className="text-sm text-blue-600 mt-1">
                 Processing continues automatically in the background. Come back anytime to check progress.
               </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button variant="outline" onClick={handleStartFresh}>
+                <Upload className="mr-2 h-4 w-4" />
+                Upload More Photos
+              </Button>
+              {status.counts.queued > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={handleCancelProcessing}
+                  disabled={isCancelling}
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                >
+                  {isCancelling ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    <>
+                      <Ban className="mr-2 h-4 w-4" />
+                      Cancel Remaining
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </>
         )}

@@ -24,6 +24,7 @@ interface StatusCounts {
   enriching: number
   completed: number
   failed: number
+  cancelled: number
 }
 
 const POLL_INTERVAL = 5000
@@ -83,7 +84,7 @@ export function ProcessingBanner() {
           (data.counts.extracting || 0) +
           (data.counts.enriching || 0)
 
-        if (activeCount === 0 && ((data.counts.completed || 0) > 0 || (data.counts.failed || 0) > 0)) {
+        if (activeCount === 0 && ((data.counts.completed || 0) > 0 || (data.counts.failed || 0) > 0 || (data.counts.cancelled || 0) > 0)) {
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
             intervalRef.current = null
@@ -115,6 +116,8 @@ export function ProcessingBanner() {
 
   if (activeCount === 0) return null
 
+  const cancelledCount = counts.cancelled || 0
+  const adjustedTotal = total - cancelledCount
   const processed = (counts.completed || 0) + (counts.failed || 0)
 
   return (
@@ -122,7 +125,7 @@ export function ProcessingBanner() {
       <div className="flex items-center gap-2 min-w-0">
         <Loader2 className="h-4 w-4 animate-spin text-blue-600 flex-shrink-0" />
         <span className="text-sm text-blue-800 truncate">
-          Processing {processed} of {total} screenshots... {placesCreated} places found
+          Processing {processed} of {adjustedTotal} screenshots... {placesCreated} places found
         </span>
       </div>
       <Link

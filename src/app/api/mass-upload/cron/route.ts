@@ -8,9 +8,9 @@ import { getQueuedSources } from '@/lib/db-queries';
 import { createPlacesFromPipeline } from '@/lib/db-mutations';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-const BATCH_SIZE = 3;
+const BATCH_SIZE = 2;
 const MAX_ATTEMPTS = 3;
 
 export async function GET(request: NextRequest) {
@@ -25,6 +25,41 @@ export async function GET(request: NextRequest) {
   let placesCreated = 0;
 
   try {
+    // ── Recover stale sources stuck in extracting/enriching ─────────────
+    const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+    const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
+
+    const staleSources = await db.select()
+      .from(sourcesCurrentSchema)
+      .where(and(
+        sql`${sourcesCurrentSchema.processingStatus} IN ('extracting', 'enriching')`,
+        sql`${sourcesCurrentSchema.processingStartedAt} < ${staleThreshold}`
+      ));
+
+    for (const stale of staleSources) {
+      const attempts = stale.processingAttempts ?? 0;
+      if (attempts >= MAX_ATTEMPTS) {
+        await db.update(sourcesCurrentSchema)
+          .set({
+            processingStatus: 'failed',
+            processingError: 'Timed out after maximum retry attempts',
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(sourcesCurrentSchema.id, stale.id));
+      } else {
+        await db.update(sourcesCurrentSchema)
+          .set({
+            processingStatus: 'queued',
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(sourcesCurrentSchema.id, stale.id));
+      }
+    }
+
+    if (staleSources.length > 0) {
+      console.log(`[MassUpload Cron] Recovered ${staleSources.length} stale source(s)`);
+    }
+
     // ── Fetch queued sources ─────────────────────────────────────────────
     const queued = await getQueuedSources(BATCH_SIZE);
 

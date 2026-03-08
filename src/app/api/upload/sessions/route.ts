@@ -5,13 +5,14 @@ import { uploadSessions, sources } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, desc } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { z } from 'zod';
 
 export const runtime = 'nodejs';
 
-interface CreateSessionRequest {
-  fileCount?: number;
-  metadata?: Record<string, any>;
-}
+const CreateSessionSchema = z.object({
+  fileCount: z.number().int().nonnegative().optional().default(0),
+  metadata: z.record(z.unknown()).optional().default({}),
+});
 
 interface UpdateSessionRequest {
   status?: 'active' | 'completed' | 'cancelled';
@@ -21,8 +22,15 @@ interface UpdateSessionRequest {
 export async function POST(request: NextRequest) {
   try {
     const user = await requireAuthForApi();
-    const body = await request.json() as CreateSessionRequest;
-    const { fileCount = 0, metadata = {} } = body;
+    const body = await request.json();
+    const parsed = CreateSessionSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { status: 'error', message: 'Invalid input', errors: parsed.error.flatten().fieldErrors },
+        { status: 400 }
+      );
+    }
+    const { fileCount, metadata } = parsed.data;
 
     const sessionId = `session_${crypto.randomUUID()}`;
 

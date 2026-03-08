@@ -10,14 +10,24 @@ import { createPlacesFromPipeline } from '@/lib/db-mutations';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const BATCH_SIZE = 2;
+const BATCH_SIZE = 5;
 const MAX_ATTEMPTS = 3;
 
 export async function GET(request: NextRequest) {
   // ── Auth: Verify Vercel Cron secret ────────────────────────────────────
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    console.error('[MassUpload Cron] CRON_SECRET environment variable is not configured');
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+  }
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // ── Observability: warn if Gemini env config looks wrong ───────────────
+  if (process.env.GEMINI_VISION_ENABLED !== 'true') {
+    console.warn('[MassUpload Cron] GEMINI_VISION_ENABLED is not set to "true" — check environment configuration');
   }
 
   let processed = 0;
@@ -26,7 +36,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // ── Recover stale sources stuck in extracting/enriching ─────────────
-    const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+    const STALE_THRESHOLD_MS = 150 * 1000; // 2.5 minutes (must exceed maxDuration of 120s)
     const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
 
     const staleSources = await db.select()

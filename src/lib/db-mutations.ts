@@ -710,7 +710,7 @@ export async function batchCreatePlacesFromExtractions(
             continue;
           }
 
-          const meta = source?.meta as { uploadInfo?: { storedPath?: string; originalName?: string; mimeType?: string; size?: number } } | null;
+          const meta = source?.meta as { uploadInfo?: { storedPath?: string; originalName?: string; mimeType?: string; fileSize?: number } } | null;
           const screenshotPath = meta?.uploadInfo?.storedPath;
 
           // Create places from extraction results
@@ -757,7 +757,7 @@ export async function batchCreatePlacesFromExtractions(
                 uri: screenshotPath,
                 filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
                 mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
-                fileSize: meta?.uploadInfo?.size || null,
+                fileSize: meta?.uploadInfo?.fileSize || null,
                 isPrimary: 1, // Auto-set as cover image
               });
             }
@@ -1460,7 +1460,7 @@ export async function createPlacesFromPipeline(
       if (!source) throw new Error(`Source ${sourceId} not found or unauthorized`);
 
       const screenshotUri = source.uri;
-      const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; size?: number } } | null;
+      const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; fileSize?: number } } | null;
       const createdPlaces: Place[] = [];
 
       for (const p of pipelinePlaces) {
@@ -1542,7 +1542,7 @@ export async function createPlacesFromPipeline(
             uri: screenshotUri,
             filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
             mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
-            fileSize: meta?.uploadInfo?.size || null,
+            fileSize: meta?.uploadInfo?.fileSize || null,
             isPrimary: 1,
           });
         }

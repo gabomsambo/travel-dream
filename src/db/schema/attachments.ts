@@ -26,6 +26,8 @@ export const attachments = sqliteTable('attachments', {
   placeIdIdx: index('attachments_place_id_idx').on(table.placeId),
   typeIdx: index('attachments_type_idx').on(table.type),
   primaryIdx: index('attachments_primary_idx').on(table.placeId, table.isPrimary),
+  createdAtIdx: index('attachments_created_at_idx').on(table.createdAt),
+  typePlaceIdIdx: index('attachments_type_place_id_idx').on(table.type, table.placeId),
 }));
 
 export type Attachment = typeof attachments.$inferSelect;

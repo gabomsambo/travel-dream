@@ -49,7 +49,6 @@ export function MassUploadPage() {
   const [isStarting, setIsStarting] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const completedUploadsRef = useRef<string[]>([])
   const filesRef = useRef<Map<string, MassUploadFile>>(new Map())
   const listParentRef = useRef<HTMLDivElement>(null)
 
@@ -262,7 +261,6 @@ export function MassUploadPage() {
               return newMap
             })
 
-            completedUploadsRef.current.push(result.sourceId)
           } catch (error) {
             setFiles(prev => {
               const newMap = new Map(prev)
@@ -369,7 +367,6 @@ export function MassUploadPage() {
     // Reset state for instant UI feedback
     status.reset()
     setFiles(new Map())
-    completedUploadsRef.current = []
     setStep('upload')
     setSessionId(null)
 
@@ -504,9 +501,30 @@ export function MassUploadPage() {
               {status.placesCreated} places found from {status.counts.completed} screenshots
             </p>
             {status.counts.failed > 0 && (
-              <p className="text-sm text-red-600 mb-4">
-                {status.counts.failed} screenshot{status.counts.failed !== 1 ? 's' : ''} failed to process
-              </p>
+              <>
+                <p className="text-sm text-red-600 mb-2">
+                  {status.counts.failed} screenshot{status.counts.failed !== 1 ? 's' : ''} failed to process
+                </p>
+                {status.failedErrors.length > 0 && (
+                  <details className="mt-2 text-left mb-4">
+                    <summary className="text-sm text-red-600 cursor-pointer">
+                      View error details
+                    </summary>
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground max-h-40 overflow-y-auto">
+                      {status.failedErrors.slice(0, 20).map(err => (
+                        <li key={err.sourceId} className="truncate">
+                          {err.sourceId.slice(0, 12)}...: {err.error}
+                        </li>
+                      ))}
+                      {status.failedErrors.length > 20 && (
+                        <li className="text-muted-foreground italic">
+                          ...and {status.failedErrors.length - 20} more
+                        </li>
+                      )}
+                    </ul>
+                  </details>
+                )}
+              </>
             )}
             {status.counts.cancelled > 0 && (
               <p className="text-sm text-muted-foreground mb-4">
@@ -547,13 +565,18 @@ export function MassUploadPage() {
               {/* Progress bar */}
               <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
                 <div
+                  role="progressbar"
+                  aria-valuenow={progressPercent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Overall processing progress"
                   className="bg-blue-600 h-3 rounded-full transition-all duration-500"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
 
               {/* Status breakdown */}
-              <div className="flex flex-wrap justify-center gap-2 mb-6">
+              <div className="flex flex-wrap justify-center gap-2 mb-6" aria-live="polite" aria-atomic="true">
                 {status.counts.queued > 0 && (
                   <Badge variant="outline">{status.counts.queued} queued</Badge>
                 )}
@@ -743,9 +766,18 @@ export function MassUploadPage() {
 
       {/* Drop zone */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-label="Drop travel screenshots here or press Enter to browse files"
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            fileInputRef.current?.click()
+          }
+        }}
         className={`border-2 border-dashed rounded-lg p-8 transition-colors duration-200 cursor-pointer ${
           isDragOver
             ? 'border-blue-500 bg-blue-50'
@@ -764,6 +796,7 @@ export function MassUploadPage() {
           <Button
             type="button"
             variant="outline"
+            tabIndex={-1}
             onClick={(e) => {
               e.stopPropagation()
               fileInputRef.current?.click()
@@ -778,7 +811,7 @@ export function MassUploadPage() {
       {/* Upload progress summary */}
       {filesArray.length > 0 && (
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap" aria-live="polite" aria-atomic="true">
             <Badge variant="outline">
               {filesArray.length} file{filesArray.length !== 1 ? 's' : ''}
             </Badge>
@@ -893,6 +926,11 @@ export function MassUploadPage() {
                       <div className="mt-2">
                         <div className="w-full bg-gray-200 rounded-full h-1">
                           <div
+                            role="progressbar"
+                            aria-valuenow={file.progress}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label={`Upload progress for ${file.file.name}`}
                             className="bg-blue-600 h-1 rounded-full transition-all duration-300"
                             style={{ width: `${file.progress}%` }}
                           />

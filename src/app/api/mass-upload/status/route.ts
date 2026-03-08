@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { uploadSessions, sourcesToPlaces } from '@/db/schema';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { getProcessingStatusCounts } from '@/lib/db-queries';
 
@@ -49,6 +50,23 @@ export async function GET(request: NextRequest) {
       placesCreated = Number(placesResult[0]?.count ?? 0);
     }
 
+    // Fetch per-source error messages for failed sources
+    let failedErrors: Array<{ sourceId: string; error: string }> = [];
+    if (sourceIds.length > 0) {
+      const failedSources = await db.select({
+        id: sourcesCurrentSchema.id,
+        processingError: sourcesCurrentSchema.processingError,
+      })
+      .from(sourcesCurrentSchema)
+      .where(and(
+        inArray(sourcesCurrentSchema.id, sourceIds),
+        eq(sourcesCurrentSchema.processingStatus, 'failed')
+      ));
+      failedErrors = failedSources
+        .filter(s => s.processingError)
+        .map(s => ({ sourceId: s.id, error: s.processingError! }));
+    }
+
     return NextResponse.json({
       status: 'success',
       sessionId,
@@ -63,6 +81,7 @@ export async function GET(request: NextRequest) {
       },
       total: sourceIds.length,
       placesCreated,
+      failedErrors,
       timestamp: new Date().toISOString(),
     });
 

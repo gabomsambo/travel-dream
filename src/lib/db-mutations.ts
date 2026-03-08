@@ -1486,7 +1486,7 @@ export async function createPlacesFromPipeline(
       if (!source) throw new Error(`Source ${sourceId} not found or unauthorized`);
 
       const screenshotUri = source.uri;
-      const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; fileSize?: number } } | null;
+      const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; fileSize?: number; thumbnailPath?: string } } | null;
       const createdPlaces: Place[] = [];
 
       for (const p of pipelinePlaces) {
@@ -1569,6 +1569,7 @@ export async function createPlacesFromPipeline(
             filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
             mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
             fileSize: meta?.uploadInfo?.fileSize || null,
+            thumbnailUri: meta?.uploadInfo?.thumbnailPath || null,
             isPrimary: 1,
           });
         }

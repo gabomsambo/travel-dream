@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
         const allSourceIds = [...sessionSources.map((s: { id: string }) => s.id), existingSource.id];
 
         await tx.update(uploadSessions)
-          .set({ meta: { uploadedFiles: allSourceIds, processingQueue: allSourceIds, errors: [] } })
+          .set({ meta: { uploadedFiles: allSourceIds, errors: [] } })
           .where(eq(uploadSessions.id, sessionId));
       });
 
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
 
       const allSourceIds = sessionSources.map((s: { id: string }) => s.id);
       await tx.update(uploadSessions)
-        .set({ meta: { uploadedFiles: allSourceIds, processingQueue: allSourceIds, errors: [] } })
+        .set({ meta: { uploadedFiles: allSourceIds, errors: [] } })
         .where(eq(uploadSessions.id, sessionId));
 
       return created;

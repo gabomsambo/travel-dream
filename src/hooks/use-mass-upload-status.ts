@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
@@ -25,6 +23,7 @@ interface UseMassUploadStatusState {
   error: string | null
   estimatedMinutesRemaining: number | null
   processingRate: number
+  failedErrors: Array<{ sourceId: string; error: string }>
 }
 
 interface UseMassUploadStatusActions {
@@ -53,6 +52,7 @@ const initialState: UseMassUploadStatusState = {
   error: null,
   estimatedMinutesRemaining: null,
   processingRate: 0,
+  failedErrors: [],
 }
 
 export type { MassUploadStatusCounts, UseMassUploadStatusState, UseMassUploadStatusActions }
@@ -135,6 +135,7 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
         error: null,
         estimatedMinutesRemaining,
         processingRate,
+        failedErrors: data.failedErrors || [],
       })
 
       if (isComplete && !hasCompletedRef.current) {

@@ -6,6 +6,8 @@ import { geminiExtractionService } from '@/lib/mass-upload/gemini-extraction-ser
 import { googlePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
 import { getQueuedSources } from '@/lib/db-queries';
 import { createPlacesFromPipeline } from '@/lib/db-mutations';
+import sharp from 'sharp';
+import { put } from '@vercel/blob';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -111,6 +113,24 @@ export async function GET(request: NextRequest) {
         if (!imageRes.ok) throw new Error(`Blob fetch failed: ${imageRes.status}`);
         const buffer = Buffer.from(await imageRes.arrayBuffer());
 
+        // ── Step 1.5: Generate thumbnail and upload to Vercel Blob ────
+        let thumbnailUrl: string | undefined;
+        try {
+          const thumbnailBuffer = await sharp(buffer)
+            .resize(400, 400, { fit: 'cover', position: 'centre' })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          const thumbKey = `thumbnails/${claimedSource.userId}/${source.id}_thumb.jpg`;
+          const thumbBlob = await put(thumbKey, thumbnailBuffer, {
+            access: 'public',
+            contentType: 'image/jpeg',
+          });
+          thumbnailUrl = thumbBlob.url;
+        } catch (thumbErr) {
+          console.warn(`[MassUpload Cron] Thumbnail generation failed for ${source.id}:`, thumbErr);
+          // Non-fatal — continue processing without thumbnail
+        }
+
         // ── Step 2: Gemini extraction ──────────────────────────────────
         const meta = source.meta as { uploadInfo?: { originalName?: string } } | null;
         const fileName = meta?.uploadInfo?.originalName || source.id;
@@ -132,11 +152,18 @@ export async function GET(request: NextRequest) {
           placesCreated += created.length;
         }
 
-        // ── Step 6: Mark completed ─────────────────────────────────────
+        // ── Step 6: Mark completed (with thumbnail path in meta) ───────
+        const currentMeta = claimedSource.meta as Record<string, unknown> | null;
+        const currentUploadInfo = (currentMeta?.uploadInfo as Record<string, unknown>) ?? {};
+        const updatedMeta = thumbnailUrl
+          ? { ...currentMeta, uploadInfo: { ...currentUploadInfo, thumbnailPath: thumbnailUrl } }
+          : currentMeta;
+
         await db.update(sourcesCurrentSchema)
           .set({
             processingStatus: 'completed',
             processingError: null,
+            meta: updatedMeta,
             updatedAt: new Date().toISOString(),
           })
           .where(eq(sourcesCurrentSchema.id, source.id));

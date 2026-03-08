@@ -2,6 +2,10 @@ import '@testing-library/jest-dom'
 import dotenv from 'dotenv'
 import path from 'path'
 
+// Test API keys for modules with module-level singletons
+process.env.GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY || 'test-api-key';
+process.env.GOOGLE_GENERATIVE_AI_API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY || 'test-api-key';
+
 dotenv.config({ path: path.join(process.cwd(), '.env') })
 
 // Mock Next.js router

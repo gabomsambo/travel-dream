@@ -88,68 +88,87 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
     allowToggleSelection: true
   })
 
+  // Batched bulk action helper — sends chunks of 50 to avoid timeouts
+  const batchedBulkAction = useCallback(async (
+    action: 'confirm' | 'archive',
+    placeIds: string[],
+    optimisticType: 'confirm' | 'archive'
+  ) => {
+    setIsLoading(true)
+    startTransition(() => {
+      setOptimisticPlaces({ type: optimisticType, placeIds })
+    })
+
+    const BATCH_SIZE = 50
+    const totalBatches = Math.ceil(placeIds.length / BATCH_SIZE)
+    let totalUpdated = 0
+    let hasError = false
+    const actionLabel = action === 'confirm' ? 'Confirmed' : 'Archived'
+    const actionLabelLower = action === 'confirm' ? 'confirm' : 'archive'
+    let progressToastId: string | number | undefined
+
+    try {
+      for (let i = 0; i < placeIds.length; i += BATCH_SIZE) {
+        const chunk = placeIds.slice(i, i + BATCH_SIZE)
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1
+
+        if (totalBatches > 1) {
+          progressToastId = toast.loading(
+            `Processing batch ${batchNum}/${totalBatches}...`,
+            { id: progressToastId }
+          )
+        }
+
+        const response = await fetch('/api/places/bulk-actions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, placeIds: chunk })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          console.error(`Batch ${batchNum} failed:`, errorData)
+          hasError = true
+          continue // Continue with remaining batches
+        }
+
+        const result = await response.json()
+        totalUpdated += result.result?.updatedCount || 0
+      }
+
+      if (progressToastId) {
+        toast.dismiss(progressToastId)
+      }
+
+      if (hasError && totalUpdated > 0) {
+        toast.warning(`${actionLabel} ${totalUpdated} of ${placeIds.length} places (some batches failed)`)
+      } else if (hasError) {
+        toast.error(`Failed to ${actionLabelLower} places`)
+      } else {
+        toast.success(`${actionLabel} ${totalUpdated} places`)
+      }
+
+      bulkSelection.selectNone()
+    } catch (error) {
+      if (progressToastId) {
+        toast.dismiss(progressToastId)
+      }
+      toast.error(error instanceof Error ? error.message : `Failed to ${actionLabelLower} places`)
+      console.error(`Error ${actionLabelLower}ing places:`, error)
+    } finally {
+      setIsLoading(false)
+      router.refresh()
+    }
+  }, [bulkSelection, router])
+
   // API call functions
   const confirmPlaces = useCallback(async (placeIds: string[]) => {
-    setIsLoading(true)
-    startTransition(() => {
-      setOptimisticPlaces({ type: 'confirm', placeIds })
-    })
-
-    try {
-      const response = await fetch('/api/places/bulk-actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'confirm', placeIds })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.message || 'Failed to confirm places')
-      }
-
-      const result = await response.json()
-      toast.success(`Confirmed ${result.result?.updatedCount || 0} places`)
-
-      // Clear selection after successful operation
-      bulkSelection.selectNone()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to confirm places')
-      console.error('Error confirming places:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [bulkSelection])
+    await batchedBulkAction('confirm', placeIds, 'confirm')
+  }, [batchedBulkAction])
 
   const archivePlaces = useCallback(async (placeIds: string[]) => {
-    setIsLoading(true)
-    startTransition(() => {
-      setOptimisticPlaces({ type: 'archive', placeIds })
-    })
-
-    try {
-      const response = await fetch('/api/places/bulk-actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'archive', placeIds })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.message || 'Failed to archive places')
-      }
-
-      const result = await response.json()
-      toast.success(`Archived ${result.result?.updatedCount || 0} places`)
-
-      // Clear selection after successful operation
-      bulkSelection.selectNone()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to archive places')
-      console.error('Error archiving places:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [bulkSelection])
+    await batchedBulkAction('archive', placeIds, 'archive')
+  }, [batchedBulkAction])
 
   const exportPlaces = useCallback(async (format: ExportFormat) => {
     if (bulkSelection.selectedIds.length === 0) {
@@ -286,7 +305,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
           selectedCount={bulkSelection.selectedCount}
           totalCount={0}
           isAllSelected={bulkSelection.isAllSelected}
-          isSomeSelected={bulkSelection.isSomeSelected}
+
           onConfirmSelected={() => confirmPlaces(bulkSelection.selectedIds)}
           onArchiveSelected={() => archivePlaces(bulkSelection.selectedIds)}
           onSelectAll={bulkSelection.selectAll}
@@ -344,7 +363,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
         selectedCount={bulkSelection.selectedCount}
         totalCount={filteredPlaces.length}
         isAllSelected={bulkSelection.isAllSelected}
-        isSomeSelected={bulkSelection.isSomeSelected}
+
         onConfirmSelected={() => confirmPlaces(bulkSelection.selectedIds)}
         onArchiveSelected={() => archivePlaces(bulkSelection.selectedIds)}
         onExportSelected={exportPlaces}

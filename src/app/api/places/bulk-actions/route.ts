@@ -15,7 +15,7 @@ const BulkActionSchema = z.object({
   placeIds: z.array(z.string().min(1, 'Place ID cannot be empty'), {
     required_error: 'Place IDs are required',
     invalid_type_error: 'Place IDs must be an array of strings'
-  }).min(1, 'At least one place ID is required').max(100, 'Cannot process more than 100 places at once')
+  }).min(1, 'At least one place ID is required').max(500, 'Cannot process more than 500 places at once')
 });
 
 interface BulkActionRequest {
@@ -201,7 +201,7 @@ export async function GET() {
         description: 'Perform bulk operations on multiple places',
         requestBody: {
           action: 'confirm | archive | restore | delete',
-          placeIds: 'string[] (1-100 items)'
+          placeIds: 'string[] (1-500 items)'
         },
         actions: {
           confirm: 'Move places from inbox to library',

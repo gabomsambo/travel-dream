@@ -625,21 +625,28 @@ export async function createPlacesFromSources(
 // Bulk status updates
 export async function bulkUpdatePlaceStatus(
   placeIds: string[],
-  status: string,
+  status: 'inbox' | 'library' | 'archived' | 'review',
   userId: string
 ): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    const result = await db.update(places)
-      .set({
-        status,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
-      .returning();
+    const CHUNK_SIZE = 50;
+    let totalUpdated = 0;
 
-    return result.length;
+    for (let i = 0; i < placeIds.length; i += CHUNK_SIZE) {
+      const chunk = placeIds.slice(i, i + CHUNK_SIZE);
+      const result = await db.update(places)
+        .set({
+          status,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(inArray(places.id, chunk), eq(places.userId, userId)));
+
+      totalUpdated += result.rowsAffected ?? 0;
+    }
+
+    return totalUpdated;
   }, 'bulkUpdatePlaceStatus');
 }
 
@@ -1124,32 +1131,17 @@ export async function undoMerge(mergeLogId: string, userId: string): Promise<voi
 }
 
 export async function batchArchivePlaces(placeIds: string[], userId: string): Promise<number> {
-  return withErrorHandling(async () => {
-    if (placeIds.length === 0) return 0;
-
-    const result = await db.update(places)
-      .set({
-        status: 'archived',
-        updatedAt: new Date().toISOString(),
-      })
-      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
-      .returning();
-
-    return result.length;
-  }, 'batchArchivePlaces');
+  if (placeIds.length === 0) return 0;
+  return bulkUpdatePlaceStatus(placeIds, 'archived', userId);
 }
 
 // Enhanced bulk operations for inbox workflow
 export async function bulkConfirmPlaces(placeIds: string[], userId: string): Promise<number> {
-  return withErrorHandling(async () => {
-    return await bulkUpdatePlaceStatus(placeIds, 'library', userId);
-  }, 'bulkConfirmPlaces');
+  return bulkUpdatePlaceStatus(placeIds, 'library', userId);
 }
 
 export async function bulkMovePlacesToReview(placeIds: string[], userId: string): Promise<number> {
-  return withErrorHandling(async () => {
-    return await bulkUpdatePlaceStatus(placeIds, 'review', userId);
-  }, 'bulkMovePlacesToReview');
+  return bulkUpdatePlaceStatus(placeIds, 'review', userId);
 }
 
 export async function createAttachment(
@@ -1409,48 +1401,41 @@ export async function deleteReservation(id: string, userId: string) {
 }
 
 export async function batchRestorePlaces(placeIds: string[], userId: string): Promise<number> {
-  return withErrorHandling(async () => {
-    if (placeIds.length === 0) return 0;
-
-    const result = await db.update(places)
-      .set({
-        status: 'library',
-        updatedAt: new Date().toISOString(),
-      })
-      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
-      .returning();
-
-    return result.length;
-  }, 'batchRestorePlaces');
+  if (placeIds.length === 0) return 0;
+  return bulkUpdatePlaceStatus(placeIds, 'library', userId);
 }
 
 export async function batchDeletePlaces(placeIds: string[], userId: string): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    return await withTransaction(async (tx) => {
-      let count = 0;
+    const CHUNK_SIZE = 50;
+    let totalDeleted = 0;
 
-      for (const placeId of placeIds) {
-        // Verify ownership
-        const [place] = await tx.select().from(places)
-          .where(and(eq(places.id, placeId), eq(places.userId, userId)))
-          .limit(1);
+    for (let i = 0; i < placeIds.length; i += CHUNK_SIZE) {
+      const chunk = placeIds.slice(i, i + CHUNK_SIZE);
 
-        if (!place) continue; // Skip places not owned by user
+      const deleted = await withTransaction(async (tx) => {
+        // Verify ownership in bulk
+        const ownedPlaces = await tx.select({ id: places.id }).from(places)
+          .where(and(inArray(places.id, chunk), eq(places.userId, userId)));
+        const ownedIds = ownedPlaces.map((p: { id: string }) => p.id);
 
-        await tx.delete(sourcesToPlaces).where(eq(sourcesToPlaces.placeId, placeId));
-        await tx.delete(placesToCollections).where(eq(placesToCollections.placeId, placeId));
+        if (ownedIds.length === 0) return 0;
 
-        const result = await tx.delete(places).where(eq(places.id, placeId));
+        // Bulk delete join tables
+        await tx.delete(sourcesToPlaces).where(inArray(sourcesToPlaces.placeId, ownedIds));
+        await tx.delete(placesToCollections).where(inArray(placesToCollections.placeId, ownedIds));
 
-        if (result.rowsAffected && result.rowsAffected > 0) {
-          count++;
-        }
-      }
+        // Bulk delete places
+        const result = await tx.delete(places).where(inArray(places.id, ownedIds));
+        return result.rowsAffected ?? 0;
+      });
 
-      return count;
-    });
+      totalDeleted += deleted;
+    }
+
+    return totalDeleted;
   }, 'batchDeletePlaces');
 }
 

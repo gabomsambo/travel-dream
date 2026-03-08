@@ -28,6 +28,9 @@
     "src/app/api/places/bulk-merge/route.ts": {
       "maxDuration": 60
     },
+    "src/app/api/places/bulk-actions/route.ts": {
+      "maxDuration": 60
+    },
     "src/app/api/mass-upload/cron/route.ts": {
       "maxDuration": 120,
       "memory": 3008

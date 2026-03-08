@@ -10,6 +10,7 @@ const customJestConfig = {
   testPathIgnorePatterns: [
     '<rootDir>/.next/',
     '<rootDir>/node_modules/',
+    '<rootDir>/src/__tests__/helpers/',
   ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',

@@ -5,6 +5,7 @@ import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, inArray, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { del } from '@vercel/blob';
 
 export const runtime = 'nodejs';
 
@@ -55,6 +56,18 @@ export async function POST(request: NextRequest) {
         sql`${sourcesCurrentSchema.processingStatus} IN ('queued', 'uploaded')`
       ))
       .returning();
+
+    // Clean up blobs for cancelled sources (best-effort)
+    const blobUrls = cancelled
+      .map(s => s.uri)
+      .filter((uri): uri is string => !!uri && uri.startsWith('https://'));
+    if (blobUrls.length > 0) {
+      try {
+        await del(blobUrls);
+      } catch (e) {
+        console.warn(`[MassUpload Cancel] Failed to delete ${blobUrls.length} blobs:`, e);
+      }
+    }
 
     // Mark session as cancelled
     await db.update(uploadSessions)

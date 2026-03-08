@@ -1,4 +1,5 @@
 import { eq, and, inArray, count, sql } from 'drizzle-orm';
+import { del } from '@vercel/blob';
 import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
@@ -125,22 +126,31 @@ export async function updateSource(
 
 export async function deleteSource(id: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
+    // Capture URI before transaction deletes the record
+    const [source] = await db.select({ uri: sources.uri }).from(sources)
+      .where(and(eq(sources.id, id), eq(sources.userId, userId)))
+      .limit(1);
+
+    if (!source) {
+      throw new Error(`Source with id ${id} not found or unauthorized`);
+    }
+
     await withTransaction(async (tx) => {
-      // Verify ownership first
-      const [source] = await tx.select().from(sources)
-        .where(and(eq(sources.id, id), eq(sources.userId, userId)))
-        .limit(1);
-
-      if (!source) {
-        throw new Error(`Source with id ${id} not found or unauthorized`);
-      }
-
       // Delete related records first
       await tx.delete(sourcesToPlaces).where(eq(sourcesToPlaces.sourceId, id));
 
       // Delete the source
       await tx.delete(sources).where(eq(sources.id, id));
     });
+
+    // Clean up blob storage AFTER transaction commits (best-effort)
+    if (source.uri?.startsWith('https://')) {
+      try {
+        await del(source.uri);
+      } catch (e) {
+        console.warn(`[deleteSource] Failed to delete blob ${source.uri}:`, e);
+      }
+    }
   }, 'deleteSource');
 }
 
@@ -1158,6 +1168,22 @@ export async function deleteAttachment(id: string, userId: string) {
     await db
       .delete(attachments)
       .where(eq(attachments.id, id));
+
+    // Clean up blob storage (best-effort)
+    if (attachment.uri?.startsWith('https://')) {
+      try {
+        await del(attachment.uri);
+      } catch (e) {
+        console.warn(`[deleteAttachment] Failed to delete blob ${attachment.uri}:`, e);
+      }
+    }
+    if (attachment.thumbnailUri?.startsWith('https://')) {
+      try {
+        await del(attachment.thumbnailUri);
+      } catch (e) {
+        console.warn(`[deleteAttachment] Failed to delete thumbnail blob:`, e);
+      }
+    }
 
     return { success: true };
   }, 'deleteAttachment');

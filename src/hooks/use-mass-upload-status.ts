@@ -23,6 +23,8 @@ interface UseMassUploadStatusState {
   isComplete: boolean
   isLoading: boolean
   error: string | null
+  estimatedMinutesRemaining: number | null
+  processingRate: number
 }
 
 interface UseMassUploadStatusActions {
@@ -49,6 +51,8 @@ const initialState: UseMassUploadStatusState = {
   isComplete: false,
   isLoading: false,
   error: null,
+  estimatedMinutesRemaining: null,
+  processingRate: 0,
 }
 
 export type { MassUploadStatusCounts, UseMassUploadStatusState, UseMassUploadStatusActions }
@@ -58,6 +62,8 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
   const sessionIdRef = useRef<string | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const hasCompletedRef = useRef(false)
+  const processingStartTimeRef = useRef<number | null>(null)
+  const initialCompletedRef = useRef<number>(0)
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
@@ -97,6 +103,28 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
       const hasTerminalSources = counts.completed > 0 || counts.failed > 0 || counts.cancelled > 0
       const isComplete = !isActive && hasTerminalSources && (data.total || 0) > 0
 
+      // ETA calculation
+      let estimatedMinutesRemaining: number | null = null
+      let processingRate = 0
+
+      const completedNow = counts.completed + counts.failed + counts.cancelled
+      const remaining = (data.total || 0) - completedNow
+
+      if (isActive && completedNow > 0) {
+        if (processingStartTimeRef.current === null) {
+          processingStartTimeRef.current = Date.now()
+          initialCompletedRef.current = completedNow
+        }
+
+        const elapsedMs = Date.now() - processingStartTimeRef.current
+        const processed = completedNow - initialCompletedRef.current
+
+        if (elapsedMs > 10000 && processed > 0) {
+          processingRate = processed / (elapsedMs / 60000)
+          estimatedMinutesRemaining = Math.max(1, Math.ceil(remaining / processingRate))
+        }
+      }
+
       setState({
         counts,
         total: data.total || 0,
@@ -105,6 +133,8 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
         isComplete,
         isLoading: false,
         error: null,
+        estimatedMinutesRemaining,
+        processingRate,
       })
 
       if (isComplete && !hasCompletedRef.current) {
@@ -135,6 +165,8 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
     stopPolling()
     sessionIdRef.current = sessionId
     hasCompletedRef.current = false
+    processingStartTimeRef.current = null
+    initialCompletedRef.current = 0
     fetchStatus()
     intervalRef.current = setInterval(fetchStatus, POLL_INTERVAL)
   }, [fetchStatus, stopPolling])
@@ -143,6 +175,8 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
     stopPolling()
     sessionIdRef.current = null
     hasCompletedRef.current = false
+    processingStartTimeRef.current = null
+    initialCompletedRef.current = 0
     setState(initialState)
   }, [stopPolling])
 

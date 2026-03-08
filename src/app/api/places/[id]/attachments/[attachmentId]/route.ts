@@ -5,6 +5,7 @@ import { eq, and } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { unlink } from 'fs/promises';
 import path from 'path';
+import { del } from '@vercel/blob';
 
 export async function DELETE(
   request: NextRequest,
@@ -41,13 +42,19 @@ export async function DELETE(
       if (attachment.uri && attachment.uri.startsWith('/uploads/')) {
         const filePath = path.join(process.cwd(), 'public', attachment.uri);
         await unlink(filePath).catch(() => {});
+      } else if (attachment.uri && attachment.uri.startsWith('https://')) {
+        await del(attachment.uri);
       }
-      if (attachment.thumbnailUri && attachment.thumbnailUri.startsWith('/uploads/')) {
-        const thumbPath = path.join(process.cwd(), 'public', attachment.thumbnailUri);
-        await unlink(thumbPath).catch(() => {});
+      if (attachment.thumbnailUri) {
+        if (attachment.thumbnailUri.startsWith('/uploads/')) {
+          const thumbPath = path.join(process.cwd(), 'public', attachment.thumbnailUri);
+          await unlink(thumbPath).catch(() => {});
+        } else if (attachment.thumbnailUri.startsWith('https://')) {
+          await del(attachment.thumbnailUri);
+        }
       }
     } catch {
-      // Ignore file deletion errors
+      // Ignore file/blob deletion errors
     }
 
     return NextResponse.json({ success: true });

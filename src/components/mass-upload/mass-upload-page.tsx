@@ -531,6 +531,16 @@ export function MassUploadPage() {
                 {status.counts.cancelled} screenshot{status.counts.cancelled !== 1 ? 's' : ''} cancelled
               </p>
             )}
+            {status.placesCreated > 1 && (
+              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-left dark:border-blue-800 dark:bg-blue-950">
+                <p className="text-sm text-muted-foreground">
+                  Some places may have been extracted from multiple screenshots.
+                </p>
+                <Link href="/duplicates" className="mt-1 inline-block text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
+                  Check for duplicates &rarr;
+                </Link>
+              </div>
+            )}
             <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
               <Link href="/inbox">
                 <Button size="lg">

@@ -154,6 +154,53 @@ export async function deleteSource(id: string, userId: string): Promise<void> {
   }, 'deleteSource');
 }
 
+export async function clearAllScreenshots(userId: string): Promise<{ deleted: number }> {
+  return withErrorHandling(async () => {
+    // Collect source info before deletion
+    const userScreenshots = await db
+      .select({ id: sources.id, uri: sources.uri, meta: sources.meta })
+      .from(sources)
+      .where(and(eq(sources.userId, userId), eq(sources.type, 'screenshot')));
+
+    if (userScreenshots.length === 0) {
+      return { deleted: 0 };
+    }
+
+    const sourceIds = userScreenshots.map(s => s.id);
+
+    // Collect all blob URLs (main URIs + thumbnails from meta)
+    const blobUrls: string[] = [];
+    for (const s of userScreenshots) {
+      if (s.uri?.startsWith('https://')) {
+        blobUrls.push(s.uri);
+      }
+      const meta = typeof s.meta === 'string' ? JSON.parse(s.meta) : s.meta;
+      const thumbnailPath = meta?.uploadInfo?.thumbnailPath;
+      if (thumbnailPath?.startsWith('https://')) {
+        blobUrls.push(thumbnailPath);
+      }
+    }
+
+    await withTransaction(async (tx) => {
+      // Delete join records first
+      await tx.delete(sourcesToPlaces).where(inArray(sourcesToPlaces.sourceId, sourceIds));
+      // Delete the sources
+      await tx.delete(sources).where(inArray(sources.id, sourceIds));
+    });
+
+    // Clean up blobs AFTER transaction commits (best-effort)
+    if (blobUrls.length > 0) {
+      try {
+        await del(blobUrls);
+      } catch (e) {
+        console.warn(`[clearAllScreenshots] Failed to delete ${blobUrls.length} blobs:`, e);
+      }
+    }
+
+    return { deleted: userScreenshots.length };
+  }, 'clearAllScreenshots');
+}
+
 // Collection mutations
 export async function createCollection(
   data: Omit<NewCollection, 'id' | 'createdAt' | 'updatedAt'>,

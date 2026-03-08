@@ -227,7 +227,7 @@ describe('GET /api/mass-upload/status', () => {
     expect(data.failedErrors).toHaveLength(1);
     expect(data.failedErrors[0]).toEqual({
       sourceId: 'src_3',
-      error: 'LLM extraction timed out',
+      error: 'Processing timed out after multiple attempts',
     });
   });
 
@@ -258,6 +258,40 @@ describe('GET /api/mass-upload/status', () => {
     const data = await res.json();
     expect(data.failedErrors).toHaveLength(1);
     expect(data.failedErrors[0].sourceId).toBe('src_1');
+    // Raw error is mapped to user-friendly message
+    expect(data.failedErrors[0].error).toBe('Rate limit exceeded after multiple attempts');
+  });
+
+  // ── 8b. Error messages are mapped to user-friendly strings ─────────
+  it('maps raw API errors to user-friendly messages', async () => {
+    const session = createMockSession({
+      meta: {
+        uploadedFiles: ['src_1', 'src_2', 'src_3', 'src_4', 'src_5'],
+        processingQueue: [],
+        errors: [],
+      },
+    });
+    mockSessionSelect(session);
+    mockGetProcessingStatusCounts.mockResolvedValueOnce({ failed: 5 });
+    mockPlacesCountSelect(0);
+
+    mockFailedSourcesSelect([
+      { id: 'src_1', processingError: '[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent: [503 Service Unavailable] This model is currently experiencing high demand.' },
+      { id: 'src_2', processingError: 'fetch failed: ECONNRESET' },
+      { id: 'src_3', processingError: 'Request timed out after 120s' },
+      { id: 'src_4', processingError: 'INVALID_ARGUMENT: image too small' },
+      { id: 'src_5', processingError: 'Something completely unexpected' },
+    ]);
+
+    const req = createStatusRequest('session_test-1');
+    const res = await GET(req as never);
+    const data = await res.json();
+
+    expect(data.failedErrors[0].error).toBe('AI service was unavailable after multiple attempts');
+    expect(data.failedErrors[1].error).toBe('Network error during processing');
+    expect(data.failedErrors[2].error).toBe('Processing timed out after multiple attempts');
+    expect(data.failedErrors[3].error).toBe('Could not process this image');
+    expect(data.failedErrors[4].error).toBe('Processing failed after multiple attempts');
   });
 
   // ── 9. total reflects session uploadedFiles length ───────────────────

@@ -124,6 +124,7 @@ export async function GET(request: NextRequest) {
           const thumbBlob = await put(thumbKey, thumbnailBuffer, {
             access: 'public',
             contentType: 'image/jpeg',
+            allowOverwrite: true,
           });
           thumbnailUrl = thumbBlob.url;
         } catch (thumbErr) {

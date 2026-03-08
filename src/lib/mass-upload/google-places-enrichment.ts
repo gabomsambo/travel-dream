@@ -189,6 +189,10 @@ export class GooglePlacesEnrichmentService {
   }
 }
 
-// ─── Singleton ────────────────────────────────────────────────────────────────
+// ─── Singleton (lazy to avoid build-time env var errors) ─────────────────────
 
-export const googlePlacesEnrichmentService = new GooglePlacesEnrichmentService();
+let _googlePlacesInstance: GooglePlacesEnrichmentService | null = null;
+export function getGooglePlacesEnrichmentService() {
+  if (!_googlePlacesInstance) _googlePlacesInstance = new GooglePlacesEnrichmentService();
+  return _googlePlacesInstance;
+}

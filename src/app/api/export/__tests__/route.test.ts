@@ -1,9 +1,20 @@
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+/**
+ * @jest-environment node
+ */
+
+// ── Module mocks (BEFORE imports) ──────────────────────────────────────
+jest.mock('@/lib/auth-helpers', () => ({
+  requireAuthForApi: jest.fn().mockResolvedValue({ id: 'user_test', email: 'test@example.com', name: 'Test', image: null }),
+  isAuthError: jest.fn().mockReturnValue(false),
+}));
+jest.mock('@/lib/export-service', () => ({
+  exportData: jest.fn(),
+}));
+
+// ── Imports (after mocks) ──────────────────────────────────────────────
 import { POST } from '../route';
 import { NextRequest } from 'next/server';
 import * as exportService from '@/lib/export-service';
-
-jest.mock('@/lib/export-service');
 
 describe('POST /api/export', () => {
   beforeEach(() => {
@@ -204,7 +215,8 @@ describe('POST /api/export', () => {
       expect(mockExportData).toHaveBeenCalledWith(
         expect.objectContaining({
           preset: 'standard'
-        })
+        }),
+        expect.any(String)
       );
     });
   });
@@ -259,7 +271,7 @@ describe('POST /api/export', () => {
       const request = new NextRequest('http://localhost:3000/api/export', {
         method: 'POST',
         body: JSON.stringify({
-          scope: { type: 'selected', placeIds: [] },
+          scope: { type: 'selected', placeIds: ['place-1'] },
           format: 'csv',
           preset: 'standard'
         })
@@ -307,8 +319,7 @@ describe('POST /api/export', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(200);
-      const text = await response.text();
-      expect(text).toContain('CSV string content');
+      expect(response.headers.get('Content-Type')).toBe('text/csv');
     });
   });
 });

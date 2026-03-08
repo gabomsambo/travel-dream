@@ -165,4 +165,8 @@ Do not add any commentary, explanations, or metadata.`;
   }
 }
 
-export const geminiVisionService = new GeminiVisionService();
+let _geminiVisionInstance: GeminiVisionService | null = null;
+export function getGeminiVisionService() {
+  if (!_geminiVisionInstance) _geminiVisionInstance = new GeminiVisionService();
+  return _geminiVisionInstance;
+}

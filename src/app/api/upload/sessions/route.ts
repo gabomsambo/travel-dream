@@ -5,24 +5,33 @@ import { uploadSessions, sources } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, desc } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { z } from 'zod';
+import { del } from '@vercel/blob';
 
 export const runtime = 'nodejs';
 
-interface CreateSessionRequest {
-  fileCount?: number;
-  metadata?: Record<string, any>;
-}
+const CreateSessionSchema = z.object({
+  fileCount: z.number().int().nonnegative().optional().default(0),
+  metadata: z.record(z.unknown()).optional().default({}),
+});
 
 interface UpdateSessionRequest {
   status?: 'active' | 'completed' | 'cancelled';
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const user = await requireAuthForApi();
-    const body = await request.json() as CreateSessionRequest;
-    const { fileCount = 0, metadata = {} } = body;
+    const body = await request.json();
+    const parsed = CreateSessionSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { status: 'error', message: 'Invalid input', errors: parsed.error.flatten().fieldErrors },
+        { status: 400 }
+      );
+    }
+    const { fileCount, metadata } = parsed.data;
 
     const sessionId = `session_${crypto.randomUUID()}`;
 
@@ -264,6 +273,10 @@ export async function DELETE(request: NextRequest) {
         throw new Error('Session not found');
       }
 
+      if (session.userId !== user.id) {
+        throw new Error('Session not found');
+      }
+
       // Optional cleanup of associated files
       if (cleanup) {
         const uploadedFiles = session.meta?.uploadedFiles || [];
@@ -280,14 +293,15 @@ export async function DELETE(request: NextRequest) {
             })
           );
 
-          // Clean up files (import dynamically to avoid issues)
-          const { fileStorageService } = await import('@/lib/file-storage');
-
+          // Clean up files based on storage type
           for (const source of sourceRecords) {
             if (source) {
               try {
                 const uploadInfo = (source.meta as any)?.uploadInfo;
-                if (uploadInfo) {
+                if (uploadInfo?.storageType === 'vercel-blob' && source.uri?.startsWith('https://')) {
+                  await del(source.uri);
+                } else if (uploadInfo?.storedPath) {
+                  const { fileStorageService } = await import('@/lib/file-storage');
                   await fileStorageService.deleteFile(
                     uploadInfo.storedPath,
                     uploadInfo.thumbnailPath

@@ -1,4 +1,5 @@
 import { eq, and, inArray, count, sql } from 'drizzle-orm';
+import { del } from '@vercel/blob';
 import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
@@ -125,23 +126,79 @@ export async function updateSource(
 
 export async function deleteSource(id: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
+    // Capture URI before transaction deletes the record
+    const [source] = await db.select({ uri: sources.uri }).from(sources)
+      .where(and(eq(sources.id, id), eq(sources.userId, userId)))
+      .limit(1);
+
+    if (!source) {
+      throw new Error(`Source with id ${id} not found or unauthorized`);
+    }
+
     await withTransaction(async (tx) => {
-      // Verify ownership first
-      const [source] = await tx.select().from(sources)
-        .where(and(eq(sources.id, id), eq(sources.userId, userId)))
-        .limit(1);
-
-      if (!source) {
-        throw new Error(`Source with id ${id} not found or unauthorized`);
-      }
-
       // Delete related records first
       await tx.delete(sourcesToPlaces).where(eq(sourcesToPlaces.sourceId, id));
 
       // Delete the source
       await tx.delete(sources).where(eq(sources.id, id));
     });
+
+    // Clean up blob storage AFTER transaction commits (best-effort)
+    if (source.uri?.startsWith('https://')) {
+      try {
+        await del(source.uri);
+      } catch (e) {
+        console.warn(`[deleteSource] Failed to delete blob ${source.uri}:`, e);
+      }
+    }
   }, 'deleteSource');
+}
+
+export async function clearAllScreenshots(userId: string): Promise<{ deleted: number }> {
+  return withErrorHandling(async () => {
+    // Collect source info before deletion
+    const userScreenshots = await db
+      .select({ id: sources.id, uri: sources.uri, meta: sources.meta })
+      .from(sources)
+      .where(and(eq(sources.userId, userId), eq(sources.type, 'screenshot')));
+
+    if (userScreenshots.length === 0) {
+      return { deleted: 0 };
+    }
+
+    const sourceIds = userScreenshots.map(s => s.id);
+
+    // Collect all blob URLs (main URIs + thumbnails from meta)
+    const blobUrls: string[] = [];
+    for (const s of userScreenshots) {
+      if (s.uri?.startsWith('https://')) {
+        blobUrls.push(s.uri);
+      }
+      const meta = typeof s.meta === 'string' ? JSON.parse(s.meta) : s.meta;
+      const thumbnailPath = meta?.uploadInfo?.thumbnailPath;
+      if (thumbnailPath?.startsWith('https://')) {
+        blobUrls.push(thumbnailPath);
+      }
+    }
+
+    await withTransaction(async (tx) => {
+      // Delete join records first
+      await tx.delete(sourcesToPlaces).where(inArray(sourcesToPlaces.sourceId, sourceIds));
+      // Delete the sources
+      await tx.delete(sources).where(inArray(sources.id, sourceIds));
+    });
+
+    // Clean up blobs AFTER transaction commits (best-effort)
+    if (blobUrls.length > 0) {
+      try {
+        await del(blobUrls);
+      } catch (e) {
+        console.warn(`[clearAllScreenshots] Failed to delete ${blobUrls.length} blobs:`, e);
+      }
+    }
+
+    return { deleted: userScreenshots.length };
+  }, 'clearAllScreenshots');
 }
 
 // Collection mutations
@@ -568,21 +625,28 @@ export async function createPlacesFromSources(
 // Bulk status updates
 export async function bulkUpdatePlaceStatus(
   placeIds: string[],
-  status: string,
+  status: 'inbox' | 'library' | 'archived' | 'review',
   userId: string
 ): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    const result = await db.update(places)
-      .set({
-        status,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
-      .returning();
+    const CHUNK_SIZE = 50;
+    let totalUpdated = 0;
 
-    return result.length;
+    for (let i = 0; i < placeIds.length; i += CHUNK_SIZE) {
+      const chunk = placeIds.slice(i, i + CHUNK_SIZE);
+      const result = await db.update(places)
+        .set({
+          status,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(inArray(places.id, chunk), eq(places.userId, userId)));
+
+      totalUpdated += result.rowsAffected ?? 0;
+    }
+
+    return totalUpdated;
   }, 'bulkUpdatePlaceStatus');
 }
 
@@ -710,7 +774,7 @@ export async function batchCreatePlacesFromExtractions(
             continue;
           }
 
-          const meta = source?.meta as { uploadInfo?: { storedPath?: string; originalName?: string; mimeType?: string; size?: number } } | null;
+          const meta = source?.meta as { uploadInfo?: { storedPath?: string; originalName?: string; mimeType?: string; fileSize?: number } } | null;
           const screenshotPath = meta?.uploadInfo?.storedPath;
 
           // Create places from extraction results
@@ -757,7 +821,7 @@ export async function batchCreatePlacesFromExtractions(
                 uri: screenshotPath,
                 filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
                 mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
-                fileSize: meta?.uploadInfo?.size || null,
+                fileSize: meta?.uploadInfo?.fileSize || null,
                 isPrimary: 1, // Auto-set as cover image
               });
             }
@@ -1067,32 +1131,17 @@ export async function undoMerge(mergeLogId: string, userId: string): Promise<voi
 }
 
 export async function batchArchivePlaces(placeIds: string[], userId: string): Promise<number> {
-  return withErrorHandling(async () => {
-    if (placeIds.length === 0) return 0;
-
-    const result = await db.update(places)
-      .set({
-        status: 'archived',
-        updatedAt: new Date().toISOString(),
-      })
-      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
-      .returning();
-
-    return result.length;
-  }, 'batchArchivePlaces');
+  if (placeIds.length === 0) return 0;
+  return bulkUpdatePlaceStatus(placeIds, 'archived', userId);
 }
 
 // Enhanced bulk operations for inbox workflow
 export async function bulkConfirmPlaces(placeIds: string[], userId: string): Promise<number> {
-  return withErrorHandling(async () => {
-    return await bulkUpdatePlaceStatus(placeIds, 'library', userId);
-  }, 'bulkConfirmPlaces');
+  return bulkUpdatePlaceStatus(placeIds, 'library', userId);
 }
 
 export async function bulkMovePlacesToReview(placeIds: string[], userId: string): Promise<number> {
-  return withErrorHandling(async () => {
-    return await bulkUpdatePlaceStatus(placeIds, 'review', userId);
-  }, 'bulkMovePlacesToReview');
+  return bulkUpdatePlaceStatus(placeIds, 'review', userId);
 }
 
 export async function createAttachment(
@@ -1158,6 +1207,22 @@ export async function deleteAttachment(id: string, userId: string) {
     await db
       .delete(attachments)
       .where(eq(attachments.id, id));
+
+    // Clean up blob storage (best-effort)
+    if (attachment.uri?.startsWith('https://')) {
+      try {
+        await del(attachment.uri);
+      } catch (e) {
+        console.warn(`[deleteAttachment] Failed to delete blob ${attachment.uri}:`, e);
+      }
+    }
+    if (attachment.thumbnailUri?.startsWith('https://')) {
+      try {
+        await del(attachment.thumbnailUri);
+      } catch (e) {
+        console.warn(`[deleteAttachment] Failed to delete thumbnail blob:`, e);
+      }
+    }
 
     return { success: true };
   }, 'deleteAttachment');
@@ -1336,48 +1401,41 @@ export async function deleteReservation(id: string, userId: string) {
 }
 
 export async function batchRestorePlaces(placeIds: string[], userId: string): Promise<number> {
-  return withErrorHandling(async () => {
-    if (placeIds.length === 0) return 0;
-
-    const result = await db.update(places)
-      .set({
-        status: 'library',
-        updatedAt: new Date().toISOString(),
-      })
-      .where(and(inArray(places.id, placeIds), eq(places.userId, userId)))
-      .returning();
-
-    return result.length;
-  }, 'batchRestorePlaces');
+  if (placeIds.length === 0) return 0;
+  return bulkUpdatePlaceStatus(placeIds, 'library', userId);
 }
 
 export async function batchDeletePlaces(placeIds: string[], userId: string): Promise<number> {
   return withErrorHandling(async () => {
     if (placeIds.length === 0) return 0;
 
-    return await withTransaction(async (tx) => {
-      let count = 0;
+    const CHUNK_SIZE = 50;
+    let totalDeleted = 0;
 
-      for (const placeId of placeIds) {
-        // Verify ownership
-        const [place] = await tx.select().from(places)
-          .where(and(eq(places.id, placeId), eq(places.userId, userId)))
-          .limit(1);
+    for (let i = 0; i < placeIds.length; i += CHUNK_SIZE) {
+      const chunk = placeIds.slice(i, i + CHUNK_SIZE);
 
-        if (!place) continue; // Skip places not owned by user
+      const deleted = await withTransaction(async (tx) => {
+        // Verify ownership in bulk
+        const ownedPlaces = await tx.select({ id: places.id }).from(places)
+          .where(and(inArray(places.id, chunk), eq(places.userId, userId)));
+        const ownedIds = ownedPlaces.map((p: { id: string }) => p.id);
 
-        await tx.delete(sourcesToPlaces).where(eq(sourcesToPlaces.placeId, placeId));
-        await tx.delete(placesToCollections).where(eq(placesToCollections.placeId, placeId));
+        if (ownedIds.length === 0) return 0;
 
-        const result = await tx.delete(places).where(eq(places.id, placeId));
+        // Bulk delete join tables
+        await tx.delete(sourcesToPlaces).where(inArray(sourcesToPlaces.placeId, ownedIds));
+        await tx.delete(placesToCollections).where(inArray(placesToCollections.placeId, ownedIds));
 
-        if (result.rowsAffected && result.rowsAffected > 0) {
-          count++;
-        }
-      }
+        // Bulk delete places
+        const result = await tx.delete(places).where(inArray(places.id, ownedIds));
+        return result.rowsAffected ?? 0;
+      });
 
-      return count;
-    });
+      totalDeleted += deleted;
+    }
+
+    return totalDeleted;
   }, 'batchDeletePlaces');
 }
 
@@ -1460,7 +1518,7 @@ export async function createPlacesFromPipeline(
       if (!source) throw new Error(`Source ${sourceId} not found or unauthorized`);
 
       const screenshotUri = source.uri;
-      const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; size?: number } } | null;
+      const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; fileSize?: number; thumbnailPath?: string } } | null;
       const createdPlaces: Place[] = [];
 
       for (const p of pipelinePlaces) {
@@ -1542,7 +1600,8 @@ export async function createPlacesFromPipeline(
             uri: screenshotUri,
             filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
             mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
-            fileSize: meta?.uploadInfo?.size || null,
+            fileSize: meta?.uploadInfo?.fileSize || null,
+            thumbnailUri: meta?.uploadInfo?.thumbnailPath || null,
             isPrimary: 1,
           });
         }

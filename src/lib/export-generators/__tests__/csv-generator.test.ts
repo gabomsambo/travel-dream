@@ -5,6 +5,8 @@ import type { FieldDefinition } from '@/types/export';
 
 const createMockPlace = (overrides: Partial<Place> = {}): Place => ({
   id: 'plc_test',
+  userId: null,
+  googlePlaceId: null,
   name: 'Test Place',
   kind: 'restaurant',
   status: 'library',
@@ -45,16 +47,19 @@ const mockFieldDefs: FieldDefinition[] = [
   {
     dbField: 'name',
     csvHeader: 'Name',
+    category: 'essentials',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
   {
     dbField: 'city',
     csvHeader: 'City',
+    category: 'location',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
   {
     dbField: 'tags',
     csvHeader: 'Tags',
+    category: 'categorization',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -70,7 +75,8 @@ describe('csv-generator', () => {
       const csv = await generateCSV(places, mockFieldDefs);
 
       expect(csv).toContain('Name,City,Tags');
-      expect(csv).toContain('Test Place,Paris,tag1, tag2');
+      // Tags "tag1, tag2" contains a comma so it gets quoted per RFC 4180
+      expect(csv).toContain('Test Place,Paris,"tag1, tag2"');
     });
 
     it('should include UTF-8 BOM by default', async () => {
@@ -122,7 +128,8 @@ describe('csv-generator', () => {
       const csv = await generateCSV(places, mockFieldDefs);
 
       const lines = csv.split('\n').filter(l => l.trim());
-      expect(lines[1]).toContain('Test Place,,tag1, tag2');
+      // Tags "tag1, tag2" contains a comma so it gets quoted per RFC 4180
+      expect(lines[1]).toContain('Test Place,,"tag1, tag2"');
     });
 
     it('should handle multiple places', async () => {
@@ -161,6 +168,7 @@ describe('csv-generator', () => {
         {
           dbField: 'orderIndex',
           csvHeader: 'Order',
+          category: 'system_meta',
           transform: (value: any, place: Place, relationData?: any) => {
             return relationData?.orderIndex?.toString() || '';
           },

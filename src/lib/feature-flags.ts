@@ -22,8 +22,12 @@ type FeatureFlagKey = keyof typeof FEATURE_FLAG_KEYS
 function getFeatureFlag(key: FeatureFlagKey): boolean {
   if (typeof window === "undefined") return false
 
-  const stored = localStorage.getItem(FEATURE_FLAG_KEYS[key])
-  return stored === "true"
+  try {
+    const stored = localStorage.getItem(FEATURE_FLAG_KEYS[key])
+    return stored === "true"
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -32,7 +36,11 @@ function getFeatureFlag(key: FeatureFlagKey): boolean {
 function setFeatureFlag(key: FeatureFlagKey, enabled: boolean): void {
   if (typeof window === "undefined") return
 
-  localStorage.setItem(FEATURE_FLAG_KEYS[key], enabled.toString())
+  try {
+    localStorage.setItem(FEATURE_FLAG_KEYS[key], enabled.toString())
+  } catch {
+    // localStorage may be unavailable in some environments
+  }
 }
 
 /**

@@ -38,7 +38,7 @@ export async function withErrorHandling<T>(
       }
     }
     
-    throw new Error(`Database operation failed: ${context}`);
+    throw new Error(`Database operation failed in ${context}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

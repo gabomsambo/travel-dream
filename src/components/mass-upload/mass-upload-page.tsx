@@ -12,7 +12,10 @@ import {
   CloudUpload,
   Inbox,
   Ban,
+  RefreshCw,
+  ImageIcon,
 } from 'lucide-react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Card } from "@/components/adapters/card"
@@ -46,7 +49,8 @@ export function MassUploadPage() {
   const [isStarting, setIsStarting] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const completedUploadsRef = useRef<string[]>([])
+  const filesRef = useRef<Map<string, MassUploadFile>>(new Map())
+  const listParentRef = useRef<HTMLDivElement>(null)
 
   const status = useMassUploadStatus()
   const [isCancelling, setIsCancelling] = useState(false)
@@ -104,6 +108,32 @@ export function MassUploadPage() {
     init()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Task 2: Sync filesRef with files state (for unmount cleanup)
+  useEffect(() => {
+    filesRef.current = files
+  }, [files])
+
+  // Task 2: Revoke all object URLs on unmount
+  useEffect(() => {
+    return () => {
+      filesRef.current.forEach(file => {
+        if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
+      })
+    }
+  }, [])
+
+  // Task 1: beforeunload guard during upload
+  useEffect(() => {
+    if (!isUploading) return
+
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isUploading])
 
   const validateFile = useCallback((file: File): { isValid: boolean; error?: string } => {
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -231,7 +261,6 @@ export function MassUploadPage() {
               return newMap
             })
 
-            completedUploadsRef.current.push(result.sourceId)
           } catch (error) {
             setFiles(prev => {
               const newMap = new Map(prev)
@@ -330,10 +359,14 @@ export function MassUploadPage() {
       }).catch(() => {})
     }
 
+    // Task 2: Revoke object URLs before clearing (use ref to avoid stale closure)
+    filesRef.current.forEach(file => {
+      if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
+    })
+
     // Reset state for instant UI feedback
     status.reset()
     setFiles(new Map())
-    completedUploadsRef.current = []
     setStep('upload')
     setSessionId(null)
 
@@ -377,7 +410,74 @@ export function MassUploadPage() {
     }
   }, [sessionId])
 
+  // Task 3: Per-file retry (uses filesRef to avoid stale closure)
+  const retryFile = useCallback(async (fileId: string) => {
+    const fileData = filesRef.current.get(fileId)
+    if (!fileData || !sessionId) return
+
+    setFiles(prev => {
+      const updated = new Map(prev)
+      const current = prev.get(fileId)
+      if (current) {
+        updated.set(fileId, { ...current, status: 'uploading', progress: 0, error: undefined })
+      }
+      return updated
+    })
+
+    try {
+      const result = await uploadFileToBlob(fileData.file, fileId)
+      setFiles(prev => {
+        const updated = new Map(prev)
+        const current = prev.get(fileId)
+        if (current) {
+          updated.set(fileId, {
+            ...current,
+            status: 'completed',
+            progress: 100,
+            blobUrl: result.blobUrl,
+            sourceId: result.sourceId,
+          })
+        }
+        return updated
+      })
+    } catch (error) {
+      setFiles(prev => {
+        const updated = new Map(prev)
+        const current = prev.get(fileId)
+        if (current) {
+          updated.set(fileId, {
+            ...current,
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Retry failed',
+          })
+        }
+        return updated
+      })
+    }
+  }, [sessionId, uploadFileToBlob])
+
+  // Task 3: Retry all failed (uses filesRef to avoid stale closure)
+  const retryAllFailed = useCallback(async () => {
+    const failedIds = Array.from(filesRef.current.entries())
+      .filter(([, f]) => f.status === 'failed')
+      .map(([id]) => id)
+
+    for (let i = 0; i < failedIds.length; i += CONCURRENT_LIMIT) {
+      const batch = failedIds.slice(i, i + CONCURRENT_LIMIT)
+      await Promise.allSettled(batch.map(id => retryFile(id)))
+    }
+  }, [retryFile])
+
   const filesArray = Array.from(files.values())
+
+  // Task 4: Virtual list (must be called unconditionally — React hook rule)
+  const rowVirtualizer = useVirtualizer({
+    count: filesArray.length,
+    getScrollElement: () => listParentRef.current,
+    estimateSize: () => 88,
+    overscan: 5,
+  })
+
   const completedFiles = filesArray.filter(f => f.status === 'completed').length
   const failedFiles = filesArray.filter(f => f.status === 'failed').length
   const uploadingFiles = filesArray.filter(f => f.status === 'uploading').length
@@ -401,14 +501,45 @@ export function MassUploadPage() {
               {status.placesCreated} places found from {status.counts.completed} screenshots
             </p>
             {status.counts.failed > 0 && (
-              <p className="text-sm text-red-600 mb-4">
-                {status.counts.failed} screenshot{status.counts.failed !== 1 ? 's' : ''} failed to process
-              </p>
+              <>
+                <p className="text-sm text-red-600 mb-2">
+                  {status.counts.failed} screenshot{status.counts.failed !== 1 ? 's' : ''} failed to process
+                </p>
+                {status.failedErrors.length > 0 && (
+                  <details className="mt-2 text-left mb-4">
+                    <summary className="text-sm text-red-600 cursor-pointer">
+                      View error details
+                    </summary>
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground max-h-40 overflow-y-auto">
+                      {status.failedErrors.slice(0, 20).map(err => (
+                        <li key={err.sourceId} className="truncate">
+                          {err.sourceId.slice(0, 12)}...: {err.error}
+                        </li>
+                      ))}
+                      {status.failedErrors.length > 20 && (
+                        <li className="text-muted-foreground italic">
+                          ...and {status.failedErrors.length - 20} more
+                        </li>
+                      )}
+                    </ul>
+                  </details>
+                )}
+              </>
             )}
             {status.counts.cancelled > 0 && (
               <p className="text-sm text-muted-foreground mb-4">
                 {status.counts.cancelled} screenshot{status.counts.cancelled !== 1 ? 's' : ''} cancelled
               </p>
+            )}
+            {status.placesCreated > 1 && (
+              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-left dark:border-blue-800 dark:bg-blue-950">
+                <p className="text-sm text-muted-foreground">
+                  Some places may have been extracted from multiple screenshots.
+                </p>
+                <Link href="/duplicates" className="mt-1 inline-block text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
+                  Check for duplicates &rarr;
+                </Link>
+              </div>
             )}
             <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
               <Link href="/inbox">
@@ -432,20 +563,30 @@ export function MassUploadPage() {
               <p className="text-2xl font-bold text-blue-600 mb-1">
                 {processed} of {status.total} processed
               </p>
-              <p className="text-muted-foreground mb-4">
+              <p className="text-muted-foreground mb-2">
                 {status.placesCreated} places found so far
               </p>
+              {status.estimatedMinutesRemaining !== null && !status.isComplete && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  ~{status.estimatedMinutesRemaining} min remaining
+                </p>
+              )}
 
               {/* Progress bar */}
               <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
                 <div
+                  role="progressbar"
+                  aria-valuenow={progressPercent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Overall processing progress"
                   className="bg-blue-600 h-3 rounded-full transition-all duration-500"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
 
               {/* Status breakdown */}
-              <div className="flex flex-wrap justify-center gap-2 mb-6">
+              <div className="flex flex-wrap justify-center gap-2 mb-6" aria-live="polite" aria-atomic="true">
                 {status.counts.queued > 0 && (
                   <Badge variant="outline">{status.counts.queued} queued</Badge>
                 )}
@@ -573,11 +714,21 @@ export function MassUploadPage() {
             .map(file => (
               <div key={file.id} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
                 {file.previewUrl && (
-                  <img
-                    src={file.previewUrl}
-                    alt={file.file.name}
-                    className="w-full h-full object-cover"
-                  />
+                  <>
+                    <img
+                      src={file.previewUrl}
+                      alt={file.file.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                        const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                        if (fallback) fallback.style.display = 'flex'
+                      }}
+                    />
+                    <div className="w-full h-full items-center justify-center" style={{ display: 'none' }}>
+                      <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                  </>
                 )}
               </div>
             ))}
@@ -625,9 +776,18 @@ export function MassUploadPage() {
 
       {/* Drop zone */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-label="Drop travel screenshots here or press Enter to browse files"
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            fileInputRef.current?.click()
+          }
+        }}
         className={`border-2 border-dashed rounded-lg p-8 transition-colors duration-200 cursor-pointer ${
           isDragOver
             ? 'border-blue-500 bg-blue-50'
@@ -646,6 +806,7 @@ export function MassUploadPage() {
           <Button
             type="button"
             variant="outline"
+            tabIndex={-1}
             onClick={(e) => {
               e.stopPropagation()
               fileInputRef.current?.click()
@@ -660,7 +821,7 @@ export function MassUploadPage() {
       {/* Upload progress summary */}
       {filesArray.length > 0 && (
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap" aria-live="polite" aria-atomic="true">
             <Badge variant="outline">
               {filesArray.length} file{filesArray.length !== 1 ? 's' : ''}
             </Badge>
@@ -674,70 +835,127 @@ export function MassUploadPage() {
               <Badge variant="destructive">{failedFiles} failed</Badge>
             )}
           </div>
+          {/* Task 3: Retry All Failed button */}
+          {failedFiles > 0 && !isUploading && (
+            <Button variant="outline" size="sm" onClick={retryAllFailed}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry Failed ({failedFiles})
+            </Button>
+          )}
         </div>
       )}
 
-      {/* File list */}
+      {/* File list — Task 4: Virtualized */}
       {filesArray.length > 0 && (
-        <div className="space-y-2 max-h-80 overflow-y-auto">
-          {filesArray.map((file) => (
-            <Card key={file.id} className="p-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  {file.previewUrl && (
-                    <div className="w-10 h-10 rounded overflow-hidden bg-gray-100 flex-shrink-0">
-                      <img
-                        src={file.previewUrl}
-                        alt={file.file.name}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{file.file.name}</div>
-                    <div className="text-xs text-gray-500">
-                      {(file.file.size / (1024 * 1024)).toFixed(1)}MB
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {file.status === 'uploading' && (
-                      <span className="text-xs text-blue-600">{file.progress}%</span>
-                    )}
-                    {file.status === 'completed' && (
-                      <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    )}
-                    {file.status === 'failed' && (
-                      <AlertCircle className="w-4 h-4 text-red-500" />
-                    )}
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeFile(file.id)}
-                  className="h-8 w-8 text-gray-400 hover:text-red-600 ml-2"
-                  disabled={file.status === 'uploading'}
+        <div ref={listParentRef} className="max-h-80 overflow-auto">
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map(virtualRow => {
+              const file = filesArray[virtualRow.index]
+              return (
+                <div
+                  key={file.id}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
                 >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+                  <Card className="p-3 h-full">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {file.previewUrl && (
+                          <div className="w-10 h-10 rounded overflow-hidden bg-gray-100 flex-shrink-0">
+                            {/* Task 5: HEIC fallback */}
+                            <img
+                              src={file.previewUrl}
+                              alt={file.file.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                                const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                                if (fallback) fallback.style.display = 'flex'
+                              }}
+                            />
+                            <div className="h-full w-full rounded bg-muted items-center justify-center" style={{ display: 'none' }}>
+                              <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{file.file.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {(file.file.size / (1024 * 1024)).toFixed(1)}MB
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {file.status === 'uploading' && (
+                            <span className="text-xs text-blue-600">{file.progress}%</span>
+                          )}
+                          {file.status === 'completed' && (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          )}
+                          {file.status === 'failed' && (
+                            <AlertCircle className="w-4 h-4 text-red-500" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 ml-2">
+                        {/* Task 3: Per-file retry button */}
+                        {file.status === 'failed' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => retryFile(file.id)}
+                            className="h-8 w-8 text-blue-500 hover:text-blue-700"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeFile(file.id)}
+                          className="h-8 w-8 text-gray-400 hover:text-red-600"
+                          disabled={file.status === 'uploading'}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
 
-              {file.status === 'uploading' && (
-                <div className="mt-2">
-                  <div className="w-full bg-gray-200 rounded-full h-1">
-                    <div
-                      className="bg-blue-600 h-1 rounded-full transition-all duration-300"
-                      style={{ width: `${file.progress}%` }}
-                    />
-                  </div>
+                    {file.status === 'uploading' && (
+                      <div className="mt-2">
+                        <div className="w-full bg-gray-200 rounded-full h-1">
+                          <div
+                            role="progressbar"
+                            aria-valuenow={file.progress}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label={`Upload progress for ${file.file.name}`}
+                            className="bg-blue-600 h-1 rounded-full transition-all duration-300"
+                            style={{ width: `${file.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {file.error && (
+                      <div className="mt-2 text-xs text-red-600">{file.error}</div>
+                    )}
+                  </Card>
                 </div>
-              )}
-
-              {file.error && (
-                <div className="mt-2 text-xs text-red-600">{file.error}</div>
-              )}
-            </Card>
-          ))}
+              )
+            })}
+          </div>
         </div>
       )}
 

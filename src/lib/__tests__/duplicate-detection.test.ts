@@ -11,10 +11,11 @@ import {
   DEFAULT_DETECTION_CONFIG,
 } from '../duplicate-detection'
 import type { Place } from '@/types/database'
+import { createMockPlace } from '@/__tests__/helpers/mass-upload-helpers'
 
 // Mock places for testing
 const mockPlaces: Place[] = [
-  {
+  createMockPlace({
     id: 'place-1',
     name: 'Sagrada Familia',
     kind: 'landmark',
@@ -32,8 +33,8 @@ const mockPlaces: Place[] = [
     confidence: 0.95,
     createdAt: '2025-09-27T00:00:00Z',
     updatedAt: '2025-09-27T00:00:00Z',
-  },
-  {
+  }),
+  createMockPlace({
     id: 'place-2',
     name: 'Basílica de la Sagrada Família',
     kind: 'church',
@@ -41,7 +42,6 @@ const mockPlaces: Place[] = [
     country: 'ES',
     admin: 'Catalonia',
     coords: { lat: 41.4036, lon: 2.1744 }, // Same coordinates
-    address: null,
     altNames: ['Sagrada Familia'],
     tags: ['Gaudí', 'religious'],
     vibes: ['spiritual'],
@@ -51,8 +51,8 @@ const mockPlaces: Place[] = [
     confidence: 0.92,
     createdAt: '2025-09-26T00:00:00Z',
     updatedAt: '2025-09-26T00:00:00Z',
-  },
-  {
+  }),
+  createMockPlace({
     id: 'place-3',
     name: 'Park Güell',
     kind: 'park',
@@ -60,7 +60,6 @@ const mockPlaces: Place[] = [
     country: 'ES',
     admin: 'Catalonia',
     coords: { lat: 41.4145, lon: 2.1527 }, // Different location
-    address: null,
     altNames: ['Parc Güell'],
     tags: ['Gaudí', 'park'],
     vibes: ['colorful'],
@@ -70,8 +69,8 @@ const mockPlaces: Place[] = [
     confidence: 0.88,
     createdAt: '2025-09-25T00:00:00Z',
     updatedAt: '2025-09-25T00:00:00Z',
-  },
-  {
+  }),
+  createMockPlace({
     id: 'place-4',
     name: 'Casa Batlló',
     kind: 'landmark',
@@ -79,17 +78,15 @@ const mockPlaces: Place[] = [
     country: 'ES',
     admin: 'Madrid',
     coords: { lat: 40.4168, lon: -3.7038 },
-    address: null,
     altNames: [],
     tags: ['architecture'],
     vibes: ['artistic'],
     ratingSelf: 3,
-    notes: null,
     status: 'inbox',
     confidence: 0.75,
     createdAt: '2025-09-24T00:00:00Z',
     updatedAt: '2025-09-24T00:00:00Z',
-  },
+  }),
 ]
 
 describe('Duplicate Detection Utils', () => {

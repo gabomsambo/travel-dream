@@ -17,6 +17,11 @@ const client = createClient({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
+// Enable foreign key constraint enforcement (required per-connection in SQLite)
+client.execute('PRAGMA foreign_keys = ON').catch((err) => {
+  console.error('Failed to enable PRAGMA foreign_keys:', err);
+});
+
 // Create Drizzle database instance with schema
 export const db = drizzle(client, { schema });
 

@@ -104,14 +104,14 @@ export async function GET(request: NextRequest) {
     const user = await requireAuthForApi();
     const { searchParams } = new URL(request.url);
 
-    // Parse and validate query parameters
+    // Parse and validate query parameters (convert null to undefined so .default() works)
     const queryValidation = DuplicateQuerySchema.safeParse({
       placeId: searchParams.get('placeId'),
       status: searchParams.get('status'),
-      limit: searchParams.get('limit'),
-      minConfidence: searchParams.get('minConfidence'),
-      includeReasoning: searchParams.get('includeReasoning'),
-      mode: searchParams.get('mode')
+      limit: searchParams.get('limit') ?? undefined,
+      minConfidence: searchParams.get('minConfidence') ?? undefined,
+      includeReasoning: searchParams.get('includeReasoning') ?? undefined,
+      mode: searchParams.get('mode') ?? undefined
     });
 
     if (!queryValidation.success) {

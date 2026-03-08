@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm run test -- --ci --passWithNoTests
+        env:
+          TURSO_DATABASE_URL: "file:ci-test.db"
+          TURSO_AUTH_TOKEN: "fake-token-for-build"
+          AUTH_SECRET: "ci-test-secret-32-chars-minimum!!"
+          AUTH_GOOGLE_ID: "fake-google-id"
+          AUTH_GOOGLE_SECRET: "fake-google-secret"
+          NEXTAUTH_URL: "http://localhost:3000"
+
+      - name: Build
+        run: npm run build
+        env:
+          TURSO_DATABASE_URL: "file:ci-test.db"
+          TURSO_AUTH_TOKEN: "fake-token-for-build"
+          AUTH_SECRET: "ci-test-secret-32-chars-minimum!!"
+          AUTH_GOOGLE_ID: "fake-google-id"
+          AUTH_GOOGLE_SECRET: "fake-google-secret"
+          NEXTAUTH_URL: "http://localhost:3000"

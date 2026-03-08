@@ -32,7 +32,6 @@ export interface InboxToolbarProps {
   selectedCount: number
   totalCount: number
   isAllSelected?: boolean
-  isSomeSelected?: boolean
 
   // Actions
   onConfirmSelected?: () => void
@@ -76,7 +75,6 @@ export function InboxToolbar({
   selectedCount,
   totalCount,
   isAllSelected = false,
-  isSomeSelected = false,
   onConfirmSelected,
   onArchiveSelected,
   onExportSelected,
@@ -113,23 +111,37 @@ export function InboxToolbar({
             </span>
           )}
 
-          {/* Select all/none toggle */}
+          {/* Select all/none buttons */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={isAllSelected ? onSelectNone : onSelectAll}
-                  disabled={disabled || totalCount === 0}
+                  onClick={onSelectAll}
+                  disabled={disabled || totalCount === 0 || isAllSelected}
                   className="h-8"
                 >
-                  {isAllSelected ? "None" : isSomeSelected ? "All" : "All"}
+                  All
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                {isAllSelected ? "Deselect all items" : "Select all items"}
-              </TooltipContent>
+              <TooltipContent>Select all items</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onSelectNone}
+                  disabled={disabled || selectedCount === 0}
+                  className="h-8"
+                >
+                  None
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Deselect all items</TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>

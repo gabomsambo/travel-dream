@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers'
 import { db } from '@/db'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, or } from 'drizzle-orm'
 import {
   places,
   sources,
@@ -10,14 +10,19 @@ import {
   sourcesToPlaces,
   mergeLogs,
   uploadSessions,
-  dismissedDuplicates
+  dismissedDuplicates,
+  attachments
 } from '@/db/schema'
+import { del } from '@vercel/blob'
 
 export const dynamic = 'force-dynamic'
 
 export async function DELETE() {
   try {
     const user = await requireAuthForApi()
+
+    // Collect blob URLs BEFORE deleting records
+    const blobUrls: string[] = []
 
     await db.transaction(async (tx) => {
       // Get all place IDs for this user
@@ -27,12 +32,24 @@ export async function DELETE() {
         .where(eq(places.userId, user.id))
       const placeIds = userPlaces.map(p => p.id)
 
-      // Get all source IDs for this user
+      // Get all source URIs for this user
       const userSources = await tx
-        .select({ id: sources.id })
+        .select({ id: sources.id, uri: sources.uri })
         .from(sources)
         .where(eq(sources.userId, user.id))
-      const sourceIds = userSources.map(s => s.id)
+      blobUrls.push(...userSources.map(s => s.uri).filter(u => u?.startsWith('https://')))
+
+      // Get all attachment URIs for this user's places
+      if (placeIds.length > 0) {
+        const userAttachments = await tx
+          .select({ uri: attachments.uri, thumbnailUri: attachments.thumbnailUri })
+          .from(attachments)
+          .where(inArray(attachments.placeId, placeIds))
+        blobUrls.push(
+          ...userAttachments.map(a => a.uri).filter(u => u?.startsWith('https://')),
+          ...userAttachments.map(a => a.thumbnailUri).filter((u): u is string => !!u && u.startsWith('https://'))
+        )
+      }
 
       // Get all collection IDs for this user
       const userCollections = await tx
@@ -46,7 +63,12 @@ export async function DELETE() {
         await tx.delete(sourcesToPlaces).where(inArray(sourcesToPlaces.placeId, placeIds))
         await tx.delete(placesToCollections).where(inArray(placesToCollections.placeId, placeIds))
         await tx.delete(mergeLogs).where(inArray(mergeLogs.targetId, placeIds))
-        await tx.delete(dismissedDuplicates).where(inArray(dismissedDuplicates.placeId1, placeIds))
+        await tx.delete(dismissedDuplicates).where(
+          or(
+            inArray(dismissedDuplicates.placeId1, placeIds),
+            inArray(dismissedDuplicates.placeId2, placeIds)
+          )
+        )
       }
 
       // Delete upload sessions for this user
@@ -57,6 +79,15 @@ export async function DELETE() {
       await tx.delete(sources).where(eq(sources.userId, user.id))
       await tx.delete(collections).where(eq(collections.userId, user.id))
     })
+
+    // Clean up blobs AFTER transaction commits (best-effort)
+    if (blobUrls.length > 0) {
+      try {
+        await del(blobUrls)
+      } catch (e) {
+        console.warn(`[delete-all] Failed to delete ${blobUrls.length} blobs:`, e)
+      }
+    }
 
     return NextResponse.json({
       success: true,

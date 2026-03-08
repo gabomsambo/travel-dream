@@ -151,13 +151,14 @@ describe('Adapter Smoke Tests', () => {
   describe('Separator Adapter', () => {
     it('renders separator', () => {
       const { container } = render(<Separator />)
-      const separator = container.querySelector('[role="separator"]')
+      // Radix UI separator renders with role="none" when decorative=true (default)
+      const separator = container.querySelector('[data-orientation]')
       expect(separator).toBeInTheDocument()
     })
 
     it('accepts orientation prop', () => {
       const { container } = render(<Separator orientation="vertical" />)
-      const separator = container.querySelector('[role="separator"]')
+      const separator = container.querySelector('[data-orientation]')
       expect(separator).toHaveAttribute('data-orientation', 'vertical')
     })
   })

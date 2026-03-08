@@ -180,8 +180,8 @@ export async function POST(request: NextRequest) {
 
           if (useGemini) {
             try {
-              const { geminiVisionService } = await import('@/lib/gemini-vision-service');
-              ocrResult = await geminiVisionService.extractTextFromImage(fileBuffer, sourceRecord.id);
+              const { getGeminiVisionService } = await import('@/lib/gemini-vision-service');
+              ocrResult = await getGeminiVisionService().extractTextFromImage(fileBuffer, sourceRecord.id);
               console.log(`[Upload] Used Gemini vision for ${sourceRecord.id}`);
             } catch (geminiError) {
               console.error(`[Upload] Gemini failed for ${sourceRecord.id}:`, geminiError);

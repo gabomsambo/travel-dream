@@ -94,7 +94,7 @@ export const uploadSessions = sqliteTable('upload_sessions', {
   status: text('status').$type<'active' | 'completed' | 'cancelled'>().notNull().default('active'),
   meta: text('meta', { mode: 'json' }).$type<{
     uploadedFiles: string[];
-    processingQueue: string[];
+    processingQueue?: string[];
     errors: Array<{ fileId: string; error: string }>;
   }>(),
 }, (table) => ({

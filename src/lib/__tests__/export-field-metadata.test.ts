@@ -59,6 +59,8 @@ describe('export-field-metadata', () => {
       confidence: 0.95,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
+      userId: null,
+      googlePlaceId: null,
       city: null,
       country: null,
       admin: null,
@@ -104,6 +106,8 @@ describe('export-field-metadata', () => {
   describe('transformValue - array handling', () => {
     const mockPlace: Place = {
       id: 'plc_test',
+      userId: null,
+      googlePlaceId: null,
       name: 'Test Place',
       kind: 'restaurant',
       status: 'library',
@@ -167,6 +171,8 @@ describe('export-field-metadata', () => {
       confidence: 0.95,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
+      userId: null,
+      googlePlaceId: null,
       coords: { lat: 48.8566, lon: 2.3522 },
       city: null,
       country: null,
@@ -219,6 +225,8 @@ describe('export-field-metadata', () => {
   describe('transformValue - computed fields', () => {
     const mockPlace: Place = {
       id: 'plc_test',
+      userId: null,
+      googlePlaceId: null,
       name: 'Café de Flore',
       kind: 'cafe',
       status: 'library',
@@ -257,7 +265,8 @@ describe('export-field-metadata', () => {
     it('should generate Google Maps link from coords', () => {
       const googleMapsField = FIELD_DEFINITIONS['google_maps_link'];
       const result = transformValue(googleMapsField, mockPlace);
-      expect(result).toBe('https://www.google.com/maps/search/?api=1&query=48.8542,2.3320');
+      // JavaScript strips trailing zeros from numbers (2.3320 → 2.332)
+      expect(result).toBe('https://www.google.com/maps/search/?api=1&query=48.8542,2.332');
     });
 
     it('should build full address from components', () => {
@@ -283,6 +292,8 @@ describe('export-field-metadata', () => {
       confidence: 0.95,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
+      userId: null,
+      googlePlaceId: null,
       city: null,
       country: null,
       admin: null,

@@ -1,6 +1,6 @@
 import { eq, and, or, like, inArray, desc, asc, sql, gte, lte, between, isNull, SQL } from 'drizzle-orm';
 import { db } from '@/db';
-import { sources, places, collections, sourcesToPlaces, placesToCollections } from '@/db/schema';
+import { sources, places, collections, sourcesToPlaces, placesToCollections, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling } from './db-utils';
 import type { Place, Source, Collection, PlaceWithSources } from '@/types/database';
@@ -514,61 +514,75 @@ export async function getSourcesWithPlaces(sourceIds: string[], userId: string):
   return withErrorHandling(async () => {
     if (sourceIds.length === 0) return [];
 
+    // Fetch all sources for this user
     const sourcesData = await db.select()
       .from(sources)
       .where(and(inArray(sources.id, sourceIds), eq(sources.userId, userId)));
 
-    const results = [];
-    for (const source of sourcesData) {
-      const placesData = await db.select({
-        id: places.id,
-        name: places.name,
-        kind: places.kind,
-        description: places.description,
-        city: places.city,
-        country: places.country,
-        admin: places.admin,
-        coords: places.coords,
-        address: places.address,
-        googlePlaceId: places.googlePlaceId,
-        altNames: places.altNames,
-        tags: places.tags,
-        vibes: places.vibes,
-        price_level: places.price_level,
-        best_time: places.best_time,
-        activities: places.activities,
-        cuisine: places.cuisine,
-        amenities: places.amenities,
-        ratingSelf: places.ratingSelf,
-        notes: places.notes,
-        status: places.status,
-        confidence: places.confidence,
-        createdAt: places.createdAt,
-        updatedAt: places.updatedAt,
-        website: places.website,
-        phone: places.phone,
-        email: places.email,
-        hours: places.hours,
-        visitStatus: places.visitStatus,
-        priority: places.priority,
-        lastVisited: places.lastVisited,
-        plannedVisit: places.plannedVisit,
-        recommendedBy: places.recommendedBy,
-        companions: places.companions,
-        practicalInfo: places.practicalInfo,
-        userId: places.userId,
-      })
-        .from(places)
-        .innerJoin(sourcesToPlaces, eq(places.id, sourcesToPlaces.placeId))
-        .where(and(eq(sourcesToPlaces.sourceId, source.id), eq(places.userId, userId)));
+    if (sourcesData.length === 0) return [];
 
-      results.push({
-        ...source,
-        places: placesData
-      });
+    // Single JOIN query: sourcesToPlaces → places for all source IDs at once
+    const allPlacesRows = await db.select({
+      sourceId: sourcesToPlaces.sourceId,
+      id: places.id,
+      name: places.name,
+      kind: places.kind,
+      description: places.description,
+      city: places.city,
+      country: places.country,
+      admin: places.admin,
+      coords: places.coords,
+      address: places.address,
+      googlePlaceId: places.googlePlaceId,
+      altNames: places.altNames,
+      tags: places.tags,
+      vibes: places.vibes,
+      price_level: places.price_level,
+      best_time: places.best_time,
+      activities: places.activities,
+      cuisine: places.cuisine,
+      amenities: places.amenities,
+      ratingSelf: places.ratingSelf,
+      notes: places.notes,
+      status: places.status,
+      confidence: places.confidence,
+      createdAt: places.createdAt,
+      updatedAt: places.updatedAt,
+      website: places.website,
+      phone: places.phone,
+      email: places.email,
+      hours: places.hours,
+      visitStatus: places.visitStatus,
+      priority: places.priority,
+      lastVisited: places.lastVisited,
+      plannedVisit: places.plannedVisit,
+      recommendedBy: places.recommendedBy,
+      companions: places.companions,
+      practicalInfo: places.practicalInfo,
+      userId: places.userId,
+    })
+      .from(sourcesToPlaces)
+      .innerJoin(places, eq(sourcesToPlaces.placeId, places.id))
+      .where(and(
+        inArray(sourcesToPlaces.sourceId, sourcesData.map(s => s.id)),
+        eq(places.userId, userId)
+      ));
+
+    // Group places by sourceId
+    const placesBySource = new Map<string, Place[]>();
+    for (const row of allPlacesRows) {
+      const { sourceId, ...placeData } = row;
+      if (!placesBySource.has(sourceId)) {
+        placesBySource.set(sourceId, []);
+      }
+      placesBySource.get(sourceId)!.push(placeData as Place);
     }
 
-    return results;
+    // Merge sources with their places
+    return sourcesData.map(source => ({
+      ...source,
+      places: placesBySource.get(source.id) || [],
+    }));
   }, 'getSourcesWithPlaces');
 }
 
@@ -585,70 +599,20 @@ export async function getInboxStats(userId: string): Promise<{
   avgConfidence: number;
 }> {
   return withErrorHandling(async () => {
-    const [
-      totalResult,
-      highConfResult,
-      mediumConfResult,
-      lowConfResult,
-      veryLowConfResult,
-      avgConfResult
-    ] = await Promise.all([
-      // Total inbox items
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(and(eq(places.status, 'inbox'), eq(places.userId, userId))),
+    const [result] = await db
+      .select({
+        total:     sql<number>`COUNT(*)`,
+        high:      sql<number>`SUM(CASE WHEN ${places.confidence} >= 0.9 THEN 1 ELSE 0 END)`,
+        medium:    sql<number>`SUM(CASE WHEN ${places.confidence} >= 0.8 AND ${places.confidence} < 0.9 THEN 1 ELSE 0 END)`,
+        low:       sql<number>`SUM(CASE WHEN ${places.confidence} >= 0.6 AND ${places.confidence} < 0.8 THEN 1 ELSE 0 END)`,
+        veryLow:   sql<number>`SUM(CASE WHEN ${places.confidence} < 0.6 THEN 1 ELSE 0 END)`,
+        avgConf:   sql<number>`AVG(CASE WHEN ${places.confidence} IS NOT NULL THEN ${places.confidence} END)`,
+      })
+      .from(places)
+      .where(and(eq(places.status, 'inbox'), eq(places.userId, userId)));
 
-      // High confidence (90%+)
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(and(
-          eq(places.status, 'inbox'),
-          eq(places.userId, userId),
-          sql`${places.confidence} >= 0.9`
-        )),
-
-      // Medium confidence (80-89%)
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(and(
-          eq(places.status, 'inbox'),
-          eq(places.userId, userId),
-          sql`${places.confidence} >= 0.8 AND ${places.confidence} < 0.9`
-        )),
-
-      // Low confidence (60-79%)
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(and(
-          eq(places.status, 'inbox'),
-          eq(places.userId, userId),
-          sql`${places.confidence} >= 0.6 AND ${places.confidence} < 0.8`
-        )),
-
-      // Very low confidence (<60%)
-      db.select({ count: sql<number>`count(*)` })
-        .from(places)
-        .where(and(
-          eq(places.status, 'inbox'),
-          eq(places.userId, userId),
-          sql`${places.confidence} < 0.6`
-        )),
-
-      // Average confidence
-      db.select({ avg: sql<number>`avg(${places.confidence})` })
-        .from(places)
-        .where(and(
-          eq(places.status, 'inbox'),
-          eq(places.userId, userId),
-          sql`${places.confidence} IS NOT NULL`
-        ))
-    ]);
-
-    const total = totalResult[0]?.count || 0;
-    const high = highConfResult[0]?.count || 0;
-    const medium = mediumConfResult[0]?.count || 0;
-    const low = lowConfResult[0]?.count || 0;
-    const veryLow = veryLowConfResult[0]?.count || 0;
+    const total = result?.total ?? 0;
+    const veryLow = result?.veryLow ?? 0;
 
     // Estimate items needing review (very low confidence + potential duplicates)
     const needsReview = veryLow + Math.floor(total * 0.05); // Estimate 5% might be duplicates
@@ -656,13 +620,13 @@ export async function getInboxStats(userId: string): Promise<{
     return {
       total,
       byConfidence: {
-        high,
-        medium,
-        low,
-        veryLow
+        high: result?.high ?? 0,
+        medium: result?.medium ?? 0,
+        low: result?.low ?? 0,
+        veryLow,
       },
       needsReview,
-      avgConfidence: avgConfResult[0]?.avg || 0
+      avgConfidence: result?.avgConf ?? 0,
     };
   }, 'getInboxStats');
 }
@@ -950,77 +914,40 @@ export async function getProcessingStatusCounts(sourceIds: string[]): Promise<Re
 
 export async function getLibraryStatsEnhanced(userId: string) {
   return withErrorHandling(async () => {
-    const { places } = await import('@/db/schema');
-    const { eq, and, count, sql } = await import('drizzle-orm');
-
-    const totalPlaces = await db
-      .select({ count: count() })
+    // Single query for all places-based stats using conditional aggregation
+    const [statsResult] = await db
+      .select({
+        total:          sql<number>`COUNT(*)`,
+        visited:        sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'visited' THEN 1 ELSE 0 END)`,
+        planned:        sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'planned' THEN 1 ELSE 0 END)`,
+        notVisited:     sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'not_visited' OR ${places.visitStatus} IS NULL THEN 1 ELSE 0 END)`,
+        highPriority:   sql<number>`SUM(CASE WHEN ${places.priority} >= 4 THEN 1 ELSE 0 END)`,
+        mediumPriority: sql<number>`SUM(CASE WHEN ${places.priority} >= 2 AND ${places.priority} < 4 THEN 1 ELSE 0 END)`,
+        lowPriority:    sql<number>`SUM(CASE WHEN ${places.priority} < 2 THEN 1 ELSE 0 END)`,
+        countries:      sql<number>`COUNT(DISTINCT ${places.country})`,
+      })
       .from(places)
-      .where(and(eq(places.status, 'library'), eq(places.userId, userId)))
-      .then(rows => rows[0]?.count || 0);
+      .where(and(eq(places.status, 'library'), eq(places.userId, userId)));
 
-    const visitedCount = await db
-      .select({ count: count() })
-      .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.visitStatus} = 'visited'`)
-      .then(rows => rows[0]?.count || 0);
-
-    const plannedCount = await db
-      .select({ count: count() })
-      .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.visitStatus} = 'planned'`)
-      .then(rows => rows[0]?.count || 0);
-
-    const notVisitedCount = await db
-      .select({ count: count() })
-      .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND (${places.visitStatus} = 'not_visited' OR ${places.visitStatus} IS NULL)`)
-      .then(rows => rows[0]?.count || 0);
-
-    const highPriorityCount = await db
-      .select({ count: count() })
-      .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.priority} >= 4`)
-      .then(rows => rows[0]?.count || 0);
-
-    const mediumPriorityCount = await db
-      .select({ count: count() })
-      .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.priority} >= 2 AND ${places.priority} < 4`)
-      .then(rows => rows[0]?.count || 0);
-
-    const lowPriorityCount = await db
-      .select({ count: count() })
-      .from(places)
-      .where(sql`${places.status} = 'library' AND ${places.userId} = ${userId} AND ${places.priority} < 2`)
-      .then(rows => rows[0]?.count || 0);
-
-    const uniqueCountries = await db
-      .select({ country: places.country })
-      .from(places)
-      .where(and(eq(places.status, 'library'), eq(places.userId, userId)))
-      .then(rows => new Set(rows.map(r => r.country).filter(Boolean)).size);
-
-    const { attachments } = await import('@/db/schema');
-    const withPhotosCount = await db
-      .select({ placeId: attachments.placeId })
+    // Separate query for withPhotos — needs JOIN to attachments table
+    const [photosResult] = await db
+      .select({ count: sql<number>`COUNT(DISTINCT ${attachments.placeId})` })
       .from(attachments)
       .innerJoin(places, eq(attachments.placeId, places.id))
-      .where(and(eq(attachments.type, 'photo'), eq(places.userId, userId)))
-      .then(rows => new Set(rows.map(r => r.placeId)).size);
+      .where(and(eq(attachments.type, 'photo'), eq(places.userId, userId), eq(places.status, 'library')));
 
     return {
-      total: totalPlaces,
-      visited: visitedCount,
-      planned: plannedCount,
-      notVisited: notVisitedCount,
+      total: statsResult?.total ?? 0,
+      visited: statsResult?.visited ?? 0,
+      planned: statsResult?.planned ?? 0,
+      notVisited: statsResult?.notVisited ?? 0,
       byPriority: {
-        high: highPriorityCount,
-        medium: mediumPriorityCount,
-        low: lowPriorityCount,
+        high: statsResult?.highPriority ?? 0,
+        medium: statsResult?.mediumPriority ?? 0,
+        low: statsResult?.lowPriority ?? 0,
       },
-      countries: uniqueCountries,
-      withPhotos: withPhotosCount,
+      countries: statsResult?.countries ?? 0,
+      withPhotos: photosResult?.count ?? 0,
     };
   }, 'getLibraryStatsEnhanced');
 }

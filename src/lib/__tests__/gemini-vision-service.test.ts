@@ -5,14 +5,6 @@
 import { GeminiVisionService } from '../gemini-vision-service';
 import * as fs from 'fs';
 import * as path from 'path';
-import fetch, { Request, Response, Headers } from 'node-fetch';
-
-if (!globalThis.fetch) {
-  (globalThis as any).fetch = fetch;
-  (globalThis as any).Request = Request;
-  (globalThis as any).Response = Response;
-  (globalThis as any).Headers = Headers;
-}
 
 describe('GeminiVisionService', () => {
   const testImagePath = path.join(process.cwd(), 'test_photos', 'IMG_2640.PNG');

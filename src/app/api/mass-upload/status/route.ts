@@ -1,11 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { uploadSessions, sourcesToPlaces } from '@/db/schema';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { getProcessingStatusCounts } from '@/lib/db-queries';
 
 export const runtime = 'nodejs';
+
+function toUserFriendlyError(rawError: string): string {
+  if (/503|overloaded|high demand/i.test(rawError)) return 'AI service was unavailable after multiple attempts';
+  if (/429|rate.?limit|quota/i.test(rawError)) return 'Rate limit exceeded after multiple attempts';
+  if (/400|invalid|INVALID_ARGUMENT/i.test(rawError)) return 'Could not process this image';
+  if (/fetch failed|network|ECONNRESET|ENOTFOUND/i.test(rawError)) return 'Network error during processing';
+  if (/not found|404/i.test(rawError)) return 'Image file not found';
+  if (/timed out|timeout/i.test(rawError)) return 'Processing timed out after multiple attempts';
+  return 'Processing failed after multiple attempts';
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -49,6 +60,23 @@ export async function GET(request: NextRequest) {
       placesCreated = Number(placesResult[0]?.count ?? 0);
     }
 
+    // Fetch per-source error messages for failed sources
+    let failedErrors: Array<{ sourceId: string; error: string }> = [];
+    if (sourceIds.length > 0) {
+      const failedSources = await db.select({
+        id: sourcesCurrentSchema.id,
+        processingError: sourcesCurrentSchema.processingError,
+      })
+      .from(sourcesCurrentSchema)
+      .where(and(
+        inArray(sourcesCurrentSchema.id, sourceIds),
+        eq(sourcesCurrentSchema.processingStatus, 'failed')
+      ));
+      failedErrors = failedSources
+        .filter(s => s.processingError)
+        .map(s => ({ sourceId: s.id, error: toUserFriendlyError(s.processingError!) }));
+    }
+
     return NextResponse.json({
       status: 'success',
       sessionId,
@@ -63,6 +91,7 @@ export async function GET(request: NextRequest) {
       },
       total: sourceIds.length,
       placesCreated,
+      failedErrors,
       timestamp: new Date().toISOString(),
     });
 

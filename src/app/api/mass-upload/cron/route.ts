@@ -2,22 +2,34 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, sql } from 'drizzle-orm';
-import { geminiExtractionService } from '@/lib/mass-upload/gemini-extraction-service';
-import { googlePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
+import { getGeminiExtractionService } from '@/lib/mass-upload/gemini-extraction-service';
+import { getGooglePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
 import { getQueuedSources } from '@/lib/db-queries';
 import { createPlacesFromPipeline } from '@/lib/db-mutations';
+import sharp from 'sharp';
+import { put } from '@vercel/blob';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const BATCH_SIZE = 2;
+const BATCH_SIZE = 5;
 const MAX_ATTEMPTS = 3;
 
 export async function GET(request: NextRequest) {
   // ── Auth: Verify Vercel Cron secret ────────────────────────────────────
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    console.error('[MassUpload Cron] CRON_SECRET environment variable is not configured');
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+  }
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // ── Observability: warn if Gemini env config looks wrong ───────────────
+  if (process.env.GEMINI_VISION_ENABLED !== 'true') {
+    console.warn('[MassUpload Cron] GEMINI_VISION_ENABLED is not set to "true" — check environment configuration');
   }
 
   let processed = 0;
@@ -26,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // ── Recover stale sources stuck in extracting/enriching ─────────────
-    const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+    const STALE_THRESHOLD_MS = 150 * 1000; // 2.5 minutes (must exceed maxDuration of 120s)
     const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
 
     const staleSources = await db.select()
@@ -101,10 +113,29 @@ export async function GET(request: NextRequest) {
         if (!imageRes.ok) throw new Error(`Blob fetch failed: ${imageRes.status}`);
         const buffer = Buffer.from(await imageRes.arrayBuffer());
 
+        // ── Step 1.5: Generate thumbnail and upload to Vercel Blob ────
+        let thumbnailUrl: string | undefined;
+        try {
+          const thumbnailBuffer = await sharp(buffer)
+            .resize(400, 400, { fit: 'cover', position: 'centre' })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          const thumbKey = `thumbnails/${claimedSource.userId}/${source.id}_thumb.jpg`;
+          const thumbBlob = await put(thumbKey, thumbnailBuffer, {
+            access: 'public',
+            contentType: 'image/jpeg',
+            allowOverwrite: true,
+          });
+          thumbnailUrl = thumbBlob.url;
+        } catch (thumbErr) {
+          console.warn(`[MassUpload Cron] Thumbnail generation failed for ${source.id}:`, thumbErr);
+          // Non-fatal — continue processing without thumbnail
+        }
+
         // ── Step 2: Gemini extraction ──────────────────────────────────
         const meta = source.meta as { uploadInfo?: { originalName?: string } } | null;
         const fileName = meta?.uploadInfo?.originalName || source.id;
-        const extraction = await geminiExtractionService.extractFromImage(buffer, fileName);
+        const extraction = await getGeminiExtractionService().extractFromImage(buffer, fileName);
 
         // ── Step 3: Update status → enriching ──────────────────────────
         await db.update(sourcesCurrentSchema)
@@ -112,7 +143,7 @@ export async function GET(request: NextRequest) {
           .where(eq(sourcesCurrentSchema.id, source.id));
 
         // ── Step 4: Google Places enrichment ───────────────────────────
-        const enrichedPlaces = await googlePlacesEnrichmentService.enrichPlaces(extraction.places);
+        const enrichedPlaces = await getGooglePlacesEnrichmentService().enrichPlaces(extraction.places);
 
         // ── Step 5: Create places in DB ────────────────────────────────
         if (enrichedPlaces.length > 0) {
@@ -122,11 +153,18 @@ export async function GET(request: NextRequest) {
           placesCreated += created.length;
         }
 
-        // ── Step 6: Mark completed ─────────────────────────────────────
+        // ── Step 6: Mark completed (with thumbnail path in meta) ───────
+        const currentMeta = claimedSource.meta as Record<string, unknown> | null;
+        const currentUploadInfo = (currentMeta?.uploadInfo as Record<string, unknown>) ?? {};
+        const updatedMeta = thumbnailUrl
+          ? { ...currentMeta, uploadInfo: { ...currentUploadInfo, thumbnailPath: thumbnailUrl } }
+          : currentMeta;
+
         await db.update(sourcesCurrentSchema)
           .set({
             processingStatus: 'completed',
             processingError: null,
+            meta: updatedMeta,
             updatedAt: new Date().toISOString(),
           })
           .where(eq(sourcesCurrentSchema.id, source.id));

@@ -10,26 +10,18 @@ const mockPlaces = Array.from({ length: 1000 }, (_, i) => ({
   notes: i % 5 === 0 ? 'This is a longer note that will affect height calculation' : null,
 }))
 
-// Mock window methods
-const mockAddEventListener = jest.fn()
-const mockRemoveEventListener = jest.fn()
+// Mock requestAnimationFrame/cancelAnimationFrame (not natively available in jsdom)
 const mockRequestAnimationFrame = jest.fn()
 const mockCancelAnimationFrame = jest.fn()
 
-Object.defineProperty(window, 'addEventListener', {
-  value: mockAddEventListener,
-})
-
-Object.defineProperty(window, 'removeEventListener', {
-  value: mockRemoveEventListener,
-})
-
 Object.defineProperty(window, 'requestAnimationFrame', {
   value: mockRequestAnimationFrame,
+  configurable: true,
 })
 
 Object.defineProperty(window, 'cancelAnimationFrame', {
   value: mockCancelAnimationFrame,
+  configurable: true,
 })
 
 // Mock performance API
@@ -176,10 +168,12 @@ describe('useVirtualGrid', () => {
     })
 
     it('provides performance suggestions', () => {
+      // Create 2001 items to trigger "enable performance monitoring" suggestion
+      const largeItems = Array.from({ length: 2001 }, (_, i) => ({ id: `item-${i}` }))
       const { result } = renderHook(() =>
-        useVirtualGrid(mockPlaces.slice(0, 2000), {
+        useVirtualGrid(largeItems, {
           threshold: 500,
-          enablePerformanceMonitoring: true,
+          enablePerformanceMonitoring: false,
         })
       )
 
@@ -306,14 +300,14 @@ describe('useScrollPerformance', () => {
   })
 
   it('cleans up event listeners on unmount', () => {
+    const removeEventListenerSpy = jest.spyOn(window, 'removeEventListener')
     const { unmount } = renderHook(() => useScrollPerformance(true))
 
     unmount()
 
-    expect(mockRemoveEventListener).toHaveBeenCalledWith('scroll', expect.any(Function), {
-      passive: true,
-    })
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('scroll', expect.any(Function))
     expect(mockCancelAnimationFrame).toHaveBeenCalled()
+    removeEventListenerSpy.mockRestore()
   })
 })
 

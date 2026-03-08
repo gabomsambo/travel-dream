@@ -265,7 +265,8 @@ describe('export-field-metadata', () => {
     it('should generate Google Maps link from coords', () => {
       const googleMapsField = FIELD_DEFINITIONS['google_maps_link'];
       const result = transformValue(googleMapsField, mockPlace);
-      expect(result).toBe('https://www.google.com/maps/search/?api=1&query=48.8542,2.3320');
+      // JavaScript strips trailing zeros from numbers (2.3320 → 2.332)
+      expect(result).toBe('https://www.google.com/maps/search/?api=1&query=48.8542,2.332');
     });
 
     it('should build full address from components', () => {

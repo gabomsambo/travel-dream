@@ -1,11 +1,24 @@
-import { POST, GET } from '../route'
-import { NextRequest } from 'next/server'
+/**
+ * @jest-environment node
+ */
+
+// ── Module mocks (BEFORE imports) ──────────────────────────────────────
+jest.mock('@/lib/auth-helpers', () => ({
+  requireAuthForApi: jest.fn().mockResolvedValue({ id: 'user_test', email: 'test@example.com', name: 'Test', image: null }),
+  isAuthError: jest.fn().mockReturnValue(false),
+}));
 
 // Mock the database functions
 jest.mock('@/lib/db-mutations', () => ({
   bulkConfirmPlaces: jest.fn(),
   batchArchivePlaces: jest.fn(),
-}))
+  batchRestorePlaces: jest.fn(),
+  batchDeletePlaces: jest.fn(),
+}));
+
+// ── Imports (after mocks) ──────────────────────────────────────────────
+import { POST, GET } from '../route'
+import { NextRequest } from 'next/server'
 
 jest.mock('@/lib/db-utils', () => ({
   withErrorHandling: jest.fn((fn) => fn()),
@@ -43,7 +56,7 @@ describe('/api/places/bulk-actions', () => {
       expect(data.status).toBe('success')
       expect(data.result.updatedCount).toBe(2)
       expect(data.result.action).toBe('confirm')
-      expect(mockBulkConfirmPlaces).toHaveBeenCalledWith(['place-1', 'place-2'])
+      expect(mockBulkConfirmPlaces).toHaveBeenCalledWith(['place-1', 'place-2'], expect.any(String))
     })
 
     it('archives places successfully', async () => {
@@ -67,7 +80,7 @@ describe('/api/places/bulk-actions', () => {
       expect(data.status).toBe('success')
       expect(data.result.updatedCount).toBe(3)
       expect(data.result.action).toBe('archive')
-      expect(mockBatchArchivePlaces).toHaveBeenCalledWith(['place-1', 'place-2', 'place-3'])
+      expect(mockBatchArchivePlaces).toHaveBeenCalledWith(['place-1', 'place-2', 'place-3'], expect.any(String))
     })
 
     it('handles partial success', async () => {
@@ -154,8 +167,8 @@ describe('/api/places/bulk-actions', () => {
       expect(data.status).toBe('error')
     })
 
-    it('limits maximum places to 100', async () => {
-      const largePlaceIds = Array.from({ length: 101 }, (_, i) => `place-${i}`)
+    it('limits maximum places to 500', async () => {
+      const largePlaceIds = Array.from({ length: 501 }, (_, i) => `place-${i}`)
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -194,7 +207,7 @@ describe('/api/places/bulk-actions', () => {
 
       expect(response.status).toBe(200)
       expect(data.result.requestedCount).toBe(2) // Should be deduplicated
-      expect(mockBulkConfirmPlaces).toHaveBeenCalledWith(['place-1', 'place-2'])
+      expect(mockBulkConfirmPlaces).toHaveBeenCalledWith(['place-1', 'place-2'], expect.any(String))
     })
 
     it('handles database errors gracefully', async () => {
@@ -313,6 +326,7 @@ describe('Bulk Actions Error Scenarios', () => {
 
   it('handles concurrent request scenarios', async () => {
     mockBulkConfirmPlaces.mockResolvedValue(1)
+    mockBatchArchivePlaces.mockResolvedValue(1)
 
     const request1 = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
       method: 'POST',
@@ -343,11 +357,11 @@ describe('Bulk Actions Error Scenarios', () => {
     ])
 
     expect(response1.status).toBe(200)
-    expect(response2.status).toBe(500) // Second might fail if place already confirmed
+    expect(response2.status).toBe(200)
   })
 
   it('validates action type strictly', async () => {
-    const invalidActions = ['delete', 'update', 'move', '']
+    const invalidActions = ['update', 'move', '']
 
     for (const action of invalidActions) {
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {

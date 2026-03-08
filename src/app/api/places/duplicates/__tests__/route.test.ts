@@ -1,11 +1,29 @@
 import { GET, DELETE, OPTIONS } from '../route'
 import { NextRequest } from 'next/server'
 
+// Mock auth (next-auth uses ESM imports that Jest can't parse)
+jest.mock('next-auth')
+jest.mock('@/lib/auth')
+jest.mock('@/lib/auth-helpers', () => ({
+  requireAuthForApi: jest.fn().mockResolvedValue({ id: 'test-user', email: 'test@test.com', name: 'Test', image: null }),
+  isAuthError: jest.fn().mockReturnValue(false),
+}))
+
 // Mock the database and duplicate detection functions
 jest.mock('@/lib/db-utils')
 jest.mock('@/lib/db-queries')
 jest.mock('@/lib/duplicate-detection')
-jest.mock('@/db')
+jest.mock('@/db', () => ({
+  db: {
+    select: jest.fn(),
+    insert: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
+  client: {
+    execute: jest.fn().mockResolvedValue({ rows: [] }),
+  },
+}))
 
 import { withErrorHandling } from '@/lib/db-utils'
 import { getPlacesByStatus } from '@/lib/db-queries'
@@ -51,9 +69,11 @@ const mockPlaces = [
 ] as any[]
 
 describe('/api/places/duplicates', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks()
     mockWithErrorHandling.mockImplementation((fn) => fn())
+    // Clear the module-level cache between tests
+    await DELETE()
   })
 
   describe('GET /api/places/duplicates - Single Mode', () => {
@@ -205,12 +225,14 @@ describe('/api/places/duplicates', () => {
 
   describe('GET /api/places/duplicates - Clusters Mode', () => {
     it('finds duplicate clusters', async () => {
-      const mockDbSelect = {
-        from: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue(mockPlaces)
+      // Chain mock that resolves to mockPlaces via .limit() and to [] via direct await (getDismissedPairsSet)
+      const chain: any = {
+        from: jest.fn().mockImplementation(() => chain),
+        where: jest.fn().mockImplementation(() => chain),
+        limit: jest.fn().mockResolvedValue(mockPlaces),
+        then: jest.fn().mockImplementation((resolve: any) => Promise.resolve([]).then(resolve)),
       }
-      ;(db as any).select = jest.fn().mockReturnValue(mockDbSelect)
+      ;(db as any).select = jest.fn().mockReturnValue(chain)
 
       const mockBatchResults = new Map()
       mockBatchDetectDuplicates.mockResolvedValue(mockBatchResults)

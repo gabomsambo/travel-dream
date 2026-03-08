@@ -2,6 +2,9 @@
  * @jest-environment node
  */
 
+// ── Set env var BEFORE module evaluation (singleton needs it) ────────
+process.env.GOOGLE_PLACES_API_KEY = 'test-api-key';
+
 // ── Mock address-parser (BEFORE imports) ──────────────────────────────
 // We control what parseAddressComponents returns per-test via mockReturnValue.
 const mockParseAddressComponents = jest.fn();

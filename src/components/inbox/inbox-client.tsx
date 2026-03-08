@@ -236,7 +236,8 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
       // Don't handle shortcuts when input elements are focused
       if (document.activeElement?.tagName === 'INPUT' ||
           document.activeElement?.tagName === 'TEXTAREA' ||
-          document.activeElement?.role === 'combobox') {
+          document.activeElement?.role === 'combobox' ||
+          (document.activeElement as HTMLElement)?.isContentEditable) {
         return
       }
 
@@ -248,6 +249,18 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
         case 'k':
           e.preventDefault()
           setCurrentIndex(prev => Math.max(prev - 1, 0))
+          break
+        case 'c':
+          e.preventDefault()
+          if (filteredPlaces[currentIndex]) {
+            handleConfirmPlace(filteredPlaces[currentIndex].id)
+          }
+          break
+        case 'C':
+          e.preventDefault()
+          if (bulkSelection.selectedCount > 0) {
+            confirmPlaces(bulkSelection.selectedIds)
+          }
           break
         case 'e':
           e.preventDefault()
@@ -288,7 +301,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [currentIndex, filteredPlaces, bulkSelection, handleEditPlace, handleArchivePlace, archivePlaces])
+  }, [currentIndex, filteredPlaces, bulkSelection, handleEditPlace, handleConfirmPlace, handleArchivePlace, confirmPlaces, archivePlaces])
 
   // Auto-scroll to current item
   useEffect(() => {

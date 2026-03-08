@@ -1,3 +1,16 @@
+// Mock the DB import to prevent database connection in tests
+jest.mock('@/db', () => ({
+  db: {},
+}));
+jest.mock('@/db/schema', () => ({
+  attachments: {},
+}));
+jest.mock('drizzle-orm', () => ({
+  inArray: jest.fn(),
+  eq: jest.fn(),
+  and: jest.fn(),
+}));
+
 import { parsePriceLevel, formatPriceSymbols, adaptPlaceForCard, FavoriteManager } from '../library-adapters';
 import type { Place } from '@/types/database';
 

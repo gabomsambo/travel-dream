@@ -75,7 +75,8 @@ describe('csv-generator', () => {
       const csv = await generateCSV(places, mockFieldDefs);
 
       expect(csv).toContain('Name,City,Tags');
-      expect(csv).toContain('Test Place,Paris,tag1, tag2');
+      // Tags "tag1, tag2" contains a comma so it gets quoted per RFC 4180
+      expect(csv).toContain('Test Place,Paris,"tag1, tag2"');
     });
 
     it('should include UTF-8 BOM by default', async () => {
@@ -127,7 +128,8 @@ describe('csv-generator', () => {
       const csv = await generateCSV(places, mockFieldDefs);
 
       const lines = csv.split('\n').filter(l => l.trim());
-      expect(lines[1]).toContain('Test Place,,tag1, tag2');
+      // Tags "tag1, tag2" contains a comma so it gets quoted per RFC 4180
+      expect(lines[1]).toContain('Test Place,,"tag1, tag2"');
     });
 
     it('should handle multiple places', async () => {

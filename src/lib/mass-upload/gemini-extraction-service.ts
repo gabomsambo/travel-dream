@@ -226,4 +226,8 @@ export class GeminiExtractionService {
   }
 }
 
-export const geminiExtractionService = new GeminiExtractionService();
+let _geminiExtractionInstance: GeminiExtractionService | null = null;
+export function getGeminiExtractionService() {
+  if (!_geminiExtractionInstance) _geminiExtractionInstance = new GeminiExtractionService();
+  return _geminiExtractionInstance;
+}

@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, sql } from 'drizzle-orm';
-import { geminiExtractionService } from '@/lib/mass-upload/gemini-extraction-service';
-import { googlePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
+import { getGeminiExtractionService } from '@/lib/mass-upload/gemini-extraction-service';
+import { getGooglePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
 import { getQueuedSources } from '@/lib/db-queries';
 import { createPlacesFromPipeline } from '@/lib/db-mutations';
 import sharp from 'sharp';
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         // ── Step 2: Gemini extraction ──────────────────────────────────
         const meta = source.meta as { uploadInfo?: { originalName?: string } } | null;
         const fileName = meta?.uploadInfo?.originalName || source.id;
-        const extraction = await geminiExtractionService.extractFromImage(buffer, fileName);
+        const extraction = await getGeminiExtractionService().extractFromImage(buffer, fileName);
 
         // ── Step 3: Update status → enriching ──────────────────────────
         await db.update(sourcesCurrentSchema)
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
           .where(eq(sourcesCurrentSchema.id, source.id));
 
         // ── Step 4: Google Places enrichment ───────────────────────────
-        const enrichedPlaces = await googlePlacesEnrichmentService.enrichPlaces(extraction.places);
+        const enrichedPlaces = await getGooglePlacesEnrichmentService().enrichPlaces(extraction.places);
 
         // ── Step 5: Create places in DB ────────────────────────────────
         if (enrichedPlaces.length > 0) {

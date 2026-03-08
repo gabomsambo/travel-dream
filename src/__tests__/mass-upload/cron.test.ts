@@ -13,19 +13,22 @@ jest.mock('@/lib/db-mutations', () => ({
   createPlacesFromPipeline: jest.fn(),
 }));
 jest.mock('@/lib/mass-upload/gemini-extraction-service', () => ({
-  geminiExtractionService: { extractFromImage: jest.fn() },
+  getGeminiExtractionService: () => ({ extractFromImage: mockGeminiExtract }),
 }));
 jest.mock('@/lib/mass-upload/google-places-enrichment', () => ({
-  googlePlacesEnrichmentService: { enrichPlaces: jest.fn() },
+  getGooglePlacesEnrichmentService: () => ({ enrichPlaces: mockGoogleEnrich }),
 }));
+
+const mockGeminiExtract = jest.fn();
+const mockGoogleEnrich = jest.fn();
 
 // ── Imports (after mocks) ──────────────────────────────────────────────
 import { GET } from '@/app/api/mass-upload/cron/route';
 import { db } from '@/db';
 import { getQueuedSources } from '@/lib/db-queries';
 import { createPlacesFromPipeline } from '@/lib/db-mutations';
-import { geminiExtractionService } from '@/lib/mass-upload/gemini-extraction-service';
-import { googlePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
+import { getGeminiExtractionService } from '@/lib/mass-upload/gemini-extraction-service';
+import { getGooglePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
 import {
   createMockSource,
   createMockExtractionResult,
@@ -37,8 +40,8 @@ const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock };
 // Cast mocks
 const mockGetQueuedSources = getQueuedSources as jest.MockedFunction<typeof getQueuedSources>;
 const mockCreatePlaces = createPlacesFromPipeline as jest.MockedFunction<typeof createPlacesFromPipeline>;
-const mockExtract = geminiExtractionService.extractFromImage as jest.Mock;
-const mockEnrich = googlePlacesEnrichmentService.enrichPlaces as jest.Mock;
+const mockExtract = mockGeminiExtract;
+const mockEnrich = mockGoogleEnrich;
 
 // ── Helpers ────────────────────────────────────────────────────────────
 function setupStaleSourcesChain(staleSources: unknown[] = []) {

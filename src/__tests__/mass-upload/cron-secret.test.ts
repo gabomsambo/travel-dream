@@ -13,10 +13,10 @@ jest.mock('@/lib/db-mutations', () => ({
   createPlacesFromPipeline: jest.fn(),
 }));
 jest.mock('@/lib/mass-upload/gemini-extraction-service', () => ({
-  geminiExtractionService: { extractFromImage: jest.fn() },
+  getGeminiExtractionService: () => ({ extractFromImage: jest.fn() }),
 }));
 jest.mock('@/lib/mass-upload/google-places-enrichment', () => ({
-  googlePlacesEnrichmentService: { enrichPlaces: jest.fn() },
+  getGooglePlacesEnrichmentService: () => ({ enrichPlaces: jest.fn() }),
 }));
 
 import { GET } from '@/app/api/mass-upload/cron/route';

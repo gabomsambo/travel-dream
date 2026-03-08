@@ -5,6 +5,8 @@ import type { FieldDefinition } from '@/types/export';
 
 const createMockPlace = (overrides: Partial<Place> = {}): Place => ({
   id: 'plc_test',
+  userId: null,
+  googlePlaceId: null,
   name: 'Test Place',
   kind: 'restaurant',
   status: 'library',
@@ -45,16 +47,19 @@ const mockFieldDefs: FieldDefinition[] = [
   {
     dbField: 'name',
     csvHeader: 'Name',
+    category: 'essentials',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
   {
     dbField: 'city',
     csvHeader: 'City',
+    category: 'location',
     includeInPreset: ['minimal', 'standard', 'complete']
   },
   {
     dbField: 'tags',
     csvHeader: 'Tags',
+    category: 'categorization',
     transform: (value: any) => {
       if (!value || !Array.isArray(value)) return '';
       return value.join(', ');
@@ -161,6 +166,7 @@ describe('csv-generator', () => {
         {
           dbField: 'orderIndex',
           csvHeader: 'Order',
+          category: 'system_meta',
           transform: (value: any, place: Place, relationData?: any) => {
             return relationData?.orderIndex?.toString() || '';
           },

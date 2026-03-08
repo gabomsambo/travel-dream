@@ -5,6 +5,7 @@ import type { Place } from '@/types/database';
 function createMockPlace(id: string, overrides: Partial<Place> = {}): Place {
   return {
     id,
+    userId: null,
     name: `Place ${id}`,
     kind: 'landmark',
     city: 'Barcelona',
@@ -12,7 +13,9 @@ function createMockPlace(id: string, overrides: Partial<Place> = {}): Place {
     admin: 'Catalonia',
     coords: { lat: 41.4 + Math.random() * 0.1, lon: 2.1 + Math.random() * 0.1 },
     address: null,
+    googlePlaceId: null,
     altNames: [],
+    description: null,
     tags: [],
     vibes: [],
     ratingSelf: 0,
@@ -26,6 +29,17 @@ function createMockPlace(id: string, overrides: Partial<Place> = {}): Place {
     amenities: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    website: null,
+    phone: null,
+    email: null,
+    hours: null,
+    visitStatus: 'not_visited',
+    priority: 0,
+    lastVisited: null,
+    plannedVisit: null,
+    recommendedBy: null,
+    companions: null,
+    practicalInfo: null,
     ...overrides
   };
 }

@@ -19,7 +19,7 @@ const mockDetectDuplicates = detectDuplicates as jest.MockedFunction<typeof dete
 const mockBatchDetectDuplicates = batchDetectDuplicates as jest.MockedFunction<typeof batchDetectDuplicates>
 const mockFindDuplicateClusters = findDuplicateClusters as jest.MockedFunction<typeof findDuplicateClusters>
 
-// Mock places data
+// Mock places data — minimal shape since these are used with mocked functions
 const mockPlaces = [
   {
     id: 'place-1',
@@ -48,7 +48,7 @@ const mockPlaces = [
     confidence: 0.88,
     coords: { lat: 41.4145, lon: 2.1527 }
   }
-]
+] as any[]
 
 describe('/api/places/duplicates', () => {
   beforeEach(() => {

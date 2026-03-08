@@ -1,4 +1,48 @@
 import type { AuthUser } from '@/lib/auth-helpers';
+import type { Place } from '@/types/database';
+
+// ── Mock Place Factory ───────────────────────────────────────────────
+export function createMockPlace(overrides: Partial<Place> = {}): Place {
+  return {
+    id: `plc_${Math.random().toString(36).slice(2)}`,
+    userId: null,
+    name: 'Test Place',
+    kind: 'restaurant',
+    city: null,
+    country: null,
+    admin: null,
+    coords: null,
+    address: null,
+    googlePlaceId: null,
+    altNames: [],
+    description: null,
+    tags: [],
+    vibes: [],
+    ratingSelf: 0,
+    notes: null,
+    status: 'inbox',
+    confidence: 0.5,
+    price_level: null,
+    best_time: null,
+    activities: null,
+    cuisine: null,
+    amenities: null,
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
+    website: null,
+    phone: null,
+    email: null,
+    hours: null,
+    visitStatus: 'not_visited',
+    priority: 0,
+    lastVisited: null,
+    plannedVisit: null,
+    recommendedBy: null,
+    companions: null,
+    practicalInfo: null,
+    ...overrides,
+  };
+}
 
 // ── Mock User Factory ──────────────────────────────────────────────────
 export function createMockUser(overrides: Partial<AuthUser> = {}): AuthUser {

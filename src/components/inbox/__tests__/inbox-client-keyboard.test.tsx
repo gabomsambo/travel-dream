@@ -67,8 +67,31 @@ jest.mock('sonner', () => ({
   },
 }))
 
+const basePlaceFields = {
+  userId: null,
+  googlePlaceId: null,
+  description: null,
+  price_level: null,
+  best_time: null,
+  activities: null,
+  cuisine: null,
+  amenities: null,
+  website: null,
+  phone: null,
+  email: null,
+  hours: null,
+  visitStatus: 'not_visited' as const,
+  priority: 0,
+  lastVisited: null,
+  plannedVisit: null,
+  recommendedBy: null,
+  companions: null,
+  practicalInfo: null,
+}
+
 const mockPlaces: Place[] = [
   {
+    ...basePlaceFields,
     id: 'place-1',
     name: 'Sagrada Família',
     kind: 'landmark',
@@ -88,6 +111,7 @@ const mockPlaces: Place[] = [
     updatedAt: '2025-09-27T00:00:00Z',
   },
   {
+    ...basePlaceFields,
     id: 'place-2',
     name: 'Park Güell',
     kind: 'park',
@@ -107,6 +131,7 @@ const mockPlaces: Place[] = [
     updatedAt: '2025-09-26T00:00:00Z',
   },
   {
+    ...basePlaceFields,
     id: 'place-3',
     name: 'Casa Batlló',
     kind: 'landmark',
@@ -484,7 +509,7 @@ describe('InboxClient Keyboard Navigation', () => {
 
     it('prevents double-submission', async () => {
       const user = userEvent.setup()
-      let resolvePromise: Function
+      let resolvePromise: Function = () => {}
       const delayedPromise = new Promise((resolve) => {
         resolvePromise = resolve
       })

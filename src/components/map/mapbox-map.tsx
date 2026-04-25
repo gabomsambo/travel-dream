@@ -14,7 +14,8 @@ import type mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
 import { useMapContext } from './map-context'
-import { placesToGeoJSON, getKindColor, getDayColor, getDefaultCenter } from '@/lib/map-utils'
+import { placesToGeoJSON, getDefaultCenter } from '@/lib/map-utils'
+import { getKindColor, getDayColor } from '@/lib/map-colors'
 
 interface PopupInfo {
   longitude: number

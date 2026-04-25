@@ -1,7 +1,7 @@
 "use client"
 
 import { KIND_ICONS } from '@/components/places/kind-selector'
-import { getKindColor } from '@/lib/map-utils'
+import { getKindColor } from '@/lib/map-colors'
 import { cn } from '@/lib/utils'
 import type { PlaceKind } from '@/types/database'
 

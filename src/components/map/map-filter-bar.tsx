@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select'
 import { useMapContext } from './map-context'
 import { useDebounce } from '@/hooks/use-debounce'
-import { getKindColor } from '@/lib/map-utils'
+import { getKindColor } from '@/lib/map-colors'
 import { KIND_ICONS } from '@/components/places/kind-selector'
 import type { PlaceKind } from '@/types/database'
 

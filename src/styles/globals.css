@@ -2,9 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Leaflet Map Styles */
-@import 'leaflet/dist/leaflet.css';
-
 @layer base {
   :root {
     /* Original Blue/Professional Theme - Light Mode (Default) */

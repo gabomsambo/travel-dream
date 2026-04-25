@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import dynamic from "next/dynamic"
 import { useSession, signOut } from "next-auth/react"
 import { Upload, Plus, LogOut, User } from "lucide-react"
 import { Button } from "@/components/adapters/button"
@@ -8,8 +9,6 @@ import { Badge } from "@/components/adapters/badge"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { MobileNav } from "@/components/navigation/mobile-nav"
 import { SearchBar } from "@/components/search/search-bar"
-import { UploadDialog } from "@/components/upload/upload-dialog"
-import { AddPlaceDialog } from "@/components/places/add-place-dialog"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -18,6 +17,16 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/adapters/dropdown-menu"
+
+const UploadDialog = dynamic(
+  () => import("@/components/upload/upload-dialog").then(mod => ({ default: mod.UploadDialog })),
+  { ssr: false }
+)
+
+const AddPlaceDialog = dynamic(
+  () => import("@/components/places/add-place-dialog").then(mod => ({ default: mod.AddPlaceDialog })),
+  { ssr: false }
+)
 
 function UserMenu() {
   const { data: session } = useSession()
@@ -133,16 +142,20 @@ export function Header() {
         </div>
       </div>
 
-      <AddPlaceDialog
-        open={addPlaceDialogOpen}
-        onOpenChange={setAddPlaceDialogOpen}
-      />
+      {addPlaceDialogOpen && (
+        <AddPlaceDialog
+          open={addPlaceDialogOpen}
+          onOpenChange={setAddPlaceDialogOpen}
+        />
+      )}
 
-      <UploadDialog
-        open={uploadDialogOpen}
-        onOpenChange={setUploadDialogOpen}
-        onComplete={handleUploadComplete}
-      />
+      {uploadDialogOpen && (
+        <UploadDialog
+          open={uploadDialogOpen}
+          onOpenChange={setUploadDialogOpen}
+          onComplete={handleUploadComplete}
+        />
+      )}
     </header>
   )
 }

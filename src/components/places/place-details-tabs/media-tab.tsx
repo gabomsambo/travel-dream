@@ -7,6 +7,9 @@ import { toast } from "sonner"
 import { Button } from "@/components/adapters/button"
 import { Card } from "@/components/adapters/card"
 import { PhotoUploader } from "@/components/upload/photo-uploader"
+import { FindImageButton } from "@/components/places/find-image-button"
+import { PhotoAttribution } from "@/components/attribution/photo-attribution"
+import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
 import type { PlaceWithRelations } from "@/types/database"
 
 const PhotoLightbox = dynamic(() =>
@@ -86,7 +89,16 @@ export function MediaTab({ place, onUpdate }: MediaTabProps) {
       {photos.length === 0 && (
         <div className="text-center py-8 text-muted-foreground">
           <ImageIcon className="mx-auto h-12 w-12 mb-2 opacity-30" />
-          <p>No photos yet. Upload some to get started!</p>
+          <p>No photos yet. Upload some or find one online.</p>
+          <div className="mt-4 flex justify-center">
+            <FindImageButton
+              placeId={place.id}
+              placeName={place.name}
+              placeCity={place.city}
+              hasGooglePlaceId={Boolean(place.googlePlaceId)}
+              onAttached={() => window.location.reload()}
+            />
+          </div>
         </div>
       )}
 
@@ -107,10 +119,13 @@ export function MediaTab({ place, onUpdate }: MediaTabProps) {
                   />
                 </div>
                 {photo.caption && (
-                  <div className="p-2 text-xs text-muted-foreground">
+                  <div className="px-2 pt-2 text-xs text-muted-foreground">
                     {photo.caption}
                   </div>
                 )}
+                <div className="px-2 pb-2">
+                  <PhotoAttribution attribution={photo.attribution} />
+                </div>
                 <Button
                   variant={isPrimary ? "default" : "secondary"}
                   size="icon"
@@ -140,6 +155,12 @@ export function MediaTab({ place, onUpdate }: MediaTabProps) {
               </Card>
             )
           })}
+        </div>
+      )}
+
+      {photos.some((p) => p.source === 'google_places') && (
+        <div className="flex justify-end">
+          <PoweredByGoogle />
         </div>
       )}
 

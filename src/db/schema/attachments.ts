@@ -2,6 +2,32 @@ import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import { places } from './places';
 
+export type AttributionMeta =
+  | {
+      kind: 'google_places';
+      authorAttributions: Array<{
+        displayName: string;
+        uri: string;
+        photoUri?: string;
+      }>;
+    }
+  | {
+      kind: 'wikimedia';
+      authorText: string;
+      licenseShortName: string;
+      licenseUrl: string;
+      descriptionUrl: string;
+    }
+  | {
+      kind: 'pexels';
+      photographer: string;
+      photographerUrl: string;
+      photoUrl: string;
+    }
+  | {
+      kind: 'upload';
+    };
+
 export const attachments = sqliteTable('attachments', {
   id: text('id').primaryKey().$defaultFn(() => `att_${crypto.randomUUID()}`),
   placeId: text('place_id').notNull().references(() => places.id, { onDelete: 'cascade' }),
@@ -22,12 +48,18 @@ export const attachments = sqliteTable('attachments', {
   isPrimary: integer('is_primary').default(0).notNull(), // 0 or 1 (SQLite boolean)
 
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+
+  source: text('source').notNull().default('upload'),
+  sourceId: text('source_id'),
+  attribution: text('attribution', { mode: 'json' }).$type<AttributionMeta>(),
 }, (table) => ({
   placeIdIdx: index('attachments_place_id_idx').on(table.placeId),
   typeIdx: index('attachments_type_idx').on(table.type),
   primaryIdx: index('attachments_primary_idx').on(table.placeId, table.isPrimary),
   createdAtIdx: index('attachments_created_at_idx').on(table.createdAt),
   typePlaceIdIdx: index('attachments_type_place_id_idx').on(table.type, table.placeId),
+  sourceIdx: index('attachments_source_idx').on(table.source),
+  sourcePlaceIdx: index('attachments_source_place_idx').on(table.placeId, table.source),
 }));
 
 export type Attachment = typeof attachments.$inferSelect;

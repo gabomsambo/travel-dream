@@ -8,6 +8,9 @@ import { Star } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PLACE_KINDS } from "@/types/database"
 import type { PlaceWithRelations } from "@/types/database"
+import { FindImageButton } from "@/components/places/find-image-button"
+import { PhotoAttribution } from "@/components/attribution/photo-attribution"
+import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
 
 interface HeroSectionProps {
   place: PlaceWithRelations
@@ -22,17 +25,34 @@ export function HeroSection({ place, formData, updateField }: HeroSectionProps) 
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Hero Photo */}
-        <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-          {primaryPhoto ? (
-            <img
-              src={primaryPhoto.uri}
-              alt={place.name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-              No photo
-            </div>
+        <div className="space-y-1">
+          <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
+            {primaryPhoto ? (
+              <img
+                src={primaryPhoto.uri}
+                alt={place.name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                <span>No photo</span>
+                <FindImageButton
+                  placeId={place.id}
+                  placeName={place.name}
+                  placeCity={place.city}
+                  hasGooglePlaceId={Boolean(place.googlePlaceId)}
+                  onAttached={() => window.location.reload()}
+                />
+              </div>
+            )}
+            {primaryPhoto?.source === 'google_places' && (
+              <div className="absolute bottom-2 right-2 bg-white/85 px-1.5 py-0.5 rounded">
+                <PoweredByGoogle />
+              </div>
+            )}
+          </div>
+          {primaryPhoto && (
+            <PhotoAttribution attribution={primaryPhoto.attribution} />
           )}
         </div>
 

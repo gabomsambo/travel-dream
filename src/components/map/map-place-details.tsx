@@ -7,11 +7,12 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { KindBadge } from '@/components/ui/kind-badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useMapContext } from './map-context'
 import { AddressLink } from './address-link'
 import type { Attachment, PlaceWithRelations } from '@/types/database'
+import { FindImageButton } from '@/components/places/find-image-button'
+import { PhotoAttribution } from '@/components/attribution/photo-attribution'
 
 const PhotoLightbox = dynamic(() =>
   import('@/components/ui-custom/photo-lightbox').then(mod => ({ default: mod.PhotoLightbox })),
@@ -103,6 +104,23 @@ export function MapPlaceDetails() {
                 Go
               </Button>
             )}
+            <FindImageButton
+              placeId={place.id}
+              placeName={place.name}
+              placeCity={place.city}
+              hasGooglePlaceId={Boolean(place.googlePlaceId)}
+              variant="icon-only"
+              buttonVariant="ghost"
+              className="h-9 px-2 rounded-md shadow-none"
+              onAttached={() => {
+                if (selectedPlaceId) {
+                  fetch(`/api/places/${selectedPlaceId}`)
+                    .then((r) => (r.ok ? r.json() : null))
+                    .then((d) => d && setPlace(d))
+                    .catch(() => {})
+                }
+              }}
+            />
             <Link href={`/place/${place.id}`}>
               <Button variant="ghost" size="sm" className="gap-2">
                 <ExternalLink className="h-4 w-4" />
@@ -134,14 +152,9 @@ export function MapPlaceDetails() {
               </div>
             </div>
 
-            <Tabs defaultValue="overview" className="w-full">
-              <TabsList className="w-full justify-start">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="details">Details</TabsTrigger>
-                <TabsTrigger value="media">Media</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="overview" className="space-y-4 mt-4">
+            <div className="space-y-4">
+              {/* Overview */}
+              <section className="space-y-4">
                 {place.description && (
                   <div>
                     <h4 className="font-medium text-sm mb-1">Description</h4>
@@ -219,62 +232,81 @@ export function MapPlaceDetails() {
                     </div>
                   </div>
                 )}
-              </TabsContent>
+              </section>
 
-              <TabsContent value="details" className="space-y-4 mt-4">
-                {place.notes && (
-                  <div>
-                    <h4 className="font-medium text-sm mb-1">Notes</h4>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{place.notes}</p>
-                  </div>
-                )}
+              {/* Details */}
+              {(place.notes || place.practicalInfo || place.best_time || place.price_level) && (
+                <section className="space-y-4 border-t pt-4">
+                  <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Details</h3>
+                  {place.notes && (
+                    <div>
+                      <h4 className="font-medium text-sm mb-1">Notes</h4>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{place.notes}</p>
+                    </div>
+                  )}
+                  {place.practicalInfo && (
+                    <div>
+                      <h4 className="font-medium text-sm mb-1">Practical Info</h4>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{place.practicalInfo}</p>
+                    </div>
+                  )}
+                  {place.best_time && (
+                    <div>
+                      <h4 className="font-medium text-sm mb-1">Best Time to Visit</h4>
+                      <p className="text-sm text-muted-foreground">{place.best_time}</p>
+                    </div>
+                  )}
+                  {place.price_level && (
+                    <div>
+                      <h4 className="font-medium text-sm mb-1">Price Level</h4>
+                      <p className="text-sm">{place.price_level}</p>
+                    </div>
+                  )}
+                </section>
+              )}
 
-                {place.practicalInfo && (
-                  <div>
-                    <h4 className="font-medium text-sm mb-1">Practical Info</h4>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{place.practicalInfo}</p>
-                  </div>
-                )}
-
-                {place.best_time && (
-                  <div>
-                    <h4 className="font-medium text-sm mb-1">Best Time to Visit</h4>
-                    <p className="text-sm text-muted-foreground">{place.best_time}</p>
-                  </div>
-                )}
-
-                {place.price_level && (
-                  <div>
-                    <h4 className="font-medium text-sm mb-1">Price Level</h4>
-                    <p className="text-sm">{place.price_level}</p>
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="media" className="mt-4">
-                {place.attachments && place.attachments.length > 0 ? (
+              {/* Media */}
+              <section className="space-y-3 border-t pt-4">
+                <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Media</h3>
+                {photos.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
-                    {place.attachments.map(attachment => (
-                      <div
-                        key={attachment.id}
-                        className="aspect-square rounded-md overflow-hidden bg-muted cursor-pointer hover:opacity-90 transition-opacity"
-                        onClick={() => handleAttachmentClick(attachment)}
-                      >
-                        <img
-                          src={attachment.thumbnailUri || attachment.uri}
-                          alt={attachment.caption || attachment.filename || 'Attachment'}
-                          className="w-full h-full object-cover"
-                        />
+                    {photos.map(photo => (
+                      <div key={photo.id} className="space-y-1">
+                        <div
+                          className="aspect-square rounded-md overflow-hidden bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => handleAttachmentClick(photo)}
+                        >
+                          <img
+                            src={photo.thumbnailUri || photo.uri}
+                            alt={photo.caption || photo.filename || 'Attachment'}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <PhotoAttribution attribution={photo.attribution} />
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground text-center py-8">
-                    No media attachments
-                  </p>
+                  <div className="flex flex-col items-center gap-3 py-6 text-muted-foreground">
+                    <p className="text-sm">No media attachments</p>
+                    <FindImageButton
+                      placeId={place.id}
+                      placeName={place.name}
+                      placeCity={place.city}
+                      hasGooglePlaceId={Boolean(place.googlePlaceId)}
+                      onAttached={() => {
+                        if (selectedPlaceId) {
+                          fetch(`/api/places/${selectedPlaceId}`)
+                            .then((r) => r.ok ? r.json() : null)
+                            .then((d) => d && setPlace(d))
+                            .catch(() => {})
+                        }
+                      }}
+                    />
+                  </div>
                 )}
-              </TabsContent>
-            </Tabs>
+              </section>
+            </div>
             <PhotoLightbox
               photos={photos}
               open={lightboxOpen}

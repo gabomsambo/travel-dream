@@ -8,6 +8,9 @@ import { Button } from "@/components/adapters/button"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
 import { PhotoUploader } from "@/components/upload/photo-uploader"
+import { FindImageButton } from "@/components/places/find-image-button"
+import { PhotoAttribution } from "@/components/attribution/photo-attribution"
+import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
 import type { PlaceWithRelations } from "@/types/database"
 
 // Dynamic import to reduce bundle size
@@ -81,61 +84,87 @@ export function MediaSection({ place }: MediaSectionProps) {
       <CardHeader>
         <div className="flex justify-between items-center">
           <CardTitle>📸 Media Gallery</CardTitle>
-          <PhotoUploader
-            placeId={place.id}
-            onUploadComplete={handleUploadComplete}
-            compact
-          />
+          <div className="flex items-center gap-2">
+            <FindImageButton
+              placeId={place.id}
+              placeName={place.name}
+              placeCity={place.city}
+              hasGooglePlaceId={Boolean(place.googlePlaceId)}
+              onAttached={() => window.location.reload()}
+            />
+            <PhotoUploader
+              placeId={place.id}
+              onUploadComplete={handleUploadComplete}
+              compact
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         {photos.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No photos yet</p>
+          <div className="flex flex-col items-center gap-3 py-6 text-muted-foreground">
+            <p className="text-sm">No photos yet</p>
+            <FindImageButton
+              placeId={place.id}
+              placeName={place.name}
+              placeCity={place.city}
+              hasGooglePlaceId={Boolean(place.googlePlaceId)}
+              onAttached={() => window.location.reload()}
+            />
+          </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {photos.map((photo, index) => {
               const isPrimary = photo.isPrimary === 1
               return (
-                <div
-                  key={photo.id}
-                  className="aspect-square rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity relative group"
-                  onClick={() => openLightbox(index)}
-                >
-                  <img
-                    src={photo.thumbnailUri || photo.uri}
-                    alt={photo.caption || photo.filename}
-                    className="w-full h-full object-cover"
-                  />
-                  <Button
-                    variant={isPrimary ? "default" : "secondary"}
-                    size="icon"
-                    className={cn(
-                      "absolute top-2 left-2 h-8 w-8 transition-opacity",
-                      isPrimary ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                    )}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (!isPrimary) handleSetCover(photo.id)
-                    }}
-                    title={isPrimary ? "Cover image" : "Set as cover"}
+                <div key={photo.id} className="space-y-1">
+                  <div
+                    className="aspect-square rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity relative group"
+                    onClick={() => openLightbox(index)}
                   >
-                    <Star className={cn("h-4 w-4", isPrimary && "fill-current")} />
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="icon"
-                    className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDelete(photo.id)
-                    }}
-                    title="Delete photo"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                    <img
+                      src={photo.thumbnailUri || photo.uri}
+                      alt={photo.caption || photo.filename}
+                      className="w-full h-full object-cover"
+                    />
+                    <Button
+                      variant={isPrimary ? "default" : "secondary"}
+                      size="icon"
+                      className={cn(
+                        "absolute top-2 left-2 h-8 w-8 transition-opacity",
+                        isPrimary ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (!isPrimary) handleSetCover(photo.id)
+                      }}
+                      title={isPrimary ? "Cover image" : "Set as cover"}
+                    >
+                      <Star className={cn("h-4 w-4", isPrimary && "fill-current")} />
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDelete(photo.id)
+                      }}
+                      title="Delete photo"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <PhotoAttribution attribution={photo.attribution} />
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {photos.some((p) => p.source === 'google_places') && (
+          <div className="mt-4 flex justify-end">
+            <PoweredByGoogle />
           </div>
         )}
 

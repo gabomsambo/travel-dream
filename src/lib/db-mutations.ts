@@ -1146,18 +1146,22 @@ export async function bulkMovePlacesToReview(placeIds: string[], userId: string)
 
 export async function createAttachment(
   data: {
+    id?: string;
     placeId: string;
     type: string;
     uri: string;
     filename: string;
     mimeType?: string;
     fileSize?: number;
-    width?: number;
-    height?: number;
-    thumbnailUri?: string;
-    caption?: string;
+    width?: number | null;
+    height?: number | null;
+    thumbnailUri?: string | null;
+    caption?: string | null;
     takenAt?: string;
     isPrimary?: number;
+    source?: string;
+    sourceId?: string | null;
+    attribution?: import('@/db/schema/attachments').AttributionMeta | null;
   },
   userId: string
 ) {
@@ -1173,9 +1177,28 @@ export async function createAttachment(
 
     const { attachments } = await import('@/db/schema');
 
+    const insertValues = {
+      ...(data.id ? { id: data.id } : {}),
+      placeId: data.placeId,
+      type: data.type,
+      uri: data.uri,
+      filename: data.filename,
+      mimeType: data.mimeType,
+      fileSize: data.fileSize,
+      width: data.width ?? undefined,
+      height: data.height ?? undefined,
+      thumbnailUri: data.thumbnailUri ?? undefined,
+      caption: data.caption ?? undefined,
+      takenAt: data.takenAt,
+      isPrimary: data.isPrimary,
+      source: data.source ?? 'upload',
+      sourceId: data.sourceId ?? undefined,
+      attribution: data.attribution ?? undefined,
+    };
+
     const [attachment] = await db
       .insert(attachments)
-      .values(data)
+      .values(insertValues)
       .returning();
 
     return attachment;

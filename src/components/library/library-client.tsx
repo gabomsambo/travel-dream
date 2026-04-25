@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { Library, FileText, FileSpreadsheet, Download, Loader2, Trash2, Archive } from 'lucide-react'
 import { toast } from 'sonner'
-import { PlaceGrid } from "@/components/places/place-grid"
 import { PlaceDetailsDialogEnhanced } from "@/components/places/place-details-dialog-enhanced"
 import { PlaceCardV2 } from "@/components/library-v2/place-card-v2"
 import { PlaceFiltersSidebar } from "@/components/library-v2/place-filters-sidebar"
@@ -24,8 +23,8 @@ import { Label } from "@/components/ui/label"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { UserPreferences, DEFAULT_PREFERENCES } from "@/types/user-preferences"
-import type { PlaceWithCover } from "@/lib/library-adapters"
-import type { Place } from "@/types/database"
+import type { LibraryPlaceWithCover } from "@/lib/library-adapters"
+import type { LibraryPlace } from "@/lib/db-queries"
 import { initializeSearchIndex, fuzzySearch } from "@/lib/search-service"
 import type { ExportFormat } from "@/types/export"
 import {
@@ -36,7 +35,7 @@ import {
 } from "@/components/adapters/dropdown-menu"
 
 interface LibraryClientProps {
-  initialPlaces: PlaceWithCover[]
+  initialPlaces: LibraryPlaceWithCover[]
   filterOptions: {
     kinds: string[]
     cities: string[]
@@ -80,7 +79,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
     (searchParams.get('view') as 'grid' | 'list') || preferences.defaultView
   )
   const [sort, setSort] = useState(searchParams.get('sort') || 'date-newest')
-  const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
 
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
@@ -291,9 +290,8 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
 
   // Handle view place (for grid view which uses place ID)
   const handleViewPlace = useCallback((placeId: string) => {
-    const place = filteredPlaces.find(p => p.id === placeId)
-    setSelectedPlace(place || null)
-  }, [filteredPlaces])
+    setSelectedPlaceId(placeId)
+  }, [])
 
   // Selection handlers
   const toggleSelection = useCallback((placeId: string) => {
@@ -497,8 +495,8 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   }, [selectedItems, filteredPlaces, search, kind, city, country, selectedTags, selectedVibes, rating, visitStatus])
 
   // Handle view place (for list/map views which use place object)
-  const handleViewPlaceObject = useCallback((place: Place) => {
-    setSelectedPlace(place)
+  const handleViewPlaceObject = useCallback((place: LibraryPlace) => {
+    setSelectedPlaceId(place.id)
   }, [])
 
   // Handle delete place
@@ -723,9 +721,9 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
         )}
 
         <PlaceDetailsDialogEnhanced
-          open={selectedPlace !== null}
-          onOpenChange={(open) => !open && setSelectedPlace(null)}
-          placeId={selectedPlace?.id || null}
+          open={selectedPlaceId !== null}
+          onOpenChange={(open) => !open && setSelectedPlaceId(null)}
+          placeId={selectedPlaceId}
         />
 
         <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>

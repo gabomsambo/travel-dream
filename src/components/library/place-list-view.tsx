@@ -3,15 +3,23 @@
 import { MapPin, Star, Trash2 } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
-import type { Place } from "@/types/database"
+import type { LibraryPlace } from "@/lib/db-queries"
 
-interface PlaceListViewProps {
-  places: Place[]
-  onView: (place: Place) => void
+// Minimal shape PlaceListView reads. Both LibraryPlace and Place satisfy this,
+// so library-client (LibraryPlaceWithCover) and archive-client (PlaceWithCover)
+// can pass their own types without losing inference.
+type PlaceListItem = Pick<
+  LibraryPlace,
+  "id" | "name" | "city" | "country" | "kind" | "ratingSelf" | "visitStatus"
+>
+
+interface PlaceListViewProps<T extends PlaceListItem> {
+  places: T[]
+  onView: (place: T) => void
   onDelete?: (placeId: string) => void
 }
 
-export function PlaceListView({ places, onView, onDelete }: PlaceListViewProps) {
+export function PlaceListView<T extends PlaceListItem>({ places, onView, onDelete }: PlaceListViewProps<T>) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">

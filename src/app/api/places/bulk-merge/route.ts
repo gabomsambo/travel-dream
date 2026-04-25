@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { bulkMergePlaces } from '@/lib/db-mutations';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
@@ -37,6 +38,11 @@ export async function POST(request: NextRequest) {
     const { clusters } = validation.data;
 
     const result = await bulkMergePlaces(clusters, user.id);
+
+    // Invalidate cached library stats — bulk merge reduces total count.
+    if (result.success > 0) {
+      revalidateTag(`library-stats:${user.id}`);
+    }
 
     return NextResponse.json({
       status: 'success',

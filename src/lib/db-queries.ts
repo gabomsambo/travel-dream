@@ -1,9 +1,50 @@
 import { eq, and, or, like, inArray, desc, asc, sql, gte, lte, between, isNull, SQL } from 'drizzle-orm';
+import { unstable_cache } from 'next/cache';
 import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling } from './db-utils';
 import type { Place, Source, Collection, PlaceWithSources } from '@/types/database';
+
+/**
+ * Narrowed row shape for the /library route.
+ *
+ * Drops 13 columns vs Place that are not used by:
+ *   - PlaceCardV2 (cover card)
+ *   - PlaceListView (list row)
+ *   - LibraryClient filter/sort/selection logic
+ *   - search-service.ts Fuse index keys
+ *
+ * Saves ~470B/row × N rows off the RSC payload + Fuse index memory.
+ *
+ * If a future field on /library needs a dropped column, add it back here AND
+ * to the projection in searchLibraryPlaces() — both must move together.
+ */
+export type LibraryPlace = {
+  id: string;
+  userId: string | null;
+  name: string;
+  kind: string;
+  city: string | null;
+  country: string | null;
+  description: string | null;
+  tags: string[] | null;
+  vibes: string[] | null;
+  ratingSelf: number | null;
+  notes: string | null;
+  status: string;
+  price_level: string | null;
+  visitStatus: string | null;
+  priority: number | null;
+  address: string | null;
+  altNames: string[] | null;
+  cuisine: string[] | null;
+  activities: string[] | null;
+  amenities: string[] | null;
+  practicalInfo: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 // Place queries
 export async function getPlaceById(id: string, userId: string): Promise<Place | null> {
@@ -162,6 +203,50 @@ export async function searchPlaces(query: {
 
     return await dbQuery;
   }, 'searchPlaces');
+}
+
+/**
+ * Narrow-projected fetch for the /library and /archive routes.
+ *
+ * Returns ~470B/row less than searchPlaces. Use ONLY when downstream consumers
+ * are confined to PlaceCardV2 + PlaceListView + Fuse index + LibraryClient
+ * filters (the /library and /archive page surfaces).
+ */
+export async function searchLibraryPlaces(query: {
+  userId: string;
+  status: 'library' | 'archived';
+}): Promise<LibraryPlace[]> {
+  return withErrorHandling(async () => {
+    return await db
+      .select({
+        id: places.id,
+        userId: places.userId,
+        name: places.name,
+        kind: places.kind,
+        city: places.city,
+        country: places.country,
+        description: places.description,
+        tags: places.tags,
+        vibes: places.vibes,
+        ratingSelf: places.ratingSelf,
+        notes: places.notes,
+        status: places.status,
+        price_level: places.price_level,
+        visitStatus: places.visitStatus,
+        priority: places.priority,
+        address: places.address,
+        altNames: places.altNames,
+        cuisine: places.cuisine,
+        activities: places.activities,
+        amenities: places.amenities,
+        practicalInfo: places.practicalInfo,
+        createdAt: places.createdAt,
+        updatedAt: places.updatedAt,
+      })
+      .from(places)
+      .where(and(eq(places.userId, query.userId), eq(places.status, query.status)))
+      .orderBy(desc(places.ratingSelf), asc(places.name));
+  }, 'searchLibraryPlaces');
 }
 
 // Source queries
@@ -913,41 +998,54 @@ export async function getProcessingStatusCounts(sourceIds: string[]): Promise<Re
 }
 
 export async function getLibraryStatsEnhanced(userId: string) {
-  return withErrorHandling(async () => {
-    // Single query for all places-based stats using conditional aggregation
-    const [statsResult] = await db
-      .select({
-        total:          sql<number>`COUNT(*)`,
-        visited:        sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'visited' THEN 1 ELSE 0 END)`,
-        planned:        sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'planned' THEN 1 ELSE 0 END)`,
-        notVisited:     sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'not_visited' OR ${places.visitStatus} IS NULL THEN 1 ELSE 0 END)`,
-        highPriority:   sql<number>`SUM(CASE WHEN ${places.priority} >= 4 THEN 1 ELSE 0 END)`,
-        mediumPriority: sql<number>`SUM(CASE WHEN ${places.priority} >= 2 AND ${places.priority} < 4 THEN 1 ELSE 0 END)`,
-        lowPriority:    sql<number>`SUM(CASE WHEN ${places.priority} < 2 THEN 1 ELSE 0 END)`,
-        countries:      sql<number>`COUNT(DISTINCT ${places.country})`,
-      })
-      .from(places)
-      .where(and(eq(places.status, 'library'), eq(places.userId, userId)));
+  // Per-user cache keying via keyParts; per-user revalidation tag.
+  // Tag is invalidated by mutation routes (bulk-actions, [id] PATCH/DELETE,
+  // merge, bulk-merge) via revalidateTag(`library-stats:${userId}`).
+  const cachedFn = unstable_cache(
+    async () => {
+      return withErrorHandling(async () => {
+        // Two independent aggregate queries in parallel
+        const [statsRows, photosRows] = await Promise.all([
+          db
+            .select({
+              total:          sql<number>`COUNT(*)`,
+              visited:        sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'visited' THEN 1 ELSE 0 END)`,
+              planned:        sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'planned' THEN 1 ELSE 0 END)`,
+              notVisited:     sql<number>`SUM(CASE WHEN ${places.visitStatus} = 'not_visited' OR ${places.visitStatus} IS NULL THEN 1 ELSE 0 END)`,
+              highPriority:   sql<number>`SUM(CASE WHEN ${places.priority} >= 4 THEN 1 ELSE 0 END)`,
+              mediumPriority: sql<number>`SUM(CASE WHEN ${places.priority} >= 2 AND ${places.priority} < 4 THEN 1 ELSE 0 END)`,
+              lowPriority:    sql<number>`SUM(CASE WHEN ${places.priority} < 2 THEN 1 ELSE 0 END)`,
+              countries:      sql<number>`COUNT(DISTINCT ${places.country})`,
+            })
+            .from(places)
+            .where(and(eq(places.status, 'library'), eq(places.userId, userId))),
+          db
+            .select({ count: sql<number>`COUNT(DISTINCT ${attachments.placeId})` })
+            .from(attachments)
+            .innerJoin(places, eq(attachments.placeId, places.id))
+            .where(and(eq(attachments.type, 'photo'), eq(places.userId, userId), eq(places.status, 'library'))),
+        ]);
 
-    // Separate query for withPhotos — needs JOIN to attachments table
-    const [photosResult] = await db
-      .select({ count: sql<number>`COUNT(DISTINCT ${attachments.placeId})` })
-      .from(attachments)
-      .innerJoin(places, eq(attachments.placeId, places.id))
-      .where(and(eq(attachments.type, 'photo'), eq(places.userId, userId), eq(places.status, 'library')));
+        const statsResult = statsRows[0];
+        const photosResult = photosRows[0];
 
-    return {
-      total: statsResult?.total ?? 0,
-      visited: statsResult?.visited ?? 0,
-      planned: statsResult?.planned ?? 0,
-      notVisited: statsResult?.notVisited ?? 0,
-      byPriority: {
-        high: statsResult?.highPriority ?? 0,
-        medium: statsResult?.mediumPriority ?? 0,
-        low: statsResult?.lowPriority ?? 0,
-      },
-      countries: statsResult?.countries ?? 0,
-      withPhotos: photosResult?.count ?? 0,
-    };
-  }, 'getLibraryStatsEnhanced');
+        return {
+          total: statsResult?.total ?? 0,
+          visited: statsResult?.visited ?? 0,
+          planned: statsResult?.planned ?? 0,
+          notVisited: statsResult?.notVisited ?? 0,
+          byPriority: {
+            high: statsResult?.highPriority ?? 0,
+            medium: statsResult?.mediumPriority ?? 0,
+            low: statsResult?.lowPriority ?? 0,
+          },
+          countries: statsResult?.countries ?? 0,
+          withPhotos: photosResult?.count ?? 0,
+        };
+      }, 'getLibraryStatsEnhanced');
+    },
+    ['library-stats', userId],
+    { tags: [`library-stats:${userId}`], revalidate: 60 }
+  );
+  return cachedFn();
 }

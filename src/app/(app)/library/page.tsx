@@ -1,9 +1,8 @@
 import { Suspense } from "react"
 import { LibraryClient } from "@/components/library/library-client"
 import { LibraryStatsCards } from "@/components/library/library-stats-cards"
-import { searchPlaces, getLibraryStatsEnhanced } from "@/lib/db-queries"
-import { getCoverImagesForPlaces, type PlaceWithCover } from "@/lib/library-adapters"
-import type { Place } from "@/types/database"
+import { searchLibraryPlaces, getLibraryStatsEnhanced } from "@/lib/db-queries"
+import { getCoverImagesForPlaces, type LibraryPlaceWithCover } from "@/lib/library-adapters"
 import { auth } from "@/lib/auth"
 
 interface PageProps {
@@ -51,24 +50,21 @@ export default async function LibraryPage({ searchParams }: PageProps) {
     vibes: (params.vibes as string)?.split(',').filter(Boolean) || []
   }
 
-  // Fetch all library places — filtering is done client-side via Fuse.js + useMemo
-  const places = await searchPlaces({
-    userId,
-    status: 'library',
-  })
+  // Two independent queries in parallel — places list and aggregate stats.
+  const [places, stats] = await Promise.all([
+    searchLibraryPlaces({ userId, status: 'library' }),
+    getLibraryStatsEnhanced(userId),
+  ])
 
-  // Fetch cover images for all places
-  const placeIds = places.map(p => p.id)
-  const coverMap = await getCoverImagesForPlaces(placeIds)
+  // Single follow-up await — depends on placeIds from `places`.
+  const coverMap = await getCoverImagesForPlaces(places.map(p => p.id))
 
-  // Adapt places with cover URLs
-  const placesWithCovers: PlaceWithCover[] = places.map(place => ({
-    ...place,
-    coverUrl: coverMap.get(place.id)
-  }))
-
-  // Fetch library stats
-  const stats = await getLibraryStatsEnhanced(userId)
+  // Omit the coverUrl key entirely when no cover exists, to keep the RSC payload tight.
+  const placesWithCovers: LibraryPlaceWithCover[] = places.map(place =>
+    coverMap.has(place.id)
+      ? { ...place, coverUrl: coverMap.get(place.id)! }
+      : { ...place }
+  )
 
   // Compute dynamic filter options from actual library data
   const filterOptions = {

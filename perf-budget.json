@@ -1,6 +1,6 @@
 {
   "_doc": "Performance budgets for Travel Dreams. Future Lighthouse CI / bundle-size gates should fail PRs that exceed these. Update intentionally — never relax silently.",
-  "lastReviewed": "2026-04-25",
+  "lastReviewed": "2026-04-25-tier3",
   "coreWebVitals": {
     "LCP": { "target_ms": 2500, "note": "Largest Contentful Paint — measured on simulated 4G throttle" },
     "INP": { "target_ms": 200, "note": "Interaction to Next Paint — replaced FID in 2024" },
@@ -12,7 +12,7 @@
     "routes": {
       "/": { "max": 200, "current": 171, "note": "Marketing landing" },
       "/inbox": { "max": 200, "current": 186 },
-      "/library": { "max": 260, "current": 256, "note": "Heavy: virtualized place grid + filters + cover images" },
+      "/library": { "max": 260, "current": 256, "note": "Heavy: place grid + filters + cover images. Tier-3 attempted virtualization + lazy-loading and reverted (visual regression); kept server-side wins instead — see perf-baseline.json tier3FixesApplied" },
       "/archive": { "max": 260, "current": 255, "note": "Same shape as library" },
       "/collections": { "max": 200, "current": 156 },
       "/collections/[id]": { "max": 600, "current": 587, "note": "Includes mapbox-gl chunk for collection map view" },

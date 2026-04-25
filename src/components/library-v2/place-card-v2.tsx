@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { MapPin, Star, Heart, MoreVertical } from "lucide-react"
-import type { PlaceWithCover } from "@/lib/library-adapters"
+import type { PlaceWithCover, LibraryPlaceWithCover } from "@/lib/library-adapters"
 import { FavoriteManager, parsePriceLevel, formatPriceSymbols } from "@/lib/library-adapters"
 import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
 interface PlaceCardV2Props {
-  place: PlaceWithCover
+  place: PlaceWithCover | LibraryPlaceWithCover
   onClick?: () => void
   className?: string
 }

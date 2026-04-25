@@ -1,9 +1,18 @@
 import type { Place } from '@/types/database';
+import type { LibraryPlace } from './db-queries';
 import { db } from '@/db';
 import { attachments } from '@/db/schema';
 import { inArray, eq, and } from 'drizzle-orm';
 
 export interface PlaceWithCover extends Place {
+  coverUrl?: string;
+}
+
+/**
+ * Cover-augmented row for /library and /archive routes.
+ * Extends LibraryPlace (narrow projection) instead of Place.
+ */
+export interface LibraryPlaceWithCover extends LibraryPlace {
   coverUrl?: string;
 }
 

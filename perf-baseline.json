@@ -64,5 +64,38 @@
     },
     "sharedDelta": 1,
     "interpretation": "Bundle deltas are within build noise (±2 kB). Next.js automatic chunking was already handling these cases. Fixes remain architecturally correct (decouple kind-badge from mapbox-gl, remove dead code, robust to future changes) but did not move First Load JS measurements. Real remaining wins: landing-page image optimization (LCP), hoisting 'use client' off static landing sections, and adding loading.tsx for perceived perf."
+  },
+  "tier3FixesApplied": {
+    "appliedAt": "2026-04-25",
+    "scope": "Library route — 1,000-place scale fixes per PRPs/library-perf-tier-1.md (server-side wins only; virtualization reverted)",
+    "changes": [
+      "Added searchLibraryPlaces with narrow column projection — drops 13 unused columns from /library SELECT (~470 B/row off RSC payload + Fuse index memory)",
+      "Parallelized library/page.tsx top-level awaits (Promise.all over places + stats); parallelized getLibraryStatsEnhanced internal queries",
+      "Wrapped getLibraryStatsEnhanced in unstable_cache with per-user tag library-stats:${userId}, revalidate 60s",
+      "Added revalidateTag(`library-stats:${userId}`) to bulk-actions, places/[id] PATCH+DELETE, merge, bulk-merge mutation routes",
+      "Stripped undefined coverUrl key from RSC payload (conditional spread)",
+      "Widened search-service.ts and PlaceCardV2 to accept LibraryPlace | Place (structural superset); PlaceListView made generic over T extends PlaceListItem"
+    ],
+    "reverted": [
+      "VirtualizedLibraryGrid (useWindowVirtualizer): scrollMargin computation via offsetTop was wrong for the page's nested layout, causing rows to stack on top of each other and blank gaps where rows didn't render. The math required for correct window-scroll virtualization (getBoundingClientRect-based offset measurement, plus re-measurement when above-grid content changes height) is fragile enough that the gain at current user scale didn't justify the regression risk. File deleted.",
+      "PlaceListView virtualization: same reason — reverted to plain <table>.",
+      "next/dynamic lazy-loads of grid + list view: only existed to offset the virtualizer bundle weight; with virtualization gone, static imports are fine."
+    ],
+    "routeDeltas": {
+      "/library": 0,
+      "/archive": 1
+    },
+    "sharedDelta": 0,
+    "measuredAt": "2026-04-25",
+    "measurements": {
+      "/library": { "selfKb": 5.74, "firstLoadKb": 256, "preTier3FirstLoadKb": 256, "budgetMaxKb": 260 },
+      "/archive": { "selfKb": 7.6, "firstLoadKb": 255, "preTier3FirstLoadKb": 254, "budgetMaxKb": 260 }
+    },
+    "interpretation": "First Load JS unchanged from pre-tier-3 baseline (/library 256 kB, /archive 255 kB) — both well under the 260 kB budget. The kept changes are entirely server-side: TTFB savings from Promise.all parallelization (~80–160 ms eliminated round trips), reduced RSC payload from narrow column projection (~470 B/row × N at 1,000 places ≈ 470 KB), and reduced DB load from per-user unstable_cache on stats. None of these are visible in First Load JS — verify via Server-Timing headers or DevTools network tab. Virtualization was attempted and reverted; if the library grows past ~2,000 places and grid render becomes visibly slow, revisit with a fresh implementation that uses getBoundingClientRect-based offset measurement.",
+    "knownLimitations": [
+      "next lint is interactive in this Next.js version (deprecation prompt); validation relied on tsc --noEmit + jest + build instead",
+      "unstable_cache is OFF in `npm run dev`; cache hits only verifiable in `npm run build && npm start` mode",
+      "use-virtual-grid scrollPerformance test is timing-flaky in full suite (passes in isolation); pre-existing issue, not caused by this PRP"
+    ]
   }
 }

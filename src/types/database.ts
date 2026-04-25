@@ -3,6 +3,8 @@ import { sources, places, collections, sourcesToPlaces, placesToCollections, mer
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { z } from 'zod';
 
+export type { AttributionMeta } from '@/db/schema/attachments';
+
 // Select types (for queries)
 export type Source = InferSelectModel<typeof sourcesCurrentSchema>;
 export type Place = InferSelectModel<typeof places>;

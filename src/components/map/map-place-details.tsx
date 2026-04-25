@@ -12,6 +12,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useMapContext } from './map-context'
 import { AddressLink } from './address-link'
 import type { Attachment, PlaceWithRelations } from '@/types/database'
+import { FindImageButton } from '@/components/places/find-image-button'
+import { PhotoAttribution } from '@/components/attribution/photo-attribution'
 
 const PhotoLightbox = dynamic(() =>
   import('@/components/ui-custom/photo-lightbox').then(mod => ({ default: mod.PhotoLightbox })),
@@ -255,23 +257,41 @@ export function MapPlaceDetails() {
                 {place.attachments && place.attachments.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
                     {place.attachments.map(attachment => (
-                      <div
-                        key={attachment.id}
-                        className="aspect-square rounded-md overflow-hidden bg-muted cursor-pointer hover:opacity-90 transition-opacity"
-                        onClick={() => handleAttachmentClick(attachment)}
-                      >
-                        <img
-                          src={attachment.thumbnailUri || attachment.uri}
-                          alt={attachment.caption || attachment.filename || 'Attachment'}
-                          className="w-full h-full object-cover"
-                        />
+                      <div key={attachment.id} className="space-y-1">
+                        <div
+                          className="aspect-square rounded-md overflow-hidden bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => handleAttachmentClick(attachment)}
+                        >
+                          <img
+                            src={attachment.thumbnailUri || attachment.uri}
+                            alt={attachment.caption || attachment.filename || 'Attachment'}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        {attachment.type === 'photo' && (
+                          <PhotoAttribution attribution={attachment.attribution} />
+                        )}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground text-center py-8">
-                    No media attachments
-                  </p>
+                  <div className="flex flex-col items-center gap-3 py-8 text-muted-foreground">
+                    <p className="text-sm">No media attachments</p>
+                    <FindImageButton
+                      placeId={place.id}
+                      placeName={place.name}
+                      placeCity={place.city}
+                      hasGooglePlaceId={Boolean(place.googlePlaceId)}
+                      onAttached={() => {
+                        if (selectedPlaceId) {
+                          fetch(`/api/places/${selectedPlaceId}`)
+                            .then((r) => r.ok ? r.json() : null)
+                            .then((d) => d && setPlace(d))
+                            .catch(() => {})
+                        }
+                      }}
+                    />
+                  </div>
                 )}
               </TabsContent>
             </Tabs>

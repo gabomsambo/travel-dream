@@ -2,7 +2,13 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { NextRequest, NextResponse } from 'next/server';
 
-export type RateLimitTier = 'strict' | 'standard' | 'relaxed' | 'auth';
+export type RateLimitTier =
+  | 'strict'
+  | 'standard'
+  | 'relaxed'
+  | 'auth'
+  | 'photo-search'
+  | 'photo-resolve';
 
 interface RateLimitConfig {
   requests: number;
@@ -15,6 +21,8 @@ const RATE_LIMIT_TIERS: Record<RateLimitTier, RateLimitConfig> = {
   strict: { requests: 5, window: '1 m', prefix: 'rl:strict' },
   standard: { requests: 30, window: '1 m', prefix: 'rl:std' },
   relaxed: { requests: 100, window: '1 m', prefix: 'rl:rel' },
+  'photo-search': { requests: 10, window: '1 m', prefix: 'rl:photo-search' },
+  'photo-resolve': { requests: 60, window: '1 m', prefix: 'rl:photo-resolve' },
 };
 
 const ROUTE_TIERS: Record<string, RateLimitTier> = {
@@ -23,6 +31,8 @@ const ROUTE_TIERS: Record<string, RateLimitTier> = {
   '/api/upload/process': 'strict',
   '/api/upload': 'standard',
   '/api/google-places': 'standard',
+  '/api/photos/search': 'photo-search',
+  '/api/photos/resolve': 'photo-resolve',
 };
 
 export interface RateLimitResult {

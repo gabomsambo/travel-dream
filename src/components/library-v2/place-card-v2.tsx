@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { FindImageButton } from "@/components/places/find-image-button"
 
 interface PlaceCardV2Props {
   place: PlaceWithCover | LibraryPlaceWithCover
@@ -50,8 +51,20 @@ export function PlaceCardV2({ place, onClick, className }: PlaceCardV2Props) {
             className="h-full w-full object-cover transition-transform group-hover:scale-105"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
+          <div className="relative flex h-full w-full items-center justify-center">
             <MapPin className="h-12 w-12 text-muted-foreground/30" />
+            <div className="absolute bottom-2 right-2">
+              <FindImageButton
+                placeId={place.id}
+                placeName={place.name}
+                placeCity={place.city}
+                hasGooglePlaceId={
+                  'googlePlaceId' in place && Boolean((place as { googlePlaceId?: string | null }).googlePlaceId)
+                }
+                variant="icon-only"
+                onAttached={() => window.location.reload()}
+              />
+            </div>
           </div>
         )}
 

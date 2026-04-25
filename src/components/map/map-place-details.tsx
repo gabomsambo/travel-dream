@@ -104,6 +104,23 @@ export function MapPlaceDetails() {
                 Go
               </Button>
             )}
+            <FindImageButton
+              placeId={place.id}
+              placeName={place.name}
+              placeCity={place.city}
+              hasGooglePlaceId={Boolean(place.googlePlaceId)}
+              variant="icon-only"
+              buttonVariant="ghost"
+              className="h-9 w-9 rounded-md shadow-none"
+              onAttached={() => {
+                if (selectedPlaceId) {
+                  fetch(`/api/places/${selectedPlaceId}`)
+                    .then((r) => (r.ok ? r.json() : null))
+                    .then((d) => d && setPlace(d))
+                    .catch(() => {})
+                }
+              }}
+            />
             <Link href={`/place/${place.id}`}>
               <Button variant="ghost" size="sm" className="gap-2">
                 <ExternalLink className="h-4 w-4" />

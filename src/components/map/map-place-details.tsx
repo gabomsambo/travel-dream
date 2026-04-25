@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { ArrowLeft, ExternalLink, Clock, Globe, Phone, Mail, Navigation } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -10,14 +11,37 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useMapContext } from './map-context'
 import { AddressLink } from './address-link'
-import type { PlaceWithRelations } from '@/types/database'
+import type { Attachment, PlaceWithRelations } from '@/types/database'
+
+const PhotoLightbox = dynamic(() =>
+  import('@/components/ui-custom/photo-lightbox').then(mod => ({ default: mod.PhotoLightbox })),
+  { ssr: false }
+)
 
 export function MapPlaceDetails() {
   const { selectedPlaceId, selectPlace, flyTo } = useMapContext()
   const [place, setPlace] = useState<PlaceWithRelations | null>(null)
   const [loading, setLoading] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+
+  const photos = place?.attachments?.filter(a => a.type === 'photo') ?? []
+
+  const handleAttachmentClick = (attachment: Attachment) => {
+    if (attachment.type === 'photo') {
+      const idx = photos.findIndex(p => p.id === attachment.id)
+      if (idx >= 0) {
+        setLightboxIndex(idx)
+        setLightboxOpen(true)
+      }
+    } else if (attachment.uri.startsWith('https://') || attachment.uri.startsWith('http://')) {
+      window.open(attachment.uri, '_blank', 'noopener,noreferrer')
+    }
+  }
 
   useEffect(() => {
+    setLightboxOpen(false)
+    setLightboxIndex(0)
     if (!selectedPlaceId) {
       setPlace(null)
       return
@@ -231,10 +255,14 @@ export function MapPlaceDetails() {
                 {place.attachments && place.attachments.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
                     {place.attachments.map(attachment => (
-                      <div key={attachment.id} className="aspect-square rounded-md overflow-hidden bg-muted">
+                      <div
+                        key={attachment.id}
+                        className="aspect-square rounded-md overflow-hidden bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => handleAttachmentClick(attachment)}
+                      >
                         <img
-                          src={attachment.uri}
-                          alt={attachment.filename || 'Attachment'}
+                          src={attachment.thumbnailUri || attachment.uri}
+                          alt={attachment.caption || attachment.filename || 'Attachment'}
                           className="w-full h-full object-cover"
                         />
                       </div>
@@ -247,6 +275,12 @@ export function MapPlaceDetails() {
                 )}
               </TabsContent>
             </Tabs>
+            <PhotoLightbox
+              photos={photos}
+              open={lightboxOpen}
+              index={lightboxIndex}
+              onClose={() => setLightboxOpen(false)}
+            />
           </div>
         </ScrollArea>
       )}

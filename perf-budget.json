@@ -1,0 +1,49 @@
+{
+  "_doc": "Performance budgets for Travel Dreams. Future Lighthouse CI / bundle-size gates should fail PRs that exceed these. Update intentionally — never relax silently.",
+  "lastReviewed": "2026-04-25",
+  "coreWebVitals": {
+    "LCP": { "target_ms": 2500, "note": "Largest Contentful Paint — measured on simulated 4G throttle" },
+    "INP": { "target_ms": 200, "note": "Interaction to Next Paint — replaced FID in 2024" },
+    "CLS": { "target": 0.1, "note": "Cumulative Layout Shift — unitless" },
+    "TBT": { "target_ms": 300, "note": "Total Blocking Time during page load" }
+  },
+  "firstLoadJsKb": {
+    "shared": { "max": 110, "current": 103, "note": "JS shared by every route" },
+    "routes": {
+      "/": { "max": 200, "current": 171, "note": "Marketing landing" },
+      "/inbox": { "max": 200, "current": 186 },
+      "/library": { "max": 260, "current": 256, "note": "Heavy: virtualized place grid + filters + cover images" },
+      "/archive": { "max": 260, "current": 255, "note": "Same shape as library" },
+      "/collections": { "max": 200, "current": 156 },
+      "/collections/[id]": { "max": 600, "current": 587, "note": "Includes mapbox-gl chunk for collection map view" },
+      "/collections/[id]/planner": { "max": 620, "current": 615, "note": "Day planner + mapbox-gl + dnd-kit" },
+      "/duplicates": { "max": 200, "current": 165 },
+      "/export": { "max": 240, "current": 197, "note": "Export form + papaparse" },
+      "/login": { "max": 200, "current": 157 },
+      "/map": { "max": 650, "current": 632, "note": "Full mapbox-gl + clustering + filters" },
+      "/mass-upload": { "max": 200, "current": 147 },
+      "/place/[id]": { "max": 240, "current": 202 },
+      "/review": { "max": 240, "current": 189 },
+      "/settings": { "max": 200, "current": 162 },
+      "/signup": { "max": 200, "current": 158 }
+    }
+  },
+  "publicAssetsKb": {
+    "maxImageSize": 300,
+    "note": "Source images in public/ should be ≤300 KB. 21 PNGs currently exceed this (1.0–1.3 MB landing destination images) — flag for compression task.",
+    "currentViolators": [
+      "dest_bali_1765074675659.png",
+      "dest_amalfi_1765074636643.png",
+      "dest_nyc_1765075203417.png",
+      "dest_kyoto_1765074648985.png",
+      "dest_alps_1765075177036.png",
+      "item_map_1765075664417.png",
+      "dest_patagonia_1765075242693.png",
+      "comic_screenshot_collector_1765079226430.png"
+    ]
+  },
+  "enforcement": {
+    "current": "manual — re-run `npm run build` and diff against this file",
+    "future": "Lighthouse CI in GitHub Actions + bundle-size gate on PRs (tracked: design /perf-audit skill)"
+  }
+}

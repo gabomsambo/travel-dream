@@ -60,6 +60,7 @@ export default function WhoItsFor() {
                                     src={p.img}
                                     alt={p.title}
                                     fill
+                                    sizes="(max-width: 768px) 280px, 340px"
                                     className="object-contain p-4"
                                 />
                             </div>

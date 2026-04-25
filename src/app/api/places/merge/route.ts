@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { withErrorHandling } from '@/lib/db-utils';
 import { mergePlaces } from '@/lib/db-mutations';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
@@ -55,6 +56,9 @@ export async function POST(request: NextRequest) {
 
     // Perform the merge operation
     const mergedPlace = await mergePlaces(sourceId, targetId, user.id);
+
+    // Invalidate cached library stats — total count decreases by 1.
+    revalidateTag(`library-stats:${user.id}`);
 
     return NextResponse.json(
       {

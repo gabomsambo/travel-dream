@@ -1,10 +1,16 @@
 import Fuse from 'fuse.js'
 import type { Place } from '@/types/database'
+import type { LibraryPlace } from '@/lib/db-queries'
+
+// Accept either the full Place row or the narrowed LibraryPlace projection.
+// Place is a structural superset of LibraryPlace, so callers passing Place[]
+// continue to work without changes.
+type IndexablePlace = Place | LibraryPlace
 
 let fuseIndex: Fuse<SearchablePlace> | null = null
 let cachedPlaces: SearchablePlace[] = []
 
-interface SearchablePlace extends Place {
+interface SearchablePlace extends LibraryPlace {
   tagsString?: string
   vibesString?: string
   cuisineString?: string
@@ -19,7 +25,7 @@ function arrayToString(value: any): string {
   return ''
 }
 
-export function initializeSearchIndex(places: Place[]): void {
+export function initializeSearchIndex(places: IndexablePlace[]): void {
   cachedPlaces = places.map(place => ({
     ...place,
     tagsString: arrayToString(place.tags),
@@ -55,7 +61,7 @@ export function initializeSearchIndex(places: Place[]): void {
 }
 
 export interface SearchResult {
-  place: Place
+  place: LibraryPlace
   score: number
 }
 

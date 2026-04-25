@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { withErrorHandling } from '@/lib/db-utils';
 import { bulkConfirmPlaces, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces } from '@/lib/db-mutations';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
@@ -100,6 +101,11 @@ export async function POST(request: NextRequest) {
         placeIds: uniquePlaceIds,
         error: error instanceof Error ? error.stack : error
       });
+    }
+
+    // Invalidate cached library stats — any of confirm/archive/restore/delete affects counts.
+    if (updatedCount > 0) {
+      revalidateTag(`library-stats:${user.id}`);
     }
 
     // Check if operation was partially successful

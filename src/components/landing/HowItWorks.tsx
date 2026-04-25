@@ -126,7 +126,7 @@ export default function HowItWorks() {
                                     transition={{ type: "spring", stiffness: 100, damping: 20 }}
                                 >
                                     <div className="relative w-full h-full overflow-hidden rounded-md bg-gray-100">
-                                        <Image src={src} alt="Dest" fill className="object-cover" />
+                                        <Image src={src} alt="Dest" fill sizes="192px" className="object-cover" />
                                     </div>
                                 </motion.div>
                             ))}
@@ -158,7 +158,7 @@ export default function HowItWorks() {
                                 transition={{ type: "spring", bounce: 0.5 }}
                             >
                                 <div className="w-full h-32 bg-gray-100 rounded-lg overflow-hidden relative mb-4">
-                                    <Image src={visuals[0]} alt="Cover" fill className="object-cover" />
+                                    <Image src={visuals[0]} alt="Cover" fill sizes="240px" className="object-cover" />
                                 </div>
                                 <div className="w-full space-y-2">
                                     <div className="h-2 w-3/4 bg-gray-200 rounded-full"></div>

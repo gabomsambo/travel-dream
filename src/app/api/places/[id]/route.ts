@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { z } from 'zod';
 import { getPlaceWithRelations } from '@/lib/db-queries';
 import { updatePlace, deletePlace } from '@/lib/db-mutations';
@@ -118,6 +119,9 @@ export async function PATCH(
 
     const updated = await updatePlace(id, validation.data, user.id);
 
+    // Invalidate cached library stats — status, visitStatus, or priority may have changed.
+    revalidateTag(`library-stats:${user.id}`);
+
     return NextResponse.json({
       status: 'success',
       place: updated,
@@ -160,6 +164,9 @@ export async function DELETE(
     const user = await requireAuthForApi();
     const { id } = await params;
     await deletePlace(id, user.id);
+
+    // Invalidate cached library stats — total + breakdown counts shrink.
+    revalidateTag(`library-stats:${user.id}`);
 
     return NextResponse.json({
       status: 'success',

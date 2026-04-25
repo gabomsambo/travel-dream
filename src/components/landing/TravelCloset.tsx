@@ -95,7 +95,7 @@ export default function TravelCloset() {
                                     className="absolute -top-4 md:-top-6 right-4 md:right-8 w-[180px] h-[180px] md:w-[220px] md:h-[220px] z-10 drop-shadow-2xl transition-all duration-700 group-hover:scale-110 group-hover:rotate-0"
                                     style={{ transform: `rotate(${item.rotate}deg)` }}
                                 >
-                                    <Image src={item.image} alt={item.title} fill className="object-contain" />
+                                    <Image src={item.image} alt={item.title} fill sizes="(max-width: 768px) 180px, 220px" className="object-contain" />
                                 </div>
 
                                 {/* Card */}

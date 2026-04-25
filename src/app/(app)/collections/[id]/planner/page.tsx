@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getCollectionWithPlaces } from '@/lib/db-queries';
 import { DayPlannerClient } from '@/components/day-planner/day-planner-client';
-import { auth } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth-helpers';
 
 interface PlannerPageProps {
   params: Promise<{ id: string }>;
@@ -10,11 +10,11 @@ interface PlannerPageProps {
 
 export async function generateMetadata({ params }: PlannerPageProps): Promise<Metadata> {
   const { id } = await params;
-  const session = await auth();
-  if (!session?.user?.id) {
+  const user = await getCurrentUser();
+  if (!user) {
     return { title: 'Day Planner | Travel Dreams' };
   }
-  const collection = await getCollectionWithPlaces(id, session.user.id);
+  const collection = await getCollectionWithPlaces(id, user.id);
 
   if (!collection) {
     return {
@@ -29,14 +29,13 @@ export async function generateMetadata({ params }: PlannerPageProps): Promise<Me
 }
 
 export default async function PlannerPage({ params }: PlannerPageProps) {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const user = await getCurrentUser();
+  if (!user) {
     return null;
   }
-  const userId = session.user.id;
 
   const { id } = await params;
-  const collection = await getCollectionWithPlaces(id, userId);
+  const collection = await getCollectionWithPlaces(id, user.id);
 
   if (!collection) {
     notFound();

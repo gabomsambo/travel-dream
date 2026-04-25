@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMapContext } from './map-context'
 import { AddressLink } from './address-link'
-import { getKindColor } from '@/lib/map-utils'
+import { getKindColor } from '@/lib/map-colors'
 import type { Attachment, PlaceWithRelations } from '@/types/database'
 
 const PhotoLightbox = dynamic(() =>

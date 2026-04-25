@@ -1,0 +1,101 @@
+{
+  "_doc": "Pre-optimization baseline. Captured before Tier 1 perf fixes. Re-measure after fixes land and store deltas.",
+  "capturedAt": "2026-04-25",
+  "nextVersion": "15.5.7",
+  "buildTimeMs": 26600,
+  "sharedBaselineKb": 102,
+  "middlewareKb": 162,
+  "routes": {
+    "/": { "selfKb": 19.3, "firstLoadKb": 171, "type": "static" },
+    "/inbox": { "selfKb": 15, "firstLoadKb": 184, "type": "dynamic" },
+    "/library": { "selfKb": 5.83, "firstLoadKb": 255, "type": "dynamic" },
+    "/archive": { "selfKb": 4.82, "firstLoadKb": 254, "type": "dynamic" },
+    "/collections": { "selfKb": 9.91, "firstLoadKb": 155, "type": "dynamic" },
+    "/collections/[id]": { "selfKb": 13.1, "firstLoadKb": 587, "type": "dynamic" },
+    "/collections/[id]/planner": { "selfKb": 23.3, "firstLoadKb": 614, "type": "dynamic" },
+    "/duplicates": { "selfKb": 12.9, "firstLoadKb": 166, "type": "dynamic" },
+    "/export": { "selfKb": 28, "firstLoadKb": 197, "type": "dynamic" },
+    "/login": { "selfKb": 2.64, "firstLoadKb": 157, "type": "static" },
+    "/map": { "selfKb": 20.5, "firstLoadKb": 631, "type": "dynamic" },
+    "/mass-upload": { "selfKb": 9.38, "firstLoadKb": 147, "type": "dynamic" },
+    "/place/[id]": { "selfKb": 23.1, "firstLoadKb": 201, "type": "dynamic" },
+    "/review": { "selfKb": 8.73, "firstLoadKb": 189, "type": "dynamic" },
+    "/settings": { "selfKb": 14.5, "firstLoadKb": 161, "type": "dynamic" },
+    "/signup": { "selfKb": 2.9, "firstLoadKb": 158, "type": "static" }
+  },
+  "largestStaticChunksBytes": [
+    { "name": "c36f3faa-03e57bfcfb671886.js", "bytes": 1624064, "likely": "mapbox-gl" },
+    { "name": "4bd1b696-100b9d70ed4e49c1.js", "bytes": 173025, "note": "shared chunk, 54.2 kB gz" },
+    { "name": "1255-642c76f13c20a3ec.js", "bytes": 172392, "note": "shared chunk, 45.5 kB gz" },
+    { "name": "3876-6a8d47022fbb9a7f.js", "bytes": 154761 },
+    { "name": "framework-b9fd9bcc3ecde907.js", "bytes": 139850, "likely": "react/next runtime" },
+    { "name": "main-18bea5f89d96cb9d.js", "bytes": 126153 },
+    { "name": "1075-b7060ead243db63f.js", "bytes": 115376 },
+    { "name": "polyfills-42372ed130431b0a.js", "bytes": 112594 }
+  ],
+  "confirmedHeavyLibsInClient": ["mapbox-gl", "framer-motion"],
+  "treeShakenOut": ["leaflet", "react-leaflet", "react-leaflet-cluster"],
+  "buildWarnings": [
+    "bcryptjs uses Node.js crypto/setImmediate not supported in Edge Runtime (auth.ts via middleware)"
+  ],
+  "analyzerReports": [
+    ".next/analyze/client.html",
+    ".next/analyze/nodejs.html",
+    ".next/analyze/edge.html"
+  ],
+  "knownObservations": [
+    "Library/archive sit at ~255 kB First Load — they render KindBadge → map-utils → mapbox-gl import; severing this is Tier 1 fix #1",
+    "Map routes (587-631 kB) correctly carry the mapbox-gl chunk; expected for those routes only",
+    "Leaflet correctly tree-shaken out of all client bundles despite being installed (dead code, safe to remove)",
+    "1.6MB single chunk c36f3faa is mapbox-gl JS — only loaded on map routes via dynamic()"
+  ],
+  "tier1FixesApplied": {
+    "appliedAt": "2026-04-25",
+    "changes": [
+      "Extracted color helpers to src/lib/map-colors.ts; KindBadge no longer transitively imports mapbox-gl",
+      "Deleted dead Leaflet code (place-map-view.tsx, place-map-internal.tsx); uninstalled 4 packages; cleaned next.config.js + globals.css",
+      "Lazy-loaded UploadDialog, AddPlaceDialog, CommandPalette via next/dynamic + conditional render"
+    ],
+    "routeDeltas": {
+      "/": 0, "/inbox": 2, "/library": 1, "/archive": 1,
+      "/collections": 1, "/collections/[id]": 0, "/collections/[id]/planner": 1,
+      "/duplicates": -1, "/export": 0, "/login": 0, "/map": 1,
+      "/mass-upload": 0, "/place/[id]": 1, "/review": 0, "/settings": 1, "/signup": 0
+    },
+    "sharedDelta": 1,
+    "interpretation": "Bundle deltas are within build noise (±2 kB). Next.js automatic chunking was already handling these cases. Fixes remain architecturally correct (decouple kind-badge from mapbox-gl, remove dead code, robust to future changes) but did not move First Load JS measurements. Real remaining wins: landing-page image optimization (LCP), hoisting 'use client' off static landing sections, and adding loading.tsx for perceived perf."
+  },
+  "tier3FixesApplied": {
+    "appliedAt": "2026-04-25",
+    "scope": "Library route — 1,000-place scale fixes per PRPs/library-perf-tier-1.md (server-side wins only; virtualization reverted)",
+    "changes": [
+      "Added searchLibraryPlaces with narrow column projection — drops 13 unused columns from /library SELECT (~470 B/row off RSC payload + Fuse index memory)",
+      "Parallelized library/page.tsx top-level awaits (Promise.all over places + stats); parallelized getLibraryStatsEnhanced internal queries",
+      "Wrapped getLibraryStatsEnhanced in unstable_cache with per-user tag library-stats:${userId}, revalidate 60s",
+      "Added revalidateTag(`library-stats:${userId}`) to bulk-actions, places/[id] PATCH+DELETE, merge, bulk-merge mutation routes",
+      "Stripped undefined coverUrl key from RSC payload (conditional spread)",
+      "Widened search-service.ts and PlaceCardV2 to accept LibraryPlace | Place (structural superset); PlaceListView made generic over T extends PlaceListItem"
+    ],
+    "reverted": [
+      "VirtualizedLibraryGrid (useWindowVirtualizer): scrollMargin computation via offsetTop was wrong for the page's nested layout, causing rows to stack on top of each other and blank gaps where rows didn't render. The math required for correct window-scroll virtualization (getBoundingClientRect-based offset measurement, plus re-measurement when above-grid content changes height) is fragile enough that the gain at current user scale didn't justify the regression risk. File deleted.",
+      "PlaceListView virtualization: same reason — reverted to plain <table>.",
+      "next/dynamic lazy-loads of grid + list view: only existed to offset the virtualizer bundle weight; with virtualization gone, static imports are fine."
+    ],
+    "routeDeltas": {
+      "/library": 0,
+      "/archive": 1
+    },
+    "sharedDelta": 0,
+    "measuredAt": "2026-04-25",
+    "measurements": {
+      "/library": { "selfKb": 5.74, "firstLoadKb": 256, "preTier3FirstLoadKb": 256, "budgetMaxKb": 260 },
+      "/archive": { "selfKb": 7.6, "firstLoadKb": 255, "preTier3FirstLoadKb": 254, "budgetMaxKb": 260 }
+    },
+    "interpretation": "First Load JS unchanged from pre-tier-3 baseline (/library 256 kB, /archive 255 kB) — both well under the 260 kB budget. The kept changes are entirely server-side: TTFB savings from Promise.all parallelization (~80–160 ms eliminated round trips), reduced RSC payload from narrow column projection (~470 B/row × N at 1,000 places ≈ 470 KB), and reduced DB load from per-user unstable_cache on stats. None of these are visible in First Load JS — verify via Server-Timing headers or DevTools network tab. Virtualization was attempted and reverted; if the library grows past ~2,000 places and grid render becomes visibly slow, revisit with a fresh implementation that uses getBoundingClientRect-based offset measurement.",
+    "knownLimitations": [
+      "next lint is interactive in this Next.js version (deprecation prompt); validation relied on tsc --noEmit + jest + build instead",
+      "unstable_cache is OFF in `npm run dev`; cache hits only verifiable in `npm run build && npm start` mode",
+      "use-virtual-grid scrollPerformance test is timing-flaky in full suite (passes in isolation); pre-existing issue, not caused by this PRP"
+    ]
+  }
+}

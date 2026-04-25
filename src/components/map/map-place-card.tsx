@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { KindBadge } from '@/components/ui/kind-badge'
 import type { MapPlace } from '@/types/map'
-import { getDayColor } from '@/lib/map-utils'
+import { getDayColor } from '@/lib/map-colors'
 
 interface MapPlaceCardProps {
   place: MapPlace

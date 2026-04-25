@@ -126,6 +126,14 @@ jest.mock('next/server', () => ({
   NextResponse: MockResponse
 }))
 
+// Mock next/cache — unstable_cache passes through (test the underlying query
+// directly), revalidateTag is a no-op spy. Individual tests can override.
+jest.mock('next/cache', () => ({
+  unstable_cache: (fn) => fn,
+  revalidateTag: jest.fn(),
+  revalidatePath: jest.fn(),
+}))
+
 // Suppress console warnings in tests
 const originalConsoleWarn = console.warn
 beforeEach(() => {

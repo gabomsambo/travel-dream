@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getCollectionWithPlaces } from '@/lib/db-queries';
 import { CollectionBuilder } from '@/components/collections/collection-builder';
-import { auth } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth-helpers';
 
 interface CollectionPageProps {
   params: Promise<{ id: string }>;
@@ -10,11 +10,11 @@ interface CollectionPageProps {
 
 export async function generateMetadata({ params }: CollectionPageProps): Promise<Metadata> {
   const { id } = await params;
-  const session = await auth();
-  if (!session?.user?.id) {
+  const user = await getCurrentUser();
+  if (!user) {
     return { title: 'Collection | Travel Dreams' };
   }
-  const collection = await getCollectionWithPlaces(id, session.user.id);
+  const collection = await getCollectionWithPlaces(id, user.id);
 
   if (!collection) {
     return {
@@ -29,14 +29,13 @@ export async function generateMetadata({ params }: CollectionPageProps): Promise
 }
 
 export default async function CollectionPage({ params }: CollectionPageProps) {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const user = await getCurrentUser();
+  if (!user) {
     return null;
   }
-  const userId = session.user.id;
 
   const { id } = await params;
-  const collection = await getCollectionWithPlaces(id, userId);
+  const collection = await getCollectionWithPlaces(id, user.id);
 
   if (!collection) {
     notFound();

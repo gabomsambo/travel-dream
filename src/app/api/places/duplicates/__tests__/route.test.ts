@@ -298,7 +298,7 @@ describe('/api/places/duplicates', () => {
     })
 
     it('validates limit parameter', async () => {
-      const url = new URL('http://localhost:3000/api/places/duplicates?mode=batch&limit=2000')
+      const url = new URL('http://localhost:3000/api/places/duplicates?mode=batch&limit=6000')
       const request = new NextRequest(url)
 
       const response = await GET(request)

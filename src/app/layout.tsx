@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter, Plus_Jakarta_Sans } from 'next/font/google'
 import { cn } from '@/lib/utils'
 import { Providers } from '@/components/providers'
+import { Analytics } from '@vercel/analytics/next'
 import '@/styles/globals.css'
 
 const inter = Inter({
@@ -39,6 +40,7 @@ export default function RootLayout({
         <Providers>
           {children}
         </Providers>
+        <Analytics />
       </body>
     </html>
   )

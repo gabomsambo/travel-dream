@@ -2,9 +2,12 @@
 
 import { useState, useCallback, useOptimistic, useEffect, startTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { formatDistanceToNow } from 'date-fns';
+import { RefreshCw, AlertCircle } from 'lucide-react';
 import { DuplicateClusterCard } from './duplicate-cluster-card';
 import { DuplicateReviewToolbar } from './duplicate-review-toolbar';
 import { Accordion } from '@/components/ui-v2/accordion';
+import { Button } from '@/components/ui-v2/button';
 import { toast } from 'sonner';
 import { recommendMergeTarget, computeMergedPlace } from '@/lib/duplicate-target-selector';
 import type { Place } from '@/types/database';
@@ -17,6 +20,8 @@ interface DuplicateCluster {
 
 interface DuplicatesPageClientProps {
   initialData: DuplicateCluster[];
+  fetchedAt: string | null;
+  fetchError: string | null;
 }
 
 type ClusterAction =
@@ -33,7 +38,16 @@ function clusterReducer(state: DuplicateCluster[], action: ClusterAction): Dupli
   }
 }
 
-export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps) {
+function formatLastScanned(isoString: string | null): string {
+  if (!isoString) return 'Not yet scanned';
+  try {
+    return `Last scanned ${formatDistanceToNow(new Date(isoString), { addSuffix: true })}`;
+  } catch {
+    return 'Last scan time unknown';
+  }
+}
+
+export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: DuplicatesPageClientProps) {
   const router = useRouter();
   const [clusters, setOptimisticClusters] = useOptimistic(initialData, clusterReducer);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -260,6 +274,24 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
     }
   }, [clusters, selected.size, clearSelection, router]);
 
+  const handleRescan = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // Clear the API in-process cache, then re-run the server fetch via router.refresh()
+      const cacheClearRes = await fetch('/api/places/duplicates', { method: 'DELETE' });
+      if (!cacheClearRes.ok) {
+        throw new Error('Failed to clear scan cache');
+      }
+      router.refresh();
+      toast.success('Library rescanned');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Rescan failed');
+      console.error('[Rescan] Failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
+
   const handleBulkDismiss = useCallback(async () => {
     const clustersToDismiss = selected.size > 0
       ? clusters.filter(c => selected.has(c.cluster_id))
@@ -380,6 +412,26 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
 
   return (
     <div className="flex flex-col h-full">
+      {fetchError ? (
+        <div className="border-b bg-red-50 dark:bg-red-950/30 px-4 py-2 text-sm text-red-800 dark:text-red-200 flex items-center justify-between gap-4">
+          <span className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            <span>Scan failed: {fetchError}</span>
+          </span>
+          <Button size="sm" variant="outline" onClick={handleRescan} disabled={isLoading}>
+            {isLoading ? 'Retrying…' : 'Retry'}
+          </Button>
+        </div>
+      ) : (
+        <div className="border-b px-4 py-2 text-xs text-muted-foreground flex items-center justify-between gap-4">
+          <span>{formatLastScanned(fetchedAt)}</span>
+          <Button size="sm" variant="outline" onClick={handleRescan} disabled={isLoading}>
+            <RefreshCw className={`h-3 w-3 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
+            {isLoading ? 'Rescanning…' : 'Rescan'}
+          </Button>
+        </div>
+      )}
+
       <DuplicateReviewToolbar
         selectedCount={selected.size}
         totalCount={clusters.length}
@@ -390,7 +442,13 @@ export function DuplicatesPageClient({ initialData }: DuplicatesPageClientProps)
       />
 
       <div className="flex-1 overflow-auto p-4">
-        {clusters.length === 0 ? (
+        {fetchError ? (
+          <div className="text-center text-muted-foreground py-12">
+            <AlertCircle className="mx-auto h-12 w-12 mb-4 text-red-500/60" />
+            <h3 className="text-lg font-medium mb-2">Could not load duplicates</h3>
+            <p className="text-sm">{fetchError}</p>
+          </div>
+        ) : clusters.length === 0 ? (
           <div className="text-center text-muted-foreground py-12">
             <div className="text-4xl mb-4">🎉</div>
             <h3 className="text-lg font-medium mb-2">No duplicate clusters found</h3>

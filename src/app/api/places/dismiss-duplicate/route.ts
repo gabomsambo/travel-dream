@@ -41,14 +41,16 @@ export async function POST(request: NextRequest) {
 
     const { pairs, reason } = validation.data;
 
-    // Create bidirectional dismiss entries
+    // Create bidirectional dismiss entries (scoped to current user)
     const inserts = pairs.flatMap(({ placeId1, placeId2 }) => [
       {
+        userId: user.id,
         placeId1,
         placeId2,
         reason: reason || null,
       },
       {
+        userId: user.id,
         placeId1: placeId2,
         placeId2: placeId1,
         reason: reason || null,
@@ -103,18 +105,21 @@ export async function DELETE(request: NextRequest) {
 
     const { pairs } = validation.data;
 
-    // Delete both directions for each pair
+    // Delete both directions for each pair (scoped to current user)
     for (const { placeId1, placeId2 } of pairs) {
       await db.delete(dismissedDuplicates)
         .where(
-          or(
-            and(
-              eq(dismissedDuplicates.placeId1, placeId1),
-              eq(dismissedDuplicates.placeId2, placeId2)
-            ),
-            and(
-              eq(dismissedDuplicates.placeId1, placeId2),
-              eq(dismissedDuplicates.placeId2, placeId1)
+          and(
+            eq(dismissedDuplicates.userId, user.id),
+            or(
+              and(
+                eq(dismissedDuplicates.placeId1, placeId1),
+                eq(dismissedDuplicates.placeId2, placeId2)
+              ),
+              and(
+                eq(dismissedDuplicates.placeId1, placeId2),
+                eq(dismissedDuplicates.placeId2, placeId1)
+              )
             )
           )
         );
@@ -146,7 +151,8 @@ export async function DELETE(request: NextRequest) {
 export async function GET() {
   try {
     const user = await requireAuthForApi();
-    const dismissed = await db.select().from(dismissedDuplicates);
+    const dismissed = await db.select().from(dismissedDuplicates)
+      .where(eq(dismissedDuplicates.userId, user.id));
 
     return NextResponse.json({
       status: 'success',

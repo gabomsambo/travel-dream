@@ -22,7 +22,7 @@ export const maxDuration = 120; // 2 minutes for duplicate detection
 const DuplicateQuerySchema = z.object({
   placeId: z.string().nullable().optional(),
   status: z.enum(['inbox', 'library', 'archived']).nullable().optional(),
-  limit: z.coerce.number().min(1).max(1000).default(100),
+  limit: z.coerce.number().min(1).max(5000).default(1000),
   minConfidence: z.coerce.number().min(0).max(1).default(0.6),
   includeReasoning: z.coerce.boolean().default(true),
   mode: z.enum(['single', 'batch', 'clusters']).default('single')
@@ -69,8 +69,9 @@ function getCache(key: string): any | null {
   return cached.data;
 }
 
-async function getDismissedPairsSet(): Promise<Set<string>> {
-  const dismissed = await db.select().from(dismissedDuplicates);
+async function getDismissedPairsSet(userId: string): Promise<Set<string>> {
+  const dismissed = await db.select().from(dismissedDuplicates)
+    .where(eq(dismissedDuplicates.userId, userId));
   const dismissedSet = new Set<string>();
 
   for (const d of dismissed) {
@@ -164,7 +165,7 @@ export async function GET(request: NextRequest) {
       : DEFAULT_DETECTION_CONFIG;
 
     // Check cache first
-    const cacheKey = getCacheKey({ placeId, status, limit, config, mode });
+    const cacheKey = getCacheKey({ userId: user.id, placeId, status, limit, config, mode });
     const cachedResult = getCache(cacheKey);
     if (cachedResult) {
       return NextResponse.json({
@@ -189,9 +190,11 @@ export async function GET(request: NextRequest) {
           );
         }
 
-        // Get target place
+        // Get target place (scoped to current user)
         const targetPlace = await withErrorHandling(async () => {
-          return await db.select().from(places).where(eq(places.id, placeId)).limit(1);
+          return await db.select().from(places)
+            .where(and(eq(places.id, placeId), eq(places.userId, user.id)))
+            .limit(1);
         }, 'getTargetPlace');
 
         if (!targetPlace || targetPlace.length === 0) {
@@ -205,15 +208,19 @@ export async function GET(request: NextRequest) {
           );
         }
 
-        // Get candidate places (excluding target)
+        // Get candidate places (excluding target, scoped to current user)
         const candidates = await withErrorHandling(async () => {
-          const whereConditions = status
-            ? and(ne(places.id, placeId), eq(places.status, status))
-            : ne(places.id, placeId);
+          const conditions = [
+            ne(places.id, placeId),
+            eq(places.userId, user.id),
+          ];
+          if (status) {
+            conditions.push(eq(places.status, status));
+          }
 
           return await db.select()
             .from(places)
-            .where(whereConditions)
+            .where(and(...conditions))
             .limit(limit);
         }, 'getCandidatePlaces');
 
@@ -253,15 +260,15 @@ export async function GET(request: NextRequest) {
       }
 
       case 'batch': {
-        // Get places for batch processing
+        // Get places for batch processing (scoped to current user)
         const targetPlaces = await withErrorHandling(async () => {
-          const query = db.select().from(places);
-
+          const conditions = [eq(places.userId, user.id)];
           if (status) {
-            query.where(eq(places.status, status));
+            conditions.push(eq(places.status, status));
           }
-
-          return await query.limit(limit);
+          return await db.select().from(places)
+            .where(and(...conditions))
+            .limit(limit);
         }, 'getBatchPlaces');
 
         if (targetPlaces.length === 0) {
@@ -330,17 +337,18 @@ export async function GET(request: NextRequest) {
       }
 
       case 'clusters': {
-        // Get places for cluster analysis (exclude archived by default)
+        // Get places for cluster analysis (scoped to current user; exclude archived by default)
         const targetPlaces = await withErrorHandling(async () => {
+          const userFilter = eq(places.userId, user.id);
           if (status) {
             // If specific status requested, use that
             return await db.select().from(places)
-              .where(eq(places.status, status))
+              .where(and(eq(places.status, status), userFilter))
               .limit(limit);
           } else {
             // Default: exclude archived places
             return await db.select().from(places)
-              .where(ne(places.status, 'archived'))
+              .where(and(ne(places.status, 'archived'), userFilter))
               .limit(limit);
           }
         }, 'getClusterPlaces');
@@ -366,8 +374,8 @@ export async function GET(request: NextRequest) {
         // Find clusters with configurable confidence threshold
         const allClusters = findDuplicateClusters(duplicateResults, 2, minConfidence);
 
-        // Filter out dismissed clusters
-        const dismissedSet = await getDismissedPairsSet();
+        // Filter out dismissed clusters (scoped to current user)
+        const dismissedSet = await getDismissedPairsSet(user.id);
         const clusters = filterDismissedClusters(allClusters, dismissedSet);
 
         const response = {

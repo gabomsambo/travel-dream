@@ -111,7 +111,7 @@ export function MapPlaceDetails() {
               hasGooglePlaceId={Boolean(place.googlePlaceId)}
               variant="icon-only"
               buttonVariant="ghost"
-              className="h-9 w-9 rounded-md shadow-none"
+              className="h-9 px-2 rounded-md shadow-none"
               onAttached={() => {
                 if (selectedPlaceId) {
                   fetch(`/api/places/${selectedPlaceId}`)

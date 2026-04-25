@@ -40,7 +40,7 @@ export function FindImageButton({
         type="button"
         variant={buttonVariant ?? 'secondary'}
         size={size ?? 'icon'}
-        className={cn('h-8 w-8 rounded-full shadow-md', className)}
+        className={cn('h-8 px-2 gap-1 rounded-full shadow-md', className)}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -48,7 +48,8 @@ export function FindImageButton({
         }}
         title="Find an image"
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="size-6" />
+        <ImageIcon className="size-6" />
         <span className="sr-only">Find image</span>
       </Button>
     ) : (

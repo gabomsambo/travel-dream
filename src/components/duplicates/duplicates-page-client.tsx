@@ -282,6 +282,10 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       if (!cacheClearRes.ok) {
         throw new Error('Failed to clear scan cache');
       }
+      // router.refresh() is fire-and-forget — no Promise to await.
+      // setIsLoading(false) below clears the spinner before the new server data
+      // lands on screen (~300-800ms gap). Acceptable given Next.js App Router
+      // constraints; the toast confirms the request succeeded.
       router.refresh();
       toast.success('Library rescanned');
     } catch (error) {

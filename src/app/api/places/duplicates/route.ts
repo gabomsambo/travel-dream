@@ -439,14 +439,24 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE() {
-  // Clear duplicate detection cache
-  duplicateCache.clear();
+  try {
+    // Auth guard: prevent unauthenticated cache-flush DoS that would force
+    // full re-detection for every active user simultaneously.
+    await requireAuthForApi();
 
-  return NextResponse.json({
-    status: 'success',
-    message: 'Duplicate detection cache cleared',
-    timestamp: new Date().toISOString(),
-  });
+    duplicateCache.clear();
+
+    return NextResponse.json({
+      status: 'success',
+      message: 'Duplicate detection cache cleared',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    throw error;
+  }
 }
 
 export async function OPTIONS() {
@@ -466,7 +476,7 @@ export async function OPTIONS() {
       parameters: {
         placeId: 'string (required for single mode)',
         status: 'inbox | library | archived (filter places by status)',
-        limit: 'number (1-1000, default: 100)',
+        limit: 'number (1-5000, default: 1000)',
         minConfidence: 'number (0-1, default: 0.6)',
         includeReasoning: 'boolean (default: true)',
         mode: 'single | batch | clusters (default: single)',

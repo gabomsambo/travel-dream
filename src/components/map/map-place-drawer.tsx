@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { X, ExternalLink, MapPin, Clock, Globe, Phone, Mail } from 'lucide-react'
+import { X, ExternalLink, Clock, Globe, Phone, Mail } from 'lucide-react'
 import Link from 'next/link'
 import {
   Sheet,
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMapContext } from './map-context'
+import { AddressLink } from './address-link'
 import { getKindColor } from '@/lib/map-utils'
 import type { PlaceWithRelations } from '@/types/database'
 
@@ -109,12 +110,7 @@ export function MapPlaceDrawer() {
                   </div>
                 )}
 
-                {place.address && (
-                  <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">{place.address}</p>
-                  </div>
-                )}
+                <AddressLink place={place} />
 
                 {place.website && (
                   <div className="flex items-center gap-2">

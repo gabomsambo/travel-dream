@@ -23,19 +23,9 @@ export function ItineraryMap({
     [places]
   );
 
-  if (placesWithCoords.length === 0) {
-    return (
-      <Card className="h-full flex items-center justify-center bg-muted/20">
-        <div className="text-center space-y-2 p-8">
-          <MapPin className="h-12 w-12 text-muted-foreground/50 mx-auto" />
-          <p className="text-sm text-muted-foreground">
-            Add places with coordinates to see the map
-          </p>
-        </div>
-      </Card>
-    );
-  }
-
+  // Both useMemo calls must run before any early return, or the hook count
+  // changes between renders (2 hooks with coords, 1 without) and React throws
+  // "Rendered fewer hooks than expected" when a collection crosses that boundary.
   const bounds = useMemo(() => {
     const lats = placesWithCoords.map((p) => p.coords!.lat);
     const lngs = placesWithCoords.map((p) => p.coords!.lon);
@@ -54,6 +44,19 @@ export function ItineraryMap({
       maxLng: maxLng + lngPadding,
     };
   }, [placesWithCoords]);
+
+  if (placesWithCoords.length === 0) {
+    return (
+      <Card className="h-full flex items-center justify-center bg-muted/20">
+        <div className="text-center space-y-2 p-8">
+          <MapPin className="h-12 w-12 text-muted-foreground/50 mx-auto" />
+          <p className="text-sm text-muted-foreground">
+            Add places with coordinates to see the map
+          </p>
+        </div>
+      </Card>
+    );
+  }
 
   const mapToSVG = (lat: number, lng: number) => {
     const padding = 50;

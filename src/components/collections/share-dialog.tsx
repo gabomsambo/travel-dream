@@ -137,7 +137,7 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
         <DialogHeader>
           <DialogTitle>Share Collection</DialogTitle>
           <DialogDescription>
-            Share "{collection.name}" with others or export to different formats
+            Share &quot;{collection.name}&quot; with others or export to different formats
           </DialogDescription>
         </DialogHeader>
 

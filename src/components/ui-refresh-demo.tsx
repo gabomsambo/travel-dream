@@ -30,7 +30,7 @@ export function UIRefreshDemo() {
         </CardHeaderV2>
         <CardContentV2 className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            You're seeing the new UI with warm tropical colors, enhanced spacing, and refined components.
+            You&apos;re seeing the new UI with warm tropical colors, enhanced spacing, and refined components.
           </p>
           <div className="flex gap-2">
             <ButtonV2>Primary Action</ButtonV2>
@@ -53,7 +53,7 @@ export function UIRefreshDemo() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          You're seeing the classic UI. Enable Tropical Boutique UI in Settings to see the new design.
+          You&apos;re seeing the classic UI. Enable Tropical Boutique UI in Settings to see the new design.
         </p>
         <div className="flex gap-2">
           <Button>Primary Action</Button>

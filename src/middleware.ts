@@ -9,7 +9,11 @@ import {
 
 export default auth(async (req) => {
   const { pathname } = req.nextUrl;
-  const isLoggedIn = !!req.auth;
+  // Check a concrete user property, not just `req.auth` existence: an Auth.js
+  // config error surfaces as a truthy error-shaped auth object, which would
+  // make a bare `!!req.auth` check fail open (GHSA-8fpg-xm3f-6cx3). Mirrors
+  // the same check used by getCurrentUser() in lib/auth-helpers.
+  const isLoggedIn = !!req.auth?.user?.id;
 
   const isStaticOrApi =
     pathname.startsWith('/_next') ||

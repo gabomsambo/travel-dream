@@ -769,7 +769,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
             </AlertDialogHeader>
 
             <div className="my-4">
-              <Label htmlFor="confirm-text">Type "confirm" to proceed:</Label>
+              <Label htmlFor="confirm-text">Type &quot;confirm&quot; to proceed:</Label>
               <Input
                 id="confirm-text"
                 value={confirmText}

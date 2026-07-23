@@ -55,7 +55,7 @@ export default function Hero() {
                     transition={{ duration: 0.8, delay: 0.2 }}
                     className="text-xl md:text-2xl text-landing-secondary max-w-2xl mx-auto mb-10"
                 >
-                    Don't let them fade in your camera roll. <br />
+                    Don&apos;t let them fade in your camera roll. <br />
                     <span className="font-semibold text-landing-primary">Capture the excitement. Plan the adventure.</span>
                 </motion.p>
 

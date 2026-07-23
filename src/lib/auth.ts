@@ -1,13 +1,20 @@
 import NextAuth from 'next-auth';
 import { DrizzleAdapter } from '@auth/drizzle-adapter';
-import Google from 'next-auth/providers/google';
 import Credentials from 'next-auth/providers/credentials';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { db } from '@/db';
 import { users, accounts, sessions, verificationTokens } from '@/db/schema';
 import type { Adapter } from 'next-auth/adapters';
+import { authConfig } from './auth.config';
 
+/**
+ * Full server-side NextAuth config: the edge-safe base from auth.config.ts plus
+ * everything that needs a database.
+ *
+ * Do NOT import this from middleware — it pulls in Drizzle, libSQL and bcrypt.
+ * Middleware builds its own instance from `authConfig` alone. See auth.config.ts.
+ */
 const adapter = DrizzleAdapter(db, {
   usersTable: users,
   accountsTable: accounts,
@@ -16,19 +23,13 @@ const adapter = DrizzleAdapter(db, {
 }) as Adapter;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
   adapter,
-  session: { strategy: 'jwt' },
-  pages: {
-    signIn: '/login',
-    signOut: '/',
-    error: '/login',
-  },
   providers: [
-    Google({
-      clientId: process.env.AUTH_GOOGLE_ID!,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET!,
-      allowDangerousEmailAccountLinking: true,
-    }),
+    ...authConfig.providers,
+    // Credentials lives here rather than in the edge config: `authorize` queries
+    // the database and runs bcrypt. It is only ever invoked by the /api/auth
+    // route handler in the Node runtime, never by middleware.
     Credentials({
       name: 'credentials',
       credentials: {
@@ -73,21 +74,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user, account }) {
-      if (user) {
-        token.id = user.id;
-      }
-      if (account) {
-        token.provider = account.provider;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user && token.id) {
-        session.user.id = token.id as string;
-      }
-      return session;
-    },
+    ...authConfig.callbacks,
+    // Backfills a Google avatar onto an existing account. Needs the database, so
+    // it stays out of the edge config.
     async signIn({ user, account }) {
       if (account?.provider === 'google' && user.email) {
         const [existingUser] = await db
@@ -111,6 +100,4 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       console.log(`New user created: ${user.email}`);
     },
   },
-  trustHost: true,
-  secret: process.env.AUTH_SECRET,
 });

@@ -1,4 +1,5 @@
-import { auth } from '@/lib/auth';
+import NextAuth from 'next-auth';
+import { authConfig } from '@/lib/auth.config';
 import { NextResponse } from 'next/server';
 import {
   checkRateLimit,
@@ -6,6 +7,12 @@ import {
   getRouteTier,
   rateLimitResponse,
 } from '@/lib/rate-limit';
+
+// Build a middleware-only NextAuth instance from the edge-safe config. Importing
+// `auth` from '@/lib/auth' instead would pull Drizzle, libSQL and bcrypt into the
+// bundle that runs on every request. The adapter is not needed here: the session
+// strategy is JWT, so middleware only ever decodes the token.
+const { auth } = NextAuth(authConfig);
 
 export default auth(async (req) => {
   const { pathname } = req.nextUrl;

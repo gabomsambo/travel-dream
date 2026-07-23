@@ -165,8 +165,11 @@ export class FileStorageService {
       const thumbnailPath = path.join(this.thumbnailsDir, thumbnailFileName);
       const publicThumbnailPath = `/uploads/thumbnails/${thumbnailFileName}`;
 
-      // Try with different Sharp options for HEIC
-      await sharp(buffer, { failOnError: false })
+      // Try with different Sharp options for HEIC. `failOn: 'none'` replaces the
+      // removed `failOnError: false` (sharp 0.35) — same intent: tolerate partially
+      // corrupt HEIC input rather than throw, since the catch below already falls
+      // back to no thumbnail.
+      await sharp(buffer, { failOn: 'none' })
         .resize(this.config.thumbnailSize.width, this.config.thumbnailSize.height, {
           fit: 'cover',
           position: 'center',

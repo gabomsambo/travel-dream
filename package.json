@@ -106,7 +106,7 @@
     "react-map-gl": "^8.1.0",
     "react-resizable-panels": "^3.0.6",
     "recharts": "^3.5.1",
-    "sharp": "^0.34.4",
+    "sharp": "^0.35.3",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.3.0",
     "tesseract.js": "^6.0.1",
@@ -143,6 +143,6 @@
     "typescript": "^5.0.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "22.x"
   }
 }

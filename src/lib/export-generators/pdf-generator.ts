@@ -1,13 +1,15 @@
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import type { Place } from '@/types/database';
 import type { FieldDefinition } from '@/types/export';
 import type { DayBucket } from '@/types/database';
 import { flattenPlace } from '../export-utils';
 
+// jspdf-autotable v5 is invoked functionally as autoTable(doc, options) rather
+// than as a doc.autoTable() prototype method, but it still stashes the table it
+// just drew on the document so callers can pick up where it finished.
 declare module 'jspdf' {
   interface jsPDF {
-    autoTable: (options: any) => jsPDF;
     lastAutoTable?: {
       finalY: number;
     };
@@ -115,7 +117,7 @@ function addPlacesTable(
     });
   });
 
-  doc.autoTable({
+  autoTable(doc, {
     head: [headers],
     body,
     startY,

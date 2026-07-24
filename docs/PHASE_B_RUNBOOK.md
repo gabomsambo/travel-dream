@@ -244,11 +244,17 @@ become ordinary migrations once the ledger is reconciled:
 
 ## 9. Keeping drift from coming back
 
+This section is the standing rule set for anyone — human or agent — changing the schema.
+
+- Schema changes go through Drizzle, always: edit `src/db/schema/**`, then
+  `npm run db:generate` to produce a migration, then `npm run db:migrate` to apply it.
 - Never run `drizzle-kit push` (`npm run db:push`) against a shared database. It rebuilds
   tables to match code without writing a migration file — the original cause of this drift.
   The `apply-schema.sh` helper that piped a blind "Yes" into it has been deleted.
 - Never write DDL to the database outside Drizzle. The scripts that used to do this are
   parked in `scripts/archive/` with a README explaining why not to run them.
+- `merge_logs.undon_at` is misspelled in production and the schema mirrors it **on purpose**.
+  Do not "fix" it in passing; it is a separate migration (see section 8).
 - `node scripts/verify-baseline-schema.mjs` is the drift check: it replays the journal into a
   throwaway SQLite file and compares it against the reference. `drizzle-kit generate` cannot
   catch this class of bug on its own, because it only compares schema code against the

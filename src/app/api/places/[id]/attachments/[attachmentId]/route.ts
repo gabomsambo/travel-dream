@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { attachments } from '@/db/schema';
+import { attachments, places } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { unlink } from 'fs/promises';
@@ -15,14 +15,21 @@ export async function DELETE(
     const user = await requireAuthForApi();
     const { id: placeId, attachmentId } = await params;
 
-    // Get the attachment to find the file paths
+    // Get the attachment to find the file paths. Join through `places` so the
+    // caller can only ever read/delete an attachment on a place they own.
     const [attachment] = await db
-      .select()
+      .select({
+        id: attachments.id,
+        uri: attachments.uri,
+        thumbnailUri: attachments.thumbnailUri,
+      })
       .from(attachments)
+      .innerJoin(places, eq(attachments.placeId, places.id))
       .where(
         and(
           eq(attachments.id, attachmentId),
-          eq(attachments.placeId, placeId)
+          eq(attachments.placeId, placeId),
+          eq(places.userId, user.id)
         )
       )
       .limit(1);

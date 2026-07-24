@@ -5,6 +5,7 @@ import { uploadSessions } from '@/db/schema';
 import { db } from '@/db';
 import { eq, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { isAllowedBlobUrl, BLOB_URL_REJECTED_MESSAGE } from '@/lib/blob-url';
 
 export const runtime = 'nodejs';
 
@@ -29,13 +30,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Pin the caller-supplied URL to the blob store before it is stored
+    if (!isAllowedBlobUrl(blobUrl)) {
+      return NextResponse.json(
+        { status: 'error', message: BLOB_URL_REJECTED_MESSAGE },
+        { status: 400 }
+      );
+    }
+
     const sourceId = generateSourceId();
 
-    // Validate/create session
+    // Validate/create session. An existing session must belong to the caller —
+    // otherwise this appends the caller's uploads to another user's session.
     let session = await db.select()
       .from(uploadSessions)
       .where(eq(uploadSessions.id, sessionId))
       .get();
+
+    if (session && session.userId !== user.id) {
+      return NextResponse.json(
+        { status: 'error', message: 'Forbidden' },
+        { status: 403 }
+      );
+    }
 
     if (!session) {
       const newSession = {

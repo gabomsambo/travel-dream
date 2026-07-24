@@ -129,6 +129,23 @@ npm run db:studio       # visual DB browser (port 4983)
 least `TURSO_DATABASE_URL` it fails during "Collecting page data", which looks
 like a code error but is not. `npx tsc --noEmit` and `npm run test` need no env.
 
+## Multi-Tenancy (security-critical)
+
+Every user-owned table carries a `userId` (`places`, `sources`, `collections`, `uploadSessions`, and
+`attachments` transitively via `places.placeId`). **Authentication is not authorization**: any handler
+that reads or writes a row by a caller-supplied id must also filter on the caller's `user.id`, or join
+through `places` when the row is only owned transitively.
+
+- Ownership-scoped read: `src/app/api/photos/resolve/[attachmentId]/route.ts`
+- Session ownership check (404 then 403): `src/app/api/mass-upload/start/route.ts`
+- Regression tests for both shapes: `src/__tests__/authorization/`
+
+Client-supplied URLs the server will fetch or persist must pass `isAllowedBlobUrl()`
+(`src/lib/blob-url.ts`) first — `sources.uri` is re-fetched later by the privileged cron.
+
+Client IP for rate limiting comes only from platform-set headers (see `getClientIdentifier` in
+`src/lib/rate-limit.ts`); this app is on Vercel, so `cf-connecting-ip`/`x-real-ip` are spoofable.
+
 ## Anti-Patterns
 
 - Don't create new patterns when existing ones work — check similar features first

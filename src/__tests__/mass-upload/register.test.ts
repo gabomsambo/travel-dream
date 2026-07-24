@@ -66,7 +66,7 @@ function createRegisterRequest(body: Record<string, unknown>) {
 
 const validBody = {
   sessionId: 'session_test-1',
-  blobUrl: 'https://blob.vercel-storage.com/test-image.jpg',
+  blobUrl: 'https://teststore.public.blob.vercel-storage.com/test-image.jpg',
   originalName: 'photo.jpg',
   fileSize: 1024000,
   mimeType: 'image/jpeg',
@@ -206,7 +206,7 @@ describe('POST /api/mass-upload/register', () => {
     // 3. Duplicate detection returns existing source from same session
     const existingSource = {
       id: 'src_existing',
-      uri: 'https://blob.vercel-storage.com/existing.jpg',
+      uri: 'https://teststore.public.blob.vercel-storage.com/existing.jpg',
       meta: { uploadInfo: { sessionId: validBody.sessionId } },
       processingStatus: 'uploaded',
     };

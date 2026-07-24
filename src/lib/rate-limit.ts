@@ -92,9 +92,13 @@ function getLimiter(tier: RateLimitTier): Ratelimit | null {
 export function getClientIdentifier(request: NextRequest, userId?: string): string {
   if (userId) return `user:${userId}`;
 
+  // This app runs on Vercel, which sets (and overwrites) `x-vercel-forwarded-for`
+  // and `x-forwarded-for` on every inbound request. Any other client-IP header
+  // (`cf-connecting-ip`, `x-real-ip`, ...) is attacker-controlled here and must
+  // not be trusted — trusting one lets a caller mint a fresh identifier per
+  // request and bypass every unauthenticated limit.
   const ip =
-    request.headers.get('cf-connecting-ip') ||
-    request.headers.get('x-real-ip') ||
+    request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     'unknown';
 

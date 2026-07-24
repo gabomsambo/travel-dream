@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { attachments } from '@/db/schema';
+import { attachments, places } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
@@ -11,6 +11,28 @@ export async function PUT(
   try {
     const user = await requireAuthForApi();
     const { id: placeId, attachmentId } = await params;
+
+    // Verify the attachment belongs to a place owned by the caller before any
+    // write — otherwise this clears `isPrimary` across another user's place.
+    const owned = await db
+      .select({ id: attachments.id })
+      .from(attachments)
+      .innerJoin(places, eq(attachments.placeId, places.id))
+      .where(
+        and(
+          eq(attachments.id, attachmentId),
+          eq(attachments.placeId, placeId),
+          eq(places.userId, user.id)
+        )
+      )
+      .limit(1);
+
+    if (owned.length === 0) {
+      return NextResponse.json(
+        { error: 'Attachment not found' },
+        { status: 404 }
+      );
+    }
 
     await db.transaction(async (tx) => {
       // Clear existing primary for this place

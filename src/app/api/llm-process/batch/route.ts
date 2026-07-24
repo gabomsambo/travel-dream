@@ -74,9 +74,14 @@ export async function POST(request: NextRequest) {
     if (sessionIds && sessionIds.length > 0) {
       // Process specific sessions
       sourcesToProcess = await withErrorHandling(async () => {
+        // Only the caller's own sessions — an unscoped `inArray` would let a
+        // caller process (and re-file) another user's uploads.
         const sessions = await db.select()
           .from(uploadSessions)
-          .where(inArray(uploadSessions.id, sessionIds));
+          .where(and(
+            inArray(uploadSessions.id, sessionIds),
+            eq(uploadSessions.userId, user.id)
+          ));
 
         const allUploadedFiles = sessions.flatMap(session =>
           session.meta?.uploadedFiles || []
@@ -88,7 +93,10 @@ export async function POST(request: NextRequest) {
 
         return await db.select()
           .from(sources)
-          .where(inArray(sources.id, allUploadedFiles));
+          .where(and(
+            inArray(sources.id, allUploadedFiles),
+            eq(sources.userId, user.id)
+          ));
       }, 'getSourcesFromSessions');
     } else {
       // Get sources based on priority mode
@@ -376,6 +384,7 @@ export async function GET(request: NextRequest) {
     const sessionSources = await withErrorHandling(async () => {
       const sessions = await db.select()
         .from(uploadSessions)
+        .where(eq(uploadSessions.userId, user.id))
         .orderBy(desc(uploadSessions.startedAt))
         .limit(10);
 

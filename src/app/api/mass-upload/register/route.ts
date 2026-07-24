@@ -7,6 +7,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { withTransaction, generateSourceId } from '@/lib/db-utils';
+import { isAllowedBlobUrl, BLOB_URL_REJECTED_MESSAGE } from '@/lib/blob-url';
 import { del } from '@vercel/blob';
 
 export const runtime = 'nodejs';
@@ -32,6 +33,14 @@ export async function POST(request: NextRequest) {
       );
     }
     const { sessionId, blobUrl, originalName, fileSize, mimeType } = parsed.data;
+
+    // Pin the caller-supplied URL to the blob store before it is fetched or stored
+    if (!isAllowedBlobUrl(blobUrl)) {
+      return NextResponse.json(
+        { status: 'error', message: BLOB_URL_REJECTED_MESSAGE },
+        { status: 400 }
+      );
+    }
 
     // Verify session exists and belongs to user
     const session = await db.select()

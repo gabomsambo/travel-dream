@@ -59,18 +59,18 @@ describe('rate-limit', () => {
       expect(getClientIdentifier(req, 'usr_123')).toBe('user:usr_123');
     });
 
-    test('returns IP from cf-connecting-ip header when available', () => {
+    test('ignores cf-connecting-ip (spoofable — this app is not behind Cloudflare)', () => {
       const req = createMockRequest({
         headers: { 'cf-connecting-ip': '1.2.3.4' },
       });
-      expect(getClientIdentifier(req)).toBe('ip:1.2.3.4');
+      expect(getClientIdentifier(req)).toBe('ip:unknown');
     });
 
-    test('returns IP from x-real-ip header when cf-connecting-ip not available', () => {
+    test('ignores x-real-ip (spoofable — not set by the platform)', () => {
       const req = createMockRequest({
         headers: { 'x-real-ip': '5.6.7.8' },
       });
-      expect(getClientIdentifier(req)).toBe('ip:5.6.7.8');
+      expect(getClientIdentifier(req)).toBe('ip:unknown');
     });
 
     test('returns IP from x-forwarded-for header (first IP)', () => {
@@ -78,6 +78,27 @@ describe('rate-limit', () => {
         headers: { 'x-forwarded-for': '1.2.3.4, 5.6.7.8, 9.10.11.12' },
       });
       expect(getClientIdentifier(req)).toBe('ip:1.2.3.4');
+    });
+
+    test('prefers platform x-vercel-forwarded-for over x-forwarded-for', () => {
+      const req = createMockRequest({
+        headers: {
+          'x-vercel-forwarded-for': '9.9.9.9',
+          'x-forwarded-for': '1.2.3.4',
+        },
+      });
+      expect(getClientIdentifier(req)).toBe('ip:9.9.9.9');
+    });
+
+    test('spoofable headers cannot displace the platform-set client IP', () => {
+      const req = createMockRequest({
+        headers: {
+          'cf-connecting-ip': '1.1.1.1',
+          'x-real-ip': '2.2.2.2',
+          'x-forwarded-for': '3.3.3.3',
+        },
+      });
+      expect(getClientIdentifier(req)).toBe('ip:3.3.3.3');
     });
 
     test('returns "ip:unknown" when no headers available', () => {

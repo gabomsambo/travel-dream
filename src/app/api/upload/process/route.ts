@@ -13,13 +13,13 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for OCR processing
 
 // Helper to add LLM errors to session for UI visibility
-async function addSessionError(sessionId: string | undefined, fileId: string, error: string) {
+async function addSessionError(sessionId: string | undefined, userId: string, fileId: string, error: string) {
   if (!sessionId) return;
 
   try {
     const session = await db.select()
       .from(uploadSessions)
-      .where(eq(uploadSessions.id, sessionId))
+      .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, userId)))
       .get();
 
     if (session) {
@@ -34,7 +34,7 @@ async function addSessionError(sessionId: string | undefined, fileId: string, er
             ]
           }
         })
-        .where(eq(uploadSessions.id, sessionId));
+        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, userId)));
     }
   } catch (err) {
     console.error('[OCR Process] Failed to add session error:', err);
@@ -76,11 +76,19 @@ export async function POST(request: NextRequest) {
 
     const results: OCRProcessResult[] = [];
 
-    // Fetch source records with file paths using compatible schema
+    // Fetch source records with file paths using compatible schema.
+    // Scoped to the caller: another user's source must be indistinguishable
+    // from one that does not exist.
     const sourceRecords = await Promise.all(
       sourceIds.map(async (id) => {
         try {
-          return await db.select().from(sourcesCurrentSchema).where(eq(sourcesCurrentSchema.id, id)).get();
+          return await db.select()
+            .from(sourcesCurrentSchema)
+            .where(and(
+              eq(sourcesCurrentSchema.id, id),
+              eq(sourcesCurrentSchema.userId, user.id)
+            ))
+            .get();
         } catch (error) {
           console.warn(`Failed to fetch source ${id}:`, error);
           return null;
@@ -88,8 +96,21 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    console.log(`[OCR Process] Fetched ${sourceRecords.length} source records (${sourceRecords.filter(r => r !== null).length} valid)`);
-    console.log(`[OCR Process] Source IDs to process:`, sourceRecords.filter(r => r !== null).map(r => r!.id));
+    // Any id the caller does not own (or that does not exist) fails the whole
+    // request with a 404 — no per-id existence signal is returned.
+    if (sourceRecords.some(record => !record)) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'Source not found',
+          results: []
+        },
+        { status: 404 }
+      );
+    }
+
+    console.log(`[OCR Process] Fetched ${sourceRecords.length} source records`);
+    console.log(`[OCR Process] Source IDs to process:`, sourceRecords.map(r => r!.id));
 
     // Process OCR for each source
     let processedCount = 0;
@@ -319,7 +340,7 @@ export async function POST(request: NextRequest) {
                   })
                   .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
 
-                await addSessionError(sessionId, sourceRecord.id, `LLM: ${errorMsg}`);
+                await addSessionError(sessionId, user.id, sourceRecord.id, `LLM: ${errorMsg}`);
                 console.warn(`[OCR Process] LLM extraction returned no results for ${sourceRecord.id}`);
               }
             } catch (err) {
@@ -342,7 +363,7 @@ export async function POST(request: NextRequest) {
                 })
                 .where(eq(sourcesCurrentSchema.id, sourceRecord.id));
 
-              await addSessionError(sessionId, sourceRecord.id, `LLM: ${errorMsg}`);
+              await addSessionError(sessionId, user.id, sourceRecord.id, `LLM: ${errorMsg}`);
               console.error(`[OCR Process] LLM processing error for ${sourceRecord.id}:`, err);
             }
           } else {
@@ -446,7 +467,7 @@ export async function POST(request: NextRequest) {
         console.log(`[OCR Process] Updating session ${sessionId}`);
         const session = await db.select()
           .from(uploadSessions)
-          .where(eq(uploadSessions.id, sessionId))
+          .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
           .get();
 
         if (session) {
@@ -467,7 +488,7 @@ export async function POST(request: NextRequest) {
                 errors: session.meta?.errors || []
               }
             })
-            .where(eq(uploadSessions.id, sessionId));
+            .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));
         }
       } catch (sessionError) {
         console.error('[OCR Process] Failed to update session:', sessionError);
@@ -524,9 +545,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Scoped to the caller — otherwise this returns another user's OCR text
     const source = await db.select()
       .from(sources)
-      .where(eq(sources.id, sourceId))
+      .where(and(eq(sources.id, sourceId), eq(sources.userId, user.id)))
       .get();
 
     if (!source) {

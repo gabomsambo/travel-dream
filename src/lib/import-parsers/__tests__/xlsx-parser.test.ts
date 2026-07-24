@@ -107,6 +107,20 @@ describe('xlsx-parser', () => {
       expect(result.rows).toEqual([]);
       expect(result.totalRows).toBe(0);
     });
+
+    it('should reject a buffer that is not a workbook instead of guessing a format', async () => {
+      // sheetjs used to sniff non-xlsx input and hand back a one-column "sheet";
+      // uploads are attacker-controlled, so a hard parse error is the right answer.
+      const bytes = Buffer.from('this is definitely not a spreadsheet');
+      const result = await parseXLSX(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+      );
+
+      expect(result.headers).toEqual([]);
+      expect(result.availableSheets).toEqual([]);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].message).toMatch(/^Failed to parse Excel file: /);
+    });
   });
 
   describe('getSheetNames', () => {
@@ -115,13 +129,13 @@ describe('xlsx-parser', () => {
       expect(await getSheetNames(loadFixture('multi-sheet-no-places.xlsx'))).toEqual(['Alpha', 'Beta']);
     });
 
-    it('should not surface a "Places" sheet for an unreadable buffer', async () => {
+    it('should return an empty list for an unreadable buffer', async () => {
       const bytes = Buffer.from('nope');
       const names = await getSheetNames(
         bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
       );
 
-      expect(names).not.toContain('Places');
+      expect(names).toEqual([]);
     });
   });
 

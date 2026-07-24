@@ -153,7 +153,11 @@ secrets/
 # ================================
 # AI/Development Tools
 # ================================
-.claude/
+.claude/*
+!.claude/agents
+!.claude/agents/**
+!.claude/commands
+!.claude/commands/**
 .cursor/
 
 # ================================
@@ -192,11 +196,11 @@ verify-ocr.sh
 # ================================
 # AI agent instructions (not needed in production)
 AGENTS.md
-CLAUDE.md
 
 # Planning/Requirements Documents (internal use)
-PRPs/
-PRPs/**
+PRPs/*
+!PRPs/templates
+!PRPs/templates/**
 
 # Development notes and troubleshooting docs
 # Using patterns for cleaner maintenance

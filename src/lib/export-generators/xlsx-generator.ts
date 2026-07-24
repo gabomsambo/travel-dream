@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import type { Place } from '@/types/database';
 import type { FieldDefinition } from '@/types/export';
 import { flattenPlace } from '../export-utils';
@@ -15,24 +15,54 @@ export async function generateXLSX(
 ): Promise<Buffer> {
   const { includeSummary = true, relationMetadata } = options;
 
-  const workbook = XLSX.utils.book_new();
+  const workbook = new ExcelJS.Workbook();
 
   const placesData = places.map(place => {
     const relationData = relationMetadata?.get(place.id);
     return flattenPlace(place, fieldDefs, relationData);
   });
 
-  const placesSheet = XLSX.utils.json_to_sheet(placesData);
-
-  XLSX.utils.book_append_sheet(workbook, placesSheet, 'Places');
+  addRecordsSheet(workbook, 'Places', placesData);
 
   if (includeSummary && places.length > 0) {
-    const summary = buildSummarySheet(places);
-    const summarySheet = XLSX.utils.json_to_sheet(summary);
-    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+    addRecordsSheet(workbook, 'Summary', buildSummarySheet(places));
   }
 
-  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  const written = await workbook.xlsx.writeBuffer();
+
+  return Buffer.from(written as unknown as ArrayBuffer);
+}
+
+/**
+ * Writes an array of records as a header row followed by one row per record.
+ *
+ * Columns are the union of the records' keys, in first-seen order, so a record
+ * that is missing a key still lines up with the header. An empty record list
+ * produces an empty sheet with no header row.
+ */
+function addRecordsSheet(
+  workbook: ExcelJS.Workbook,
+  sheetName: string,
+  records: Record<string, any>[]
+): void {
+  const sheet = workbook.addWorksheet(sheetName);
+
+  if (records.length === 0) {
+    return;
+  }
+
+  const headers: string[] = [];
+  records.forEach(record => {
+    Object.keys(record).forEach(key => {
+      if (!headers.includes(key)) headers.push(key);
+    });
+  });
+
+  sheet.addRow(headers);
+
+  records.forEach(record => {
+    sheet.addRow(headers.map(header => (record[header] === undefined ? '' : record[header])));
+  });
 }
 
 function buildSummarySheet(places: Place[]): Record<string, any>[] {

@@ -125,6 +125,10 @@ npm run db:migrate      # apply migrations
 npm run db:studio       # visual DB browser (port 4983)
 ```
 
+`npm run build` needs a populated `.env.local` (see `.env.example`). Without at
+least `TURSO_DATABASE_URL` it fails during "Collecting page data", which looks
+like a code error but is not. `npx tsc --noEmit` and `npm run test` need no env.
+
 ## Anti-Patterns
 
 - Don't create new patterns when existing ones work — check similar features first
@@ -133,3 +137,15 @@ npm run db:studio       # visual DB browser (port 4983)
 - Don't hardcode values that should be env vars
 - Don't skip validation — run `/validate` before committing
 - Don't forget "use client" on interactive components
+- Don't run `npm audit fix --force` — it "fixes" Next.js by downgrading it from
+  15.x to 9.3.3. Plain `npm audit fix` is lockfile-only and safe.
+
+## Maintaining this file
+
+`AGENTS.md` is gitignored here, so this file is the tracked home for agent
+instructions — keep it, don't promote it.
+
+Keep this file for knowledge useful to almost every future agent session in this
+project. Don't repeat what the codebase already shows; point to the
+authoritative file or command instead. Prefer rewriting or pruning existing
+entries over appending new ones, and keep entries concise.

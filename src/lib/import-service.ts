@@ -42,8 +42,17 @@ export async function parseFile(
       totalRows = result.totalRows;
     } else if (extension === 'xlsx' || extension === 'xls') {
       format = 'xlsx';
-      const result = parseXLSX(buffer);
+      const result = await parseXLSX(buffer);
       if (result.errors.length > 0 && result.headers.length === 0) {
+        // The parser reads OOXML (.xlsx) only. A .xls that is really a renamed
+        // .xlsx still parses; a genuine legacy binary .xls cannot, so say so
+        // instead of surfacing an opaque zip error.
+        if (extension === 'xls') {
+          return {
+            success: false,
+            error: 'Legacy .xls files are no longer supported. Please re-save the file as .xlsx and upload it again.',
+          };
+        }
         return { success: false, error: result.errors[0].message };
       }
       headers = result.headers;

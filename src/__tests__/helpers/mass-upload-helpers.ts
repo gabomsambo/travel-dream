@@ -61,7 +61,7 @@ export function createMockSource(overrides: Record<string, unknown> = {}) {
     id: 'src_test-1',
     userId: 'user_test-1',
     type: 'screenshot',
-    uri: 'https://blob.vercel-storage.com/test-image.jpg',
+    uri: 'https://teststore.public.blob.vercel-storage.com/test-image.jpg',
     hash: { sha1: 'blob_test-hash' },
     ocrText: null,
     lang: 'en',

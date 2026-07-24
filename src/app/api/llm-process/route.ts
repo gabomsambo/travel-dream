@@ -59,10 +59,15 @@ export async function POST(request: NextRequest) {
     let sourcesToProcess: any[] = [];
     if (sourceIds) {
       // Process specific sources by ID
+      // Scope to the caller — an unscoped `inArray` would let a caller run
+      // extraction over another user's sources and file the results as theirs.
       sourcesToProcess = await withErrorHandling(async () => {
         return await db.select()
           .from(sourcesCurrentSchema)
-          .where(inArray(sourcesCurrentSchema.id, sourceIds));
+          .where(and(
+            inArray(sourcesCurrentSchema.id, sourceIds),
+            eq(sourcesCurrentSchema.userId, user.id)
+          ));
       }, 'getSourcesByIds');
     } else if (sessionId) {
       // Process sources from upload session
@@ -79,6 +84,17 @@ export async function POST(request: NextRequest) {
             results: []
           },
           { status: 404 }
+        );
+      }
+
+      if (session[0].userId !== user.id) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            message: 'Forbidden',
+            results: []
+          },
+          { status: 403 }
         );
       }
 
@@ -103,7 +119,10 @@ export async function POST(request: NextRequest) {
       sourcesToProcess = await withErrorHandling(async () => {
         return await db.select()
           .from(sourcesCurrentSchema)
-          .where(inArray(sourcesCurrentSchema.id, uploadedFiles));
+          .where(and(
+            inArray(sourcesCurrentSchema.id, uploadedFiles),
+            eq(sourcesCurrentSchema.userId, user.id)
+          ));
       }, 'getSourcesFromSession');
     }
 
@@ -277,10 +296,15 @@ export async function GET(request: NextRequest) {
 
     const stats = await withErrorHandling(async () => {
       const [totalResult, pendingResult] = await Promise.all([
-        db.select({ count: sql<number>`count(*)` }).from(sourcesCurrentSchema),
         db.select({ count: sql<number>`count(*)` })
           .from(sourcesCurrentSchema)
-          .where(sql`${sourcesCurrentSchema.ocrText} IS NOT NULL`)
+          .where(eq(sourcesCurrentSchema.userId, user.id)),
+        db.select({ count: sql<number>`count(*)` })
+          .from(sourcesCurrentSchema)
+          .where(and(
+            eq(sourcesCurrentSchema.userId, user.id),
+            sql`${sourcesCurrentSchema.ocrText} IS NOT NULL`
+          ))
       ]);
 
       return {

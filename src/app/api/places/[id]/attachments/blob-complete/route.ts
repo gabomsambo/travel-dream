@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withErrorHandling } from '@/lib/db-utils';
 import { createAttachment } from '@/lib/db-mutations';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { isAllowedBlobUrl, BLOB_URL_REJECTED_MESSAGE } from '@/lib/blob-url';
 import { db } from '@/db';
 import { places } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
@@ -30,6 +31,14 @@ export async function POST(
     if (!blobUrl || !placeId) {
       return NextResponse.json(
         { status: 'error', message: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // Pin the caller-supplied URL to the blob store before it is stored
+    if (!isAllowedBlobUrl(blobUrl)) {
+      return NextResponse.json(
+        { status: 'error', message: BLOB_URL_REJECTED_MESSAGE },
         { status: 400 }
       );
     }

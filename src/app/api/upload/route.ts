@@ -48,8 +48,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate session exists or create it
+    // Validate session exists or create it. An existing session must belong to
+    // the caller — otherwise this appends the caller's uploads to another
+    // user's session.
     let session = await db.select().from(uploadSessions).where(eq(uploadSessions.id, sessionId)).get();
+
+    if (session && session.userId !== user.id) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'Forbidden',
+          results: []
+        },
+        { status: 403 }
+      );
+    }
 
     if (!session) {
       // Create new session

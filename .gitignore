@@ -187,7 +187,8 @@ test-*.sh
 *.traineddata
 
 # Development shell scripts in root
-apply-schema.sh
+# (apply-schema.sh was removed: it piped a blind "Yes" into `drizzle-kit push`.
+#  Schema changes go through `npm run db:generate` + `npm run db:migrate`.)
 restart-docker.sh
 verify-ocr.sh
 

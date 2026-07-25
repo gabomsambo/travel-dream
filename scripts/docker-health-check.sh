@@ -68,21 +68,6 @@ else
 fi
 echo ""
 
-# Check upload directories
-echo "Checking upload directories..."
-DIRS=("public/uploads" "public/uploads/screenshots" "public/uploads/thumbnails" "public/uploads/places")
-ALL_EXIST=true
-
-for dir in "${DIRS[@]}"; do
-    if [ -d "$dir" ]; then
-        echo -e "${GREEN}  ✓ $dir exists${NC}"
-    else
-        echo -e "${YELLOW}  ⚠ $dir does not exist (will be created on container start)${NC}"
-        ALL_EXIST=false
-    fi
-done
-echo ""
-
 # Check volumes
 echo "Checking Docker volumes..."
 if docker volume ls | grep -q "travel-dreams.*uploads_data"; then

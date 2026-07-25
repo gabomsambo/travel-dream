@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { del } from '@vercel/blob';
 import { updateCollection } from '@/lib/db-mutations';
 import { getCollectionById } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import { isOwnedCoverBlobUrl } from '@/lib/image-upload';
+import { releaseOwnedCoverBlob } from '@/lib/cover-blob';
 
 export const runtime = 'nodejs';
 
@@ -32,16 +31,7 @@ export async function DELETE(
 
     await updateCollection(collectionId, { coverImageUrl: null }, user.id);
 
-    // Only delete blobs uploaded as this collection's own cover. Covers set from
-    // an existing place photo point at that attachment's blob, which must not be
-    // destroyed by clearing the cover.
-    if (isOwnedCoverBlobUrl(previousCoverUrl, collectionId)) {
-      try {
-        await del(previousCoverUrl!);
-      } catch (cleanupError) {
-        console.warn('[Cover Delete] Failed to delete cover blob:', cleanupError);
-      }
-    }
+    await releaseOwnedCoverBlob(previousCoverUrl, collectionId, '[Cover Delete]');
 
     return NextResponse.json({
       status: 'success',

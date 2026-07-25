@@ -110,4 +110,14 @@ describe('isOwnedCoverBlobUrl', () => {
   ])('does not claim ownership of %s', (_label, url) => {
     expect(isOwnedCoverBlobUrl(url as string, 'col_1')).toBe(false);
   });
+
+  // `PATCH /api/collections/[id]` stores `coverImageUrl` as a plain string, so a
+  // cover-shaped path on an off-store host must never reach `del()`.
+  it.each([
+    ['an off-store host', 'https://attacker.example/collections/col_1/cover-1.jpg'],
+    ['a look-alike host', 'https://public.blob.vercel-storage.com.evil.test/collections/col_1/cover-1.jpg'],
+    ['a plaintext blob host', 'http://teststore.public.blob.vercel-storage.com/collections/col_1/cover-1.jpg'],
+  ])('does not claim ownership of a matching path on %s', (_label, url) => {
+    expect(isOwnedCoverBlobUrl(url, 'col_1')).toBe(false);
+  });
 });

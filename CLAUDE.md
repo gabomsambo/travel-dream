@@ -157,9 +157,12 @@ a feature-specific `blob-complete` route that validates the URL with `isAllowedB
 it. Three implementations to copy: `src/components/upload/screenshot-uploader.tsx`,
 `src/components/upload/photo-uploader.tsx`, `src/components/collections/cover-image-picker-dialog.tsx`.
 
-Blob keys take their extension from the allow-list in `src/lib/image-upload.ts`, never from
-`file.name`. Deleting a record must only `del()` a blob that record owns — collection covers can
-point at a place photo's blob (see `isOwnedCoverBlobUrl`).
+The cover flow takes its blob-key extension from the MIME allow-list in `src/lib/image-upload.ts`,
+never from `file.name` — do the same in new upload paths. The screenshot and photo uploaders are not
+converted yet and still derive the extension from `file.name`; copy their three-step flow, not that.
+
+Deleting a record must only `del()` a blob that record owns — collection covers can point at a place
+photo's blob (see `isOwnedCoverBlobUrl` / `releaseOwnedCoverBlob` in `src/lib/cover-blob.ts`).
 
 Pre-Blob rows whose `uri` is a `/uploads/...` path are deliberately not migrated; those files never
 existed on Vercel, so treat such rows as broken-image leftovers rather than something to clean up.

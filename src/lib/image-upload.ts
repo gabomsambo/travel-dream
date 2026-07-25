@@ -7,6 +7,8 @@
  * id) rather than from `file.name`, which is fully attacker-controlled.
  */
 
+import { isAllowedBlobUrl } from '@/lib/blob-url';
+
 /**
  * Image types accepted for cover images and attachments, mapped to the single
  * canonical extension used in the blob key. Anything not listed is rejected —
@@ -68,9 +70,17 @@ export function isSafeBlobPathname(pathname: string): boolean {
  * A cover can also point at an existing place photo (set via PATCH), and those
  * blobs belong to an attachment — deleting one would destroy the place's photo.
  * Only keys under this collection's own cover prefix may be deleted.
+ *
+ * The host is checked first: `PATCH /api/collections/[id]` accepts any string as
+ * `coverImageUrl`, so without it an off-store URL with a cover-shaped path would
+ * reach `del()`.
  */
-export function isOwnedCoverBlobUrl(url: string | null | undefined, collectionId: string): boolean {
+export function isOwnedCoverBlobUrl(
+  url: string | null | undefined,
+  collectionId: string
+): url is string {
   if (!url) return false;
+  if (!isAllowedBlobUrl(url)) return false;
   try {
     const { pathname } = new URL(url);
     return pathname.startsWith(`/collections/${collectionId}/cover-`);

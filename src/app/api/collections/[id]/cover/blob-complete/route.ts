@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { del } from '@vercel/blob';
 import { updateCollection } from '@/lib/db-mutations';
 import { getCollectionById } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { isAllowedBlobUrl, BLOB_URL_REJECTED_MESSAGE } from '@/lib/blob-url';
-import { isOwnedCoverBlobUrl } from '@/lib/image-upload';
+import { releaseOwnedCoverBlob } from '@/lib/cover-blob';
 
 export const runtime = 'nodejs';
 
@@ -54,15 +53,8 @@ export async function POST(
 
     await updateCollection(collectionId, { coverImageUrl: blobUrl }, user.id);
 
-    // Only reclaim blobs this collection uploaded as its own cover. A cover may
-    // instead point at an existing place photo, and that blob backs an
-    // attachment that must survive a cover change.
-    if (previousCoverUrl !== blobUrl && isOwnedCoverBlobUrl(previousCoverUrl, collectionId)) {
-      try {
-        await del(previousCoverUrl!);
-      } catch (cleanupError) {
-        console.warn('[Cover Blob Complete] Failed to delete previous cover blob:', cleanupError);
-      }
+    if (previousCoverUrl !== blobUrl) {
+      await releaseOwnedCoverBlob(previousCoverUrl, collectionId, '[Cover Blob Complete]');
     }
 
     return NextResponse.json({

@@ -58,7 +58,6 @@ This guide helps you run Travel Dreams Collection in Docker with live reloading 
 - Optimized for development with polling enabled
 
 ### Persistent Storage
-- `uploads_data` volume: Uploaded files persist between restarts
 - `redis_data` volume: Redis data persistence
 - `sqlite_data` volume: Local SQLite database (if using local DB)
 
@@ -88,12 +87,6 @@ TURSO_AUTH_TOKEN=your_token_here
 # Ensure polling is enabled in .env.local
 CHOKIDAR_USEPOLLING=true
 WATCHPACK_POLLING=true
-```
-
-### Permission Issues
-```bash
-# Fix upload directory permissions
-docker-compose exec travel-dreams chmod 755 public/uploads
 ```
 
 ### Database Issues
@@ -126,4 +119,6 @@ npm run docker:dev
 3. Next.js hot reloads the application
 4. View changes at http://localhost:3000
 
-Uploads, database, and Redis data persist between container restarts.
+Database and Redis data persist between container restarts. Uploaded files do
+not live in the container at all — they go to Vercel Blob, so the container
+needs `BLOB_READ_WRITE_TOKEN` in `.env.local`.

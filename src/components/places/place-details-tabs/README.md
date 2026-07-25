@@ -53,8 +53,11 @@ type PlaceWithRelations = Place & {
 ## API Integration
 
 ### MediaTab
-- **POST** `/api/places/[id]/attachments` - Upload photos (FormData)
+- Uploads go through `PhotoUploader`: the file is sent straight to Vercel Blob
+  via `/api/blob/upload`, then **POST** `/api/places/[id]/attachments/blob-complete`
+  persists the resulting URL (JSON)
 - **DELETE** `/api/places/[id]/attachments/[attachmentId]` - Delete photo
+- **PUT** `/api/places/[id]/attachments/[attachmentId]/primary` - Set cover photo
 
 ### LinksTab
 - **POST** `/api/places/[id]/links` - Add link (JSON)

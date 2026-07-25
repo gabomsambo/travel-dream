@@ -56,16 +56,12 @@ npm run docker:logs
 
 The Docker setup now includes support for all Enhanced Library Page features:
 
-### Upload Directories (Auto-created)
+### File Uploads
 
-The following directories are automatically created and persisted:
-
-- `public/uploads/screenshots/` - Source screenshot uploads
-- `public/uploads/thumbnails/` - Source screenshot thumbnails
-- `public/uploads/places/{placeId}/` - Place-specific attachments
-- `public/uploads/places/{placeId}/thumbnails/` - Place attachment thumbnails
-
-All uploads are persisted in the `uploads_data` Docker volume.
+Uploads go to Vercel Blob, not to the container filesystem, so the container
+needs `BLOB_READ_WRITE_TOKEN` in `.env.local` for any upload to work. Nothing is
+written under `public/uploads`. See the "File Storage" section of `CLAUDE.md`
+for the upload flow.
 
 ### Image Processing
 
@@ -129,16 +125,6 @@ If port 3000 is already in use:
 # Stop the conflicting process or change the port in docker-compose.yml
 ports:
   - "3001:3000"  # Change 3000 to 3001
-```
-
-### Volume Permissions Issues
-
-If you get permission errors with uploads:
-
-```bash
-# Reset the uploads volume
-docker-compose down -v
-docker-compose up --build
 ```
 
 ### Hot Reload Not Working
@@ -237,7 +223,8 @@ CMD ["node", "server.js"]
 ## Volumes and Data Persistence
 
 ### uploads_data
-All user uploads and generated thumbnails
+Mounted at `/app/public/uploads`, but no longer written to: uploads live in
+Vercel Blob. Only pre-Blob leftovers remain here.
 
 ### redis_data
 Redis cache and rate limiting data
@@ -247,9 +234,6 @@ Local SQLite database (if not using Turso)
 
 **To back up data:**
 ```bash
-# Back up uploads
-docker cp $(docker-compose ps -q travel-dreams):/app/public/uploads ./uploads-backup
-
 # Back up local database (if using local SQLite)
 docker cp $(docker-compose ps -q travel-dreams):/app/local.db ./database-backup.db
 ```

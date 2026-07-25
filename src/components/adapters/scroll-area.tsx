@@ -9,11 +9,11 @@ import {
   ScrollArea as ScrollAreaV2,
   ScrollBar as ScrollBarV2,
 } from "@/components/ui-v2/scroll-area"
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 
 const ScrollArea = React.forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof ScrollAreaV2>>(
   (props, ref) => {
-    const [uiRefreshEnabled] = useUIRefresh()
+    const uiRefreshEnabled = useUiRefreshEnabled()
 
     if (uiRefreshEnabled) {
       return <ScrollAreaV2 ref={ref} {...props} />
@@ -26,7 +26,7 @@ ScrollArea.displayName = "ScrollArea"
 
 const ScrollBar = React.forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof ScrollBarV2>>(
   (props, ref) => {
-    const [uiRefreshEnabled] = useUIRefresh()
+    const uiRefreshEnabled = useUiRefreshEnabled()
 
     if (uiRefreshEnabled) {
       return <ScrollBarV2 ref={ref} {...props} />

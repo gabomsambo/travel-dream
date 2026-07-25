@@ -26,7 +26,7 @@ import {
   SelectScrollDownButton as SelectScrollDownButtonV2,
 } from "@/components/ui-v2/select"
 import * as SelectPrimitive from "@radix-ui/react-select"
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 
 const Select = SelectPrimitive.Root
 
@@ -38,7 +38,7 @@ const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <SelectTriggerV2 ref={ref} {...props} />
@@ -52,7 +52,7 @@ const SelectScrollUpButton = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.ScrollUpButton>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollUpButton>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <SelectScrollUpButtonV2 ref={ref} {...props} />
@@ -66,7 +66,7 @@ const SelectScrollDownButton = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.ScrollDownButton>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollDownButton>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <SelectScrollDownButtonV2 ref={ref} {...props} />
@@ -80,7 +80,7 @@ const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <SelectContentV2 ref={ref} {...props} />
@@ -94,7 +94,7 @@ const SelectLabel = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <SelectLabelV2 ref={ref} {...props} />
@@ -112,7 +112,7 @@ const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
   SelectItemAdapterProps
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <SelectItemV2 ref={ref} {...props} />
@@ -126,7 +126,7 @@ const SelectSeparator = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Separator>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <SelectSeparatorV2 ref={ref} {...props} />

@@ -50,7 +50,13 @@
     --ring: 217.2 91.2% 59.8%;
   }
 
-  [data-ui-refresh="true"] {
+  /*
+   * Tropical is selected by a `data-theme` attribute that the server renders on
+   * the (app) shell element, and that the client mirrors onto <html> so Radix
+   * portals (which escape the shell into document.body) match too. Both
+   * placements are matched here.
+   */
+  [data-theme="tropical"] {
     /* Tropical Boutique Explorer Theme - Light Mode */
     --background: 40 33% 98%;
     --foreground: 220 15% 12%;
@@ -74,7 +80,14 @@
     --radius: 1rem;
   }
 
-  [data-ui-refresh="true"].dark {
+  /*
+   * Dark mode is a `.dark` class on <html> (next-themes). When the theme
+   * attribute sits on the shell element the class is on an ancestor; when it is
+   * mirrored onto <html> the two land on the same element. Both selectors score
+   * 0-2-0, so either way this wins over the light block above.
+   */
+  .dark [data-theme="tropical"],
+  [data-theme="tropical"].dark {
     /* Tropical Boutique Explorer Theme - Dark Mode */
     --background: 220 20% 8%;
     --foreground: 35 15% 92%;

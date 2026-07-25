@@ -18,11 +18,11 @@ import {
   CardFooter as CardFooterV2,
   CardAction as CardActionV2,
 } from "@/components/ui-v2/card"
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   (props, ref) => {
-    const [uiRefreshEnabled] = useUIRefresh()
+    const uiRefreshEnabled = useUiRefreshEnabled()
     return uiRefreshEnabled ? <CardV2 ref={ref} {...props} /> : <CardV1 ref={ref} {...props} />
   }
 )
@@ -30,7 +30,7 @@ Card.displayName = "Card"
 
 const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   (props, ref) => {
-    const [uiRefreshEnabled] = useUIRefresh()
+    const uiRefreshEnabled = useUiRefreshEnabled()
     return uiRefreshEnabled ? <CardHeaderV2 ref={ref} {...props} /> : <CardHeaderV1 ref={ref} {...props} />
   }
 )
@@ -40,7 +40,7 @@ const CardTitle = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLHeadingElement>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <CardTitleV2 ref={ref} {...props} /> : <CardTitleV1 ref={ref} {...props} />
 })
 CardTitle.displayName = "CardTitle"
@@ -49,14 +49,14 @@ const CardDescription = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <CardDescriptionV2 ref={ref} {...props} /> : <CardDescriptionV1 ref={ref} {...props} />
 })
 CardDescription.displayName = "CardDescription"
 
 const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   (props, ref) => {
-    const [uiRefreshEnabled] = useUIRefresh()
+    const uiRefreshEnabled = useUiRefreshEnabled()
     return uiRefreshEnabled ? <CardContentV2 ref={ref} {...props} /> : <CardContentV1 ref={ref} {...props} />
   }
 )
@@ -64,7 +64,7 @@ CardContent.displayName = "CardContent"
 
 const CardFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   (props, ref) => {
-    const [uiRefreshEnabled] = useUIRefresh()
+    const uiRefreshEnabled = useUiRefreshEnabled()
     return uiRefreshEnabled ? <CardFooterV2 ref={ref} {...props} /> : <CardFooterV1 ref={ref} {...props} />
   }
 )

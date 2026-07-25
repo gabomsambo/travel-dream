@@ -14,7 +14,13 @@ import { Separator } from "@/components/adapters/separator"
 import { Switch } from "@/components/adapters/switch"
 import { toast } from 'sonner'
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog'
-import { useUIRefresh } from '@/lib/feature-flags'
+import { useUiTheme } from '@/components/ui-refresh-provider'
+import { setUiTheme } from '@/lib/ui-theme-actions'
+import {
+  UI_THEME_COOKIE,
+  UI_THEME_COOKIE_MAX_AGE,
+  type UiTheme,
+} from '@/lib/ui-theme'
 import {
   Select,
   SelectContent,
@@ -34,11 +40,23 @@ export function SettingsClient() {
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [uiRefreshEnabled, toggleUIRefresh] = useUIRefresh()
+  const uiTheme = useUiTheme()
+  const uiRefreshEnabled = uiTheme === 'tropical'
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  const toggleUIRefresh = (enabled: boolean) => {
+    const next: UiTheme = enabled ? 'tropical' : 'classic'
+
+    // Write the cookie client-side first so the switch and the theme flip
+    // immediately, then persist it properly via the server action and re-render
+    // the server components with the new value.
+    document.cookie = `${UI_THEME_COOKIE}=${next}; path=/; max-age=${UI_THEME_COOKIE_MAX_AGE}; samesite=lax`
+    void setUiTheme(next)
+    router.refresh()
+  }
 
   const handleExportData = async () => {
     setIsExporting(true)

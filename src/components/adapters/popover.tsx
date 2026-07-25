@@ -12,15 +12,15 @@ import {
   PopoverContent as PopoverContentV2,
 } from "@/components/ui-v2/popover"
 import * as PopoverPrimitive from "@radix-ui/react-popover"
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 
 function Popover(props: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <PopoverV2 {...props} /> : <PopoverV1 {...props} />
 }
 
 function PopoverTrigger(props: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <PopoverTriggerV2 {...props} /> : <PopoverTriggerV1 {...props} />
 }
 
@@ -28,7 +28,7 @@ const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <PopoverContentV2 ref={ref} {...props} /> : <PopoverContentV1 ref={ref} {...props} />
 })
 PopoverContent.displayName = PopoverPrimitive.Content.displayName

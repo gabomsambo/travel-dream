@@ -3,8 +3,6 @@ import { db } from '@/db';
 import { attachments, places } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import { unlink } from 'fs/promises';
-import path from 'path';
 import { del } from '@vercel/blob';
 
 export async function DELETE(
@@ -44,24 +42,18 @@ export async function DELETE(
     // Delete the database record
     await db.delete(attachments).where(eq(attachments.id, attachmentId));
 
-    // Try to delete the files (don't fail if files don't exist)
+    // Try to delete the stored blobs (don't fail if they no longer exist).
+    // Legacy `/uploads/...` attachments are left on disk: that storage never
+    // existed on Vercel and those files are deliberately not migrated.
     try {
-      if (attachment.uri && attachment.uri.startsWith('/uploads/')) {
-        const filePath = path.join(process.cwd(), 'public', attachment.uri);
-        await unlink(filePath).catch(() => {});
-      } else if (attachment.uri && attachment.uri.startsWith('https://')) {
+      if (attachment.uri?.startsWith('https://')) {
         await del(attachment.uri);
       }
-      if (attachment.thumbnailUri) {
-        if (attachment.thumbnailUri.startsWith('/uploads/')) {
-          const thumbPath = path.join(process.cwd(), 'public', attachment.thumbnailUri);
-          await unlink(thumbPath).catch(() => {});
-        } else if (attachment.thumbnailUri.startsWith('https://')) {
-          await del(attachment.thumbnailUri);
-        }
+      if (attachment.thumbnailUri?.startsWith('https://') && attachment.thumbnailUri !== attachment.uri) {
+        await del(attachment.thumbnailUri);
       }
     } catch {
-      // Ignore file/blob deletion errors
+      // Ignore blob deletion errors
     }
 
     return NextResponse.json({ success: true });

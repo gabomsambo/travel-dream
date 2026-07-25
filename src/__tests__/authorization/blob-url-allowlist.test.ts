@@ -41,6 +41,11 @@ jest.mock('@/lib/db-utils', () => ({
 jest.mock('@/lib/db-mutations', () => ({
   createSource: jest.fn().mockResolvedValue({ id: 'src_test-new' }),
   createAttachment: jest.fn().mockResolvedValue({ id: 'att_test-new' }),
+  updateCollection: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('@/lib/db-queries', () => ({
+  getCollectionById: jest.fn(),
 }));
 
 jest.mock('@vercel/blob', () => ({
@@ -52,9 +57,12 @@ import { isAllowedBlobUrl } from '@/lib/blob-url';
 import { POST as REGISTER_POST } from '@/app/api/mass-upload/register/route';
 import { POST as UPLOAD_BLOB_COMPLETE } from '@/app/api/upload/blob-complete/route';
 import { POST as ATTACHMENT_BLOB_COMPLETE } from '@/app/api/places/[id]/attachments/blob-complete/route';
+import { POST as COVER_BLOB_COMPLETE } from '@/app/api/collections/[id]/cover/blob-complete/route';
+import { del } from '@vercel/blob';
 import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
-import { createSource, createAttachment } from '@/lib/db-mutations';
+import { createSource, createAttachment, updateCollection } from '@/lib/db-mutations';
+import { getCollectionById } from '@/lib/db-queries';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
 import { mockSelect } from '../helpers/authz-helpers';
 
@@ -62,6 +70,9 @@ const mockDb = db as unknown as { select: jest.Mock };
 const mockRequireAuth = requireAuthForApi as jest.MockedFunction<typeof requireAuthForApi>;
 const mockCreateSource = createSource as jest.Mock;
 const mockCreateAttachment = createAttachment as jest.Mock;
+const mockUpdateCollection = updateCollection as jest.Mock;
+const mockGetCollectionById = getCollectionById as jest.Mock;
+const mockDel = del as jest.Mock;
 
 const CALLER = createMockUser({ id: 'user_caller' });
 const ALLOWED = 'https://teststore.public.blob.vercel-storage.com/a.jpg';
@@ -210,5 +221,77 @@ describe('POST /api/places/[id]/attachments/blob-complete', () => {
 
     expect(res.status).toBe(200);
     expect(mockCreateAttachment).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST /api/collections/[id]/cover/blob-complete', () => {
+  const COLLECTION_ID = 'col_1';
+  const url = `http://localhost:3000/api/collections/${COLLECTION_ID}/cover/blob-complete`;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRequireAuth.mockResolvedValue(CALLER);
+    mockGetCollectionById.mockResolvedValue({ id: COLLECTION_ID, coverImageUrl: null });
+  });
+
+  it.each([
+    ['an off-store URL', OFF_STORE],
+    ['a loopback address', INTERNAL],
+    ['a suffix look-alike host', LOOKALIKE],
+  ])('rejects %s with 400 and stores nothing', async (_label, blobUrl) => {
+    const res = await COVER_BLOB_COMPLETE(jsonRequest(url, { blobUrl }), {
+      params: Promise.resolve({ id: COLLECTION_ID }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockUpdateCollection).not.toHaveBeenCalled();
+  });
+
+  it('stores the blob URL for the collection owner', async () => {
+    const res = await COVER_BLOB_COMPLETE(jsonRequest(url, { blobUrl: ALLOWED }), {
+      params: Promise.resolve({ id: COLLECTION_ID }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateCollection).toHaveBeenCalledWith(
+      COLLECTION_ID,
+      { coverImageUrl: ALLOWED },
+      CALLER.id
+    );
+  });
+
+  it('404s for a collection the caller does not own, without storing', async () => {
+    // getCollectionById is ownership-scoped, so a foreign id resolves to nothing.
+    mockGetCollectionById.mockResolvedValue(undefined);
+
+    const res = await COVER_BLOB_COMPLETE(jsonRequest(url, { blobUrl: ALLOWED }), {
+      params: Promise.resolve({ id: COLLECTION_ID }),
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockUpdateCollection).not.toHaveBeenCalled();
+  });
+
+  it('reclaims the previous cover blob it owned', async () => {
+    const previous = `https://teststore.public.blob.vercel-storage.com/collections/${COLLECTION_ID}/cover-1.jpg`;
+    mockGetCollectionById.mockResolvedValue({ id: COLLECTION_ID, coverImageUrl: previous });
+
+    await COVER_BLOB_COMPLETE(jsonRequest(url, { blobUrl: ALLOWED }), {
+      params: Promise.resolve({ id: COLLECTION_ID }),
+    });
+
+    expect(mockDel).toHaveBeenCalledWith(previous);
+  });
+
+  it('never deletes a cover that points at a place photo', async () => {
+    // Covers set from an existing attachment share that attachment's blob.
+    const attachmentBlob = 'https://teststore.public.blob.vercel-storage.com/places/plc_1/photo.jpg';
+    mockGetCollectionById.mockResolvedValue({ id: COLLECTION_ID, coverImageUrl: attachmentBlob });
+
+    await COVER_BLOB_COMPLETE(jsonRequest(url, { blobUrl: ALLOWED }), {
+      params: Promise.resolve({ id: COLLECTION_ID }),
+    });
+
+    expect(mockDel).not.toHaveBeenCalled();
   });
 });

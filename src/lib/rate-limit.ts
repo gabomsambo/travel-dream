@@ -29,7 +29,12 @@ const ROUTE_TIERS: Record<string, RateLimitTier> = {
   '/api/auth/register': 'auth',
   '/api/llm-process': 'strict',
   '/api/upload/process': 'strict',
-  '/api/upload': 'standard',
+  // These were covered by a blanket '/api/upload' prefix entry alongside the now
+  // deleted bare /api/upload route. Listed explicitly so removing that entry did
+  // not silently drop them to the default 'relaxed' tier. Order matters:
+  // getRouteTier prefix-matches in insertion order.
+  '/api/upload/sessions': 'standard',
+  '/api/upload/blob-complete': 'standard',
   '/api/google-places': 'standard',
   '/api/photos/search': 'photo-search',
   '/api/photos/resolve': 'photo-resolve',

@@ -12,7 +12,13 @@ import {
 import { Button } from "@/components/adapters/button";
 import { Loader2, Upload, Image as ImageIcon, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { upload } from '@vercel/blob/client';
 import { cn } from '@/lib/utils';
+import {
+  ALLOWED_IMAGE_MIME_TYPES,
+  coverBlobPathname,
+  IMAGE_TYPE_REJECTED_MESSAGE,
+} from '@/lib/image-upload';
 
 interface AvailableImage {
   id: string;
@@ -77,8 +83,11 @@ export function CoverImagePickerDialog({
   }, [open]);
 
   const handleFileSelect = async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please select an image file');
+    // The blob key's extension comes from the allow-listed MIME type, never from
+    // file.name — see src/lib/image-upload.ts.
+    const pathname = coverBlobPathname(collectionId, file.type, `${Date.now()}`);
+    if (!pathname) {
+      toast.error(IMAGE_TYPE_REJECTED_MESSAGE);
       return;
     }
 
@@ -89,12 +98,17 @@ export function CoverImagePickerDialog({
 
     setIsUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      // Upload straight to Vercel Blob, then persist the URL — same pattern as
+      // the screenshot and photo uploaders.
+      const blob = await upload(pathname, file, {
+        access: 'public',
+        handleUploadUrl: '/api/blob/upload',
+      });
 
-      const response = await fetch(`/api/collections/${collectionId}/cover`, {
+      const response = await fetch(`/api/collections/${collectionId}/cover/blob-complete`, {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blobUrl: blob.url }),
       });
 
       if (!response.ok) {
@@ -189,7 +203,7 @@ export function CoverImagePickerDialog({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept={ALLOWED_IMAGE_MIME_TYPES.join(',')}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];

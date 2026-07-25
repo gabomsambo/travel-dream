@@ -1,119 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { del } from '@vercel/blob';
 import { updateCollection } from '@/lib/db-mutations';
 import { getCollectionById } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import sharp from 'sharp';
-import { writeFile, mkdir, unlink, rm } from 'fs/promises';
-import path from 'path';
-import { existsSync } from 'fs';
+import { isOwnedCoverBlobUrl } from '@/lib/image-upload';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const user = await requireAuthForApi();
-    const { id: collectionId } = await params;
-
-    const collection = await getCollectionById(collectionId, user.id);
-    if (!collection) {
-      return NextResponse.json(
-        { status: 'error', message: 'Collection not found' },
-        { status: 404 }
-      );
-    }
-
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-
-    if (!file) {
-      return NextResponse.json(
-        { status: 'error', message: 'No file provided' },
-        { status: 400 }
-      );
-    }
-
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { status: 'error', message: 'Invalid file type. Only JPEG, PNG, WEBP, HEIC allowed' },
-        { status: 400 }
-      );
-    }
-
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { status: 'error', message: 'File too large. Max 10MB' },
-        { status: 400 }
-      );
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-    const filename = `cover.${ext}`;
-    const thumbnailFilename = 'cover_thumb.jpg';
-
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'collections', collectionId);
-    await mkdir(uploadsDir, { recursive: true });
-
-    const filePath = path.join(uploadsDir, filename);
-    const thumbnailPath = path.join(uploadsDir, thumbnailFilename);
-
-    // Remove old cover files if they exist
-    const files = ['cover.jpg', 'cover.jpeg', 'cover.png', 'cover.webp', 'cover.heic', 'cover_thumb.jpg'];
-    for (const f of files) {
-      const oldPath = path.join(uploadsDir, f);
-      if (existsSync(oldPath)) {
-        try {
-          await unlink(oldPath);
-        } catch {
-          // Ignore errors
-        }
-      }
-    }
-
-    const image = sharp(buffer);
-
-    // Save original
-    await writeFile(filePath, buffer);
-
-    // Generate thumbnail
-    await image
-      .resize(400, 400, { fit: 'cover' })
-      .jpeg({ quality: 80 })
-      .toFile(thumbnailPath);
-
-    const coverImageUrl = `/uploads/collections/${collectionId}/${filename}`;
-    const thumbnailUrl = `/uploads/collections/${collectionId}/${thumbnailFilename}`;
-
-    // Update collection with new cover
-    await updateCollection(collectionId, { coverImageUrl }, user.id);
-
-    return NextResponse.json({
-      status: 'success',
-      coverImageUrl,
-      thumbnailUrl,
-      message: 'Cover image uploaded successfully',
-    });
-  } catch (error) {
-    if (isAuthError(error)) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    }
-    console.error('Cover upload error:', error);
-    return NextResponse.json(
-      {
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Upload failed',
-      },
-      { status: 500 }
-    );
-  }
-}
-
+/**
+ * Uploading a cover is not handled here: the client uploads straight to Vercel
+ * Blob via `/api/blob/upload` and then calls `./blob-complete` to persist the
+ * URL. This route only clears an existing cover.
+ */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -130,18 +28,20 @@ export async function DELETE(
       );
     }
 
-    // Remove cover files
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'collections', collectionId);
-    if (existsSync(uploadsDir)) {
+    const previousCoverUrl = collection.coverImageUrl;
+
+    await updateCollection(collectionId, { coverImageUrl: null }, user.id);
+
+    // Only delete blobs uploaded as this collection's own cover. Covers set from
+    // an existing place photo point at that attachment's blob, which must not be
+    // destroyed by clearing the cover.
+    if (isOwnedCoverBlobUrl(previousCoverUrl, collectionId)) {
       try {
-        await rm(uploadsDir, { recursive: true });
-      } catch {
-        // Ignore errors
+        await del(previousCoverUrl!);
+      } catch (cleanupError) {
+        console.warn('[Cover Delete] Failed to delete cover blob:', cleanupError);
       }
     }
-
-    // Set coverImageUrl to null
-    await updateCollection(collectionId, { coverImageUrl: null }, user.id);
 
     return NextResponse.json({
       status: 'success',

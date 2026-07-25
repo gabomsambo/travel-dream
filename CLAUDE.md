@@ -146,6 +146,26 @@ Client-supplied URLs the server will fetch or persist must pass `isAllowedBlobUr
 Client IP for rate limiting comes only from platform-set headers (see `getClientIdentifier` in
 `src/lib/rate-limit.ts`); this app is on Vercel, so `cf-connecting-ip`/`x-real-ip` are spoofable.
 
+## File Storage (all uploads go to Vercel Blob)
+
+**Never write uploads to the local filesystem.** On Vercel everything outside `/tmp` is read-only, so
+`writeFile`/`mkdir` into `public/uploads` fails at runtime — it only ever "worked" in local dev.
+
+Every upload uses the same three-step client-upload flow: `upload()` from `@vercel/blob/client` →
+`/api/blob/upload` (mints the token, enforces content types and rejects traversal-shaped keys) →
+a feature-specific `blob-complete` route that validates the URL with `isAllowedBlobUrl()` and stores
+it. Three implementations to copy: `src/components/upload/screenshot-uploader.tsx`,
+`src/components/upload/photo-uploader.tsx`, `src/components/collections/cover-image-picker-dialog.tsx`.
+
+Blob keys take their extension from the allow-list in `src/lib/image-upload.ts`, never from
+`file.name`. Deleting a record must only `del()` a blob that record owns — collection covers can
+point at a place photo's blob (see `isOwnedCoverBlobUrl`).
+
+Pre-Blob rows whose `uri` is a `/uploads/...` path are deliberately not migrated; those files never
+existed on Vercel, so treat such rows as broken-image leftovers rather than something to clean up.
+
+`src/lib/ocr-service-server.ts` writes to `os.tmpdir()`, which is allowed — `/tmp` is writable.
+
 ## Anti-Patterns
 
 - Don't create new patterns when existing ones work — check similar features first

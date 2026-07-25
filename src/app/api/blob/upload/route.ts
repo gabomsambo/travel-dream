@@ -1,6 +1,7 @@
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { ALLOWED_IMAGE_MIME_TYPES, isSafeBlobPathname } from '@/lib/image-upload';
 
 export const runtime = 'nodejs';
 
@@ -13,17 +14,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {
-        // Validate the upload request
-        // pathname is the intended destination path for the blob
+        // `pathname` is the client-proposed destination key. Callers build it
+        // from user-supplied filenames, so refuse traversal-shaped keys before
+        // minting a token.
+        if (!isSafeBlobPathname(pathname)) {
+          throw new Error('Invalid upload path');
+        }
+
         return {
-          allowedContentTypes: [
-            'image/jpeg',
-            'image/jpg',
-            'image/png',
-            'image/webp',
-            'image/heic',
-            'image/heif',
-          ],
+          allowedContentTypes: ALLOWED_IMAGE_MIME_TYPES,
           maximumSizeInBytes: 10 * 1024 * 1024, // 10MB max
           tokenPayload: JSON.stringify({
             userId: user.id,

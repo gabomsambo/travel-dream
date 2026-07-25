@@ -69,8 +69,6 @@ npm run docker:down
 - ✅ Local Redis for rate limiting
 - ✅ All image processing dependencies (Sharp, VIPS)
 - ✅ Tesseract OCR pre-installed
-- ✅ Persistent upload storage
-- ✅ Automatic directory creation
 
 See **[DOCKER.md](./DOCKER.md)** for detailed Docker setup guide.
 

@@ -293,19 +293,15 @@ export async function DELETE(request: NextRequest) {
             })
           );
 
-          // Clean up files based on storage type
+          // Clean up the stored blob. Pre-Blob records whose files lived under
+          // public/uploads are left alone: that storage never existed on Vercel,
+          // and those local files are deliberately not migrated.
           for (const source of sourceRecords) {
             if (source) {
               try {
                 const uploadInfo = (source.meta as any)?.uploadInfo;
                 if (uploadInfo?.storageType === 'vercel-blob' && source.uri?.startsWith('https://')) {
                   await del(source.uri);
-                } else if (uploadInfo?.storedPath) {
-                  const { fileStorageService } = await import('@/lib/file-storage');
-                  await fileStorageService.deleteFile(
-                    uploadInfo.storedPath,
-                    uploadInfo.thumbnailPath
-                  );
                 }
               } catch (cleanupError) {
                 console.warn(`Failed to cleanup files for source ${source.id}:`, cleanupError);

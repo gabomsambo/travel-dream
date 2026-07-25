@@ -7,9 +7,6 @@
     }
   ],
   "functions": {
-    "src/app/api/upload/route.ts": {
-      "maxDuration": 300
-    },
     "src/app/api/upload/process/route.ts": {
       "maxDuration": 300,
       "memory": 3008

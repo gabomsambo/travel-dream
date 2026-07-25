@@ -19,10 +19,6 @@ jest.mock('@vercel/blob', () => ({
   del: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('fs/promises', () => ({
-  unlink: jest.fn().mockResolvedValue(undefined),
-}));
-
 // ── Imports (after mocks) ──────────────────────────────────────────────
 import { DELETE } from '@/app/api/places/[id]/attachments/[attachmentId]/route';
 import { PUT } from '@/app/api/places/[id]/attachments/[attachmentId]/primary/route';

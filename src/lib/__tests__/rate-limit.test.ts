@@ -151,8 +151,11 @@ describe('rate-limit', () => {
       expect(getRouteTier('/api/upload/process')).toBe('strict');
     });
 
-    test('returns standard tier for upload route', () => {
-      expect(getRouteTier('/api/upload')).toBe('standard');
+    test('keeps standard tier for the live upload sub-routes', () => {
+      // The bare /api/upload route is gone; its siblings must not fall through
+      // to the default 'relaxed' tier.
+      expect(getRouteTier('/api/upload/sessions')).toBe('standard');
+      expect(getRouteTier('/api/upload/blob-complete')).toBe('standard');
     });
 
     test('returns standard tier for google-places routes', () => {

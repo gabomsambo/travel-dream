@@ -57,11 +57,11 @@ interface Attachment {
   id: string  // att_xxx
   placeId: string
   type: 'photo' | 'document' | 'receipt'
-  uri: string  // /uploads/places/{placeId}/filename.jpg
+  uri: string  // Vercel Blob URL, e.g. https://{store}.public.blob.vercel-storage.com/places/{placeId}/{file}
   filename: string
   mimeType: string
   fileSize: number
-  thumbnailUri: string | null  // /uploads/places/{placeId}/thumbnails/filename.jpg
+  thumbnailUri: string | null  // Blob URL; same URL as `uri` when no separate thumbnail was generated
   caption: string | null
   isPrimary: boolean
   createdAt: string
@@ -149,11 +149,11 @@ What `GET /api/places/{id}` should return:
       "id": "att_xyz789",
       "placeId": "plc_abc123",
       "type": "photo",
-      "uri": "/uploads/places/plc_abc123/cafe-exterior.jpg",
+      "uri": "https://example.public.blob.vercel-storage.com/places/plc_abc123/cafe-exterior.jpg",
       "filename": "cafe-exterior.jpg",
       "mimeType": "image/jpeg",
       "fileSize": 1234567,
-      "thumbnailUri": "/uploads/places/plc_abc123/thumbnails/cafe-exterior.jpg",
+      "thumbnailUri": "https://example.public.blob.vercel-storage.com/places/plc_abc123/cafe-exterior.jpg",
       "caption": "Beautiful Art Deco exterior",
       "isPrimary": true,
       "createdAt": "2025-01-15T11:00:00Z"
@@ -192,7 +192,7 @@ What `GET /api/places/{id}` should return:
     {
       "id": "src_jkl012",
       "type": "screenshot",
-      "uri": "/uploads/screenshots/src_jkl012.png",
+      "uri": "https://example.public.blob.vercel-storage.com/screenshots/ses_mno345/1736935200000-src_jkl012.png",
       "ocrText": "Café de Flore - Best coffee in Paris",
       "createdAt": "2025-01-15T10:00:00Z"
     }
@@ -397,7 +397,7 @@ interface BookingsTabProps {
 - [ ] All fields match TypeScript types exactly
 - [ ] No undefined values where null expected
 - [ ] Date strings in ISO format
-- [ ] File URIs start with /uploads/
+- [ ] File URIs are absolute Vercel Blob URLs (pre-Blob rows may still hold `/uploads/...` paths; those files no longer exist)
 
 ## Common Issues
 

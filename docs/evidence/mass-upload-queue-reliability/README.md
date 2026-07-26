@@ -63,39 +63,43 @@ routes, real HTTP fan-out to workers, real `after()`, real `sharp` on the owner'
 corpus), with a deliberate `kill -9` of the whole server half-way through:
 
 ```
-*** KILL -9 at 253 completed, 11 in-flight, t+216s ***
+*** KILL -9 at 256 completed, 16 in-flight, t+149s ***
 server restarted; safety-net cron takes over
 
 screenshots         500
 final counts        {"completed":500}
-wall time           446s
-gemini calls        508          (500 + the 8 killed mid-extraction)
-places created      698
-attachments created 698
-thumbnails uploaded 508          (all to the local blob server)
-total interruptions 10
+wall time           301s
+gemini calls        516          (500 + the 16 killed mid-extraction)
+places created      454
+attachments created 454
+thumbnails uploaded 516          (all to the local blob server)
+total interruptions 16           (exactly the 16 that were in flight at the kill)
 total attempts used 0            (attempts are only spent on genuine failures)
 PASS: every uploaded screenshot completed; none marked failed despite the mid-run kill
 ```
 
-500 screenshots, one hard kill, zero lost work, 7m26s wall clock — against ~100 minutes of
-one-cron-tick-per-minute before, with items being buried along the way.
+500 screenshots, one hard kill, zero lost work, 5m01s wall clock — against ~100 minutes of
+one-cron-tick-per-minute before, with items being buried along the way. The kill takes down the
+server's whole process group, so no worker survives it; completions resume ~20s later because the
+reclaimed items serve their backoff while the workers carry on with ready work.
 
-## These runs predate the retry backoff
+## Which runs are on which code
 
-**The timings below and in the transcripts were measured before `next_attempt_at` existed.** The
-outcomes still describe shipped behaviour — everything completes, nothing is marked `failed` — but
-recovery latency does not. A requeued item (including one stranded by a `kill -9`) now waits at least
-the base backoff before it is claimable, and if no ready work keeps a worker alive it waits for the
-next safety-net cron tick. Re-running the harness today would show the same counts and a longer wall
-clock. The transcripts are left exactly as they were executed.
+`after-scale-500.txt` was re-run on the final shipped code, after `next_attempt_at` and the
+claim-contention fix landed, and is the transcript to trust for timings.
+
+**The A2 / C / D transcripts predate the retry backoff.** Their outcomes still describe shipped
+behaviour — everything completes, nothing is marked `failed` — but their recovery latency does not: a
+requeued item now waits at least the base backoff before it is claimable, and if no ready work keeps
+a worker alive it waits for the next safety-net cron tick. They are left exactly as they were
+executed rather than rewritten.
 
 ## Limits of this evidence
 
 - Gemini and Google Places responses are stubbed; latency and failures are injected, not observed.
   Model output quality is out of scope here — this is about the queue, not the extraction.
-- The kill test kills the whole server at once. On Vercel each invocation is killed independently,
-  so this is the harsher case.
+- The kill test kills the server's whole process group at once. On Vercel each invocation is killed
+  independently, so this is the harsher case.
 - Lease expiry is simulated by ageing `processing_started_at` rather than waiting out the real TTL.
 - The `before-*` runs were made before the harness grew a local blob server, so thumbnail uploads
   failed in them (best-effort in the pipeline, non-fatal, and not what is being measured). The

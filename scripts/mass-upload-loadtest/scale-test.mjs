@@ -24,6 +24,8 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const COUNT = Number(process.env.SCALE_COUNT ?? 500);
 const KILL_AT = Number(process.env.SCALE_KILL_AT ?? 0.6);
 const COUNTER_FILE = join(REPO_ROOT, '.loadtest-calls.tsv');
+/** How long we wait for the cron to acknowledge before letting it run on alone. */
+const TRIGGER_ACK_MS = Number(process.env.SCALE_TRIGGER_ACK_MS ?? 10_000);
 const BLOB_PORT = Number(process.env.LOADTEST_BLOB_PORT ?? 8090);
 const BLOB_BASE = `http://127.0.0.1:${BLOB_PORT}`;
 
@@ -71,6 +73,11 @@ function startServer() {
     ['dev', '-p', String(PORT), '-H', '127.0.0.1'],
     {
       cwd: REPO_ROOT,
+      // `next dev` is a wrapper around a `next-server` child: killing only the
+      // wrapper leaves a live worker behind, which would make the mid-run kill a
+      // lie (and let the lease-ageing shortcut steal leases from a process that
+      // is still working). Own the whole group so the kill is a real kill.
+      detached: true,
       env: {
         ...process.env,
         ...safeEnv(),
@@ -90,6 +97,28 @@ function startServer() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** SIGKILL the server's whole process group and wait for the port to be free. */
+async function killServer(child) {
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+  for (let i = 0; i < 40; i++) {
+    try {
+      await fetch(`${BASE}/api/mass-upload/cron`, { signal: AbortSignal.timeout(500) });
+    } catch {
+      return; // nothing is listening any more — the kill is complete
+    }
+    await sleep(250);
+  }
+  throw new Error('server survived SIGKILL');
+}
 
 /** Fail loudly instead of silently measuring somebody else's server. */
 async function assertPortFree() {
@@ -134,11 +163,16 @@ function geminiCalls() {
   return readFileSync(COUNTER_FILE, 'utf8').split('\n').filter((l) => l.startsWith('gemini\t')).length;
 }
 
-async function triggerCron() {
-  const res = await fetch(`${BASE}/api/mass-upload/cron`, {
+/**
+ * Fire the safety-net cron. It drains the queue in-process and can run for its
+ * full budget, so the harness must not wait on the response — undici's default
+ * headers timeout would kill the harness, not the run.
+ */
+function triggerCron() {
+  return fetch(`${BASE}/api/mass-upload/cron`, {
     headers: { authorization: 'Bearer loadtest-secret' },
-  });
-  return { status: res.status, body: await res.json().catch(() => null) };
+    signal: AbortSignal.timeout(TRIGGER_ACK_MS),
+  }).catch(() => null);
 }
 
 async function main() {
@@ -183,8 +217,7 @@ async function main() {
         console.log(
           `\n*** KILL -9 at ${counts.completed} completed, ${inFlight} in-flight, t+${elapsed}s ***\n`
         );
-        server.kill('SIGKILL');
-        await sleep(3000);
+        await killServer(server);
 
         // Simulate the lease TTL elapsing, then bring the app back.
         await client.execute(
@@ -211,7 +244,7 @@ async function main() {
       }
     }
 
-    await trigger.catch(() => {});
+    await trigger;
     const counts = await statusCounts(client);
     const wallSeconds = Math.round((Date.now() - startedAt) / 1000);
     const places = await client.execute('SELECT COUNT(*) AS n FROM places');
@@ -239,7 +272,7 @@ async function main() {
     const blobStats = await fetch(`${BLOB_BASE}/stats`).then((r) => r.json());
     console.log(`thumbnails uploaded  ${blobStats.uploads} (all to the local blob server)`);
   } finally {
-    server.kill('SIGKILL');
+    await killServer(server).catch(() => {});
     blobServer.kill('SIGKILL');
   }
 }

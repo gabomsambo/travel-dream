@@ -24,6 +24,7 @@ interface StatusCounts {
   enriching: number
   completed: number
   failed: number
+  stalled: number
   cancelled: number
 }
 
@@ -84,7 +85,13 @@ export function ProcessingBanner() {
           (data.counts.extracting || 0) +
           (data.counts.enriching || 0)
 
-        if (activeCount === 0 && ((data.counts.completed || 0) > 0 || (data.counts.failed || 0) > 0 || (data.counts.cancelled || 0) > 0)) {
+        if (
+          activeCount === 0 &&
+          ((data.counts.completed || 0) > 0 ||
+            (data.counts.failed || 0) > 0 ||
+            (data.counts.stalled || 0) > 0 ||
+            (data.counts.cancelled || 0) > 0)
+        ) {
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
             intervalRef.current = null
@@ -118,7 +125,7 @@ export function ProcessingBanner() {
 
   const cancelledCount = counts.cancelled || 0
   const adjustedTotal = total - cancelledCount
-  const processed = (counts.completed || 0) + (counts.failed || 0)
+  const processed = (counts.completed || 0) + (counts.failed || 0) + (counts.stalled || 0)
 
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">

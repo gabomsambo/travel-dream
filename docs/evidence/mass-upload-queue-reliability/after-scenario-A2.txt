@@ -1,0 +1,7 @@
+
+=== AFTER / A2: the screenshot that used to be buried by clock-outs ===
+run: completed after 151353ms → {"status":"success","workerId":"w_a2bf6085-9af7-46de-bb20-c12eb4ec30dc","claimed":6,"completed":6,"failed":0,"interrupted":0,"stalled":0,"leaseLost":0,"placesCreated":18,"reclaimed":{"requeued":0,"stalled":0},"remaining":0,"stoppedBecause":"queue-empty","elapsedMs":150951}
+final: counts={"completed":6} geminiCalls=6
+
+src_load_0000 → status=completed attempts=0
+PASS: nothing marked failed; slow screenshot completed

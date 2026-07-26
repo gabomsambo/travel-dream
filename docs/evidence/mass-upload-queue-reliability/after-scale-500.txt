@@ -1,0 +1,214 @@
+seeded 500 screenshots into the throwaway database
+dev server ready on http://127.0.0.1:3100
+t+19s {"completed":16,"extracting":16,"queued":468} gemini=32
+t+34s {"completed":48,"extracting":16,"queued":436} gemini=64
+t+49s {"completed":66,"enriching":3,"extracting":13,"queued":418} gemini=81
+t+64s {"completed":96,"extracting":16,"queued":388} gemini=112
+t+79s {"completed":128,"extracting":16,"queued":356} gemini=144
+t+94s {"completed":149,"enriching":5,"extracting":11,"queued":335} gemini=165
+t+109s {"completed":176,"extracting":16,"queued":308} gemini=192
+t+124s {"completed":208,"extracting":16,"queued":276} gemini=224
+t+139s {"completed":234,"enriching":6,"extracting":10,"queued":250} gemini=250
+
+*** KILL -9 at 256 completed, 16 in-flight, t+149s ***
+
+server restarted; safety-net cron takes over
+t+170s {"completed":272,"extracting":16,"queued":212} gemini=304
+t+185s {"completed":304,"extracting":16,"queued":180} gemini=336
+t+200s {"completed":320,"enriching":5,"extracting":11,"queued":164} gemini=352
+t+215s {"completed":352,"extracting":16,"queued":132} gemini=384
+t+230s {"completed":384,"extracting":16,"queued":100} gemini=416
+t+245s {"completed":407,"enriching":9,"extracting":7,"queued":77} gemini=437
+t+260s {"completed":432,"extracting":16,"queued":52} gemini=464
+t+275s {"completed":464,"extracting":16,"queued":20} gemini=496
+t+291s {"completed":496,"extracting":4} gemini=516
+t+301s {"completed":500} gemini=516
+
+=== SCALE TEST RESULT ===
+screenshots         500
+final counts        {"completed":500}
+wall time           301s
+gemini calls        516 (one per screenshot + one per screenshot killed mid-extraction)
+places created      454
+attachments created 454
+total interruptions 16
+total attempts used 0 (attempts are only spent on genuine failures)
+PASS: every uploaded screenshot completed; none marked failed despite the mid-run kill
+{
+ "timeline": [
+  {
+   "elapsed": 19,
+   "counts": {
+    "completed": 16,
+    "extracting": 16,
+    "queued": 468
+   },
+   "gemini": 32
+  },
+  {
+   "elapsed": 34,
+   "counts": {
+    "completed": 48,
+    "extracting": 16,
+    "queued": 436
+   },
+   "gemini": 64
+  },
+  {
+   "elapsed": 49,
+   "counts": {
+    "completed": 66,
+    "enriching": 3,
+    "extracting": 13,
+    "queued": 418
+   },
+   "gemini": 81
+  },
+  {
+   "elapsed": 64,
+   "counts": {
+    "completed": 96,
+    "extracting": 16,
+    "queued": 388
+   },
+   "gemini": 112
+  },
+  {
+   "elapsed": 79,
+   "counts": {
+    "completed": 128,
+    "extracting": 16,
+    "queued": 356
+   },
+   "gemini": 144
+  },
+  {
+   "elapsed": 94,
+   "counts": {
+    "completed": 149,
+    "enriching": 5,
+    "extracting": 11,
+    "queued": 335
+   },
+   "gemini": 165
+  },
+  {
+   "elapsed": 109,
+   "counts": {
+    "completed": 176,
+    "extracting": 16,
+    "queued": 308
+   },
+   "gemini": 192
+  },
+  {
+   "elapsed": 124,
+   "counts": {
+    "completed": 208,
+    "extracting": 16,
+    "queued": 276
+   },
+   "gemini": 224
+  },
+  {
+   "elapsed": 139,
+   "counts": {
+    "completed": 234,
+    "enriching": 6,
+    "extracting": 10,
+    "queued": 250
+   },
+   "gemini": 250
+  },
+  {
+   "elapsed": 170,
+   "counts": {
+    "completed": 272,
+    "extracting": 16,
+    "queued": 212
+   },
+   "gemini": 304
+  },
+  {
+   "elapsed": 185,
+   "counts": {
+    "completed": 304,
+    "extracting": 16,
+    "queued": 180
+   },
+   "gemini": 336
+  },
+  {
+   "elapsed": 200,
+   "counts": {
+    "completed": 320,
+    "enriching": 5,
+    "extracting": 11,
+    "queued": 164
+   },
+   "gemini": 352
+  },
+  {
+   "elapsed": 215,
+   "counts": {
+    "completed": 352,
+    "extracting": 16,
+    "queued": 132
+   },
+   "gemini": 384
+  },
+  {
+   "elapsed": 230,
+   "counts": {
+    "completed": 384,
+    "extracting": 16,
+    "queued": 100
+   },
+   "gemini": 416
+  },
+  {
+   "elapsed": 245,
+   "counts": {
+    "completed": 407,
+    "enriching": 9,
+    "extracting": 7,
+    "queued": 77
+   },
+   "gemini": 437
+  },
+  {
+   "elapsed": 260,
+   "counts": {
+    "completed": 432,
+    "extracting": 16,
+    "queued": 52
+   },
+   "gemini": 464
+  },
+  {
+   "elapsed": 275,
+   "counts": {
+    "completed": 464,
+    "extracting": 16,
+    "queued": 20
+   },
+   "gemini": 496
+  },
+  {
+   "elapsed": 291,
+   "counts": {
+    "completed": 496,
+    "extracting": 4
+   },
+   "gemini": 516
+  },
+  {
+   "elapsed": 301,
+   "counts": {
+    "completed": 500
+   },
+   "gemini": 516
+  }
+ ]
+}
+thumbnails uploaded  516 (all to the local blob server)

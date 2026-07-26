@@ -487,7 +487,7 @@ export function MassUploadPage() {
 
   // Step 3: Processing
   if (step === 'processing') {
-    const processed = status.counts.completed + status.counts.failed
+    const processed = status.counts.completed + status.counts.failed + status.counts.stalled
     const progressPercent = status.total > 0 ? Math.round((processed / status.total) * 100) : 0
 
     return (
@@ -525,6 +525,14 @@ export function MassUploadPage() {
                   </details>
                 )}
               </>
+            )}
+            {status.counts.stalled > 0 && (
+              <p className="text-sm text-amber-600 mb-4">
+                {status.counts.stalled} screenshot{status.counts.stalled !== 1 ? 's' : ''} kept getting interrupted and
+                {status.counts.stalled !== 1 ? ' were' : ' was'} not processed. Nothing is wrong with
+                {status.counts.stalled !== 1 ? ' those images' : ' that image'} — upload
+                {status.counts.stalled !== 1 ? ' them' : ' it'} again to retry.
+              </p>
             )}
             {status.counts.cancelled > 0 && (
               <p className="text-sm text-muted-foreground mb-4">
@@ -601,6 +609,9 @@ export function MassUploadPage() {
                 )}
                 {status.counts.failed > 0 && (
                   <Badge variant="destructive">{status.counts.failed} failed</Badge>
+                )}
+                {status.counts.stalled > 0 && (
+                  <Badge variant="outline">{status.counts.stalled} needs retry</Badge>
                 )}
                 {status.counts.cancelled > 0 && (
                   <Badge variant="outline">{status.counts.cancelled} cancelled</Badge>

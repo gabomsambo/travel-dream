@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'success', cancelled: 0, alreadyProcessing: 0 });
     }
 
-    // Cancel only 'queued' and 'uploaded' sources (safe to cancel)
+    // Cancel only sources that are not in flight — 'stalled' ones are parked
+    // waiting for a retry, so they are safe to cancel too.
     const cancelled = await db.update(sourcesCurrentSchema)
       .set({
         processingStatus: 'cancelled',
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
       })
       .where(and(
         inArray(sourcesCurrentSchema.id, sourceIds),
-        sql`${sourcesCurrentSchema.processingStatus} IN ('queued', 'uploaded')`
+        sql`${sourcesCurrentSchema.processingStatus} IN ('queued', 'uploaded', 'stalled')`
       ))
       .returning();
 

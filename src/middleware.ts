@@ -27,9 +27,14 @@ export default auth(async (req) => {
     pathname.startsWith('/api/auth/callback') ||
     pathname.includes('.');
 
-  // Cron endpoints handle their own auth via CRON_SECRET header — bypass
-  // both NextAuth session check AND rate limiting (system-to-system call)
-  if (pathname.startsWith('/api/mass-upload/cron')) {
+  // System endpoints handle their own auth via the CRON_SECRET header — bypass
+  // both the NextAuth session check AND rate limiting (system-to-system calls).
+  // /process is the worker the upload trigger and the cron fan out to; without
+  // this it is redirected to /login and no processing ever starts.
+  if (
+    pathname.startsWith('/api/mass-upload/cron') ||
+    pathname.startsWith('/api/mass-upload/process')
+  ) {
     return NextResponse.next();
   }
 

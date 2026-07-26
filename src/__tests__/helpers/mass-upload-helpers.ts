@@ -77,8 +77,10 @@ export function createMockSource(overrides: Record<string, unknown> = {}) {
     updatedAt: '2026-03-01T00:00:00.000Z',
     processingStatus: 'queued',
     processingAttempts: 0,
+    processingInterruptions: 0,
     processingError: null,
     processingStartedAt: null,
+    processingLeaseId: null,
     ...overrides,
   };
 }

@@ -103,6 +103,26 @@ async function expireLeases(client) {
   );
 }
 
+/**
+ * A requeued item serves its `next_attempt_at` backoff before it is claimable
+ * again, so a recovery run started immediately finds nothing and returns in
+ * milliseconds. Wait the backoff out the way the safety-net cron does, instead
+ * of burning the guard on empty runs.
+ */
+async function waitForClaimableWork(client, maxWaitMs = 120_000) {
+  const res = await client.execute(
+    `SELECT MIN(next_attempt_at) AS soonest FROM sources
+     WHERE processing_status = 'queued' AND next_attempt_at IS NOT NULL`
+  );
+  const soonest = res.rows[0]?.soonest;
+  if (!soonest) return 0;
+  const waitMs = Math.min(maxWaitMs, Date.parse(soonest) - Date.now() + 1000);
+  if (waitMs <= 0) return 0;
+  console.log(`  waiting ${Math.round(waitMs / 1000)}s for the retry backoff to elapse`);
+  await new Promise((r) => setTimeout(r, waitMs));
+  return waitMs;
+}
+
 async function summarize(client, label) {
   const counts = await statusCounts(client);
   const rows = await detail(client);
@@ -188,6 +208,7 @@ async function main() {
     let guard = 0;
     let counts = await statusCounts(client);
     while ((counts.queued ?? 0) + (counts.extracting ?? 0) + (counts.enriching ?? 0) > 0 && guard++ < 10) {
+      await waitForClaimableWork(client);
       const run = runWorkerSync(env);
       console.log(`recovery run ${guard}: ${run.result?.event} after ${run.wallMs}ms`);
       counts = await statusCounts(client);

@@ -493,6 +493,38 @@ describe('processQueue', () => {
     expect(result.stoppedBecause).toBe('claim-error');
   });
 
+  it('contains an outcome-write failure to the lane that hit it', async () => {
+    queueOf(createMockSource({ id: 'src_a' }), createMockSource({ id: 'src_b' }));
+    // The Turso blip the classification handles, followed by the same unhealthy
+    // database refusing the interruption write.
+    mockComplete.mockImplementation(async (sourceId: string) => {
+      if (sourceId === 'src_a') {
+        throw Object.assign(
+          new Error('Database operation failed in completeSource: SQLITE_BUSY: database is locked'),
+          { cause: Object.assign(new Error('SQLITE_BUSY'), { code: 'SQLITE_BUSY' }) }
+        );
+      }
+      return true;
+    });
+    mockInterruption.mockRejectedValue(
+      new Error('Database operation failed in recordSourceInterruption: stream closed')
+    );
+    mockQueueDepth.mockResolvedValue(9);
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    // The other lane finished its screenshot and the run still reports, which is
+    // what lets the process route hand the baton on.
+    expect(result.completed).toBe(1);
+    expect(result.remaining).toBe(9);
+    // Surfaced, not swallowed — and never counted as a verdict about the image.
+    expect(result.outcomeErrors).toBe(1);
+    expect(result.outcomeError).toMatch(/stream closed/);
+    expect(result.stoppedBecause).toBe('outcome-error');
+    expect(result.failed).toBe(0);
+    expect(mockFailure).not.toHaveBeenCalled();
+  });
+
   it('still reports the run when the final queue-depth read fails', async () => {
     queueOf(createMockSource());
     mockQueueDepth.mockRejectedValue(new Error('Database operation failed in getQueueDepth: SQLITE_BUSY'));

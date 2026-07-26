@@ -41,9 +41,21 @@ export interface ProcessQueueResult {
   /** Lanes that ended because claiming threw; a persistent one shows up here. */
   claimErrors: number;
   claimError?: string;
+  /**
+   * Lanes that ended because writing an item's outcome threw. The item keeps its
+   * lease and the reclaim picks it up later.
+   */
+  outcomeErrors: number;
+  outcomeError?: string;
   reclaimed: { requeued: number; stalled: number };
   remaining: number;
-  stoppedBecause: 'queue-empty' | 'deadline' | 'max-items' | 'contended' | 'claim-error';
+  stoppedBecause:
+    | 'queue-empty'
+    | 'deadline'
+    | 'max-items'
+    | 'contended'
+    | 'claim-error'
+    | 'outcome-error';
   elapsedMs: number;
 }
 
@@ -84,6 +96,7 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
     leaseLost: 0,
     placesCreated: 0,
     claimErrors: 0,
+    outcomeErrors: 0,
     reclaimed: { requeued: 0, stalled: 0 },
     remaining: 0,
     stoppedBecause: 'queue-empty',
@@ -160,7 +173,22 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
         Math.max(QUEUE_CONFIG.itemMinBudgetMs, deadlineAt - now())
       );
 
-      await processOne(source, leaseId, itemBudgetMs, result, { now, deadlineAt });
+      // Writing the outcome back can fail too — recordSourceInterruption and
+      // recordSourceFailure run inside processOne's own catch. That ends this
+      // lane and nothing else: the item keeps its lease, so the reclaim in the
+      // next run picks it up, and this run still reports and still chains.
+      try {
+        await processOne(source, leaseId, itemBudgetMs, result, { now, deadlineAt });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        result.outcomeErrors++;
+        result.outcomeError = message;
+        stopped = 'outcome-error';
+        console.error(
+          `[MassUpload ${workerId}] could not record the outcome for ${source.id}, ending this lane: ${message}`
+        );
+        return;
+      }
     }
   };
 
@@ -181,7 +209,7 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
   console.log(
     `[MassUpload ${workerId}] ${result.completed} completed, ${result.failed} failed, ` +
       `${result.interrupted} interrupted, ${result.stalled} stalled, ${result.placesCreated} places, ` +
-      `${result.claimErrors} claim error(s), ` +
+      `${result.claimErrors} claim error(s), ${result.outcomeErrors} outcome write error(s), ` +
       `${result.remaining} remaining (${result.stoppedBecause}, ${result.elapsedMs}ms)`
   );
 

@@ -96,6 +96,24 @@ describe('POST /api/mass-upload/process', () => {
     expect(mockDispatch).toHaveBeenCalledWith('worker-chain', 'replace');
   });
 
+  it('still hands the baton on after a lane failed to write an outcome', async () => {
+    mockProcessQueue.mockResolvedValue({
+      completed: 12,
+      failed: 0,
+      remaining: 40,
+      placesCreated: 30,
+      outcomeErrors: 1,
+      outcomeError: 'Database operation failed in recordSourceInterruption: stream closed',
+      stoppedBecause: 'outcome-error',
+    });
+
+    const res = await POST(request({ wait: true }));
+    const data = await res.json();
+
+    expect(mockDispatch).toHaveBeenCalledWith('worker-chain', 'replace');
+    expect(data.outcomeErrors).toBe(1);
+  });
+
   it('does not chain when the queue is drained', async () => {
     await POST(request({ wait: true }));
     expect(mockDispatch).not.toHaveBeenCalled();

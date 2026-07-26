@@ -53,6 +53,12 @@ export async function GET(request: NextRequest) {
       reclaimed: result.reclaimed,
       leaseLost: result.leaseLost,
       claimed: result.claimed,
+      // Infrastructure that cut a lane short, so a persistent one is visible on
+      // the endpoint an operator actually curls.
+      claimErrors: result.claimErrors,
+      claimError: result.claimError,
+      outcomeErrors: result.outcomeErrors,
+      outcomeError: result.outcomeError,
       stoppedBecause: result.stoppedBecause,
       elapsedMs: result.elapsedMs,
       dispatch,

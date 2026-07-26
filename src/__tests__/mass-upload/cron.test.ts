@@ -38,6 +38,8 @@ function queueResult(overrides: Record<string, unknown> = {}) {
     stalled: 0,
     leaseLost: 0,
     placesCreated: 5,
+    claimErrors: 0,
+    outcomeErrors: 0,
     reclaimed: { requeued: 3, stalled: 0 },
     remaining: 4,
     stoppedBecause: 'queue-empty',
@@ -98,6 +100,29 @@ describe('GET /api/mass-upload/cron', () => {
     expect(data.interrupted).toBe(2);
     expect(data.stalled).toBe(1);
     expect(data.reclaimed).toEqual({ requeued: 5, stalled: 1 });
+  });
+
+  it('reports the infrastructure errors that cut lanes short', async () => {
+    mockProcessQueue.mockResolvedValue(
+      queueResult({
+        claimErrors: 2,
+        claimError: 'Database operation failed in claimNextQueuedSource: stream closed',
+        outcomeErrors: 1,
+        outcomeError: 'Database operation failed in recordSourceInterruption: SQLITE_BUSY',
+        stoppedBecause: 'claim-error',
+      })
+    );
+
+    const data = await (await GET(cronRequest())).json();
+
+    expect(data.claimErrors).toBe(2);
+    expect(data.claimError).toMatch(/stream closed/);
+    expect(data.outcomeErrors).toBe(1);
+    expect(data.outcomeError).toMatch(/SQLITE_BUSY/);
+    expect(data.stoppedBecause).toBe('claim-error');
+    // Legacy field names clients depend on are untouched.
+    expect(data.processed).toBe(2);
+    expect(data.remaining).toBe(4);
   });
 
   it('returns 500 when the run itself blows up', async () => {

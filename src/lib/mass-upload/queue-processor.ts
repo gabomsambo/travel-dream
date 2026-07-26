@@ -143,7 +143,7 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
         Math.max(QUEUE_CONFIG.itemMinBudgetMs, deadlineAt - now())
       );
 
-      await processOne(source, leaseId, itemBudgetMs, result);
+      await processOne(source, leaseId, itemBudgetMs, result, { now, deadlineAt });
     }
   };
 
@@ -164,13 +164,26 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
   return result;
 }
 
+/** What the run is still waiting on when an item is cut short. */
+interface InFlightWork {
+  extraction?: { promise: Promise<GeminiExtractionResult>; thumbnailUrl?: string };
+}
+
+/** The run's own clock, so an item never salvages work past the run deadline. */
+interface RunClock {
+  now: () => number;
+  deadlineAt: number;
+}
+
 /** Process one claimed screenshot, recording exactly one outcome for it. */
 async function processOne(
   source: Source,
   leaseId: string,
   budgetMs: number,
-  result: ProcessQueueResult
+  result: ProcessQueueResult,
+  clock: RunClock
 ): Promise<void> {
+  const inFlight: InFlightWork = {};
   const watchdog = new AbortController();
   const timer = setTimeout(
     () =>
@@ -181,7 +194,7 @@ async function processOne(
   );
 
   try {
-    const placesCreated = await runPipeline(source, leaseId, watchdog.signal);
+    const placesCreated = await runPipeline(source, leaseId, watchdog.signal, inFlight);
     const completed = await completeSource(source.id, leaseId);
     if (!completed) {
       // Only reachable if a reclaim beat us; lease TTL > item budget makes this
@@ -196,6 +209,9 @@ async function processOne(
   } catch (error) {
     const interruption = asInterruption(error, watchdog.signal);
     if (interruption) {
+      // Write anything already paid for while the lease is still ours: the
+      // interruption below releases it, and a write after that lands nowhere.
+      await salvageInFlightExtraction(source.id, leaseId, inFlight, clock);
       const outcome = await recordSourceInterruption(
         source.id,
         leaseId,
@@ -263,7 +279,12 @@ function isTransientUpstreamError(error: unknown): boolean {
 }
 
 /** Full extraction → enrichment → persistence pipeline for one screenshot. */
-async function runPipeline(source: Source, leaseId: string, signal: AbortSignal): Promise<number> {
+async function runPipeline(
+  source: Source,
+  leaseId: string,
+  signal: AbortSignal,
+  inFlight: InFlightWork
+): Promise<number> {
   if (!source.userId) {
     // Genuine data problem, not a clock problem.
     throw new Error('No userId on source');
@@ -285,16 +306,11 @@ async function runPipeline(source: Source, leaseId: string, signal: AbortSignal)
       signal.throwIfAborted();
       const fileName = meta.uploadInfo?.originalName || source.id;
       const pending = getGeminiExtractionService().extractFromImage(buffer, fileName);
-      try {
-        extraction = await withAbort(pending, signal);
-      } catch (err) {
-        // The call was already paid for even though we stopped waiting: keep
-        // whatever it returns so the retry does not re-charge Gemini. The run's
-        // own clock is not extended, and the write is lease-guarded, so it is a
-        // no-op once the lease is gone.
-        cacheLateExtraction(pending, source.id, leaseId, thumbnailUrl);
-        throw err;
-      }
+      // Published while the call is outstanding: if the watchdog fires now, the
+      // caller gets a short grace to keep what Gemini was already paid for.
+      inFlight.extraction = { promise: pending, thumbnailUrl };
+      extraction = await withAbort(pending, signal);
+      inFlight.extraction = undefined;
       // Persist before enrichment so an interruption after this point never
       // pays Gemini for the same screenshot twice.
       await cacheSourceProcessingWork(source.id, leaseId, { extraction, thumbnailUrl });
@@ -321,23 +337,49 @@ async function runPipeline(source: Source, leaseId: string, signal: AbortSignal)
 }
 
 /**
- * Persist an extraction that arrived after we stopped waiting for it. Fire and
- * forget: a late result is a bonus for the next attempt, never something the
- * current run blocks on.
+ * Keep an extraction the run stopped waiting for.
+ *
+ * Gemini was already charged for it, so an interrupted item waits a short,
+ * hard-capped grace for the answer and persists it under the lease it still
+ * holds. The grace is skipped outright when the run has no clock to spare, and
+ * an answer that misses it is simply lost — the retry pays again, exactly as
+ * before. Either way the item's outcome is the interruption the caller records
+ * next; nothing here can turn it into a failure.
  */
-function cacheLateExtraction(
-  pending: Promise<GeminiExtractionResult>,
+async function salvageInFlightExtraction(
   sourceId: string,
   leaseId: string,
-  thumbnailUrl: string | undefined
-): void {
-  void pending.then(
-    (late) =>
-      cacheSourceProcessingWork(sourceId, leaseId, { extraction: late, thumbnailUrl }).catch(
-        (err) => console.warn(`[MassUpload] could not cache late extraction for ${sourceId}:`, err)
-      ),
-    () => undefined
-  );
+  inFlight: InFlightWork,
+  clock: RunClock
+): Promise<void> {
+  const pending = inFlight.extraction;
+  if (!pending) return;
+  inFlight.extraction = undefined;
+
+  const graceMs = QUEUE_CONFIG.lateExtractionGraceMs;
+  if (clock.deadlineAt - clock.now() < graceMs) return;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), graceMs);
+  });
+
+  try {
+    const settled = await Promise.race([
+      pending.promise.then((extraction) => ({ extraction }), () => null),
+      expiry,
+    ]);
+    if (!settled) return;
+
+    await cacheSourceProcessingWork(sourceId, leaseId, {
+      extraction: settled.extraction,
+      thumbnailUrl: pending.thumbnailUrl,
+    });
+  } catch (err) {
+    console.warn(`[MassUpload] could not keep the in-flight extraction for ${sourceId}:`, err);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function downloadScreenshot(uri: string, signal: AbortSignal): Promise<Buffer> {

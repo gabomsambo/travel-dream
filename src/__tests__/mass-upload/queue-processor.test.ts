@@ -338,7 +338,7 @@ describe('processQueue', () => {
     expect(mockClaim.mock.calls.length).toBeGreaterThan(QUEUE_CONFIG.claimContentionRetries);
   });
 
-  it('caches a Gemini result that lands after the watchdog fired, so the retry is free', async () => {
+  it('keeps a Gemini result that lands in the grace, writing it before the lease is released', async () => {
     jest.useFakeTimers();
     try {
       queueOf(createMockSource());
@@ -350,23 +350,59 @@ describe('processQueue', () => {
 
       const run = processQueue({ workerId: 'w_test' });
       await jest.advanceTimersByTimeAsync(QUEUE_CONFIG.itemMaxBudgetMs + 1_000);
+
+      // Watchdog fired, but the item still owns its lease while it waits.
+      expect(mockInterruption).not.toHaveBeenCalled();
+
+      resolveLate(extraction);
+      await jest.advanceTimersByTimeAsync(QUEUE_CONFIG.lateExtractionGraceMs);
       const result = await run;
 
       // The clock-out is an interruption, never a verdict about the image...
       expect(result.interrupted).toBe(1);
       expect(result.failed).toBe(0);
       expect(mockFailure).not.toHaveBeenCalled();
-      expect(mockCache).not.toHaveBeenCalled();
 
-      // ...and the extraction we already paid for is kept for the next attempt.
-      resolveLate(extraction);
-      await jest.advanceTimersByTimeAsync(0);
-
+      // ...and Gemini is not charged for it twice, because the write landed
+      // while the lease that guards it was still held.
       expect(mockCache).toHaveBeenCalledWith(
         'src_test-1',
         expect.any(String),
         expect.objectContaining({ extraction })
       );
+      expect(mockCache.mock.invocationCallOrder[0]).toBeLessThan(
+        mockInterruption.mock.invocationCallOrder[0]
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('skips the grace entirely when the run has no clock left for it', async () => {
+    jest.useFakeTimers();
+    try {
+      queueOf(createMockSource());
+      const extraction = createMockExtractionResult();
+      let resolveLate: (value: unknown) => void = () => {};
+      mockExtractFromImage.mockImplementation(
+        () => new Promise((resolve) => { resolveLate = resolve; })
+      );
+
+      const run = processQueue({
+        workerId: 'w_test',
+        deadlineAt: Date.now() + QUEUE_CONFIG.itemMinBudgetMs + 1_000,
+      });
+      await jest.advanceTimersByTimeAsync(QUEUE_CONFIG.itemMinBudgetMs + 2_000);
+      const result = await run;
+
+      expect(result.interrupted).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(mockCache).not.toHaveBeenCalled();
+
+      // Even a result that arrives later is not waited for: the run is done.
+      resolveLate(extraction);
+      await jest.advanceTimersByTimeAsync(QUEUE_CONFIG.lateExtractionGraceMs);
+      expect(mockCache).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }

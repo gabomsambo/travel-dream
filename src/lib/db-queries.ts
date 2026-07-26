@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling } from './db-utils';
+import { isClaimableNow } from './mass-upload/queue-sql';
 import type { Place, Source, Collection, PlaceWithSources } from '@/types/database';
 
 /**
@@ -978,26 +979,36 @@ export async function getPlaceWithRelations(placeId: string, userId: string) {
 // Claiming goes through `claimNextQueuedSource` in db-mutations: it is atomic
 // and takes a lease. Nothing here hands out queued sources without one.
 
-/** Number of sources waiting to be picked up, across all users. */
+/**
+ * Number of sources that can be picked up right now, across all users.
+ *
+ * Counts claimable work, not every `queued` row: an item still serving its
+ * retry backoff is waiting, but no run can take it, and reporting it as
+ * remaining work makes the worker chain spawn runs that claim nothing.
+ */
 export async function getQueueDepth(): Promise<number> {
   return withErrorHandling(async () => {
     const [row] = await db.select({ count: sql<number>`count(*)` })
       .from(sourcesCurrentSchema)
-      .where(eq(sourcesCurrentSchema.processingStatus, 'queued'));
+      .where(and(
+        eq(sourcesCurrentSchema.processingStatus, 'queued'),
+        isClaimableNow(new Date().toISOString())
+      ));
     return Number(row?.count ?? 0);
   }, 'getQueueDepth');
 }
 
 /**
- * Queue depth plus how many processing runs are currently alive, judged by
- * unexpired leases. Drives how many workers the dispatcher needs to add.
+ * Claimable queue depth plus how many processing runs are currently alive,
+ * judged by unexpired leases. Drives how many workers the dispatcher needs.
  */
 export async function getQueueStats(
   leaseCutoffIso: string
 ): Promise<{ queued: number; activeWorkers: number; inFlight: number }> {
   return withErrorHandling(async () => {
+    const claimable = isClaimableNow(new Date().toISOString());
     const [row] = await db.select({
-      queued: sql<number>`sum(case when ${sourcesCurrentSchema.processingStatus} = 'queued' then 1 else 0 end)`,
+      queued: sql<number>`sum(case when ${sourcesCurrentSchema.processingStatus} = 'queued' and ${claimable} then 1 else 0 end)`,
       inFlight: sql<number>`sum(case when ${sourcesCurrentSchema.processingStatus} in ('extracting','enriching') and coalesce(${sourcesCurrentSchema.processingStartedAt}, '') >= ${leaseCutoffIso} then 1 else 0 end)`,
       activeWorkers: sql<number>`count(distinct case when ${sourcesCurrentSchema.processingStatus} in ('extracting','enriching') and coalesce(${sourcesCurrentSchema.processingStartedAt}, '') >= ${leaseCutoffIso} then substr(${sourcesCurrentSchema.processingLeaseId}, 1, instr(${sourcesCurrentSchema.processingLeaseId} || ':', ':') - 1) end)`,
     })

@@ -33,6 +33,12 @@ describe('mass-upload queue configuration', () => {
     expect(QUEUE_CONFIG.leaseTtlMs).toBeGreaterThanOrEqual(QUEUE_CONFIG.runBudgetMs * 0.8);
   });
 
+  it('keeps the late-extraction grace well inside the run safety margin', () => {
+    // The grace runs after the item is already over budget, so it has to fit in
+    // the head room the run keeps for writing its results back.
+    expect(QUEUE_CONFIG.lateExtractionGraceMs).toBeLessThan(QUEUE_CONFIG.runSafetyMarginMs);
+  });
+
   it('keeps interruptions on a separate, more forgiving budget than failures', () => {
     expect(QUEUE_CONFIG.maxInterruptions).toBeGreaterThan(QUEUE_CONFIG.maxAttempts);
   });

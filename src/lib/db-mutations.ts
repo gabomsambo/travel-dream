@@ -5,6 +5,7 @@ import { sources, places, collections, sourcesToPlaces, placesToCollections, mer
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId } from './db-utils';
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
+import { isClaimableNow } from './mass-upload/queue-sql';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
 import type { ExtractedPlace, ExtractionResult, ExtractionMetadata } from '@/types/llm-extraction';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
@@ -1709,7 +1710,7 @@ export async function claimNextQueuedSource(
       .from(sourcesCurrentSchema)
       .where(and(
         eq(sourcesCurrentSchema.processingStatus, 'queued'),
-        sql`(${sourcesCurrentSchema.nextAttemptAt} IS NULL OR ${sourcesCurrentSchema.nextAttemptAt} <= ${nowIso})`
+        isClaimableNow(nowIso)
       ))
       .orderBy(sourcesCurrentSchema.createdAt)
       .limit(candidateLimit);

@@ -62,6 +62,12 @@ export const QUEUE_CONFIG = {
    * lane promptly.
    */
   claimContentionRetries: envInt('MASS_UPLOAD_CLAIM_CONTENTION_RETRIES', 5),
+  /**
+   * How long an interrupted item waits for an extraction that is still in
+   * flight, so a call already paid for is written under the lease instead of
+   * being thrown away. Must stay well inside runSafetyMarginMs.
+   */
+  lateExtractionGraceMs: envInt('MASS_UPLOAD_LATE_EXTRACTION_GRACE_MS', 3_000),
   /** First wait before a requeued item may be claimed again. */
   retryBackoffBaseMs: envInt('MASS_UPLOAD_RETRY_BACKOFF_BASE_MS', 30_000),
   /** Ceiling for the exponential backoff above. */

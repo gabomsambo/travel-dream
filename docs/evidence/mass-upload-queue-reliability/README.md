@@ -81,6 +81,15 @@ PASS: every uploaded screenshot completed; none marked failed despite the mid-ru
 500 screenshots, one hard kill, zero lost work, 7m26s wall clock — against ~100 minutes of
 one-cron-tick-per-minute before, with items being buried along the way.
 
+## These runs predate the retry backoff
+
+**The timings below and in the transcripts were measured before `next_attempt_at` existed.** The
+outcomes still describe shipped behaviour — everything completes, nothing is marked `failed` — but
+recovery latency does not. A requeued item (including one stranded by a `kill -9`) now waits at least
+the base backoff before it is claimable, and if no ready work keeps a worker alive it waits for the
+next safety-net cron tick. Re-running the harness today would show the same counts and a longer wall
+clock. The transcripts are left exactly as they were executed.
+
 ## Limits of this evidence
 
 - Gemini and Google Places responses are stubbed; latency and failures are injected, not observed.

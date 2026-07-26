@@ -28,9 +28,15 @@ export default async function AppLayout({
         the <html> attribute the provider sets, which is what lets the one-time
         legacy migration flip the theme without a server round-trip.
       */}
+      {/*
+        The themed subtree paints its own canvas: <body> carries bg-background
+        but sits outside it, so without this a tropical user would see the
+        classic background for the first frame, until the provider mirrors the
+        attribute onto <html>. In the steady state both resolve identically.
+      */}
       <div
         data-theme={uiTheme === 'tropical' ? 'tropical' : undefined}
-        className="flex h-screen overflow-hidden"
+        className="flex h-screen overflow-hidden bg-background text-foreground"
       >
         <div className="hidden md:block">
           <Sidebar />

@@ -116,6 +116,23 @@ describe('UIRefreshProvider', () => {
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
   })
 
+  it('drops the <html> attribute when the provider unmounts', () => {
+    // A soft navigation out of (app) into the marketing tree unmounts the
+    // provider but keeps <html>; the tropical tokens must not survive it.
+    const { unmount } = render(
+      <UIRefreshProvider theme="tropical">
+        <Probe />
+      </UIRefreshProvider>
+    )
+    expect(document.documentElement.getAttribute('data-theme')).toBe('tropical')
+
+    act(() => {
+      unmount()
+    })
+
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+  })
+
   it('migrates a legacy localStorage opt-in to the cookie, once', () => {
     localStorage.setItem(LEGACY_UI_REFRESH_KEY, 'true')
 

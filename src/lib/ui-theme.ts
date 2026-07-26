@@ -41,3 +41,14 @@ export function normalizeUiTheme(value: string | null | undefined): UiTheme {
     ? (value as UiTheme)
     : DEFAULT_UI_THEME
 }
+
+/**
+ * Write the theme cookie from the browser.
+ *
+ * The single place the client-side attributes live, so they cannot drift from
+ * each other; the server action in `ui-theme-actions.ts` writes the same cookie
+ * durably afterwards.
+ */
+export function writeUiThemeCookie(theme: UiTheme): void {
+  document.cookie = `${UI_THEME_COOKIE}=${normalizeUiTheme(theme)}; path=/; max-age=${UI_THEME_COOKIE_MAX_AGE}; samesite=lax`
+}

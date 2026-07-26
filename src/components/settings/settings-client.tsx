@@ -16,11 +16,7 @@ import { toast } from 'sonner'
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog'
 import { useUiTheme } from '@/components/ui-refresh-provider'
 import { setUiTheme } from '@/lib/ui-theme-actions'
-import {
-  UI_THEME_COOKIE,
-  UI_THEME_COOKIE_MAX_AGE,
-  type UiTheme,
-} from '@/lib/ui-theme'
+import { writeUiThemeCookie, type UiTheme } from '@/lib/ui-theme'
 import {
   Select,
   SelectContent,
@@ -50,11 +46,17 @@ export function SettingsClient() {
   const toggleUIRefresh = (enabled: boolean) => {
     const next: UiTheme = enabled ? 'tropical' : 'classic'
 
-    // Write the cookie client-side first so the switch and the theme flip
-    // immediately, then persist it properly via the server action and re-render
-    // the server components with the new value.
-    document.cookie = `${UI_THEME_COOKIE}=${next}; path=/; max-age=${UI_THEME_COOKIE_MAX_AGE}; samesite=lax`
-    void setUiTheme(next)
+    // The cookie is written client-side immediately, but the switch and the
+    // theme only change once router.refresh() has completed its RSC round-trip
+    // and the layout has re-rendered with the new value. The server action
+    // persists the same cookie durably.
+    writeUiThemeCookie(next)
+    setUiTheme(next).catch((error) => {
+      // The client-written cookie means the choice still holds locally, so this
+      // would otherwise fail silently.
+      console.error('UI theme save error:', error)
+      toast.error('Failed to save theme preference')
+    })
     router.refresh()
   }
 

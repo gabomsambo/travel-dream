@@ -6,7 +6,7 @@ import {
   DEFAULT_UI_THEME,
   LEGACY_UI_REFRESH_KEY,
   UI_THEME_COOKIE,
-  UI_THEME_COOKIE_MAX_AGE,
+  writeUiThemeCookie,
   type UiTheme,
 } from "@/lib/ui-theme"
 
@@ -63,10 +63,21 @@ export function UIRefreshProvider({
   // onto <html> to keep those in the same theme. Portalled content only ever
   // mounts after hydration, so doing this in an effect costs nothing at first
   // paint.
+  //
+  // The cleanup matters: (app) and (marketing) share a root layout, so a soft
+  // navigation out of the app tree unmounts this provider while <html> lives
+  // on. Without it a tropical user would drag tropical tokens onto the
+  // marketing routes, which render the classic tree. Swapping themes in place
+  // runs cleanup and effect in the same commit, before paint, so there is no
+  // flicker.
   useEffect(() => {
-    if (theme === "tropical") {
-      document.documentElement.setAttribute("data-theme", "tropical")
-    } else {
+    if (theme !== "tropical") {
+      document.documentElement.removeAttribute("data-theme")
+      return
+    }
+
+    document.documentElement.setAttribute("data-theme", "tropical")
+    return () => {
       document.documentElement.removeAttribute("data-theme")
     }
   }, [theme])
@@ -89,7 +100,7 @@ export function UIRefreshProvider({
     }
     if (!legacyOptIn) return
 
-    document.cookie = `${UI_THEME_COOKIE}=tropical; path=/; max-age=${UI_THEME_COOKIE_MAX_AGE}; samesite=lax`
+    writeUiThemeCookie("tropical")
     setTheme("tropical")
     router.refresh()
   }, [router])

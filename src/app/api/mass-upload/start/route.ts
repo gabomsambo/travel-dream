@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       try {
         after(async () => {
           try {
-            await dispatchProcessors('upload-start');
+            await dispatchProcessors('upload-start', 'grow');
           } catch (err) {
             console.error('[Mass Upload Start] Failed to trigger processing:', err);
           }

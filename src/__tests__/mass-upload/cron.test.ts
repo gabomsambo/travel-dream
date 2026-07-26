@@ -79,7 +79,7 @@ describe('GET /api/mass-upload/cron', () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(mockDispatch).toHaveBeenCalledWith('safety-net-cron');
+    expect(mockDispatch).toHaveBeenCalledWith('safety-net-cron', 'grow');
     expect(mockProcessQueue).toHaveBeenCalledTimes(1);
     expect(data.processed).toBe(2);
     expect(data.placesCreated).toBe(5);

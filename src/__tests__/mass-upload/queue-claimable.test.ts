@@ -97,7 +97,7 @@ describe('a queue where everything is backing off', () => {
     expect(await getQueueDepth()).toBe(0);
     expect((await getQueueStats(leaseCutoff())).queued).toBe(0);
 
-    const dispatch = await dispatchProcessors('worker-chain');
+    const dispatch = await dispatchProcessors('worker-chain', 'replace');
 
     expect(dispatch.desiredWorkers).toBe(0);
     expect(dispatch.spawned).toBe(0);
@@ -130,7 +130,7 @@ describe('a queue where everything is backing off', () => {
     expect(attempt.source?.id).toBe('src_a');
     expect(attempt.source?.nextAttemptAt).toBeNull();
 
-    const dispatch = await dispatchProcessors('worker-chain');
+    const dispatch = await dispatchProcessors('worker-chain', 'replace');
     expect(dispatch.spawned).toBe(0); // src_a is now claimed, nothing left ready
   });
 });
@@ -143,7 +143,7 @@ describe('a queue with no backoff set', () => {
     expect(await getQueueDepth()).toBe(2);
     expect((await getQueueStats(leaseCutoff())).queued).toBe(2);
 
-    const dispatch = await dispatchProcessors('upload-start');
+    const dispatch = await dispatchProcessors('upload-start', 'grow');
     expect(dispatch.desiredWorkers).toBe(1);
     expect(dispatch.spawned).toBe(1);
 

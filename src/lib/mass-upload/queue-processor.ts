@@ -38,9 +38,12 @@ export interface ProcessQueueResult {
   stalled: number;
   leaseLost: number;
   placesCreated: number;
+  /** Lanes that ended because claiming threw; a persistent one shows up here. */
+  claimErrors: number;
+  claimError?: string;
   reclaimed: { requeued: number; stalled: number };
   remaining: number;
-  stoppedBecause: 'queue-empty' | 'deadline' | 'max-items' | 'contended';
+  stoppedBecause: 'queue-empty' | 'deadline' | 'max-items' | 'contended' | 'claim-error';
   elapsedMs: number;
 }
 
@@ -80,6 +83,7 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
     stalled: 0,
     leaseLost: 0,
     placesCreated: 0,
+    claimErrors: 0,
     reclaimed: { requeued: 0, stalled: 0 },
     remaining: 0,
     stoppedBecause: 'queue-empty',
@@ -121,7 +125,20 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
 
       reserved++;
       const leaseId = `${workerId}:${randomUUID()}`;
-      const claim = await claimNextQueuedSource(leaseId);
+      // A claim that throws is this lane's problem, not the run's: the other
+      // lanes keep their work, and the run still reports and still chains.
+      let claim: Awaited<ReturnType<typeof claimNextQueuedSource>>;
+      try {
+        claim = await claimNextQueuedSource(leaseId);
+      } catch (error) {
+        reserved--;
+        const message = error instanceof Error ? error.message : String(error);
+        result.claimErrors++;
+        result.claimError = message;
+        stopped = 'claim-error';
+        console.error(`[MassUpload ${workerId}] claim failed, ending this lane: ${message}`);
+        return;
+      }
       const source = claim.source;
       if (!source) {
         reserved--;
@@ -152,12 +169,19 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
   );
 
   result.stoppedBecause = stopped ?? 'queue-empty';
-  result.remaining = await getQueueDepth();
+  try {
+    result.remaining = await getQueueDepth();
+  } catch (error) {
+    // The depth read is reporting, not work: losing it must not cost the run its
+    // summary. The safety-net cron re-reads the queue a tick later.
+    console.warn(`[MassUpload ${workerId}] could not read the remaining queue depth:`, error);
+  }
   result.elapsedMs = now() - startedAt;
 
   console.log(
     `[MassUpload ${workerId}] ${result.completed} completed, ${result.failed} failed, ` +
       `${result.interrupted} interrupted, ${result.stalled} stalled, ${result.placesCreated} places, ` +
+      `${result.claimErrors} claim error(s), ` +
       `${result.remaining} remaining (${result.stoppedBecause}, ${result.elapsedMs}ms)`
   );
 
@@ -247,13 +271,65 @@ function asInterruption(error: unknown, signal: AbortSignal): ProcessingInterrup
   if (error instanceof GooglePlacesUnavailableError) {
     return new ProcessingInterrupted(error.message, 'upstream');
   }
+  // A constraint violation is a genuine defect about this row, not a clock
+  // problem, so it stays a failure however transient the rest looks.
+  if (isDatabaseConstraintViolation(error)) return null;
+  if (isTransientDatabaseError(error)) {
+    return new ProcessingInterrupted(`Database unavailable: ${messageOf(error)}`, 'upstream');
+  }
   if (isTransientUpstreamError(error)) {
-    return new ProcessingInterrupted(
-      `Upstream unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      'upstream'
-    );
+    return new ProcessingInterrupted(`Upstream unavailable: ${messageOf(error)}`, 'upstream');
   }
   return null;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The error plus everything it wraps.
+ *
+ * `withErrorHandling` rethrows a friendlier Error with the driver's own error as
+ * `cause`, so classification looks at the whole chain instead of a flattened
+ * message and can still see a `LibsqlError`'s `code`.
+ */
+function errorChain(error: unknown): unknown[] {
+  const chain: unknown[] = [];
+  let current = error;
+  for (let depth = 0; current != null && depth < 5; depth++) {
+    chain.push(current);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return chain;
+}
+
+const DATABASE_CONSTRAINT =
+  /\b(UNIQUE|FOREIGN KEY|NOT NULL|CHECK|PRIMARY KEY)\s+constraint\s+(failed|violation)|SQLITE_CONSTRAINT/i;
+
+const TRANSIENT_DATABASE_CODE =
+  /^(SQLITE_BUSY|SQLITE_LOCKED|SQLITE_IOERR|SQLITE_PROTOCOL|SERVER_ERROR|HRANA_|CLIENT_CLOSED|CONNECTION_|STREAM_|WEBSOCKET_)/;
+
+const TRANSIENT_DATABASE_MESSAGE =
+  /SQLITE_BUSY|SQLITE_LOCKED|SQLITE_IOERR|SQLITE_PROTOCOL|database (?:is|table is) locked|stream (?:is )?(?:closed|expired|not found)|Hrana|client is closed|connection (?:is )?(?:closed|reset)|server returned HTTP status 5\d\d/i;
+
+/** Constraint violations are real defects: they must still consume an attempt. */
+function isDatabaseConstraintViolation(error: unknown): boolean {
+  return errorChain(error).some((link) => DATABASE_CONSTRAINT.test(messageOf(link)));
+}
+
+/**
+ * A database that was busy, restarting or unreachable while the item's outcome
+ * was written back said nothing about the screenshot. Before this, three such
+ * blips exhausted the attempt budget and buried work that was never bad.
+ */
+function isTransientDatabaseError(error: unknown): boolean {
+  if (isDatabaseConstraintViolation(error)) return false;
+  return errorChain(error).some((link) => {
+    const code = (link as { code?: unknown })?.code;
+    if (typeof code === 'string' && TRANSIENT_DATABASE_CODE.test(code)) return true;
+    return TRANSIENT_DATABASE_MESSAGE.test(messageOf(link));
+  });
 }
 
 /**
@@ -261,21 +337,22 @@ function asInterruption(error: unknown, signal: AbortSignal): ProcessingInterrup
  * used to burn attempts and bury good images; now they only requeue.
  */
 function isTransientUpstreamError(error: unknown): boolean {
-  const status = (error as { status?: number })?.status;
-  if (typeof status === 'number' && (status === 429 || status >= 500)) return true;
+  return errorChain(error).some((link) => {
+    const status = (link as { status?: number })?.status;
+    if (typeof status === 'number' && (status === 429 || status >= 500)) return true;
 
-  // A blob fetch that hits its own AbortSignal.timeout rejects with a
-  // TimeoutError the item watchdog knows nothing about — still a clock-out,
-  // never a verdict about the image.
-  const name = (error as { name?: string })?.name;
-  if (name === 'TimeoutError' || name === 'AbortError') return true;
+    // A blob fetch that hits its own AbortSignal.timeout rejects with a
+    // TimeoutError the item watchdog knows nothing about — still a clock-out,
+    // never a verdict about the image.
+    const name = (link as { name?: string })?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') return true;
 
-  // Unanchored on purpose: the Gemini SDK and withErrorHandling both wrap the
-  // original message ("[GoogleGenerativeAI Error]: ... : fetch failed").
-  const message = error instanceof Error ? error.message : String(error);
-  return /\b(429|500|502|503|504)\b|overloaded|rate.?limit|quota|too many requests|fetch failed|aborted due to timeout|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|network error/i.test(
-    message
-  );
+    // Unanchored on purpose: the Gemini SDK and withErrorHandling both wrap the
+    // original message ("[GoogleGenerativeAI Error]: ... : fetch failed").
+    return /\b(429|500|502|503|504)\b|overloaded|rate.?limit|quota|too many requests|fetch failed|aborted due to timeout|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|network error/i.test(
+      messageOf(link)
+    );
+  });
 }
 
 /** Full extraction → enrichment → persistence pipeline for one screenshot. */

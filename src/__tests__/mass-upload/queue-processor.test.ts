@@ -192,6 +192,66 @@ describe('processQueue', () => {
     expect(result.interrupted).toBe(1);
   });
 
+  // ── The database is infrastructure, not a verdict ────────────────────
+  //
+  // `withErrorHandling` rethrows a friendlier Error with the driver's error as
+  // `cause`, which is what makes these classifiable at all.
+
+  function wrappedDbError(message: string, driverError: Error) {
+    return Object.assign(new Error(message), { cause: driverError });
+  }
+
+  it('treats a locked database while completing the item as an interruption', async () => {
+    queueOf(createMockSource());
+    mockComplete.mockRejectedValue(
+      wrappedDbError(
+        'Database operation failed in completeSource: SQLITE_BUSY: database is locked',
+        Object.assign(new Error('SQLITE_BUSY: database is locked'), { code: 'SQLITE_BUSY' })
+      )
+    );
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    expect(mockInterruption).toHaveBeenCalledTimes(1);
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(result.interrupted).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it('treats a dropped Turso connection while writing places as an interruption', async () => {
+    queueOf(createMockSource());
+    mockCreatePlaces.mockRejectedValue(
+      wrappedDbError(
+        'Database operation failed in createPlacesFromPipeline: Hrana: stream not found',
+        Object.assign(new Error('Hrana: stream not found'), { code: 'HRANA_PROTO_ERROR' })
+      )
+    );
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    expect(mockInterruption).toHaveBeenCalledTimes(1);
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(result.interrupted).toBe(1);
+  });
+
+  it('still counts an attempt for a constraint violation, which is a real defect', async () => {
+    queueOf(createMockSource());
+    mockCreatePlaces.mockRejectedValue(
+      wrappedDbError(
+        'Referenced entity does not exist: FOREIGN KEY constraint failed',
+        Object.assign(new Error('FOREIGN KEY constraint failed'), {
+          code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+        })
+      )
+    );
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    expect(mockFailure).toHaveBeenCalledTimes(1);
+    expect(mockInterruption).not.toHaveBeenCalled();
+    expect(result.failed).toBe(1);
+  });
+
   it('marks an oversized screenshot as a genuine failure', async () => {
     queueOf(createMockSource());
     (global.fetch as jest.Mock).mockResolvedValue({
@@ -406,6 +466,41 @@ describe('processQueue', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('contains a claim failure to the lane that hit it', async () => {
+    const source = createMockSource();
+    let call = 0;
+    mockClaim.mockImplementation(async () => {
+      call++;
+      if (call === 1) {
+        throw new Error('Database operation failed in claimNextQueuedSource: stream closed');
+      }
+      if (call === 2) return { source, contended: false };
+      return { source: null, contended: false };
+    });
+    mockQueueDepth.mockResolvedValue(12);
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    // The other lanes kept their work, and the run still reports — which is what
+    // lets the process route hand the baton on instead of waiting for the cron.
+    expect(result.completed).toBe(1);
+    expect(result.remaining).toBe(12);
+    // The failure is surfaced, not swallowed.
+    expect(result.claimErrors).toBe(1);
+    expect(result.claimError).toMatch(/stream closed/);
+    expect(result.stoppedBecause).toBe('claim-error');
+  });
+
+  it('still reports the run when the final queue-depth read fails', async () => {
+    queueOf(createMockSource());
+    mockQueueDepth.mockRejectedValue(new Error('Database operation failed in getQueueDepth: SQLITE_BUSY'));
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    expect(result.completed).toBe(1);
+    expect(result.remaining).toBe(0);
   });
 
   it('stops at maxItems', async () => {

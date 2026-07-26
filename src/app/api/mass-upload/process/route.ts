@@ -39,9 +39,10 @@ export async function POST(request: NextRequest) {
   const run = async () => {
     const result = await processQueue({ maxItems: body.maxItems });
     // Hand the baton on: a run that ends with work left keeps the pool alive
-    // instead of waiting for the next safety-net tick.
+    // instead of waiting for the next safety-net tick. `replace` because this
+    // run is giving up its own slot — it may not grow the pool.
     if (result.remaining > 0) {
-      await dispatchProcessors('worker-chain');
+      await dispatchProcessors('worker-chain', 'replace');
     }
     return result;
   };

@@ -77,7 +77,23 @@ describe('POST /api/mass-upload/process', () => {
 
     await POST(request({ wait: true }));
 
-    expect(mockDispatch).toHaveBeenCalledWith('worker-chain');
+    // `replace`, so a generation of chaining workers cannot multiply the pool.
+    expect(mockDispatch).toHaveBeenCalledWith('worker-chain', 'replace');
+  });
+
+  it('still hands the baton on after a lane hit a claim error', async () => {
+    mockProcessQueue.mockResolvedValue({
+      completed: 12,
+      failed: 0,
+      remaining: 40,
+      placesCreated: 30,
+      claimErrors: 1,
+      stoppedBecause: 'claim-error',
+    });
+
+    await POST(request({ wait: true }));
+
+    expect(mockDispatch).toHaveBeenCalledWith('worker-chain', 'replace');
   });
 
   it('does not chain when the queue is drained', async () => {

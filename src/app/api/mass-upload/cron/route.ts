@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   try {
     // Add workers for whatever is waiting, then take a share of the work in
     // this invocation too, so the queue drains even if fan-out is unavailable.
-    const dispatch = await dispatchProcessors('safety-net-cron');
+    const dispatch = await dispatchProcessors('safety-net-cron', 'grow');
     const result = await processQueue();
 
     return NextResponse.json({

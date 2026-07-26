@@ -18,7 +18,7 @@ The before/after images were then diffed pixel by pixel:
 | `/export` | identical | identical |
 | `/inbox` | identical | identical |
 | `/library` | 12 px, max delta 16 | 83 px, max delta 2 |
-| `/map` | 90 px, max delta 40 | 86 px, max delta 38 |
+| `/map` | [90 px, max delta 40](map-classic-before-after.png) | [86 px, max delta 38](map-tropical-before-after.png) |
 | `/mass-upload` | identical | identical |
 | `/review` | identical | identical |
 | `/settings` | identical | identical |
@@ -29,6 +29,10 @@ Next.js dev-tools badge, the Mapbox canvas, and text anti-aliasing. The worst si
 anywhere is 40/255, and on `/library` tropical it is **2/255** — below perception.
 
 `*-before-after.png` in this directory are side-by-side captures (before on the left).
+`map-classic-before-after.png` and `map-tropical-before-after.png` are the two worst rows in the
+table, and are the ones worth opening: the difference is the Mapbox canvas, which renders tiles and
+labels slightly differently on every load, plus the dev-tools badge in the bottom-left corner. The
+sidebar, header, filter chips and empty state — everything the theme actually styles — match.
 
 ## The theme now comes from the server
 

@@ -88,6 +88,18 @@ describe('readUiThemeCookie', () => {
 
     expect(readUiThemeCookie()).toBe(DEFAULT_UI_THEME)
   })
+
+  it.each(['100%', '%zz', '%', 'tropical%E0%A4%A'])(
+    'treats the malformed percent-encoded value %p as classic without throwing',
+    (value) => {
+      // decodeURIComponent rejects these. This runs in an effect on every (app)
+      // page, so throwing would drop the whole tree into the error boundary.
+      document.cookie = `${UI_THEME_COOKIE}=${value}; path=/`
+
+      expect(() => readUiThemeCookie()).not.toThrow()
+      expect(readUiThemeCookie()).toBe(DEFAULT_UI_THEME)
+    }
+  )
 })
 
 describe('UIRefreshProvider', () => {
@@ -199,6 +211,26 @@ describe('UIRefreshProvider', () => {
     )
 
     expect(document.cookie).not.toContain(UI_THEME_COOKIE)
+    expect(screen.getByTestId('theme')).toHaveTextContent('classic')
+    expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('survives a malformed cookie instead of crashing the app tree', () => {
+    // The migration effect reads the cookie on every (app) page, so a throw
+    // there would take the whole tree into the root error boundary.
+    document.cookie = `${UI_THEME_COOKIE}=100%; path=/`
+    localStorage.setItem(LEGACY_UI_REFRESH_KEY, 'true')
+
+    expect(() =>
+      render(
+        <UIRefreshProvider theme="classic">
+          <Probe />
+        </UIRefreshProvider>
+      )
+    ).not.toThrow()
+
+    // The cookie is present, however garbled, so it still counts as a choice
+    // and the legacy flag must not override it.
     expect(screen.getByTestId('theme')).toHaveTextContent('classic')
     expect(mockRefresh).not.toHaveBeenCalled()
   })

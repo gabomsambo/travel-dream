@@ -63,6 +63,11 @@ export function writeUiThemeCookie(theme: UiTheme): void {
  * Returns `null` when no cookie is set at all, which is a different question
  * from "which theme" — the legacy migration needs to distinguish "never chose"
  * from "chose classic". A present but unrecognised value normalizes to classic.
+ *
+ * Never throws. It runs inside effects on every (app) page, so a throw here
+ * would take the whole tree into the root error boundary; a cookie nobody in
+ * this codebase wrote — including one with malformed percent-encoding, which
+ * `decodeURIComponent` rejects — is just another unrecognised value.
  */
 export function readUiThemeCookie(): UiTheme | null {
   const prefix = `${UI_THEME_COOKIE}=`
@@ -70,7 +75,16 @@ export function readUiThemeCookie(): UiTheme | null {
     .split('; ')
     .find((part) => part.startsWith(prefix))
 
-  return entry === undefined
-    ? null
-    : normalizeUiTheme(decodeURIComponent(entry.slice(prefix.length)))
+  if (entry === undefined) return null
+
+  const raw = entry.slice(prefix.length)
+
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(raw)
+  } catch {
+    return DEFAULT_UI_THEME
+  }
+
+  return normalizeUiTheme(decoded)
 }

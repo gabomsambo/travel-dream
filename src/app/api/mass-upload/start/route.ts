@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
+import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { db } from '@/db';
 import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
@@ -55,6 +56,24 @@ export async function POST(request: NextRequest) {
         eq(sourcesCurrentSchema.processingStatus, 'uploaded')
       ))
       .returning();
+
+    // Start processing now rather than on the next safety-net cron tick. Runs
+    // after the response so the upload UI is never held up by it, and a failure
+    // here only costs latency — the cron still picks the work up.
+    if (updated.length > 0) {
+      try {
+        after(async () => {
+          try {
+            await dispatchProcessors('upload-start');
+          } catch (err) {
+            console.error('[Mass Upload Start] Failed to trigger processing:', err);
+          }
+        });
+      } catch (err) {
+        // No request scope to defer into — the cron still picks the work up.
+        console.error('[Mass Upload Start] Could not schedule processing trigger:', err);
+      }
+    }
 
     return NextResponse.json({
       status: 'success',

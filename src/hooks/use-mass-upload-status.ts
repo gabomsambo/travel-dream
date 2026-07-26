@@ -10,6 +10,8 @@ interface MassUploadStatusCounts {
   enriching: number
   completed: number
   failed: number
+  /** Repeatedly interrupted before finishing — retryable, not a bad image. */
+  stalled: number
   cancelled: number
 }
 
@@ -39,6 +41,7 @@ const initialCounts: MassUploadStatusCounts = {
   enriching: 0,
   completed: 0,
   failed: 0,
+  stalled: 0,
   cancelled: 0,
 }
 
@@ -95,19 +98,21 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
         enriching: data.counts.enriching || 0,
         completed: data.counts.completed || 0,
         failed: data.counts.failed || 0,
+        stalled: data.counts.stalled || 0,
         cancelled: data.counts.cancelled || 0,
       }
 
       const activeCount = counts.queued + counts.extracting + counts.enriching
       const isActive = activeCount > 0
-      const hasTerminalSources = counts.completed > 0 || counts.failed > 0 || counts.cancelled > 0
+      const hasTerminalSources =
+        counts.completed > 0 || counts.failed > 0 || counts.stalled > 0 || counts.cancelled > 0
       const isComplete = !isActive && hasTerminalSources && (data.total || 0) > 0
 
       // ETA calculation
       let estimatedMinutesRemaining: number | null = null
       let processingRate = 0
 
-      const completedNow = counts.completed + counts.failed + counts.cancelled
+      const completedNow = counts.completed + counts.failed + counts.stalled + counts.cancelled
       const remaining = (data.total || 0) - completedNow
 
       if (isActive && completedNow > 0) {

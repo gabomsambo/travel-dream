@@ -52,6 +52,13 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
       ocrError?: string;
       uploadedAt?: string;
     };
+    // Cached mass-upload pipeline work, so a retry after an interruption never
+    // re-charges Gemini or re-uploads a thumbnail that already exists.
+    massUpload?: {
+      extraction?: unknown;
+      extractedAt?: string;
+      thumbnailUrl?: string;
+    };
     llmProcessing?: {
       processed: boolean;
       model: string;
@@ -72,10 +79,20 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
 
   // Mass upload processing queue
   processingStatus: text('processing_status').default('pending'),
-  // Values: 'pending' | 'uploaded' | 'queued' | 'extracting' | 'enriching' | 'completed' | 'failed'
+  // Values: 'pending' | 'uploaded' | 'queued' | 'extracting' | 'enriching' | 'completed'
+  //       | 'failed' (the image itself could not be processed)
+  //       | 'stalled' (repeatedly interrupted by clock-outs/restarts — retryable, never a verdict on the image)
+  //       | 'cancelled'
+  // Genuine processing failures only — a clock-out never consumes an attempt.
   processingAttempts: integer('processing_attempts').default(0),
+  // Interrupted runs (function killed, lease expired, watchdog fired). Kept apart
+  // from processingAttempts so "we ran out of clock" can never look like "bad image".
+  processingInterruptions: integer('processing_interruptions').default(0),
   processingError: text('processing_error'),
   processingStartedAt: text('processing_started_at'),
+  // Owner token of the current in-flight run; writes are guarded by it so a
+  // reclaimed item can never be finished twice.
+  processingLeaseId: text('processing_lease_id'),
 }, (table) => ({
   // Indexes for performance
   typeIdx: index('sources_type_idx').on(table.type),

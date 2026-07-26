@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/mass-upload/cron",
-      "schedule": "* * * * *"
+      "schedule": "*/5 * * * *"
     }
   ],
   "functions": {
@@ -29,7 +29,11 @@
       "maxDuration": 60
     },
     "src/app/api/mass-upload/cron/route.ts": {
-      "maxDuration": 120,
+      "maxDuration": 300,
+      "memory": 3008
+    },
+    "src/app/api/mass-upload/process/route.ts": {
+      "maxDuration": 300,
       "memory": 3008
     }
   }

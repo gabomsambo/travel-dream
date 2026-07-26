@@ -1544,38 +1544,52 @@ export async function createPlacesFromPipeline(
       const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; fileSize?: number; thumbnailPath?: string } } | null;
       const createdPlaces: Place[] = [];
 
+      // ── Batched dedup lookup ───────────────────────────────────────────
+      // One query per lookup shape for the whole screenshot instead of two
+      // per extracted place: a 10-place screenshot went from 20 round trips
+      // to 2, which is what made heavy runs blow the function time limit.
+      const googleIds = Array.from(
+        new Set(pipelinePlaces.map(p => p.googlePlaceId).filter((id): id is string => Boolean(id)))
+      );
+      const names = Array.from(
+        new Set(pipelinePlaces.map(p => p.name?.toLowerCase()).filter((n): n is string => Boolean(n)))
+      );
+
+      const byGoogleId = new Map<string, Place>();
+      if (googleIds.length > 0) {
+        const rows = await tx.select().from(places)
+          .where(and(eq(places.userId, userId), inArray(places.googlePlaceId, googleIds)));
+        for (const row of rows as Place[]) {
+          if (row.googlePlaceId && !byGoogleId.has(row.googlePlaceId)) byGoogleId.set(row.googlePlaceId, row);
+        }
+      }
+
+      const byNameKey = new Map<string, Place>();
+      if (names.length > 0) {
+        const rows = await tx.select().from(places)
+          .where(and(
+            eq(places.userId, userId),
+            sql`LOWER(${places.name}) IN (${sql.join(names.map(n => sql`${n}`), sql`, `)})`
+          ));
+        for (const row of rows as Place[]) {
+          const key = placeNameKey(row.name, row.city, row.country);
+          if (!byNameKey.has(key)) byNameKey.set(key, row);
+        }
+      }
+
+      const sourceLinks: Array<{ sourceId: string; placeId: string }> = [];
+      const newAttachments: Array<typeof attachments.$inferInsert> = [];
+
       for (const p of pipelinePlaces) {
-        // ── Dedup check ──────────────────────────────────────────────────
-        let existingPlace: Place | undefined;
-
-        if (p.googlePlaceId) {
-          const [found] = await tx.select().from(places)
-            .where(and(
-              eq(places.googlePlaceId, p.googlePlaceId),
-              eq(places.userId, userId)
-            ))
-            .limit(1);
-          existingPlace = found;
-        }
-
-        if (!existingPlace && p.name) {
-          const [found] = await tx.select().from(places)
-            .where(and(
-              eq(places.userId, userId),
-              sql`LOWER(${places.name}) = LOWER(${p.name})`,
-              p.city ? sql`LOWER(${places.city}) = LOWER(${p.city})` : sql`${places.city} IS NULL`,
-              p.country ? sql`LOWER(${places.country}) = LOWER(${p.country})` : sql`${places.country} IS NULL`
-            ))
-            .limit(1);
-          existingPlace = found;
-        }
+        // ── Dedup check (in-memory, including places created in this batch) ─
+        const nameKey = p.name ? placeNameKey(p.name, p.city ?? null, p.country ?? null) : null;
+        const existingPlace =
+          (p.googlePlaceId ? byGoogleId.get(p.googlePlaceId) : undefined) ??
+          (nameKey ? byNameKey.get(nameKey) : undefined);
 
         if (existingPlace) {
           // Duplicate found — link source to existing place, skip insert
-          await tx.insert(sourcesToPlaces).values({
-            sourceId,
-            placeId: existingPlace.id,
-          }).onConflictDoNothing();
+          sourceLinks.push({ sourceId, placeId: existingPlace.id });
           createdPlaces.push(existingPlace);
           continue;
         }
@@ -1608,16 +1622,15 @@ export async function createPlacesFromPipeline(
 
         const [place] = await tx.insert(places).values(newPlace).returning();
         createdPlaces.push(place);
+        if (place.googlePlaceId) byGoogleId.set(place.googlePlaceId, place);
+        if (nameKey) byNameKey.set(nameKey, place);
 
         // Link source → place
-        await tx.insert(sourcesToPlaces).values({
-          sourceId,
-          placeId: place.id,
-        }).onConflictDoNothing();
+        sourceLinks.push({ sourceId, placeId: place.id });
 
         // Attach screenshot as primary photo
         if (screenshotUri) {
-          await tx.insert(attachments).values({
+          newAttachments.push({
             placeId: place.id,
             type: 'photo',
             uri: screenshotUri,
@@ -1630,7 +1643,305 @@ export async function createPlacesFromPipeline(
         }
       }
 
+      const uniqueLinks = Array.from(
+        new Map(sourceLinks.map(l => [`${l.sourceId}::${l.placeId}`, l])).values()
+      );
+      if (uniqueLinks.length > 0) {
+        await tx.insert(sourcesToPlaces).values(uniqueLinks).onConflictDoNothing();
+      }
+      if (newAttachments.length > 0) {
+        await tx.insert(attachments).values(newAttachments);
+      }
+
       return createdPlaces;
     });
   }, 'createPlacesFromPipeline');
+}
+
+/**
+ * Dedup key for "same place, same user" — mirrors the case-insensitive,
+ * null-aware comparison the per-place lookup used to do in SQL.
+ */
+function placeNameKey(name: string, city: string | null, country: string | null): string {
+  return [name, city ?? '', country ?? ''].map(v => v.toLowerCase()).join('\u0000');
+}
+
+// ─── Mass-upload queue: lease-based claim / release ──────────────────────────
+//
+// The queue distinguishes two very different things that used to share one
+// counter:
+//   • an ATTEMPT is a genuine verdict on the image (bad file, invalid response)
+//   • an INTERRUPTION is "we ran out of clock" (function killed, lease expired)
+// Only attempts can ever end in `failed`. Interruptions requeue, and after too
+// many they land in `stalled` — visible and retryable, never a verdict.
+//
+// Every write is guarded by the lease id the claiming run holds, so a run whose
+// lease was reclaimed cannot finish, fail or complete an item someone else owns.
+
+/**
+ * Atomically claim the oldest queued source. Returns null when the queue is
+ * empty or every candidate was taken by a concurrent run.
+ */
+export async function claimNextQueuedSource(
+  leaseId: string,
+  candidateLimit: number = 10
+): Promise<Source | null> {
+  return withErrorHandling(async () => {
+    const candidates = await db.select({ id: sourcesCurrentSchema.id })
+      .from(sourcesCurrentSchema)
+      .where(eq(sourcesCurrentSchema.processingStatus, 'queued'))
+      .orderBy(sourcesCurrentSchema.createdAt)
+      .limit(candidateLimit);
+
+    for (const candidate of candidates) {
+      const [claimed] = await db.update(sourcesCurrentSchema)
+        .set({
+          processingStatus: 'extracting',
+          processingStartedAt: new Date().toISOString(),
+          processingLeaseId: leaseId,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(
+          eq(sourcesCurrentSchema.id, candidate.id),
+          eq(sourcesCurrentSchema.processingStatus, 'queued')
+        ))
+        .returning();
+
+      if (claimed) return claimed as Source;
+    }
+
+    return null;
+  }, 'claimNextQueuedSource');
+}
+
+/** Move a claimed source to `enriching`. False means the lease was lost. */
+export async function markSourceEnriching(sourceId: string, leaseId: string): Promise<boolean> {
+  return withErrorHandling(async () => {
+    const updated = await db.update(sourcesCurrentSchema)
+      .set({ processingStatus: 'enriching', updatedAt: new Date().toISOString() })
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+    return updated.length > 0;
+  }, 'markSourceEnriching');
+}
+
+/**
+ * Persist work already paid for (Gemini extraction, thumbnail) onto the source
+ * so a later retry reuses it instead of calling the API again.
+ */
+export async function cacheSourceProcessingWork(
+  sourceId: string,
+  leaseId: string,
+  work: { extraction?: unknown; thumbnailUrl?: string }
+): Promise<boolean> {
+  return withErrorHandling(async () => {
+    const [current] = await db.select({ meta: sourcesCurrentSchema.meta })
+      .from(sourcesCurrentSchema)
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .limit(1);
+
+    if (!current) return false;
+
+    const meta = (current.meta ?? {}) as Record<string, unknown>;
+    const massUpload = (meta.massUpload ?? {}) as Record<string, unknown>;
+    const uploadInfo = (meta.uploadInfo ?? {}) as Record<string, unknown>;
+
+    const nextMassUpload = {
+      ...massUpload,
+      ...(work.extraction !== undefined
+        ? { extraction: work.extraction, extractedAt: new Date().toISOString() }
+        : {}),
+      ...(work.thumbnailUrl ? { thumbnailUrl: work.thumbnailUrl } : {}),
+    };
+
+    const updated = await db.update(sourcesCurrentSchema)
+      .set({
+        meta: {
+          ...meta,
+          massUpload: nextMassUpload,
+          // Keep the attachment-facing field in sync with the cached thumbnail.
+          uploadInfo: work.thumbnailUrl
+            ? { ...uploadInfo, thumbnailPath: work.thumbnailUrl }
+            : uploadInfo,
+        } as Source['meta'],
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+
+    return updated.length > 0;
+  }, 'cacheSourceProcessingWork');
+}
+
+/** Mark a source completed. False means the lease was lost (another run owns it). */
+export async function completeSource(sourceId: string, leaseId: string): Promise<boolean> {
+  return withErrorHandling(async () => {
+    const updated = await db.update(sourcesCurrentSchema)
+      .set({
+        processingStatus: 'completed',
+        processingError: null,
+        processingLeaseId: null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+    return updated.length > 0;
+  }, 'completeSource');
+}
+
+/**
+ * Record a GENUINE processing failure: consumes an attempt, and only after
+ * `maxAttempts` does the source become `failed`.
+ */
+export async function recordSourceFailure(
+  sourceId: string,
+  leaseId: string,
+  message: string,
+  maxAttempts: number
+): Promise<'failed' | 'queued' | 'lease-lost'> {
+  return withErrorHandling(async () => {
+    const [current] = await db.select({ attempts: sourcesCurrentSchema.processingAttempts })
+      .from(sourcesCurrentSchema)
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .limit(1);
+
+    if (!current) return 'lease-lost';
+
+    const attempts = (current.attempts ?? 0) + 1;
+    const nextStatus = attempts >= maxAttempts ? 'failed' : 'queued';
+
+    const updated = await db.update(sourcesCurrentSchema)
+      .set({
+        processingStatus: nextStatus,
+        processingAttempts: attempts,
+        processingError: message.slice(0, 1000),
+        processingLeaseId: null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+
+    return updated.length > 0 ? nextStatus : 'lease-lost';
+  }, 'recordSourceFailure');
+}
+
+/**
+ * Record an INTERRUPTION: the run ran out of clock, was killed, or an upstream
+ * dependency was unavailable. Never consumes an attempt and never marks the
+ * source `failed`; too many in a row park it in `stalled` for a manual retry.
+ */
+export async function recordSourceInterruption(
+  sourceId: string,
+  leaseId: string,
+  message: string,
+  maxInterruptions: number
+): Promise<'stalled' | 'queued' | 'lease-lost'> {
+  return withErrorHandling(async () => {
+    const [current] = await db.select({ interruptions: sourcesCurrentSchema.processingInterruptions })
+      .from(sourcesCurrentSchema)
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .limit(1);
+
+    if (!current) return 'lease-lost';
+
+    const interruptions = (current.interruptions ?? 0) + 1;
+    const nextStatus = interruptions >= maxInterruptions ? 'stalled' : 'queued';
+
+    const updated = await db.update(sourcesCurrentSchema)
+      .set({
+        processingStatus: nextStatus,
+        processingInterruptions: interruptions,
+        processingError: message.slice(0, 1000),
+        processingLeaseId: null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+
+    return updated.length > 0 ? nextStatus : 'lease-lost';
+  }, 'recordSourceInterruption');
+}
+
+/**
+ * Requeue sources whose lease expired — the run that held them died without
+ * getting a chance to write anything back (deploy, OOM, hard kill).
+ */
+export async function reclaimExpiredSourceLeases(
+  expiredBeforeIso: string,
+  maxInterruptions: number
+): Promise<{ requeued: number; stalled: number; ids: string[] }> {
+  return withErrorHandling(async () => {
+    const expired = await db.select({
+      id: sourcesCurrentSchema.id,
+      leaseId: sourcesCurrentSchema.processingLeaseId,
+      interruptions: sourcesCurrentSchema.processingInterruptions,
+    })
+      .from(sourcesCurrentSchema)
+      .where(and(
+        sql`${sourcesCurrentSchema.processingStatus} IN ('extracting', 'enriching')`,
+        sql`COALESCE(${sourcesCurrentSchema.processingStartedAt}, '') < ${expiredBeforeIso}`
+      ));
+
+    let requeued = 0;
+    let stalled = 0;
+    const ids: string[] = [];
+
+    for (const row of expired) {
+      const interruptions = (row.interruptions ?? 0) + 1;
+      const nextStatus = interruptions >= maxInterruptions ? 'stalled' : 'queued';
+
+      // Guarded by the same lease id we saw: if the owner is somehow still
+      // alive and has re-leased the row, we leave it alone.
+      const updated = await db.update(sourcesCurrentSchema)
+        .set({
+          processingStatus: nextStatus,
+          processingInterruptions: interruptions,
+          processingError: nextStatus === 'stalled'
+            ? `Interrupted ${interruptions} times before finishing — not a problem with the image; retry it`
+            : 'Run was interrupted before finishing; requeued',
+          processingLeaseId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(
+          eq(sourcesCurrentSchema.id, row.id),
+          row.leaseId === null
+            ? sql`${sourcesCurrentSchema.processingLeaseId} IS NULL`
+            : eq(sourcesCurrentSchema.processingLeaseId, row.leaseId),
+          sql`${sourcesCurrentSchema.processingStatus} IN ('extracting', 'enriching')`
+        ))
+        .returning({ id: sourcesCurrentSchema.id });
+
+      if (updated.length > 0) {
+        ids.push(row.id);
+        if (nextStatus === 'stalled') stalled++;
+        else requeued++;
+      }
+    }
+
+    return { requeued, stalled, ids };
+  }, 'reclaimExpiredSourceLeases');
 }

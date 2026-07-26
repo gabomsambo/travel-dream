@@ -283,8 +283,10 @@ export async function getSourcesForPlace(placeId: string, userId: string): Promi
       userId: sourcesCurrentSchema.userId,
       processingStatus: sourcesCurrentSchema.processingStatus,
       processingAttempts: sourcesCurrentSchema.processingAttempts,
+      processingInterruptions: sourcesCurrentSchema.processingInterruptions,
       processingError: sourcesCurrentSchema.processingError,
       processingStartedAt: sourcesCurrentSchema.processingStartedAt,
+      processingLeaseId: sourcesCurrentSchema.processingLeaseId,
     })
       .from(sourcesCurrentSchema)
       .innerJoin(sourcesToPlaces, eq(sourcesCurrentSchema.id, sourcesToPlaces.sourceId))
@@ -979,6 +981,38 @@ export async function getQueuedSources(limit: number = 3): Promise<Source[]> {
       .orderBy(asc(sourcesCurrentSchema.createdAt))
       .limit(limit);
   }, 'getQueuedSources');
+}
+
+/** Number of sources waiting to be picked up, across all users. */
+export async function getQueueDepth(): Promise<number> {
+  return withErrorHandling(async () => {
+    const [row] = await db.select({ count: sql<number>`count(*)` })
+      .from(sourcesCurrentSchema)
+      .where(eq(sourcesCurrentSchema.processingStatus, 'queued'));
+    return Number(row?.count ?? 0);
+  }, 'getQueueDepth');
+}
+
+/**
+ * Queue depth plus how many processing runs are currently alive, judged by
+ * unexpired leases. Drives how many workers the dispatcher needs to add.
+ */
+export async function getQueueStats(
+  leaseCutoffIso: string
+): Promise<{ queued: number; activeWorkers: number; inFlight: number }> {
+  return withErrorHandling(async () => {
+    const [row] = await db.select({
+      queued: sql<number>`sum(case when ${sourcesCurrentSchema.processingStatus} = 'queued' then 1 else 0 end)`,
+      inFlight: sql<number>`sum(case when ${sourcesCurrentSchema.processingStatus} in ('extracting','enriching') and coalesce(${sourcesCurrentSchema.processingStartedAt}, '') >= ${leaseCutoffIso} then 1 else 0 end)`,
+      activeWorkers: sql<number>`count(distinct case when ${sourcesCurrentSchema.processingStatus} in ('extracting','enriching') and coalesce(${sourcesCurrentSchema.processingStartedAt}, '') >= ${leaseCutoffIso} then substr(${sourcesCurrentSchema.processingLeaseId}, 1, instr(${sourcesCurrentSchema.processingLeaseId} || ':', ':') - 1) end)`,
+    }).from(sourcesCurrentSchema);
+
+    return {
+      queued: Number(row?.queued ?? 0),
+      inFlight: Number(row?.inFlight ?? 0),
+      activeWorkers: Number(row?.activeWorkers ?? 0),
+    };
+  }, 'getQueueStats');
 }
 
 export async function getProcessingStatusCounts(sourceIds: string[]): Promise<Record<string, number>> {

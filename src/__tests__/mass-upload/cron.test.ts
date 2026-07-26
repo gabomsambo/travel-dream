@@ -1,326 +1,110 @@
 /**
  * @jest-environment node
+ *
+ * The cron is now a safety net: it reclaims stranded work, tops the worker pool
+ * back up, and takes a share of the queue itself. The per-item reliability rules
+ * live in queue-processor.test.ts.
  */
 
-// ── Module mocks (BEFORE imports) ──────────────────────────────────────
-jest.mock('@/db', () => ({
-  db: { select: jest.fn(), update: jest.fn() },
+jest.mock('@/lib/mass-upload/queue-processor', () => ({
+  processQueue: jest.fn(),
 }));
-jest.mock('@/lib/db-queries', () => ({
-  getQueuedSources: jest.fn(),
-}));
-jest.mock('@/lib/db-mutations', () => ({
-  createPlacesFromPipeline: jest.fn(),
-}));
-jest.mock('@/lib/mass-upload/gemini-extraction-service', () => ({
-  getGeminiExtractionService: () => ({ extractFromImage: mockGeminiExtract }),
-}));
-jest.mock('@/lib/mass-upload/google-places-enrichment', () => ({
-  getGooglePlacesEnrichmentService: () => ({ enrichPlaces: mockGoogleEnrich }),
+jest.mock('@/lib/mass-upload/dispatch', () => ({
+  dispatchProcessors: jest.fn(),
 }));
 
-const mockGeminiExtract = jest.fn();
-const mockGoogleEnrich = jest.fn();
-
-// ── Imports (after mocks) ──────────────────────────────────────────────
 import { GET } from '@/app/api/mass-upload/cron/route';
-import { db } from '@/db';
-import { getQueuedSources } from '@/lib/db-queries';
-import { createPlacesFromPipeline } from '@/lib/db-mutations';
-import { getGeminiExtractionService } from '@/lib/mass-upload/gemini-extraction-service';
-import { getGooglePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
-import {
-  createMockSource,
-  createMockExtractionResult,
-  createMockPipelinePlace,
-} from '../helpers/mass-upload-helpers';
+import { processQueue } from '@/lib/mass-upload/queue-processor';
+import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 
-const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock };
+const mockProcessQueue = processQueue as jest.Mock;
+const mockDispatch = dispatchProcessors as jest.Mock;
 
-// Cast mocks
-const mockGetQueuedSources = getQueuedSources as jest.MockedFunction<typeof getQueuedSources>;
-const mockCreatePlaces = createPlacesFromPipeline as jest.MockedFunction<typeof createPlacesFromPipeline>;
-const mockExtract = mockGeminiExtract;
-const mockEnrich = mockGoogleEnrich;
+const CRON_SECRET = 'test-cron-secret';
 
-// ── Helpers ────────────────────────────────────────────────────────────
-function setupStaleSourcesChain(staleSources: unknown[] = []) {
-  const staleChain = {
-    from: jest.fn().mockReturnValue({
-      where: jest.fn().mockResolvedValue(staleSources),
-    }),
-  };
-  return staleChain;
+function cronRequest(secret: string | null = CRON_SECRET) {
+  return new Request('http://localhost/api/mass-upload/cron', {
+    headers: secret ? { authorization: `Bearer ${secret}` } : {},
+  }) as never;
 }
 
-function setupRemainingCountChain(count: number = 0) {
-  const remainingChain = {
-    from: jest.fn().mockReturnValue({
-      where: jest.fn().mockResolvedValue([{ count }]),
-    }),
-  };
-  return remainingChain;
-}
-
-function setupUpdateChain(returnValue: unknown[] = []) {
+function queueResult(overrides: Record<string, unknown> = {}) {
   return {
-    set: jest.fn().mockReturnValue({
-      where: jest.fn().mockReturnValue({
-        returning: jest.fn().mockResolvedValue(returnValue),
-      }),
-    }),
-  };
-}
-
-function setupUpdateChainNoReturn() {
-  return {
-    set: jest.fn().mockReturnValue({
-      where: jest.fn().mockResolvedValue(undefined),
-    }),
+    workerId: 'w_cron',
+    claimed: 2,
+    completed: 2,
+    failed: 0,
+    interrupted: 1,
+    stalled: 0,
+    leaseLost: 0,
+    placesCreated: 5,
+    reclaimed: { requeued: 3, stalled: 0 },
+    remaining: 4,
+    stoppedBecause: 'queue-empty',
+    elapsedMs: 1234,
+    ...overrides,
   };
 }
 
 describe('GET /api/mass-upload/cron', () => {
-  const CRON_SECRET = 'test-cron-secret';
-
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.CRON_SECRET = CRON_SECRET;
     process.env.GEMINI_VISION_ENABLED = 'true';
+    mockDispatch.mockResolvedValue({ queued: 4, activeWorkers: 0, desiredWorkers: 1, spawned: 1 });
+    mockProcessQueue.mockResolvedValue(queueResult());
   });
 
-  it('rejects request without authorization header', async () => {
-    const req = new Request('http://localhost/api/mass-upload/cron');
-    const res = await GET(req as never);
+  it('rejects a request without an authorization header', async () => {
+    const res = await GET(cronRequest(null));
     expect(res.status).toBe(401);
+    expect(mockProcessQueue).not.toHaveBeenCalled();
   });
 
-  it('rejects request with wrong CRON_SECRET', async () => {
-    const req = new Request('http://localhost/api/mass-upload/cron', {
-      headers: { authorization: 'Bearer wrong-secret' },
-    });
-    const res = await GET(req as never);
+  it('rejects a request with the wrong secret', async () => {
+    const res = await GET(cronRequest('wrong'));
     expect(res.status).toBe(401);
+    expect(mockProcessQueue).not.toHaveBeenCalled();
   });
 
-  it('returns empty result when no sources are queued', async () => {
-    // Mock stale check → empty
-    const staleChain = setupStaleSourcesChain([]);
-    const remainingChain = setupRemainingCountChain(0);
+  it('fails closed when CRON_SECRET is not configured', async () => {
+    delete process.env.CRON_SECRET;
+    const res = await GET(cronRequest('anything'));
+    expect(res.status).toBe(500);
+    expect(mockProcessQueue).not.toHaveBeenCalled();
+  });
 
-    // select() calls: 1st = stale check
-    mockDb.select.mockReturnValueOnce(staleChain);
-
-    mockGetQueuedSources.mockResolvedValue([]);
-
-    const req = new Request('http://localhost/api/mass-upload/cron', {
-      headers: { authorization: `Bearer ${CRON_SECRET}` },
-    });
-    const res = await GET(req as never);
+  it('tops the worker pool up and also drains the queue itself', async () => {
+    const res = await GET(cronRequest());
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.processed).toBe(0);
+    expect(mockDispatch).toHaveBeenCalledWith('safety-net-cron');
+    expect(mockProcessQueue).toHaveBeenCalledTimes(1);
+    expect(data.processed).toBe(2);
+    expect(data.placesCreated).toBe(5);
+    expect(data.remaining).toBe(4);
+    expect(data.dispatch.spawned).toBe(1);
   });
 
-  it('recovers stale sources by requeuing when attempts < MAX_ATTEMPTS', async () => {
-    const staleSource = createMockSource({
-      id: 'src_stale-1',
-      processingStatus: 'extracting',
-      processingAttempts: 1,
-      processingStartedAt: new Date(Date.now() - 300000).toISOString(), // 5 min ago
-    });
+  it('reports interruptions and reclaims separately from failures', async () => {
+    mockProcessQueue.mockResolvedValue(
+      queueResult({ failed: 0, interrupted: 2, stalled: 1, reclaimed: { requeued: 5, stalled: 1 } })
+    );
 
-    // Stale check returns one stale source
-    const staleChain = setupStaleSourcesChain([staleSource]);
-    mockDb.select.mockReturnValueOnce(staleChain);
+    const data = await (await GET(cronRequest())).json();
 
-    // Update to requeue stale source
-    const updateChain = setupUpdateChainNoReturn();
-    mockDb.update.mockReturnValueOnce(updateChain);
-
-    // No queued sources after recovery
-    mockGetQueuedSources.mockResolvedValue([]);
-
-    const req = new Request('http://localhost/api/mass-upload/cron', {
-      headers: { authorization: `Bearer ${CRON_SECRET}` },
-    });
-    const res = await GET(req as never);
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(mockDb.update).toHaveBeenCalled();
-    // Verify it was set to 'queued' (requeued)
-    const setCall = updateChain.set.mock.calls[0][0];
-    expect(setCall.processingStatus).toBe('queued');
+    expect(data.failed).toBe(0);
+    expect(data.interrupted).toBe(2);
+    expect(data.stalled).toBe(1);
+    expect(data.reclaimed).toEqual({ requeued: 5, stalled: 1 });
   });
 
-  it('marks stale sources as failed when attempts >= MAX_ATTEMPTS', async () => {
-    const staleSource = createMockSource({
-      id: 'src_stale-2',
-      processingStatus: 'extracting',
-      processingAttempts: 3,
-      processingStartedAt: new Date(Date.now() - 300000).toISOString(),
-    });
+  it('returns 500 when the run itself blows up', async () => {
+    mockProcessQueue.mockRejectedValue(new Error('database unreachable'));
 
-    const staleChain = setupStaleSourcesChain([staleSource]);
-    mockDb.select.mockReturnValueOnce(staleChain);
-
-    const updateChain = setupUpdateChainNoReturn();
-    mockDb.update.mockReturnValueOnce(updateChain);
-
-    mockGetQueuedSources.mockResolvedValue([]);
-
-    const req = new Request('http://localhost/api/mass-upload/cron', {
-      headers: { authorization: `Bearer ${CRON_SECRET}` },
-    });
-    const res = await GET(req as never);
-
-    expect(res.status).toBe(200);
-    const setCall = updateChain.set.mock.calls[0][0];
-    expect(setCall.processingStatus).toBe('failed');
-  });
-
-  it('skips source grabbed by concurrent invocation (optimistic lock returns empty)', async () => {
-    const source = createMockSource({ processingStatus: 'queued' });
-
-    // Stale check → empty
-    const staleChain = setupStaleSourcesChain([]);
-    mockDb.select.mockReturnValueOnce(staleChain);
-
-    mockGetQueuedSources.mockResolvedValue([source as never]);
-
-    // Optimistic lock returns empty (concurrent grab)
-    const claimChain = setupUpdateChain([]);
-    mockDb.update.mockReturnValueOnce(claimChain);
-
-    // Remaining count
-    const remainingChain = setupRemainingCountChain(0);
-    mockDb.select.mockReturnValueOnce(remainingChain);
-
-    const req = new Request('http://localhost/api/mass-upload/cron', {
-      headers: { authorization: `Bearer ${CRON_SECRET}` },
-    });
-    const res = await GET(req as never);
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(data.processed).toBe(0);
-    expect(mockExtract).not.toHaveBeenCalled();
-  });
-
-  it('processes source through full pipeline', async () => {
-    const source = createMockSource({
-      processingStatus: 'queued',
-      userId: 'user_test-1',
-    });
-    const claimedSource = {
-      ...source,
-      processingStatus: 'extracting',
-      processingAttempts: 1,
-    };
-
-    // Stale check → empty
-    const staleChain = setupStaleSourcesChain([]);
-    mockDb.select.mockReturnValueOnce(staleChain);
-
-    mockGetQueuedSources.mockResolvedValue([source as never]);
-
-    // Optimistic lock → claimed
-    const claimChain = setupUpdateChain([claimedSource]);
-    mockDb.update.mockReturnValueOnce(claimChain);
-
-    // fetch blob
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
-    });
-
-    // Gemini extraction
-    mockExtract.mockResolvedValue(createMockExtractionResult());
-
-    // Status update to enriching
-    const enrichingChain = setupUpdateChainNoReturn();
-    mockDb.update.mockReturnValueOnce(enrichingChain);
-
-    // Google Places enrichment
-    mockEnrich.mockResolvedValue([createMockPipelinePlace()]);
-
-    // createPlacesFromPipeline
-    mockCreatePlaces.mockResolvedValue([{ id: 'plc_test-1' }] as never);
-
-    // Status update to completed
-    const completedChain = setupUpdateChainNoReturn();
-    mockDb.update.mockReturnValueOnce(completedChain);
-
-    // Remaining count
-    const remainingChain = setupRemainingCountChain(0);
-    mockDb.select.mockReturnValueOnce(remainingChain);
-
-    const req = new Request('http://localhost/api/mass-upload/cron', {
-      headers: { authorization: `Bearer ${CRON_SECRET}` },
-    });
-    const res = await GET(req as never);
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(data.processed).toBe(1);
-    expect(data.placesCreated).toBe(1);
-    expect(mockExtract).toHaveBeenCalledTimes(1);
-    expect(mockEnrich).toHaveBeenCalledTimes(1);
-    expect(mockCreatePlaces).toHaveBeenCalledTimes(1);
-  });
-
-  it('marks source failed after MAX_ATTEMPTS Gemini failures, requeues before that', async () => {
-    const source = createMockSource({
-      processingStatus: 'queued',
-      userId: 'user_test-1',
-    });
-
-    // Source has reached max attempts (3)
-    const claimedSource = {
-      ...source,
-      processingStatus: 'extracting',
-      processingAttempts: 3,
-    };
-
-    // Stale check → empty
-    const staleChain = setupStaleSourcesChain([]);
-    mockDb.select.mockReturnValueOnce(staleChain);
-
-    mockGetQueuedSources.mockResolvedValue([source as never]);
-
-    // Optimistic lock → claimed with attempts=3
-    const claimChain = setupUpdateChain([claimedSource]);
-    mockDb.update.mockReturnValueOnce(claimChain);
-
-    // fetch blob succeeds
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
-    });
-
-    // Gemini extraction fails
-    mockExtract.mockRejectedValue(new Error('Gemini API error'));
-
-    // Error handler updates status to failed (attempts >= MAX_ATTEMPTS)
-    const failedChain = setupUpdateChainNoReturn();
-    mockDb.update.mockReturnValueOnce(failedChain);
-
-    // Remaining count
-    const remainingChain = setupRemainingCountChain(0);
-    mockDb.select.mockReturnValueOnce(remainingChain);
-
-    const req = new Request('http://localhost/api/mass-upload/cron', {
-      headers: { authorization: `Bearer ${CRON_SECRET}` },
-    });
-    const res = await GET(req as never);
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(data.failed).toBe(1);
-    // Verify it was marked as failed (not requeued)
-    const setCall = failedChain.set.mock.calls[0][0];
-    expect(setCall.processingStatus).toBe('failed');
+    const res = await GET(cronRequest());
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe('database unreachable');
   });
 });

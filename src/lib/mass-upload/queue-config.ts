@@ -54,6 +54,35 @@ export const QUEUE_CONFIG = {
   maxWorkers: envInt('MASS_UPLOAD_MAX_WORKERS', 3),
   /** Queue depth one worker is expected to absorb; drives how many to spawn. */
   itemsPerWorker: envInt('MASS_UPLOAD_ITEMS_PER_WORKER', 25),
+  /** How long the dispatcher waits for a worker to acknowledge its trigger. */
+  workerTriggerTimeoutMs: envInt('MASS_UPLOAD_WORKER_TRIGGER_TIMEOUT_MS', 5_000),
+  /**
+   * How many times a lane re-reads the queue when every candidate it saw was
+   * claimed by another run. Bounded so a genuinely empty queue still ends the
+   * lane promptly.
+   */
+  claimContentionRetries: envInt('MASS_UPLOAD_CLAIM_CONTENTION_RETRIES', 5),
+  /** First wait before a requeued item may be claimed again. */
+  retryBackoffBaseMs: envInt('MASS_UPLOAD_RETRY_BACKOFF_BASE_MS', 30_000),
+  /** Ceiling for the exponential backoff above. */
+  retryBackoffMaxMs: envInt('MASS_UPLOAD_RETRY_BACKOFF_MAX_MS', 600_000),
 } as const;
 
 export type QueueConfig = typeof QUEUE_CONFIG;
+
+/**
+ * Wait before a requeued source may be claimed again, given how many times it
+ * has already been interrupted or failed: 30s, 60s, 2m, 4m, 8m, then capped.
+ *
+ * Without it a sustained upstream outage burns the whole interruption budget in
+ * seconds and parks perfectly good screenshots as `stalled`.
+ */
+export function retryBackoffMs(count: number): number {
+  const steps = Math.min(Math.max(0, count - 1), 20);
+  return Math.min(QUEUE_CONFIG.retryBackoffMaxMs, QUEUE_CONFIG.retryBackoffBaseMs * 2 ** steps);
+}
+
+/** ISO timestamp a source backed off `count` times becomes claimable again. */
+export function retryBackoffUntilIso(count: number, now: number = Date.now()): string {
+  return new Date(now + retryBackoffMs(count)).toISOString();
+}

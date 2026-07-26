@@ -287,6 +287,7 @@ export async function getSourcesForPlace(placeId: string, userId: string): Promi
       processingError: sourcesCurrentSchema.processingError,
       processingStartedAt: sourcesCurrentSchema.processingStartedAt,
       processingLeaseId: sourcesCurrentSchema.processingLeaseId,
+      nextAttemptAt: sourcesCurrentSchema.nextAttemptAt,
     })
       .from(sourcesCurrentSchema)
       .innerJoin(sourcesToPlaces, eq(sourcesCurrentSchema.id, sourcesToPlaces.sourceId))
@@ -972,16 +973,10 @@ export async function getPlaceWithRelations(placeId: string, userId: string) {
   }, 'getPlaceWithRelations');
 }
 
-// Mass upload cron queries
-export async function getQueuedSources(limit: number = 3): Promise<Source[]> {
-  return withErrorHandling(async () => {
-    return await db.select()
-      .from(sourcesCurrentSchema)
-      .where(eq(sourcesCurrentSchema.processingStatus, 'queued'))
-      .orderBy(asc(sourcesCurrentSchema.createdAt))
-      .limit(limit);
-  }, 'getQueuedSources');
-}
+// Mass upload queue queries
+//
+// Claiming goes through `claimNextQueuedSource` in db-mutations: it is atomic
+// and takes a lease. Nothing here hands out queued sources without one.
 
 /** Number of sources waiting to be picked up, across all users. */
 export async function getQueueDepth(): Promise<number> {
@@ -1005,7 +1000,11 @@ export async function getQueueStats(
       queued: sql<number>`sum(case when ${sourcesCurrentSchema.processingStatus} = 'queued' then 1 else 0 end)`,
       inFlight: sql<number>`sum(case when ${sourcesCurrentSchema.processingStatus} in ('extracting','enriching') and coalesce(${sourcesCurrentSchema.processingStartedAt}, '') >= ${leaseCutoffIso} then 1 else 0 end)`,
       activeWorkers: sql<number>`count(distinct case when ${sourcesCurrentSchema.processingStatus} in ('extracting','enriching') and coalesce(${sourcesCurrentSchema.processingStartedAt}, '') >= ${leaseCutoffIso} then substr(${sourcesCurrentSchema.processingLeaseId}, 1, instr(${sourcesCurrentSchema.processingLeaseId} || ':', ':') - 1) end)`,
-    }).from(sourcesCurrentSchema);
+    })
+      .from(sourcesCurrentSchema)
+      // Every dispatch calls this; without the filter it scans every source row
+      // the app has ever created instead of riding sources_processing_status_idx.
+      .where(sql`${sourcesCurrentSchema.processingStatus} in ('queued','extracting','enriching')`);
 
     return {
       queued: Number(row?.queued ?? 0),

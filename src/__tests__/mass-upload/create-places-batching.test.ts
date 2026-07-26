@@ -18,7 +18,7 @@ jest.mock('@/lib/db-utils', () => ({
 jest.mock('@vercel/blob', () => ({ del: jest.fn() }));
 
 let generatedCount = 0;
-type SelectCall = { table: string; rows: unknown[] };
+type SelectCall = { table: string; rows: unknown[]; where?: unknown };
 
 const selectCalls: SelectCall[] = [];
 const insertedByTable: Record<string, unknown[]> = {};
@@ -35,9 +35,11 @@ const mockTx = {
       const name = tableName(table);
       const rows =
         name === 'sources' ? (sourceRow ? [sourceRow] : []) : name === 'places' ? existingPlaces : [];
-      selectCalls.push({ table: name, rows });
+      const call: SelectCall = { table: name, rows };
+      selectCalls.push(call);
       const result = Promise.resolve(rows) as Promise<unknown[]> & Record<string, unknown>;
-      result.where = () => {
+      result.where = (clause: unknown) => {
+        call.where = clause;
         const withLimit = Promise.resolve(rows) as Promise<unknown[]> & Record<string, unknown>;
         withLimit.limit = () => Promise.resolve(rows);
         return withLimit;
@@ -69,6 +71,8 @@ function tableName(table: unknown): string {
   return String((table as { _?: { name?: string } })?._?.name ?? 'unknown');
 }
 
+import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
+import type { SQL } from 'drizzle-orm';
 import { createPlacesFromPipeline } from '@/lib/db-mutations';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
 
@@ -162,6 +166,30 @@ describe('createPlacesFromPipeline batching', () => {
 
     expect(created[0].id).toBe('plc_existing');
     expect(insertedByTable['places']).toBeUndefined();
+  });
+
+  it('lowers the name on both sides in SQL so accented names still dedup', async () => {
+    // SQLite's LOWER() is ASCII-only: comparing it against a name already
+    // lowercased in JS silently stops matching as soon as there is an accent,
+    // and the screenshot creates a duplicate place.
+    existingPlaces = [
+      { id: 'plc_cafe', name: 'Café Central', city: 'Lisbon', country: 'Portugal', googlePlaceId: null },
+    ];
+
+    const created = await createPlacesFromPipeline(
+      [pipelinePlace({ name: 'Café Central' })],
+      'src_1',
+      'user_1'
+    );
+
+    expect(created[0].id).toBe('plc_cafe');
+    expect(insertedByTable['places']).toBeUndefined();
+
+    const placeLookups = selectCalls.filter((c) => c.table === 'places');
+    const nameLookup = placeLookups[placeLookups.length - 1];
+    const { sql: text, params } = new SQLiteSyncDialect().sqlToQuery(nameLookup.where as SQL);
+    expect(params).toContain('Café Central');
+    expect(text).toMatch(/LOWER\(\?\)/i);
   });
 
   it('does not treat a same-named place in another city as a duplicate', async () => {

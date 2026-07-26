@@ -180,7 +180,13 @@ past the cap they land in `stalled` (retryable, surfaced separately in the UI). 
 counters. Classification lives in `asInterruption()` in `src/lib/mass-upload/queue-processor.ts`.
 
 Claims are leases (`processing_lease_id`): every write back is guarded by the lease the run holds, so
-a reclaimed item cannot be finished twice. The timing invariants (lease TTL > item budget, run budget
+a reclaimed item cannot be finished twice. A requeued item also gets a `next_attempt_at` backoff, and
+`claimNextQueuedSource` skips rows whose backoff has not elapsed (`NULL` means ready).
+
+The queue columns on `sources` are read by widely-used queries, not only the queue paths
+(`getSourcesForPlace` selects them, so place detail breaks too). Apply the migrations to Turso
+**before** promoting the deployment that reads them — this branch deliberately ships the migration
+files without applying them. The timing invariants (lease TTL > item budget, run budget
 > item budget) are asserted by `src/__tests__/mass-upload/queue-config.test.ts` — change values in
 `src/lib/mass-upload/queue-config.ts`, not in scattered constants, and keep route `maxDuration` and
 `vercel.json` in sync with `MASS_UPLOAD_MAX_DURATION_SECONDS`.

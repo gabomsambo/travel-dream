@@ -31,6 +31,14 @@ function resolveBaseUrl(): string | null {
 /**
  * Make sure enough processing functions are running for the current queue depth.
  * Returns without spawning when the queue is empty or already covered.
+ *
+ * `maxWorkers` bounds ONE dispatcher's spawn decision, not the global number of
+ * concurrent processing functions: `activeWorkers` only counts runs that have
+ * already claimed an item, so dispatchers deciding at the same moment (the
+ * worker chain, the safety-net cron, upload-start) can each spawn up to that
+ * many. Correctness is unaffected — leases mean no item is processed twice —
+ * and the owner accepted the loose ceiling as a deliberate cost tradeoff rather
+ * than paying for a durable worker-slot record.
  */
 export async function dispatchProcessors(reason: string): Promise<DispatchResult> {
   const cutoff = new Date(Date.now() - QUEUE_CONFIG.leaseTtlMs).toISOString();
@@ -56,11 +64,20 @@ export async function dispatchProcessors(reason: string): Promise<DispatchResult
 
   const triggers = Array.from({ length: spawnCount }, async (_, i) => {
     try {
+      // The worker answers 202 immediately and drains in after(), so a trigger
+      // that hangs is a broken trigger — never something the caller's own run
+      // budget should be spent on.
       const res = await fetch(`${baseUrl}/api/mass-upload/process`, {
         method: 'POST',
         headers: { authorization: `Bearer ${cronSecret}`, 'content-type': 'application/json' },
         body: JSON.stringify({ reason: `${reason}#${i}` }),
+        signal: AbortSignal.timeout(QUEUE_CONFIG.workerTriggerTimeoutMs),
       });
+      try {
+        await res.arrayBuffer();
+      } catch {
+        // Nothing in the acknowledgement is used; releasing it is best effort.
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return true;
     } catch (err) {

@@ -48,13 +48,14 @@ export class GooglePlacesUnavailableError extends Error {
 
 // ─── Service Class ────────────────────────────────────────────────────────────
 
+/**
+ * Keyed by name|city|country and holding the in-flight promise, so parallel
+ * lanes asking for the same place share one lookup instead of racing.
+ */
+type LookupCache = Map<string, Promise<GoogleEnrichmentResult | null>>;
+
 export class GooglePlacesEnrichmentService {
   private apiKey: string;
-  /**
-   * Keyed by name|city|country and holding the in-flight promise, so parallel
-   * lanes asking for the same place share one lookup instead of racing.
-   */
-  private cache: Map<string, Promise<GoogleEnrichmentResult | null>>;
 
   constructor(config?: { apiKey?: string }) {
     const apiKey = config?.apiKey || process.env.GOOGLE_PLACES_API_KEY;
@@ -62,7 +63,6 @@ export class GooglePlacesEnrichmentService {
       throw new Error('GOOGLE_PLACES_API_KEY is required');
     }
     this.apiKey = apiKey;
-    this.cache = new Map();
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -74,7 +74,10 @@ export class GooglePlacesEnrichmentService {
    * half-enriched places.
    */
   async enrichPlaces(places: GeminiExtractedPlace[], signal?: AbortSignal): Promise<PipelinePlace[]> {
-    this.cache = new Map();
+    // Local to this call: the service is a module-level singleton and several
+    // screenshots enrich concurrently, so shared cache state would let one
+    // screenshot drop another's in-flight lookups and pay Google twice.
+    const cache: LookupCache = new Map();
     const enriched: PipelinePlace[] = new Array(places.length);
     let cursor = 0;
 
@@ -82,7 +85,7 @@ export class GooglePlacesEnrichmentService {
       while (cursor < places.length) {
         const index = cursor++;
         signal?.throwIfAborted();
-        enriched[index] = await this.enrichOne(places[index], signal);
+        enriched[index] = await this.enrichOne(places[index], cache, signal);
       }
     };
 
@@ -95,7 +98,11 @@ export class GooglePlacesEnrichmentService {
 
   // ── Private Methods ─────────────────────────────────────────────────────────
 
-  private async enrichOne(place: GeminiExtractedPlace, signal?: AbortSignal): Promise<PipelinePlace> {
+  private async enrichOne(
+    place: GeminiExtractedPlace,
+    cache: LookupCache,
+    signal?: AbortSignal
+  ): Promise<PipelinePlace> {
     const base: PipelinePlace = {
       ...place,
       coords: null,
@@ -111,12 +118,15 @@ export class GooglePlacesEnrichmentService {
     if (place.kind === 'tip') return base;
 
     const cacheKey = this.buildCacheKey(place.name, place.city, place.country);
-    let lookup = this.cache.get(cacheKey);
+    let lookup = cache.get(cacheKey);
     if (!lookup) {
       lookup = this.lookup(place, signal);
-      this.cache.set(cacheKey, lookup);
+      cache.set(cacheKey, lookup);
       // A failed lookup must not be remembered as an answer.
-      lookup.catch(() => this.cache.delete(cacheKey));
+      const pending = lookup;
+      pending.catch(() => {
+        if (cache.get(cacheKey) === pending) cache.delete(cacheKey);
+      });
     }
 
     // A transient Google outage propagates: the screenshot is retried later

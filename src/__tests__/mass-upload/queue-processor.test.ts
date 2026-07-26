@@ -66,10 +66,12 @@ const mockReclaim = reclaimExpiredSourceLeases as jest.Mock;
 const mockCreatePlaces = createPlacesFromPipeline as jest.Mock;
 const mockQueueDepth = getQueueDepth as jest.Mock;
 
-/** Resolve the claim once, then report an empty queue. */
+/** Hand out the given sources, then report an empty queue. */
 function queueOf(...sources: unknown[]) {
   let i = 0;
-  mockClaim.mockImplementation(async () => (i < sources.length ? sources[i++] : null));
+  mockClaim.mockImplementation(async () =>
+    i < sources.length ? { source: sources[i++], contended: false } : { source: null, contended: false }
+  );
 }
 
 function okImageResponse() {
@@ -157,6 +159,37 @@ describe('processQueue', () => {
 
     expect(mockInterruption).toHaveBeenCalledTimes(1);
     expect(mockFailure).not.toHaveBeenCalled();
+  });
+
+  it('treats a blob download that hits its own timeout as an interruption', async () => {
+    queueOf(createMockSource());
+    // What AbortSignal.timeout rejects with: the item watchdog never fired, so
+    // classification has to recognise the timeout on its own.
+    const timedOut = Object.assign(new Error('The operation was aborted due to timeout'), {
+      name: 'TimeoutError',
+    });
+    (global.fetch as jest.Mock).mockRejectedValue(timedOut);
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    expect(mockInterruption).toHaveBeenCalledTimes(1);
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(result.interrupted).toBe(1);
+  });
+
+  it('treats a network drop wrapped by the Gemini SDK as an interruption', async () => {
+    queueOf(createMockSource());
+    mockExtractFromImage.mockRejectedValue(
+      new Error(
+        '[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models: fetch failed'
+      )
+    );
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    expect(mockInterruption).toHaveBeenCalledTimes(1);
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(result.interrupted).toBe(1);
   });
 
   it('marks an oversized screenshot as a genuine failure', async () => {
@@ -278,6 +311,65 @@ describe('processQueue', () => {
     expect(result.placesCreated).toBe(2);
     expect(result.remaining).toBe(7);
     expect(mockComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps working when another run took every candidate it saw', async () => {
+    const source = createMockSource();
+    let call = 0;
+    mockClaim.mockImplementation(async () => {
+      call++;
+      if (call <= 2) return { source: null, contended: true };
+      if (call === 3) return { source, contended: false };
+      return { source: null, contended: false };
+    });
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    expect(result.claimed).toBe(1);
+    expect(result.completed).toBe(1);
+  });
+
+  it('reports contention rather than an empty queue when it never wins a candidate', async () => {
+    mockClaim.mockResolvedValue({ source: null, contended: true });
+
+    const result = await processQueue({ workerId: 'w_test' });
+
+    expect(result.stoppedBecause).toBe('contended');
+    expect(mockClaim.mock.calls.length).toBeGreaterThan(QUEUE_CONFIG.claimContentionRetries);
+  });
+
+  it('caches a Gemini result that lands after the watchdog fired, so the retry is free', async () => {
+    jest.useFakeTimers();
+    try {
+      queueOf(createMockSource());
+      const extraction = createMockExtractionResult();
+      let resolveLate: (value: unknown) => void = () => {};
+      mockExtractFromImage.mockImplementation(
+        () => new Promise((resolve) => { resolveLate = resolve; })
+      );
+
+      const run = processQueue({ workerId: 'w_test' });
+      await jest.advanceTimersByTimeAsync(QUEUE_CONFIG.itemMaxBudgetMs + 1_000);
+      const result = await run;
+
+      // The clock-out is an interruption, never a verdict about the image...
+      expect(result.interrupted).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(mockFailure).not.toHaveBeenCalled();
+      expect(mockCache).not.toHaveBeenCalled();
+
+      // ...and the extraction we already paid for is kept for the next attempt.
+      resolveLate(extraction);
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(mockCache).toHaveBeenCalledWith(
+        'src_test-1',
+        expect.any(String),
+        expect.objectContaining({ extraction })
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('stops at maxItems', async () => {

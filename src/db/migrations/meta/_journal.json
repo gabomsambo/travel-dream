@@ -15,6 +15,13 @@
       "when": 1785022689087,
       "tag": "20260725233809_add_processing_lease_and_interruptions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785031580192,
+      "tag": "20260726020620_add_source_next_attempt_at",
+      "breakpoints": true
     }
   ]
 }

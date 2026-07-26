@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId } from './db-utils';
+import { retryBackoffUntilIso } from './mass-upload/queue-config';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
 import type { ExtractedPlace, ExtractionResult, ExtractionMetadata } from '@/types/llm-extraction';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
@@ -1551,8 +1552,11 @@ export async function createPlacesFromPipeline(
       const googleIds = Array.from(
         new Set(pipelinePlaces.map(p => p.googlePlaceId).filter((id): id is string => Boolean(id)))
       );
+      // Bound raw and lowered in SQL on both sides: SQLite's LOWER() is
+      // ASCII-only, so an already-lowercased parameter stops agreeing with
+      // LOWER(places.name) as soon as the name has an accent.
       const names = Array.from(
-        new Set(pipelinePlaces.map(p => p.name?.toLowerCase()).filter((n): n is string => Boolean(n)))
+        new Set(pipelinePlaces.map(p => p.name).filter((n): n is string => Boolean(n)))
       );
 
       const byGoogleId = new Map<string, Place>();
@@ -1569,7 +1573,7 @@ export async function createPlacesFromPipeline(
         const rows = await tx.select().from(places)
           .where(and(
             eq(places.userId, userId),
-            sql`LOWER(${places.name}) IN (${sql.join(names.map(n => sql`${n}`), sql`, `)})`
+            sql`LOWER(${places.name}) IN (${sql.join(names.map(n => sql`LOWER(${n})`), sql`, `)})`
           ));
         for (const row of rows as Place[]) {
           const key = placeNameKey(row.name, row.city, row.country);
@@ -1679,17 +1683,34 @@ function placeNameKey(name: string, city: string | null, country: string | null)
 // lease was reclaimed cannot finish, fail or complete an item someone else owns.
 
 /**
- * Atomically claim the oldest queued source. Returns null when the queue is
- * empty or every candidate was taken by a concurrent run.
+ * Result of one claim attempt. `contended` separates "nothing is waiting" from
+ * "candidates existed but another run took every one of them" — the caller must
+ * not treat the second as an empty queue and stop working.
+ */
+export interface ClaimAttempt {
+  source: Source | null;
+  contended: boolean;
+}
+
+/**
+ * Atomically claim the oldest claimable queued source.
+ *
+ * Sources backing off after an interruption (`next_attempt_at` in the future)
+ * are not candidates; NULL means ready, so pre-existing rows and freshly queued
+ * uploads are unaffected.
  */
 export async function claimNextQueuedSource(
   leaseId: string,
   candidateLimit: number = 10
-): Promise<Source | null> {
+): Promise<ClaimAttempt> {
   return withErrorHandling(async () => {
+    const nowIso = new Date().toISOString();
     const candidates = await db.select({ id: sourcesCurrentSchema.id })
       .from(sourcesCurrentSchema)
-      .where(eq(sourcesCurrentSchema.processingStatus, 'queued'))
+      .where(and(
+        eq(sourcesCurrentSchema.processingStatus, 'queued'),
+        sql`(${sourcesCurrentSchema.nextAttemptAt} IS NULL OR ${sourcesCurrentSchema.nextAttemptAt} <= ${nowIso})`
+      ))
       .orderBy(sourcesCurrentSchema.createdAt)
       .limit(candidateLimit);
 
@@ -1699,6 +1720,7 @@ export async function claimNextQueuedSource(
           processingStatus: 'extracting',
           processingStartedAt: new Date().toISOString(),
           processingLeaseId: leaseId,
+          nextAttemptAt: null,
           updatedAt: new Date().toISOString(),
         })
         .where(and(
@@ -1707,10 +1729,10 @@ export async function claimNextQueuedSource(
         ))
         .returning();
 
-      if (claimed) return claimed as Source;
+      if (claimed) return { source: claimed as Source, contended: false };
     }
 
-    return null;
+    return { source: null, contended: candidates.length > 0 };
   }, 'claimNextQueuedSource');
 }
 
@@ -1831,6 +1853,7 @@ export async function recordSourceFailure(
         processingAttempts: attempts,
         processingError: message.slice(0, 1000),
         processingLeaseId: null,
+        nextAttemptAt: nextStatus === 'queued' ? retryBackoffUntilIso(attempts) : null,
         updatedAt: new Date().toISOString(),
       })
       .where(and(
@@ -1874,6 +1897,9 @@ export async function recordSourceInterruption(
         processingInterruptions: interruptions,
         processingError: message.slice(0, 1000),
         processingLeaseId: null,
+        // A sustained upstream outage must not burn the whole interruption
+        // budget in seconds, so the retry waits before it becomes claimable.
+        nextAttemptAt: nextStatus === 'queued' ? retryBackoffUntilIso(interruptions) : null,
         updatedAt: new Date().toISOString(),
       })
       .where(and(
@@ -1924,6 +1950,7 @@ export async function reclaimExpiredSourceLeases(
             ? `Interrupted ${interruptions} times before finishing — not a problem with the image; retry it`
             : 'Run was interrupted before finishing; requeued',
           processingLeaseId: null,
+          nextAttemptAt: nextStatus === 'queued' ? retryBackoffUntilIso(interruptions) : null,
           updatedAt: new Date().toISOString(),
         })
         .where(and(

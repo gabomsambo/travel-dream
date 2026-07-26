@@ -15,7 +15,11 @@ describe('dispatchProcessors', () => {
     jest.clearAllMocks();
     process.env.CRON_SECRET = 'test-cron-secret';
     process.env.MASS_UPLOAD_BASE_URL = 'https://example.test';
-    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 202 }) as unknown as typeof fetch;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    }) as unknown as typeof fetch;
   });
 
   it('spawns nothing when the queue is empty', async () => {
@@ -84,6 +88,37 @@ describe('dispatchProcessors', () => {
 
     expect(result.spawned).toBe(0);
     expect(result.skippedReason).toMatch(/base url/);
+  });
+
+  it('bounds the trigger so a hanging worker cannot eat the caller run budget', async () => {
+    mockStats.mockResolvedValue({ queued: 5, activeWorkers: 0, inFlight: 0 });
+
+    await dispatchProcessors('upload-start');
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal.aborted).toBe(false);
+  });
+
+  it('drains the acknowledgement body instead of leaving the response open', async () => {
+    mockStats.mockResolvedValue({ queued: 5, activeWorkers: 0, inFlight: 0 });
+    const arrayBuffer = jest.fn(async () => new ArrayBuffer(0));
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 202, arrayBuffer });
+
+    await dispatchProcessors('upload-start');
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a timed-out trigger like any other failed trigger', async () => {
+    mockStats.mockResolvedValue({ queued: 5, activeWorkers: 0, inFlight: 0 });
+    (global.fetch as jest.Mock).mockRejectedValue(
+      Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+    );
+
+    const result = await dispatchProcessors('upload-start');
+
+    expect(result.spawned).toBe(0);
   });
 
   it('does not throw when a worker trigger fails', async () => {

@@ -93,6 +93,10 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
   // Owner token of the current in-flight run; writes are guarded by it so a
   // reclaimed item can never be finished twice.
   processingLeaseId: text('processing_lease_id'),
+  // Earliest time a requeued source may be claimed again (exponential backoff
+  // after an interruption or a failure). NULL means "ready now", so pre-existing
+  // rows and freshly queued uploads are claimable immediately.
+  nextAttemptAt: text('next_attempt_at'),
 }, (table) => ({
   // Indexes for performance
   typeIdx: index('sources_type_idx').on(table.type),

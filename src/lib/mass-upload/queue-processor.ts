@@ -40,7 +40,7 @@ export interface ProcessQueueResult {
   placesCreated: number;
   reclaimed: { requeued: number; stalled: number };
   remaining: number;
-  stoppedBecause: 'queue-empty' | 'deadline' | 'max-items';
+  stoppedBecause: 'queue-empty' | 'deadline' | 'max-items' | 'contended';
   elapsedMs: number;
 }
 
@@ -104,6 +104,10 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
   // Reserved synchronously so concurrent lanes cannot overshoot maxItems.
   let reserved = 0;
   const lane = async (): Promise<void> => {
+    // Every candidate taken by another run is not an empty queue: with several
+    // runs and lanes contending for the same candidate window, a lane that
+    // exits on the first lost race leaves work sitting in the queue.
+    let contentionRetries = 0;
     while (true) {
       if (reserved >= maxItems) {
         stopped ??= 'max-items';
@@ -117,12 +121,18 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
 
       reserved++;
       const leaseId = `${workerId}:${randomUUID()}`;
-      const source = await claimNextQueuedSource(leaseId);
+      const claim = await claimNextQueuedSource(leaseId);
+      const source = claim.source;
       if (!source) {
         reserved--;
-        stopped ??= 'queue-empty';
+        if (claim.contended && contentionRetries < QUEUE_CONFIG.claimContentionRetries) {
+          contentionRetries++;
+          continue;
+        }
+        stopped ??= claim.contended ? 'contended' : 'queue-empty';
         return;
       }
+      contentionRetries = 0;
       result.claimed++;
 
       // The watchdog keeps the run in charge of its own clock: an item that
@@ -238,8 +248,16 @@ function isTransientUpstreamError(error: unknown): boolean {
   const status = (error as { status?: number })?.status;
   if (typeof status === 'number' && (status === 429 || status >= 500)) return true;
 
+  // A blob fetch that hits its own AbortSignal.timeout rejects with a
+  // TimeoutError the item watchdog knows nothing about — still a clock-out,
+  // never a verdict about the image.
+  const name = (error as { name?: string })?.name;
+  if (name === 'TimeoutError' || name === 'AbortError') return true;
+
+  // Unanchored on purpose: the Gemini SDK and withErrorHandling both wrap the
+  // original message ("[GoogleGenerativeAI Error]: ... : fetch failed").
   const message = error instanceof Error ? error.message : String(error);
-  return /\b(429|500|502|503|504)\b|overloaded|rate.?limit|quota|too many requests|^fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|network error/i.test(
+  return /\b(429|500|502|503|504)\b|overloaded|rate.?limit|quota|too many requests|fetch failed|aborted due to timeout|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|network error/i.test(
     message
   );
 }
@@ -266,10 +284,17 @@ async function runPipeline(source: Source, leaseId: string, signal: AbortSignal)
     if (!extraction) {
       signal.throwIfAborted();
       const fileName = meta.uploadInfo?.originalName || source.id;
-      extraction = await withAbort(
-        getGeminiExtractionService().extractFromImage(buffer, fileName),
-        signal
-      );
+      const pending = getGeminiExtractionService().extractFromImage(buffer, fileName);
+      try {
+        extraction = await withAbort(pending, signal);
+      } catch (err) {
+        // The call was already paid for even though we stopped waiting: keep
+        // whatever it returns so the retry does not re-charge Gemini. The run's
+        // own clock is not extended, and the write is lease-guarded, so it is a
+        // no-op once the lease is gone.
+        cacheLateExtraction(pending, source.id, leaseId, thumbnailUrl);
+        throw err;
+      }
       // Persist before enrichment so an interruption after this point never
       // pays Gemini for the same screenshot twice.
       await cacheSourceProcessingWork(source.id, leaseId, { extraction, thumbnailUrl });
@@ -293,6 +318,26 @@ async function runPipeline(source: Source, leaseId: string, signal: AbortSignal)
   signal.throwIfAborted();
   const created = await createPlacesFromPipeline(enrichedPlaces, source.id, source.userId);
   return created.length;
+}
+
+/**
+ * Persist an extraction that arrived after we stopped waiting for it. Fire and
+ * forget: a late result is a bonus for the next attempt, never something the
+ * current run blocks on.
+ */
+function cacheLateExtraction(
+  pending: Promise<GeminiExtractionResult>,
+  sourceId: string,
+  leaseId: string,
+  thumbnailUrl: string | undefined
+): void {
+  void pending.then(
+    (late) =>
+      cacheSourceProcessingWork(sourceId, leaseId, { extraction: late, thumbnailUrl }).catch(
+        (err) => console.warn(`[MassUpload] could not cache late extraction for ${sourceId}:`, err)
+      ),
+    () => undefined
+  );
 }
 
 async function downloadScreenshot(uri: string, signal: AbortSignal): Promise<Buffer> {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
 import { Download, Trash2, Keyboard, Sun, Moon, Laptop, Grid3x3, List, Sparkles } from 'lucide-react'
@@ -43,20 +43,34 @@ export function SettingsClient() {
     setMounted(true)
   }, [])
 
+  // The switch keeps its old position for the whole round-trip, so it is easy
+  // to click it again mid-flight; without this each extra click would fire a
+  // redundant server action racing the one already in progress.
+  const savingUiTheme = useRef(false)
+
   const toggleUIRefresh = (enabled: boolean) => {
+    if (savingUiTheme.current) return
+
     const next: UiTheme = enabled ? 'tropical' : 'classic'
 
     // The cookie is written client-side immediately, but the switch and the
     // theme only change once router.refresh() has completed its RSC round-trip
     // and the layout has re-rendered with the new value. The server action
     // persists the same cookie durably.
+    savingUiTheme.current = true
     writeUiThemeCookie(next)
-    setUiTheme(next).catch((error) => {
-      // The client-written cookie means the choice still holds locally, so this
-      // would otherwise fail silently.
-      console.error('UI theme save error:', error)
-      toast.error('Failed to save theme preference')
-    })
+    setUiTheme(next)
+      .catch((error) => {
+        // Nothing reaches the user here: no <Toaster /> is mounted anywhere in
+        // the app, so this toast is a no-op and only the console log lands. The
+        // client-written cookie means the choice still holds in this browser —
+        // it just is not persisted durably by the server.
+        console.error('UI theme save error:', error)
+        toast.error('Failed to save theme preference')
+      })
+      .finally(() => {
+        savingUiTheme.current = false
+      })
     router.refresh()
   }
 

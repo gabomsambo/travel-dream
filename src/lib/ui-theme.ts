@@ -47,8 +47,30 @@ export function normalizeUiTheme(value: string | null | undefined): UiTheme {
  *
  * The single place the client-side attributes live, so they cannot drift from
  * each other; the server action in `ui-theme-actions.ts` writes the same cookie
- * durably afterwards.
+ * durably afterwards. `secure` is mirrored from that action, which sets it in
+ * production — over https both writers must produce the same cookie, or the
+ * client write is replaced rather than upgraded.
  */
 export function writeUiThemeCookie(theme: UiTheme): void {
-  document.cookie = `${UI_THEME_COOKIE}=${normalizeUiTheme(theme)}; path=/; max-age=${UI_THEME_COOKIE_MAX_AGE}; samesite=lax`
+  const secure = window.location.protocol === 'https:' ? '; secure' : ''
+
+  document.cookie = `${UI_THEME_COOKIE}=${normalizeUiTheme(theme)}; path=/; max-age=${UI_THEME_COOKIE_MAX_AGE}; samesite=lax${secure}`
+}
+
+/**
+ * Read the theme cookie from the browser.
+ *
+ * Returns `null` when no cookie is set at all, which is a different question
+ * from "which theme" — the legacy migration needs to distinguish "never chose"
+ * from "chose classic". A present but unrecognised value normalizes to classic.
+ */
+export function readUiThemeCookie(): UiTheme | null {
+  const prefix = `${UI_THEME_COOKIE}=`
+  const entry = document.cookie
+    .split('; ')
+    .find((part) => part.startsWith(prefix))
+
+  return entry === undefined
+    ? null
+    : normalizeUiTheme(decodeURIComponent(entry.slice(prefix.length)))
 }

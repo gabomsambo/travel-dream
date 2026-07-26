@@ -13,12 +13,14 @@ import {
   LEGACY_UI_REFRESH_KEY,
   UI_THEME_COOKIE,
   normalizeUiTheme,
+  readUiThemeCookie,
 } from '@/lib/ui-theme'
 import {
   UIRefreshProvider,
   useUiTheme,
   useUiRefreshEnabled,
 } from '@/components/ui-refresh-provider'
+import { ClientUiThemeProvider } from '@/components/client-ui-theme-provider'
 
 const mockRefresh = jest.fn()
 jest.mock('next/navigation', () => ({
@@ -64,6 +66,27 @@ describe('normalizeUiTheme', () => {
 
   it('defaults to classic', () => {
     expect(DEFAULT_UI_THEME).toBe('classic')
+  })
+})
+
+describe('readUiThemeCookie', () => {
+  it('distinguishes "no preference" from "chose classic"', () => {
+    expect(readUiThemeCookie()).toBeNull()
+
+    document.cookie = `${UI_THEME_COOKIE}=classic; path=/`
+    expect(readUiThemeCookie()).toBe('classic')
+  })
+
+  it('reads a tropical preference', () => {
+    document.cookie = `${UI_THEME_COOKIE}=tropical; path=/`
+
+    expect(readUiThemeCookie()).toBe('tropical')
+  })
+
+  it('normalizes a present but unusable value to classic, not null', () => {
+    document.cookie = `${UI_THEME_COOKIE}=banana; path=/`
+
+    expect(readUiThemeCookie()).toBe(DEFAULT_UI_THEME)
   })
 })
 
@@ -148,6 +171,38 @@ describe('UIRefreshProvider', () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
+  it('clears the legacy flag, so losing the cookie later cannot re-migrate', () => {
+    // The flag survives "clear cookies" — the common browser default leaves site
+    // storage alone — so if the migration did not consume it, it would later
+    // re-apply tropical over a more recent explicit choice.
+    localStorage.setItem(LEGACY_UI_REFRESH_KEY, 'true')
+
+    const first = render(
+      <UIRefreshProvider theme="classic">
+        <Probe />
+      </UIRefreshProvider>
+    )
+
+    expect(document.cookie).toContain(`${UI_THEME_COOKIE}=tropical`)
+    expect(localStorage.getItem(LEGACY_UI_REFRESH_KEY)).toBeNull()
+
+    act(() => {
+      first.unmount()
+    })
+    clearCookies()
+    mockRefresh.mockClear()
+
+    render(
+      <UIRefreshProvider theme="classic">
+        <Probe />
+      </UIRefreshProvider>
+    )
+
+    expect(document.cookie).not.toContain(UI_THEME_COOKIE)
+    expect(screen.getByTestId('theme')).toHaveTextContent('classic')
+    expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
   it('does not migrate when the legacy flag is absent or false', () => {
     localStorage.setItem(LEGACY_UI_REFRESH_KEY, 'false')
 
@@ -196,5 +251,47 @@ describe('UIRefreshProvider', () => {
 
     expect(screen.getByTestId('theme')).toHaveTextContent('tropical')
     expect(document.documentElement.getAttribute('data-theme')).toBe('tropical')
+  })
+})
+
+describe('ClientUiThemeProvider', () => {
+  // The root error and 404 boundaries render outside (app), so no server-
+  // resolved theme reaches them and the cookie must be read in the browser.
+
+  it('resolves tropical from the cookie and themes portalled content too', () => {
+    document.cookie = `${UI_THEME_COOKIE}=tropical; path=/`
+
+    render(
+      <ClientUiThemeProvider>
+        <Probe />
+      </ClientUiThemeProvider>
+    )
+
+    expect(screen.getByTestId('theme')).toHaveTextContent('tropical')
+    expect(screen.getByTestId('tropical')).toHaveTextContent('true')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('tropical')
+  })
+
+  it('stays classic with no cookie, and with an unrecognised one', () => {
+    const { unmount } = render(
+      <ClientUiThemeProvider>
+        <Probe />
+      </ClientUiThemeProvider>
+    )
+    expect(screen.getByTestId('theme')).toHaveTextContent('classic')
+
+    act(() => {
+      unmount()
+    })
+    document.cookie = `${UI_THEME_COOKIE}=banana; path=/`
+
+    render(
+      <ClientUiThemeProvider>
+        <Probe />
+      </ClientUiThemeProvider>
+    )
+
+    expect(screen.getByTestId('theme')).toHaveTextContent('classic')
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
   })
 })

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   DEFAULT_UI_THEME,
   LEGACY_UI_REFRESH_KEY,
-  UI_THEME_COOKIE,
+  readUiThemeCookie,
   writeUiThemeCookie,
   type UiTheme,
 } from "@/lib/ui-theme"
@@ -35,9 +35,7 @@ export function useUiRefreshEnabled(): boolean {
 }
 
 function hasThemeCookie(): boolean {
-  return document.cookie
-    .split("; ")
-    .some((entry) => entry.startsWith(`${UI_THEME_COOKIE}=`))
+  return readUiThemeCookie() !== null
 }
 
 export function UIRefreshProvider({
@@ -87,6 +85,11 @@ export function UIRefreshProvider({
   // cookie be the source of truth. Without this they would silently revert to
   // classic.
   //
+  // The flag is dropped as soon as it has been honoured, so this really is
+  // one-shot. A cookie can disappear long after the migration — clearing
+  // cookies without clearing site storage is the common browser default — and a
+  // surviving flag would then re-apply tropical over a later explicit choice.
+  //
   // localStorage cannot be read on the server, so this necessarily costs those
   // users one corrected frame — only on the single load that migrates them.
   useEffect(() => {
@@ -101,6 +104,12 @@ export function UIRefreshProvider({
     if (!legacyOptIn) return
 
     writeUiThemeCookie("tropical")
+    try {
+      localStorage.removeItem(LEGACY_UI_REFRESH_KEY)
+    } catch {
+      // Blocked storage again: the read above already succeeded, so this is the
+      // rare quota/permission case. The cookie now exists either way.
+    }
     setTheme("tropical")
     router.refresh()
   }, [router])

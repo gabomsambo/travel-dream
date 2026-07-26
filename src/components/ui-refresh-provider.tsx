@@ -51,10 +51,17 @@ export function UIRefreshProvider({
   // agree. Local state exists only so the one-time legacy migration below can
   // flip the tree immediately instead of waiting on a server round-trip.
   const [theme, setTheme] = useState<UiTheme>(serverTheme)
+  const [lastServerTheme, setLastServerTheme] = useState<UiTheme>(serverTheme)
 
-  useEffect(() => {
+  // A new server theme takes effect during this render, not in an effect after
+  // it. The shell element it is rendered on already carries the new
+  // `data-theme`, so a passive effect would leave one painted frame where the
+  // tropical custom properties apply to the classic component tree — exactly
+  // the flash this whole path exists to remove.
+  if (lastServerTheme !== serverTheme) {
+    setLastServerTheme(serverTheme)
     setTheme(serverTheme)
-  }, [serverTheme])
+  }
 
   // Radix renders dialogs, popovers, tooltips and toasts through a portal into
   // document.body — outside the themed shell element — so mirror the attribute

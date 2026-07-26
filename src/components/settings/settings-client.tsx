@@ -45,8 +45,12 @@ export function SettingsClient() {
 
   // The switch keeps its old position for the whole round-trip, so it is easy
   // to click it again mid-flight; without this each extra click would fire a
-  // redundant server action racing the one already in progress.
+  // redundant server action racing the one already in progress. The ref is the
+  // actual guard — it is already true for a second click dispatched in the same
+  // tick — and the state drives `disabled`, so a click that would be dropped is
+  // visibly refused rather than silently swallowed.
   const savingUiTheme = useRef(false)
+  const [isSavingUiTheme, setIsSavingUiTheme] = useState(false)
 
   const toggleUIRefresh = (enabled: boolean) => {
     if (savingUiTheme.current) return
@@ -58,6 +62,7 @@ export function SettingsClient() {
     // and the layout has re-rendered with the new value. The server action
     // persists the same cookie durably.
     savingUiTheme.current = true
+    setIsSavingUiTheme(true)
     writeUiThemeCookie(next)
     setUiTheme(next)
       .catch((error) => {
@@ -70,6 +75,7 @@ export function SettingsClient() {
       })
       .finally(() => {
         savingUiTheme.current = false
+        setIsSavingUiTheme(false)
       })
     router.refresh()
   }
@@ -261,6 +267,7 @@ export function SettingsClient() {
               id="ui-refresh"
               checked={uiRefreshEnabled}
               onCheckedChange={toggleUIRefresh}
+              disabled={isSavingUiTheme}
             />
           </div>
         </CardContent>

@@ -187,8 +187,9 @@ it renders in classic too. Don't assume `ui-v2` == tropical.
   attribute onto `<html>`. If you move where `data-theme` is rendered, re-check dialogs and popovers.
 - Theme is a separate axis from next-themes' dark/light (`class` on `<html>`). Both dark and light
   variants of tropical exist; changing one selector means changing both.
-- `src/lib/feature-flags.ts` is the retired localStorage path, kept only to migrate existing
-  opt-ins. Don't reintroduce it as a theme source.
+- `src/lib/feature-flags.ts` is the retired localStorage path — unreferenced by anything rendered
+  and *not* part of the migration (`UIRefreshProvider` reads `LEGACY_UI_REFRESH_KEY` from
+  `ui-theme.ts`). Kept deliberately; don't reintroduce it as a theme source.
 
 ## Anti-Patterns
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { LEGACY_UI_REFRESH_KEY } from "@/lib/ui-theme"
 
 /**
  * Retired localStorage feature-flag path.
@@ -10,15 +11,19 @@ import { useEffect, useState } from "react"
  * theme on first paint. The theme is now a cookie resolved on the server — see
  * `src/lib/ui-theme.ts` and the "Theming" section of CLAUDE.md.
  *
- * No rendered code imports this module any more. It is kept because the
- * `ui-refresh-enabled` key it owns still exists in real browsers, and
- * `UIRefreshProvider` migrates that opt-in to the cookie once — it reads the
- * key directly, via `LEGACY_UI_REFRESH_KEY` in `ui-theme.ts`, so keep the two
- * key spellings in step. Do not reintroduce this as a theme source.
+ * This module is retired and unreferenced: nothing the app renders imports it,
+ * and it is *not* part of the migration path — `UIRefreshProvider` reads
+ * `LEGACY_UI_REFRESH_KEY` from `ui-theme.ts` directly. It is kept deliberately,
+ * by owner decision, rather than because anything depends on it.
+ *
+ * The key is imported from `ui-theme.ts` so there is exactly one spelling of
+ * it; the import only ever goes in that direction, because `ui-theme.ts` is
+ * server-safe and this is a client module. Do not reintroduce this as a theme
+ * source.
  */
 
 const FEATURE_FLAG_KEYS = {
-  UI_REFRESH: "ui-refresh-enabled",
+  UI_REFRESH: LEGACY_UI_REFRESH_KEY,
 } as const
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAG_KEYS

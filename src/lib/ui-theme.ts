@@ -30,6 +30,23 @@ export const LEGACY_UI_REFRESH_KEY = 'ui-refresh-enabled'
 export const UI_THEME_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 /**
+ * Whether the theme cookie carries `secure`.
+ *
+ * Both writers — `writeUiThemeCookie` below and `setUiTheme` in
+ * `ui-theme-actions.ts` — must derive this the same way. Cookie identity is
+ * (name, domain, path), so the server write replaces the client one rather than
+ * upgrading it; if the two disagreed, whichever `secure` the browser rejected
+ * would silently drop that write. Deriving it once here is the only way they
+ * cannot drift.
+ *
+ * `NODE_ENV` is the one input both sides evaluate identically — the client
+ * bundle has it inlined at build time. The app is served over https in
+ * production, and browsers accept `secure` cookies on localhost, so this never
+ * asks for a cookie the browser will refuse.
+ */
+export const UI_THEME_COOKIE_SECURE = process.env.NODE_ENV === 'production'
+
+/**
  * Coerce any cookie value to a theme we can actually render.
  *
  * Absent, unrecognised and stale values all collapse to `classic`, which is
@@ -45,14 +62,13 @@ export function normalizeUiTheme(value: string | null | undefined): UiTheme {
 /**
  * Write the theme cookie from the browser.
  *
- * The single place the client-side attributes live, so they cannot drift from
- * each other; the server action in `ui-theme-actions.ts` writes the same cookie
- * durably afterwards. `secure` is mirrored from that action, which sets it in
- * production — over https both writers must produce the same cookie, or the
- * client write is replaced rather than upgraded.
+ * The server action in `ui-theme-actions.ts` writes the same cookie durably
+ * afterwards, with every attribute — name, path, max-age, samesite and
+ * `UI_THEME_COOKIE_SECURE` — taken from this module, so the two writers cannot
+ * disagree about the cookie they share.
  */
 export function writeUiThemeCookie(theme: UiTheme): void {
-  const secure = window.location.protocol === 'https:' ? '; secure' : ''
+  const secure = UI_THEME_COOKIE_SECURE ? '; secure' : ''
 
   document.cookie = `${UI_THEME_COOKIE}=${normalizeUiTheme(theme)}; path=/; max-age=${UI_THEME_COOKIE_MAX_AGE}; samesite=lax${secure}`
 }

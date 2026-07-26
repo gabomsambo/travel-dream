@@ -14,6 +14,7 @@ import {
   UI_THEME_COOKIE,
   normalizeUiTheme,
   readUiThemeCookie,
+  type UiTheme,
 } from '@/lib/ui-theme'
 import {
   UIRefreshProvider,
@@ -283,6 +284,38 @@ describe('UIRefreshProvider', () => {
 
     expect(screen.getByTestId('theme')).toHaveTextContent('tropical')
     expect(document.documentElement.getAttribute('data-theme')).toBe('tropical')
+  })
+
+  it('reports the new server theme on the very first render after it changes', () => {
+    // The element the server renders `data-theme` on already carries the new
+    // theme's custom properties. If the context caught up only in a passive
+    // effect, consumers would render the old tree for one painted frame —
+    // tropical colours on classic components. So assert on the render sequence,
+    // not just the settled value: no intermediate render with the stale theme.
+    const rendered: UiTheme[] = []
+
+    function RenderLog() {
+      rendered.push(useUiTheme())
+      return null
+    }
+
+    const { rerender } = render(
+      <UIRefreshProvider theme="classic">
+        <RenderLog />
+      </UIRefreshProvider>
+    )
+    expect(rendered).toEqual(['classic'])
+
+    rendered.length = 0
+    act(() => {
+      rerender(
+        <UIRefreshProvider theme="tropical">
+          <RenderLog />
+        </UIRefreshProvider>
+      )
+    })
+
+    expect(rendered).toEqual(['tropical'])
   })
 })
 

@@ -182,7 +182,10 @@ it renders in classic too. Don't assume `ui-v2` == tropical.
   Anything unrecognised falls back to classic — keep it that way.
 - Read the cookie in `(app)/layout.tsx`, **never the root layout**: `cookies()` forces dynamic
   rendering, and the root layout would drag the static marketing routes (`/`, `/login`, `/signup`)
-  with it for no benefit — they ship no theme code.
+  with it for no benefit — they ship no theme code. The root `error.tsx` / `not-found.tsx` render
+  outside that segment, so they resolve the cookie in the browser instead
+  (`src/components/client-ui-theme-provider.tsx`) and cost one classic frame — that escape hatch is
+  for boundaries the server-resolved theme cannot reach, not a second way to theme normal pages.
 - Radix portals escape the themed shell into `document.body`, so `UIRefreshProvider` mirrors the
   attribute onto `<html>`. If you move where `data-theme` is rendered, re-check dialogs and popovers.
 - Theme is a separate axis from next-themes' dark/light (`class` on `<html>`). Both dark and light

@@ -81,3 +81,9 @@ in `(app)/layout.tsx`, never the root layout, specifically so that stays true.
 
 `/place/[id]`, `/collections/[id]` and `/collections/[id]/planner` were not clicked through in both
 themes. Everything else above was driven in a real browser.
+
+The root `error.tsx` / `not-found.tsx` boundaries — which resolve the theme in the browser rather
+than from the server, see `src/components/client-ui-theme-provider.tsx` — were added after these
+captures and are covered by unit tests only, not by a screenshot here. The numbers above were
+likewise measured before that follow-up and the settings-switch save guard landed; the pixel diffs
+and per-route deltas were not re-taken against the branch tip.

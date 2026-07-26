@@ -169,6 +169,32 @@ existed on Vercel, so treat such rows as broken-image leftovers rather than some
 
 `src/lib/ocr-service-server.ts` writes to `os.tmpdir()`, which is allowed — `/tmp` is writable.
 
+## Mass-upload queue (reliability-critical)
+
+The owner's bar is "drop 500 images and walk away": a screenshot that uploaded successfully must
+never end up `failed` because a run ran out of clock, was killed, or raced another run.
+
+`processingAttempts` counts **genuine verdicts about the image** and can end in `failed`.
+`processingInterruptions` counts **clock-outs, kills and upstream outages**; they only requeue, and
+past the cap they land in `stalled` (retryable, surfaced separately in the UI). Never merge the two
+counters. Classification lives in `asInterruption()` in `src/lib/mass-upload/queue-processor.ts`.
+
+Claims are leases (`processing_lease_id`): every write back is guarded by the lease the run holds, so
+a reclaimed item cannot be finished twice. The timing invariants (lease TTL > item budget, run budget
+> item budget) are asserted by `src/__tests__/mass-upload/queue-config.test.ts` — change values in
+`src/lib/mass-upload/queue-config.ts`, not in scattered constants, and keep route `maxDuration` and
+`vercel.json` in sync with `MASS_UPLOAD_MAX_DURATION_SECONDS`.
+
+Processing is event-triggered from `/api/mass-upload/start`; the cron is only a safety net. New
+system-to-system endpoints authenticated with `CRON_SECRET` must be added to the bypass list in
+`src/middleware.ts`, or they get redirected to `/login` and silently never run.
+
+Gemini extraction is cached onto `sources.meta.massUpload` as soon as it is paid for, so a retry
+never re-charges the API. Anything that adds an upstream call to this pipeline should do the same.
+
+Load/kill testing runs against a throwaway Docker libSQL DB and a local blob server — never against
+Turso or the production Blob store. See `scripts/mass-upload-loadtest/README.md`.
+
 ## Anti-Patterns
 
 - Don't create new patterns when existing ones work — check similar features first

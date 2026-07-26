@@ -1,0 +1,88 @@
+
+=== BEFORE / scenario B: two transient upstream errors + one clock-out ===
+maxDuration simulated at 120000ms, MAX_ATTEMPTS=3
+
+run 1: completed after 32939ms | counts={"completed":4,"queued":2} | src_load_0000 status=queued attempts=1 err=[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent: [503 ] The model is overloaded.
+run 2: completed after 13199ms | counts={"completed":5,"queued":1} | src_load_0000 status=queued attempts=2 err=[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent: [503 ] The model is overloaded.
+run 3: killed after 120193ms | counts={"completed":5,"extracting":1} | src_load_0000 status=extracting attempts=3 err=[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent: [503 ] The model is overloaded.
+run 4: completed after 373ms | counts={"completed":5,"failed":1} | src_load_0000 status=failed attempts=3 err=Timed out after maximum retry attempts
+
+final recovery run: completed | counts={"completed":5,"failed":1}
+src_load_0000 → status=failed attempts=3 error=Timed out after maximum retry attempts
+
+REPRODUCED: a perfectly good screenshot is now marked `failed` purely because runs ran out of clock.
+{
+  "scenario": "B",
+  "runs": [
+    {
+      "run": 1,
+      "wallMs": 32939,
+      "event": "completed",
+      "counts": {
+        "completed": 4,
+        "queued": 2
+      },
+      "target": {
+        "id": "src_load_0000",
+        "processing_status": "queued",
+        "processing_attempts": 1,
+        "processing_error": "[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent: [503 ] The model is overloaded."
+      }
+    },
+    {
+      "run": 2,
+      "wallMs": 13199,
+      "event": "completed",
+      "counts": {
+        "completed": 5,
+        "queued": 1
+      },
+      "target": {
+        "id": "src_load_0000",
+        "processing_status": "queued",
+        "processing_attempts": 2,
+        "processing_error": "[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent: [503 ] The model is overloaded."
+      }
+    },
+    {
+      "run": 3,
+      "wallMs": 120193,
+      "event": "killed",
+      "counts": {
+        "completed": 5,
+        "extracting": 1
+      },
+      "target": {
+        "id": "src_load_0000",
+        "processing_status": "extracting",
+        "processing_attempts": 3,
+        "processing_error": "[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent: [503 ] The model is overloaded."
+      }
+    },
+    {
+      "run": 4,
+      "wallMs": 373,
+      "event": "completed",
+      "counts": {
+        "completed": 5,
+        "failed": 1
+      },
+      "target": {
+        "id": "src_load_0000",
+        "processing_status": "failed",
+        "processing_attempts": 3,
+        "processing_error": "Timed out after maximum retry attempts"
+      }
+    }
+  ],
+  "finalCounts": {
+    "completed": 5,
+    "failed": 1
+  },
+  "target": {
+    "id": "src_load_0000",
+    "processing_status": "failed",
+    "processing_attempts": 3,
+    "processing_error": "Timed out after maximum retry attempts"
+  }
+}

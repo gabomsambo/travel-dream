@@ -1,0 +1,192 @@
+seeded 500 screenshots into the throwaway database
+dev server ready on http://127.0.0.1:3100
+t+16s {"completed":11,"extracting":11,"queued":478} gemini=22
+t+31s {"completed":22,"extracting":11,"queued":467} gemini=33
+t+46s {"completed":44,"extracting":11,"queued":445} gemini=55
+t+61s {"completed":66,"extracting":11,"queued":423} gemini=77
+t+76s {"completed":77,"extracting":11,"queued":412} gemini=88
+t+91s {"completed":99,"extracting":11,"queued":390} gemini=110
+t+106s {"completed":121,"extracting":11,"queued":368} gemini=132
+t+121s {"completed":132,"extracting":11,"queued":357} gemini=143
+t+136s {"completed":154,"extracting":11,"queued":335} gemini=165
+t+151s {"completed":176,"extracting":11,"queued":313} gemini=187
+t+166s {"completed":188,"enriching":5,"extracting":6,"queued":301} gemini=199
+t+181s {"completed":209,"extracting":11,"queued":280} gemini=220
+t+196s {"completed":231,"extracting":11,"queued":258} gemini=242
+t+211s {"completed":245,"enriching":8,"extracting":3,"queued":244} gemini=256
+
+*** KILL -9 at 253 completed, 11 in-flight, t+216s ***
+
+server restarted; safety-net cron takes over
+[next!] [MassUpload] src_load_0257 interrupted (lease-lost): Lease lost before enrichment
+[next!] [MassUpload] src_load_0258 interrupted (lease-lost): Lease lost before enrichment
+[next!]  ⨯ Failed to start server
+[next!] Error: listen EADDRINUSE: address already in use 127.0.0.1:3100
+    at <unknown> (Error: listen EADDRINUSE: address already in use 127.0.0.1:3100) {
+  code: 'EADDRINUSE',
+  errno: -98,
+  syscall: 'listen',
+  address: '127.0.0.1',
+  port: 3100
+}
+[next!] [MassUpload] src_load_0259 interrupted (lease-lost): Lease lost before enrichment
+[next!] [MassUpload] lease lost while completing src_load_0255
+[next!] [MassUpload] src_load_0261 interrupted (lease-lost): Lease lost before enrichment
+[next!] [MassUpload] src_load_0262 interrupted (lease-lost): Lease lost before enrichment
+[next!] [MassUpload] src_load_0263 interrupted (lease-lost): Lease lost before enrichment
+[next!] [MassUpload] src_load_0260 interrupted (lease-lost): Lease lost before enrichment
+[next!] [MassUpload] lease lost while completing src_load_0256
+[next!] [MassUpload] src_load_0264 interrupted (lease-lost): Lease lost before enrichment
+t+446s {"completed":500} gemini=508
+
+=== SCALE TEST RESULT ===
+screenshots         500
+final counts        {"completed":500}
+wall time           446s
+gemini calls        508 (one per screenshot + one per screenshot killed mid-extraction)
+places created      698
+attachments created 698
+total interruptions 10
+total attempts used 0 (attempts are only spent on genuine failures)
+PASS: every uploaded screenshot completed; none marked failed despite the mid-run kill
+{
+ "timeline": [
+  {
+   "elapsed": 16,
+   "counts": {
+    "completed": 11,
+    "extracting": 11,
+    "queued": 478
+   },
+   "gemini": 22
+  },
+  {
+   "elapsed": 31,
+   "counts": {
+    "completed": 22,
+    "extracting": 11,
+    "queued": 467
+   },
+   "gemini": 33
+  },
+  {
+   "elapsed": 46,
+   "counts": {
+    "completed": 44,
+    "extracting": 11,
+    "queued": 445
+   },
+   "gemini": 55
+  },
+  {
+   "elapsed": 61,
+   "counts": {
+    "completed": 66,
+    "extracting": 11,
+    "queued": 423
+   },
+   "gemini": 77
+  },
+  {
+   "elapsed": 76,
+   "counts": {
+    "completed": 77,
+    "extracting": 11,
+    "queued": 412
+   },
+   "gemini": 88
+  },
+  {
+   "elapsed": 91,
+   "counts": {
+    "completed": 99,
+    "extracting": 11,
+    "queued": 390
+   },
+   "gemini": 110
+  },
+  {
+   "elapsed": 106,
+   "counts": {
+    "completed": 121,
+    "extracting": 11,
+    "queued": 368
+   },
+   "gemini": 132
+  },
+  {
+   "elapsed": 121,
+   "counts": {
+    "completed": 132,
+    "extracting": 11,
+    "queued": 357
+   },
+   "gemini": 143
+  },
+  {
+   "elapsed": 136,
+   "counts": {
+    "completed": 154,
+    "extracting": 11,
+    "queued": 335
+   },
+   "gemini": 165
+  },
+  {
+   "elapsed": 151,
+   "counts": {
+    "completed": 176,
+    "extracting": 11,
+    "queued": 313
+   },
+   "gemini": 187
+  },
+  {
+   "elapsed": 166,
+   "counts": {
+    "completed": 188,
+    "enriching": 5,
+    "extracting": 6,
+    "queued": 301
+   },
+   "gemini": 199
+  },
+  {
+   "elapsed": 181,
+   "counts": {
+    "completed": 209,
+    "extracting": 11,
+    "queued": 280
+   },
+   "gemini": 220
+  },
+  {
+   "elapsed": 196,
+   "counts": {
+    "completed": 231,
+    "extracting": 11,
+    "queued": 258
+   },
+   "gemini": 242
+  },
+  {
+   "elapsed": 211,
+   "counts": {
+    "completed": 245,
+    "enriching": 8,
+    "extracting": 3,
+    "queued": 244
+   },
+   "gemini": 256
+  },
+  {
+   "elapsed": 446,
+   "counts": {
+    "completed": 500
+   },
+   "gemini": 508
+  }
+ ]
+}
+thumbnails uploaded  508 (all to the local blob server)
+EXIT=0

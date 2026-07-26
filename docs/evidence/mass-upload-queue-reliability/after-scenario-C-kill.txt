@@ -1,0 +1,14 @@
+
+=== AFTER / C: hard mid-run kill with 40 screenshots ===
+run 1: killed after 45104ms
+after kill: counts={"completed":24,"extracting":4,"queued":12} geminiCalls=28
+  4 source(s) left in-flight holding a lease
+run 2 (lease still valid): completed
+after run 2: counts={"completed":36,"extracting":4} geminiCalls=40
+  leases respected: yes
+recovery run 1: completed after 7289ms
+final: counts={"completed":40} geminiCalls=44
+
+items=40 completed=40 failed=0 stalled=0 geminiCalls=44 (extra calls = screenshots killed mid-extraction)
+PASS: every screenshot completed, none marked failed by the kill
+EXIT=0

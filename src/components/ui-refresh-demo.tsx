@@ -11,13 +11,11 @@ import { Badge as BadgeV2 } from "@/components/ui-v2/badge"
 /**
  * UI Refresh Demo Component
  *
- * Demonstrates the feature flag system in action.
- * This component conditionally renders old vs new UI based on the feature flag.
- *
- * Usage:
- * 1. Go to Settings → Appearance
- * 2. Toggle "Tropical Boutique UI"
- * 3. See instant UI transformation
+ * Unreferenced scaffolding from the original UI-refresh rollout. It still
+ * branches on the retired localStorage flag (`useUIRefresh`), which no longer
+ * tracks the theme, so it does NOT follow the Settings → Appearance switch —
+ * switch it to `useUiRefreshEnabled()` from `@/components/ui-refresh-provider`
+ * before rendering it anywhere.
  */
 export function UIRefreshDemo() {
   const [uiRefreshEnabled] = useUIRefresh()

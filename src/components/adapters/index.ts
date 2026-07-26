@@ -2,13 +2,16 @@
  * UI Component Adapters - Export Index
  *
  * This file provides convenient exports for all UI adapters.
- * Adapters map the old component API (v1) to new tropical UI components (v2).
  *
  * Usage:
  * import { Button, Card, Badge } from "@/components/adapters"
  *
- * All adapters maintain backward compatibility while using
- * the new tropical theme under the hood.
+ * Each adapter keeps the v1 component API and picks a tree at render time:
+ * `useUiRefreshEnabled()` (server-resolved theme cookie) selects `ui-v2/` for
+ * tropical and `ui/` for classic. `ui-v2/` is a newer shadcn generation, not
+ * "the tropical theme" — the look itself is CSS custom properties, and plenty
+ * of files import `ui-v2/` directly so it renders in classic too. See the
+ * "Theming" section of CLAUDE.md.
  */
 
 export * from "./button"

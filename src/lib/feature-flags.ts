@@ -1,17 +1,29 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { LEGACY_UI_REFRESH_KEY } from "@/lib/ui-theme"
 
 /**
- * Feature Flags System
+ * Retired localStorage feature-flag path.
  *
- * Manages feature toggles with localStorage persistence.
- * Currently supports:
- * - UI Refresh (Tropical Boutique Explorer theme)
+ * This used to be how the tropical theme was selected: every adapter called
+ * `useUIRefresh()` after hydration, which is what caused the flash of the wrong
+ * theme on first paint. The theme is now a cookie resolved on the server — see
+ * `src/lib/ui-theme.ts` and the "Theming" section of CLAUDE.md.
+ *
+ * This module is retired and unreferenced: nothing the app renders imports it,
+ * and it is *not* part of the migration path — `UIRefreshProvider` reads
+ * `LEGACY_UI_REFRESH_KEY` from `ui-theme.ts` directly. It is kept deliberately,
+ * by owner decision, rather than because anything depends on it.
+ *
+ * The key is imported from `ui-theme.ts` so there is exactly one spelling of
+ * it; the import only ever goes in that direction, because `ui-theme.ts` is
+ * server-safe and this is a client module. Do not reintroduce this as a theme
+ * source.
  */
 
 const FEATURE_FLAG_KEYS = {
-  UI_REFRESH: "ui-refresh-enabled",
+  UI_REFRESH: LEGACY_UI_REFRESH_KEY,
 } as const
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAG_KEYS
@@ -44,21 +56,14 @@ function setFeatureFlag(key: FeatureFlagKey, enabled: boolean): void {
 }
 
 /**
- * Hook: UI Refresh Feature Flag
+ * Hook: UI Refresh Feature Flag (retired)
  *
- * Returns [isEnabled, toggle] for the UI refresh feature.
- * Persists to localStorage and triggers re-render on change.
+ * Returns [isEnabled, toggle] for the legacy localStorage flag. It reads
+ * nothing the app renders from, so it can disagree with the active theme.
  *
- * Usage:
- * ```tsx
- * const [uiRefreshEnabled, toggleUIRefresh] = useUIRefresh()
- *
- * if (uiRefreshEnabled) {
- *   return <Button /> // uses adapter → ui-v2
- * } else {
- *   return <ButtonOld /> // uses ui (old)
- * }
- * ```
+ * To branch on the current theme, use `useUiRefreshEnabled()` (or
+ * `useUiTheme()`) from `@/components/ui-refresh-provider` instead — those are
+ * seeded from the server-resolved cookie and are correct on the first render.
  */
 export function useUIRefresh(): [boolean, () => void] {
   const [enabled, setEnabled] = useState<boolean>(false)
@@ -83,9 +88,8 @@ export function useUIRefresh(): [boolean, () => void] {
 }
 
 /**
- * Get UI Refresh state (non-reactive)
- *
- * Use this for conditional imports or server-side checks.
+ * Get the legacy flag (non-reactive). Browser-only — always false on the
+ * server, which is why the theme moved to a cookie.
  */
 export function getUIRefreshEnabled(): boolean {
   return getFeatureFlag("UI_REFRESH")

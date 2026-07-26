@@ -26,30 +26,30 @@ import {
   DialogDescription as DialogDescriptionV2,
 } from "@/components/ui-v2/dialog"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 
 function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogV2 {...props} /> : <DialogV1 {...props} />
 }
 
 function DialogPortal(props: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogPortalV2 {...props} /> : <DialogPortalV1 {...props} />
 }
 
 function DialogOverlay(props: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogOverlayV2 {...props} /> : <DialogOverlayV1 {...props} />
 }
 
 function DialogClose(props: React.ComponentProps<typeof DialogPrimitive.Close>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogCloseV2 {...props} /> : <DialogCloseV1 {...props} />
 }
 
 function DialogTrigger(props: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogTriggerV2 {...props} /> : <DialogTriggerV1 {...props} />
 }
 
@@ -57,19 +57,19 @@ const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogContentV2 ref={ref} {...props} /> : <DialogContentV1 ref={ref} {...props} />
 })
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 function DialogHeader(props: React.HTMLAttributes<HTMLDivElement>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogHeaderV2 {...props} /> : <DialogHeaderV1 {...props} />
 }
 DialogHeader.displayName = "DialogHeader"
 
 function DialogFooter(props: React.HTMLAttributes<HTMLDivElement>) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogFooterV2 {...props} /> : <DialogFooterV1 {...props} />
 }
 DialogFooter.displayName = "DialogFooter"
@@ -78,7 +78,7 @@ const DialogTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogTitleV2 ref={ref} {...props} /> : <DialogTitleV1 ref={ref} {...props} />
 })
 DialogTitle.displayName = DialogPrimitive.Title.displayName
@@ -87,7 +87,7 @@ const DialogDescription = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Description>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
   return uiRefreshEnabled ? <DialogDescriptionV2 ref={ref} {...props} /> : <DialogDescriptionV1 ref={ref} {...props} />
 })
 DialogDescription.displayName = DialogPrimitive.Description.displayName

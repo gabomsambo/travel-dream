@@ -57,13 +57,39 @@ Travel Dreams (tabidreams.com) is a full-stack travel planning app built with **
 
 ## Development Workflow
 
+**Plan before coding.** Every non-trivial change starts with a PRP. This applies to
+anyone working in this repo — you at the keyboard, or an autonomous agent.
+
+### Planning and building (always)
+
 1. `/prime` — understand the codebase
-2. `/generate-prp [feature]` — plan the implementation (saved to `PRPs/`)
-3. `/execute-prp [path]` — build it with progressive validation
-4. `/code-review` — review changes
-5. `/validate` — full health check
-6. `/commit` — conventional commit
-7. `/pr-create` — open pull request
+2. `/generate-prp [feature]` — deep research into a plan saved under `PRPs/`
+3. `/execute-prp [path]` — build it, passing the plan's validation gates as you go
+
+`PRPs/*.md` are gitignored (templates are not) — they are local planning artifacts.
+To ship one alongside its PR, `git add -f` that specific file.
+
+### Size the task while you plan
+
+**One PRP should be one reviewable change.** If the plan's task list spans unrelated
+subsystems, or the change would touch more than a few hundred lines, split it into
+separate PRPs and ship them separately.
+
+This is not style advice. Review cost scales with diff size, and review is by far the
+most expensive validation step: measured across this repo's pipeline runs, review
+averaged 18.6 minutes against an average workload of ~4,100 changed lines, and the
+single largest task took three runs and ~3.7 hours. Two right-sized PRs are
+dramatically cheaper than one that does both jobs.
+
+### Delivery (depends on who is driving)
+
+Do not run delivery steps that whoever is driving already owns.
+
+- **Solo, at the keyboard:** `/code-review` → `/validate` → `/commit` → `/pr-create`.
+- **As a firstmate crewmate:** your brief's *Definition of done* governs, not this list.
+  `direct-PR` means you push the branch and open the PR yourself. `no-mistakes` means
+  the pipeline owns review, tests, docs, push, PR and CI — do not stack your own
+  review or PR steps on top of it.
 
 ## Key Paths
 

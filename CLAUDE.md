@@ -169,6 +169,31 @@ existed on Vercel, so treat such rows as broken-image leftovers rather than some
 
 `src/lib/ocr-service-server.ts` writes to `os.tmpdir()`, which is allowed — `/tmp` is writable.
 
+## Theming (two visual themes, one component architecture)
+
+The app ships two looks: **classic** (default) and **tropical**. The difference is
+almost entirely **CSS custom properties** — see the `[data-theme="tropical"]` blocks in
+`src/styles/globals.css`. The `ui-v2/` tree is a newer shadcn *generation*, not "the tropical
+theme": it styles itself with the same semantic tokens, and 16 files import it unconditionally, so
+it renders in classic too. Don't assume `ui-v2` == tropical.
+
+- Choice is persisted in the `ui-theme` cookie (`src/lib/ui-theme.ts`) and resolved **server-side**
+  in `src/app/(app)/layout.tsx`, so the first paint is already correct and it works with JS off.
+  Anything unrecognised falls back to classic — keep it that way.
+- Read the cookie in `(app)/layout.tsx`, **never the root layout**: `cookies()` forces dynamic
+  rendering, and the root layout would drag the static marketing routes (`/`, `/login`, `/signup`)
+  with it for no benefit — they ship no theme code. The root `error.tsx` / `not-found.tsx` render
+  outside that segment, so they resolve the cookie in the browser instead
+  (`src/components/client-ui-theme-provider.tsx`) and cost one classic frame — that escape hatch is
+  for boundaries the server-resolved theme cannot reach, not a second way to theme normal pages.
+- Radix portals escape the themed shell into `document.body`, so `UIRefreshProvider` mirrors the
+  attribute onto `<html>`. If you move where `data-theme` is rendered, re-check dialogs and popovers.
+- Theme is a separate axis from next-themes' dark/light (`class` on `<html>`). Both dark and light
+  variants of tropical exist; changing one selector means changing both.
+- `src/lib/feature-flags.ts` is the retired localStorage path — unreferenced by anything rendered
+  and *not* part of the migration (`UIRefreshProvider` reads `LEGACY_UI_REFRESH_KEY` from
+  `ui-theme.ts`). Kept deliberately; don't reintroduce it as a theme source.
+
 ## Anti-Patterns
 
 - Don't create new patterns when existing ones work — check similar features first

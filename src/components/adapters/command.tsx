@@ -25,13 +25,13 @@ import {
 } from "@/components/ui-v2/command"
 import { Command as CommandPrimitive } from "cmdk"
 import { type DialogProps } from "@radix-ui/react-dialog"
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandV2 ref={ref} {...props} />
@@ -44,7 +44,7 @@ Command.displayName = "Command"
 interface CommandDialogProps extends DialogProps {}
 
 const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandDialogV2 {...props}>{children}</CommandDialogV2>
@@ -57,7 +57,7 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandInputV2 ref={ref} {...props} />
@@ -71,7 +71,7 @@ const CommandList = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.List>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandListV2 ref={ref} {...props} />
@@ -85,7 +85,7 @@ const CommandEmpty = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Empty>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Empty>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandEmptyV2 ref={ref} {...props} />
@@ -99,7 +99,7 @@ const CommandGroup = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Group>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Group>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandGroupV2 ref={ref} {...props} />
@@ -113,7 +113,7 @@ const CommandItem = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Item>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandItemV2 ref={ref} {...props} />
@@ -127,7 +127,7 @@ const CommandSeparator = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Separator>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Separator>
 >((props, ref) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandSeparatorV2 ref={ref} {...props} />
@@ -138,7 +138,7 @@ const CommandSeparator = React.forwardRef<
 CommandSeparator.displayName = CommandPrimitive.Separator.displayName
 
 const CommandShortcut = (props: React.HTMLAttributes<HTMLSpanElement>) => {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return <CommandShortcutV2 {...props} />

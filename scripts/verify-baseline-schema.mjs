@@ -269,94 +269,89 @@ You compared an operator-supplied reference against the migration journal:
 That is the read-only check in docs/PHASE_B_RUNBOOK.md §4, where the reference
 is a \`.schema\` dump of a live database.
 
-Do NOT read the fix off the direction of the diffs. Direction tells you which
-side holds more objects, not why. Every shape below is ambiguous: an unapplied
-additive migration adds to the journal side, an unapplied destructive one (DROP
-COLUMN / DROP TABLE, or a drizzle-kit table rebuild that removes a column) adds
-to the dump side, an unapplied column alteration redefines an object on both
-sides, and a single unapplied rename produces two opposite-direction diffs at
-once. Real drift can produce any of them too. Work the four steps instead.`,
+Do NOT read the fix off the direction of the diffs. Direction says which side
+holds more objects, never why: an unapplied additive migration adds to the
+journal side, an unapplied destructive one to the dump side, an unapplied
+column alteration redefines an object on both, one unapplied rename produces
+both at once, and real drift can produce any of them. Work the four steps.`,
 
-        `  STEP 1 — rule out the boring causes before interpreting anything.
+        `  STEP 1 — rule out a bad input first: an incomplete or stale \`.schema\`
+  dump, or a journal that is not the one that database was built from. A
+  truncated dump looks exactly like an unapplied migration.
 
-    An incomplete or stale \`.schema\` dump, or a journal that is not the one
-    that database was built from. A truncated dump looks exactly like an
-    unapplied migration.
+    (docs/db/prod-schema-reference.sql is not read in this mode. Editing it
+    would not change this result — it would only silence the CI check.)`,
 
-    Note also that docs/db/prod-schema-reference.sql is NOT the file compared in
-    this run. Editing it would hide this result without changing anything.`,
-
-        `  STEP 2 — read the ledger of the database you dumped. That, not the
-  diffs, is what decides this. Two read-only queries:
+        `  STEP 2 — read that database's ledger. This, not the diffs, decides.
+  Two read-only queries:
 
         SELECT COUNT(*) FROM __drizzle_migrations WHERE created_at = ${
           journalBaselineWhen ?? '<baseline when>'
         };
         SELECT MAX(created_at) FROM __drizzle_migrations;
 
-    From ${path.join(migrationsDir, 'meta/_journal.json')}:
+    This checkout's journal (${path.join(migrationsDir, 'meta/_journal.json')}):
 
-        journal baseline \`when\` : ${journalBaselineWhen ?? '(journal has no entries)'}${
+        baseline \`when\` : ${journalBaselineWhen ?? '(journal has no entries)'}${
           journalBaselineTag ? `  (${journalBaselineTag})` : ''
         }
-        journal newest   \`when\` : ${journalNewestWhen ?? '(journal has no entries)'}${
+        newest   \`when\` : ${journalNewestWhen ?? '(journal has no entries)'}${
           journalNewestTag ? `  (${journalNewestTag})` : ''
         }
 
-    drizzle records each applied migration's \`created_at\` as that journal
-    entry's \`when\`, so all of these are epoch milliseconds and compare directly.`,
+    drizzle stores each applied migration's \`created_at\` as its journal
+    entry's \`when\`, so all of these are comparable epoch milliseconds.`,
 
-        `  STEP 3 — the precondition, from the FIRST query. Check this before
-  comparing anything else.
+        `  STEP 3 — if COUNT is 1, skip to step 4. If it is 0, this checkout's
+  baseline is not in that ledger, which by itself does not say why. MAX tells
+  the causes apart:
 
-    Count is 0 — the baseline entry is not in that ledger
-      → That ledger predates the baseline. \`npm run db:migrate\` would replay
-        ${journalBaselineTag ?? 'the baseline'}.sql and die on "table ... already exists"; this is the
-        situation docs/PHASE_B_RUNBOOK.md §1 describes. DO NOT MIGRATE. The
-        recovery is the ledger reconciliation in §5, "Step 3 — Reconcile the
-        ledger" — not \`db:migrate\`, and not re-baselining. (§5 is marked done
-        because production's ledger is already reconciled; it applies here only
-        to a database whose ledger is not. Read the runbook's status block
-        first.)
+    MAX is NULL, or no such table → a fresh, never-migrated database.
+        npm run db:migrate
 
-    Count is 1 — the ledger is reconciled
-      → Continue to step 4.`,
+    MAX older than the baseline \`when\` → that ledger genuinely predates this
+        baseline. DO NOT MIGRATE: \`db:migrate\` would replay the baseline
+        (${journalBaselineTag ?? 'the baseline'}.sql) and die on "table ... already exists"
+        (docs/PHASE_B_RUNBOOK.md §1). Reconcile the ledger per §5, "Step 3 —
+        Reconcile the ledger" — §5 is marked done because production is already
+        reconciled, so read the runbook's status block first.
 
-        `  STEP 4 — compare the newest values from step 2. Three outcomes.
+    MAX newer than the baseline \`when\` → that database has moved past this
+        checkout: it was re-baselined, or your checkout is behind it. DO NOT
+        RECONCILE — §5 would overwrite a correct ledger with this checkout's
+        stale baseline row. Check out the commit whose journal matches that
+        database and re-run.`,
 
-    Journal NEWER than the ledger
-      → Migrations are merged but were never applied to that database, whatever
-        direction the diffs point. This is the PR #30 shape — production was
+        `  STEP 4 — compare the journal's newest \`when\` against MAX.
+
+    Journal NEWER → merged but never applied to that database, whatever
+        direction the diffs point. This is the PR #30 shape: production was
         missing three \`sources\` columns and returned HTTP 500 on every
         screenshot upload, every place-detail page, /review and the 5-minute
         cron until they were applied.
 
-        APPLY THE MIGRATIONS. That is what un-breaks it; nothing else here does.
+        APPLY THE MIGRATIONS — nothing else here un-breaks it.
 
             npm run db:migrate    # atomic: one PRAGMA/BEGIN/.../COMMIT batch
                                   # (docs/PHASE_B_RUNBOOK.md §1)
 
-        Take a backup first. Never \`drizzle-kit push\` against a shared
-        database - it rebuilds tables.
+        Back up first. Never \`drizzle-kit push\` against a shared database -
+        it rebuilds tables.
 
-    Journal and ledger LEVEL, and the schemas still differ
-      → Genuine drift: that database has been changed outside the migrations,
-        and no migration reconciles it. STOP. Do not run \`npm run db:migrate\`
-        to "catch it up". Re-baseline rather than reconcile —
-        docs/PHASE_B_RUNBOOK.md §4 is the step that produced this comparison,
-        and its instruction on a diff is to stop and re-baseline.
+    LEVEL, and the schemas still differ → genuine drift: that database was
+        changed outside the migrations and no migration reconciles it. STOP;
+        do not \`db:migrate\` to "catch it up". Re-baseline per
+        docs/PHASE_B_RUNBOOK.md §4, the step that produced this comparison.
 
-    Ledger NEWER than the journal
-      → That database has applied migrations this checkout does not contain:
-        YOUR WORKING TREE IS BEHIND THE DATABASE. This is not drift, and it is
-        neither something to migrate nor something to re-baseline — doing
-        either would destroy work that is already live.
-
-        Fetch and check out the commit whose journal matches that database,
-        then re-run this comparison before concluding anything from the diffs.`,
+    MAX NEWER → that database has migrations this checkout lacks: YOUR
+        CHECKOUT IS BEHIND IT, and the diffs above are not evidence of drift.
+        \`db:migrate\` would apply nothing here (the migrator only applies
+        entries newer than the ledger), but re-baselining WOULD discard live
+        work. Check out the commit whose journal matches that database and
+        re-run.`,
 
         `  EVIDENCE — what differs, and what each shape is consistent with.
-  Diagnostics only. None of these is an instruction to act; steps 3 and 4 decide.` +
+  Diagnostics only; steps 3 and 4 decide what to do.` +
           [
             journalAhead &&
               `

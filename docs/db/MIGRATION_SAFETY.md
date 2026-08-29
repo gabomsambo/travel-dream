@@ -56,16 +56,22 @@ The script has two modes, and it prints the remediation matching the one you inv
   the ledger instead, as a precondition plus a three-way comparison (it prints the journal values it
   is comparing against):
   - **Precondition** — `SELECT COUNT(*) FROM __drizzle_migrations WHERE created_at = <baseline
-    when>`. If the baseline entry is absent, that ledger predates the baseline and `db:migrate`
-    would replay `0000_baseline.sql` and die on `table ... already exists`; the recovery is the
-    ledger reconciliation in `docs/PHASE_B_RUNBOOK.md` §5, not `db:migrate` and not re-baselining.
+    when>`. A count of 0 means that ledger does not record *this checkout's* baseline entry, which
+    on its own does not say why, so `MAX(created_at)` separates the causes: NULL (or no such table)
+    ⇒ a fresh database, migrate normally; MAX **older** than the baseline `when` ⇒ the ledger
+    genuinely predates the baseline, where `db:migrate` would replay `0000_baseline.sql` and die on
+    `table ... already exists`, so the recovery is the ledger reconciliation in
+    `docs/PHASE_B_RUNBOOK.md` §5; MAX **newer** ⇒ the database has moved past this checkout (it was
+    re-baselined, or the checkout is behind), where reconciling would overwrite a correct ledger
+    with a stale baseline row, so check out the matching commit first.
   - Otherwise compare the journal's newest `when` against `SELECT MAX(created_at) FROM
     __drizzle_migrations`. Journal **newer** ⇒ merged-but-unapplied whatever the diffs look like, so
     `npm run db:migrate` (the PR #30 shape). **Level**, with the schemas still differing ⇒ genuine
     drift, so stop and re-baseline rather than `db:migrate`. Ledger **newer** ⇒ that database has
-    applied migrations this checkout does not contain, i.e. the working tree is behind the database:
-    neither drift nor something to migrate or re-baseline, so check out the commit whose journal
-    matches that database and re-run first.
+    applied migrations this checkout does not contain, i.e. the working tree is behind the database
+    and the diffs are not evidence of drift; `db:migrate` is a harmless no-op there (the migrator
+    applies only entries newer than the ledger) but re-baselining would discard live work, so check
+    out the commit whose journal matches that database and re-run first.
 
   drizzle records each applied migration's `created_at` as its journal entry's `when`, which is what
   makes those comparisons well-defined. The per-direction listing is printed as evidence subordinate

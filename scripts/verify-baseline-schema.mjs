@@ -267,22 +267,21 @@ You compared an operator-supplied reference against the migration journal:
     journal   : ${migrationsDir}
 
 That is the read-only check in docs/PHASE_B_RUNBOOK.md §4, where the reference
-is a \`.schema\` dump of a live database.
+is a \`.schema\` dump of a live database. docs/db/prod-schema-reference.sql is
+not read in this mode — editing it would not change this result at all, it
+would only silence the CI check.
 
 Do NOT read the fix off the direction of the diffs. Direction says which side
 holds more objects, never why: an unapplied additive migration adds to the
 journal side, an unapplied destructive one to the dump side, an unapplied
 column alteration redefines an object on both, one unapplied rename produces
-both at once, and real drift can produce any of them. Work the four steps.`,
+both at once, and real drift can produce any of them.`,
 
-        `  STEP 1 — rule out a bad input first: an incomplete or stale \`.schema\`
-  dump, or a journal that is not the one that database was built from. A
-  truncated dump looks exactly like an unapplied migration.
+        `  FIRST — rule out a bad input: an incomplete or stale \`.schema\` dump, or a
+  journal that is not the one that database was built from. A truncated dump
+  looks exactly like an unapplied migration.`,
 
-    (docs/db/prod-schema-reference.sql is not read in this mode. Editing it
-    would not change this result — it would only silence the CI check.)`,
-
-        `  STEP 2 — read that database's ledger. This, not the diffs, decides.
+        `  THEN — read that database's ledger. This, not the diffs, is the signal.
   Two read-only queries:
 
         SELECT COUNT(*) FROM __drizzle_migrations WHERE created_at = ${
@@ -302,89 +301,53 @@ both at once, and real drift can produce any of them. Work the four steps.`,
     drizzle stores each applied migration's \`created_at\` as its journal
     entry's \`when\`, so all of these are comparable epoch milliseconds.`,
 
-        `  STEP 3 — if COUNT is 1, skip to step 4. If it is 0, this checkout's
-  baseline is not in that ledger, which by itself does not say why. MAX tells
-  the causes apart:
+        `  WHAT THE ANSWERS INDICATE
 
-    MAX is NULL, or the queries error "no such table" → that ledger records
-        no migration history at all, and that is two different states. The
-        dump tells them apart: it holds ${Object.keys(reference).length} table(s), counted above.
-        Zero is a genuinely fresh database — \`npm run db:migrate\`. Non-zero
-        means a schema built outside the migrations (a \`drizzle-kit push\`,
-        or a restore that dropped the ledger); \`db:migrate\` would replay the
-        baseline and die on "table ... already exists", so reconcile the
-        ledger per §5 as below.
+    COUNT 1, MAX older than the journal's newest \`when\` → merged but never
+        applied to that database, whatever direction the diffs point. This is
+        the PR #30 shape: production was missing three \`sources\` columns and
+        returned HTTP 500 on every screenshot upload, every place-detail page,
+        /review and the 5-minute cron until they were applied. It is also the
+        one case here with a straightforward action.
 
-        If the table itself is absent, §5's block cannot run as written — its
-        backup and DELETE both read \`__drizzle_migrations\`. Create it first
-        with drizzle's own DDL:
-
-            CREATE TABLE IF NOT EXISTS __drizzle_migrations
-              (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric);
-
-        Then record what that database actually has. §5's INSERT writes the
-        baseline row alone, which describes the schema only if the database
-        is exactly at the baseline — reaching this message does not prove
-        that. Work out how far it has already advanced (the diffs above are
-        that comparison), then insert one row per journal entry whose effects
-        are already present, in journal order, each with its own hash and
-        \`when\` — §5's derivation snippet, with \`entries[0]\` replaced by the
-        entry you are recording. Afterwards \`db:migrate\` should apply only
-        the entries genuinely still missing, and a second run should be a
-        clean no-op; that is the check that you recorded the right set. If
-        you cannot establish which entries are already applied, do not guess
-        — recording the wrong set is what breaks the next migrate.
-
-    MAX older than the baseline \`when\` → that ledger genuinely predates this
-        baseline. DO NOT MIGRATE: \`db:migrate\` would replay the baseline
-        (${journalBaselineTag ?? 'the baseline'}.sql) and die on "table ... already exists"
-        (docs/PHASE_B_RUNBOOK.md §1). Reconcile the ledger per §5, "Step 3 —
-        Reconcile the ledger" — §5 is marked done because production is already
-        reconciled, so read the runbook's status block first. Its single-row
-        INSERT assumes the schema is at the baseline; if it has advanced past
-        it, record one row per already-applied entry as above.
-
-    MAX newer than the baseline \`when\` → that database has moved past this
-        checkout: it was re-baselined, or your checkout is behind it. DO NOT
-        RECONCILE — §5 would overwrite a correct ledger with this checkout's
-        stale baseline row. Check out the commit whose journal matches that
-        database and re-run.`,
-
-        `  STEP 4 — compare the journal's newest \`when\` against MAX.
-
-    Journal NEWER → merged but never applied to that database, whatever
-        direction the diffs point. This is the PR #30 shape: production was
-        missing three \`sources\` columns and returned HTTP 500 on every
-        screenshot upload, every place-detail page, /review and the 5-minute
-        cron until they were applied.
-
-        APPLY THE MIGRATIONS — nothing else here un-breaks it.
+        APPLY THE MIGRATIONS — nothing else un-breaks it.
 
             npm run db:migrate    # atomic: one PRAGMA/BEGIN/.../COMMIT batch
                                   # (docs/PHASE_B_RUNBOOK.md §1)
 
-        Back up first. Never \`drizzle-kit push\` against a shared database -
-        it rebuilds tables.
+        It applies only the entries newer than the ledger. Back up first, and
+        never \`drizzle-kit push\` against a shared database - it rebuilds
+        tables.
 
-    LEVEL, and the schemas still differ → genuine drift: that database was
-        changed outside the migrations and no migration reconciles it. STOP;
-        do not \`db:migrate\` to "catch it up". The recovery is a re-baseline:
-        take a fresh read-only \`.schema\` dump of that database as the new
-        docs/db/prod-schema-reference.sql, regenerate the baseline migration
-        so replaying the journal reproduces it, and reconcile the ledger to
-        match. This repo has no written step-by-step procedure for that yet
-        (docs/db/MIGRATION_SAFETY.md records the gap), so it is not a routine
-        operation to improvise mid-incident.
+    COUNT 1, MAX level with the journal's newest \`when\` → the ledger says
+        everything is applied, so the differing schemas are not an unapplied
+        migration: either that database was changed outside the migrations,
+        or an entry older than the ledger's newest row was never applied and
+        the migrator will never reach it.
 
-    MAX NEWER → that database has migrations this checkout lacks: YOUR
-        CHECKOUT IS BEHIND IT, and the diffs above are not evidence of drift.
-        \`db:migrate\` would apply nothing here (the migrator only applies
-        entries newer than the ledger), but re-baselining WOULD discard live
-        work. Check out the commit whose journal matches that database and
-        re-run.`,
+    COUNT 1, MAX newer than the journal's newest \`when\` → that database has
+        migrations this checkout lacks. Your checkout is behind it and these
+        diffs are not evidence of drift; get onto the commit whose journal
+        matches that database and re-run.
+
+    COUNT 0 → that ledger does not record this checkout's baseline entry, and
+        MAX says which way. NULL, or the queries error "no such table", means
+        no history is recorded at all — the dump holds ${Object.keys(reference).length} table(s), counted
+        above, which separates a genuinely fresh database from a schema built
+        outside the migrations. Older than the baseline \`when\` means that
+        ledger predates this baseline. Newer means the database moved past
+        this checkout.`,
+
+        `  Only the first case above has an action here. In every other one the
+  database's migration history does not match this checkout, and reconciling
+  that is a manual, data-affecting operation whose preconditions this script
+  cannot observe — it only ever reads a static dump. Work it through against
+  docs/PHASE_B_RUNBOOK.md with the live ledger in front of you, not from this
+  output; docs/db/MIGRATION_SAFETY.md records that no procedure for it has
+  been written yet.`,
 
         `  EVIDENCE — what differs, and what each shape is consistent with.
-  Diagnostics only; steps 3 and 4 decide what to do.` +
+  Diagnostics only; the ledger answers above are the signal.` +
           [
             journalAhead &&
               `

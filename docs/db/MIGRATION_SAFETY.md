@@ -58,48 +58,32 @@ The script has two modes, and it prints the remediation matching the one you inv
   an unapplied *destructive* one (`DROP COLUMN` / `DROP TABLE`, or a drizzle-kit table rebuild that
   removes a column), `MISMATCH` fits an unapplied column *alteration* — drizzle-kit cannot `ALTER` a
   SQLite column in place and renders it as a table rebuild that redefines the column — and one
-  unapplied rename emits diffs in both directions at once. So the script routes the verdict through
-  the ledger instead, as a precondition plus a three-way comparison (it prints the journal values it
-  is comparing against):
-  - **Precondition** — `SELECT COUNT(*) FROM __drizzle_migrations WHERE created_at = <baseline
-    when>`. A count of 0 means that ledger does not record *this checkout's* baseline entry, which
-    on its own does not say why, so `MAX(created_at)` separates the causes: NULL (or no such table)
-    ⇒ no recorded history at all, which the dump splits — no application tables ⇒ a genuinely fresh
-    database, migrate normally; application tables present ⇒ a schema built outside the migrations
-    (a `drizzle-kit push`, or a restore that dropped the ledger), where `db:migrate` would replay
-    the baseline and die on `table ... already exists`, so reconcile the ledger instead — and if
-    the ledger *table* is absent rather than merely empty, §5's block cannot run as written
-    (its backup and `DELETE` both read `__drizzle_migrations`), so create it with drizzle's own
-    `CREATE TABLE IF NOT EXISTS __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL,
-    created_at numeric)` and then record one row per journal entry the schema already contains —
-    §5's `INSERT` writes the baseline row alone, which is correct only for a database at the
-    baseline, and under-recording makes the next `db:migrate` replay migrations whose effects are
-    already there; MAX
-    **older** than the baseline `when` ⇒ the ledger
-    genuinely predates the baseline, where `db:migrate` would replay `0000_baseline.sql` and die on
-    `table ... already exists`, so the recovery is the ledger reconciliation in
-    `docs/PHASE_B_RUNBOOK.md` §5; MAX **newer** ⇒ the database has moved past this checkout (it was
-    re-baselined, or the checkout is behind), where reconciling would overwrite a correct ledger
-    with a stale baseline row, so check out the matching commit first.
-  - Otherwise compare the journal's newest `when` against `SELECT MAX(created_at) FROM
-    __drizzle_migrations`. Journal **newer** ⇒ merged-but-unapplied whatever the diffs look like, so
-    `npm run db:migrate` (the PR #30 shape). **Level**, with the schemas still differing ⇒ genuine
-    drift, so stop and re-baseline rather than `db:migrate`. Ledger **newer** ⇒ that database has
-    applied migrations this checkout does not contain, i.e. the working tree is behind the database
-    and the diffs are not evidence of drift; `db:migrate` is a harmless no-op there (the migrator
-    applies only entries newer than the ledger) but re-baselining would discard live work, so check
-    out the commit whose journal matches that database and re-run first.
+  unapplied rename emits diffs in both directions at once. So the message treats the ledger, not
+  the diffs, as the signal: it prints this checkout's baseline and newest journal `when`, asks for
+  `SELECT COUNT(*) FROM __drizzle_migrations WHERE created_at = <baseline when>` and
+  `SELECT MAX(created_at) FROM __drizzle_migrations`, and says what the answers indicate — count 1
+  with MAX **older** than the journal's newest `when` ⇒ merged-but-unapplied (the PR #30 shape);
+  **level** ⇒ not an unapplied migration, so either drift or an entry older than the ledger's
+  newest row that the migrator will never reach; **newer** ⇒ the checkout is behind the database.
+  Count 0 ⇒ that ledger does not record this checkout's baseline entry, with MAX again saying which
+  way (NULL or no such table ⇒ no recorded history at all, which the dump's table count splits into
+  a fresh database versus a schema built outside the migrations).
+
+  Only the merged-but-unapplied case names an action, `npm run db:migrate`, because that is the case
+  the guard exists for and drizzle applies only the genuinely newer entries, atomically. **Every
+  other case stops at the diagnosis on purpose.** Reconciling a ledger is manual, data-affecting
+  work whose preconditions the script cannot observe — it only ever reads a static dump — so the
+  message says to work it through against `docs/PHASE_B_RUNBOOK.md` with the live ledger in hand and
+  deliberately prints no `INSERT`/`DELETE` and no list of rows to record. It also deliberately gives
+  no self-check for such a repair: drizzle decides purely from the ledger's newest `created_at`, so
+  a recorded set that skips a middle entry still makes the next `db:migrate` a clean no-op, and a
+  check that can pass while the operator is wrong is worse than none.
 
   drizzle records each applied migration's `created_at` as its journal entry's `when`, which is what
   makes those comparisons well-defined. The per-direction listing is printed as evidence subordinate
   to that check, not as an instruction. Either way the checked-in reference is not the file being
   compared, so do not edit it to make the run go green, and rule out a stale or truncated dump first
-  — a truncated dump looks exactly like an unapplied migration. Known bound on the **level** verdict:
-  a journal entry whose `when` is older than the ledger's newest `created_at` and was never applied
-  produces the same signature as drift — reachable when two migrations are generated on parallel
-  branches and merged out of generation order, since the migrator only applies entries newer than
-  the ledger — so that verdict's cause can be wrong even though its action (stop and investigate)
-  is right either way *(reasoned from the migrator's comparison, not reproduced)*.
+  — a truncated dump looks exactly like an unapplied migration.
 
 ### `scripts/rehearse-ledger-reconciliation.mjs` — run by nobody automatically
 
@@ -146,6 +130,14 @@ the PR that added the guard)*. So the most consequential branch of that decision
 currently depends on a document that has not been written. Writing it needs production access to
 validate against, which the PR that added the guard deliberately did not have — flagged here as a
 follow-up rather than improvised.
+
+The same gap covers the neighbouring case: there is no documented procedure for reconciling a
+database whose ledger is missing, empty, or otherwise out of step with its schema, and the drift
+guard deliberately does not improvise one in its output — several review rounds on the PR that
+added it each found a real defect in successive attempts to spell that recovery out in an error
+message. The follow-up is to write both procedures properly and validate them against a throwaway
+libSQL container, the way `scripts/mass-upload-loadtest` already does, rather than to embed them in
+a script's failure text.
 
 ## Standing rules
 

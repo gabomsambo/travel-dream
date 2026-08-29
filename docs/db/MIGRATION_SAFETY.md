@@ -31,6 +31,25 @@ the production reference, which is a thing you can only honestly do after lookin
 That leaves one way to defeat it: regenerate the reference from the migrations without applying
 them anywhere. The failure message says not to; nothing mechanically prevents it.
 
+**It is advisory, not blocking, as of the PR that added it.** A red `schema-drift` job does not
+stop a merge today: `main` has no branch protection, and the only ruleset (`TabidreamsV1`) declares
+just `deletion` and `non_fast_forward` — no required status checks. *(Measured read-only via the
+GitHub API while reviewing that PR.)* That is equally true of the `ci` job, and is why PR #30 could
+merge at all. Enabling required status checks on `main` for the `ci` and `schema-drift` contexts is
+authorised and happens right after that PR merges — separately, because a required check that has
+never run on `main` would block every merge including the one that introduces it. Until that is
+done, this guard tells you; it does not stop you.
+
+The script has two modes and a diff means opposite things in each — it prints the matching
+remediation for the one you invoked:
+
+- `node scripts/verify-baseline-schema.mjs` (CI, the default) compares the journal against the
+  checked-in reference. A diff means a migration landed that the reference does not describe.
+- `node scripts/verify-baseline-schema.mjs <live-dump.sql> src/db/migrations`
+  (`docs/PHASE_B_RUNBOOK.md` §4) compares the journal against a read-only `.schema` dump of a live
+  database. A diff there means **that database has drifted**: stop and re-baseline, do not
+  `db:migrate` to catch it up, and do not touch the checked-in reference.
+
 ## The gap that is still open — a deploy-time applied-migrations guard
 
 The check that would close it completely: assert, at deploy time, that the journal's newest

@@ -1,11 +1,16 @@
 # Phase B runbook — reconcile production's migration ledger to the baseline
 
-**Status: DONE — executed against production, and correct. Do not run it again.**
-Production's `__drizzle_migrations` now holds the baseline row plus one row per migration
-applied since, with the 15 pre-baseline rows preserved in
-`__drizzle_migrations_prebaseline_backup`. Re-running step 4's `DELETE FROM
-__drizzle_migrations` would *un-record* migrations that are already applied, and the next
-`db:migrate` would then die on `duplicate column name`.
+**Status: DONE — executed against production. Do not run it again.**
+Re-running step 4's `DELETE FROM __drizzle_migrations` would *un-record* migrations that are
+already applied, and the next `db:migrate` would then die on `duplicate column name`.
+
+The production state this rests on was **measured read-only against production by a separate
+investigation** — the `td-prod-schema-drift` scout report, §3.1 and §3.3 — not by this runbook and
+not by the PR that added this status block, neither of which had production access. That
+investigation found `__drizzle_migrations` holding the baseline row plus one row per migration
+applied since, and the 15 pre-baseline rows preserved in `__drizzle_migrations_prebaseline_backup`.
+It also judged Phase B correct and complete. Anyone relying on §7's rollback, which reads from that
+backup table, should re-confirm the table still exists before depending on it.
 
 This document is kept as the reference for how the reconciliation was done and why. Everything
 below describes it in its original future tense.

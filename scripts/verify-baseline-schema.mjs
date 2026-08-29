@@ -21,8 +21,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const referenceSqlPath = process.argv[2] ?? path.join(repoRoot, 'docs/db/prod-schema-reference.sql');
+const defaultReferenceSqlPath = path.join(repoRoot, 'docs/db/prod-schema-reference.sql');
+const referenceSqlPath = process.argv[2] ?? defaultReferenceSqlPath;
 const migrationsDir = process.argv[3] ?? path.join(repoRoot, 'src/db/migrations');
+
+// Two supported modes, and a diff means opposite things in each. Against the
+// checked-in reference (CI, the default) a diff means a migration landed that
+// the reference does not describe. Against an operator-supplied live `.schema`
+// dump (docs/PHASE_B_RUNBOOK.md §4) it means that database has drifted from the
+// journal. The remediation for one is wrong for the other, so pick per mode.
+const usingCheckedInReference = path.resolve(referenceSqlPath) === defaultReferenceSqlPath;
+const referenceLabel = usingCheckedInReference ? 'docs/db/prod-schema-reference.sql' : referenceSqlPath;
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-schema-verify-'));
 process.on('exit', () => fs.rmSync(workDir, { recursive: true, force: true }));
 
@@ -194,9 +203,8 @@ if (accepted.length) {
 if (diffs.length) {
   console.log(`\nFAIL — ${diffs.length} difference(s):`);
   diffs.forEach((d) => console.log('  - ' + d));
-  console.log(`
-------------------------------------------------------------------------------
-WHAT THIS MEANS
+  const whatThisMeans = usingCheckedInReference
+    ? `WHAT THIS MEANS
 
 The migration journal now builds a schema that
 docs/db/prod-schema-reference.sql does not describe. That reference is what
@@ -223,11 +231,43 @@ HOW TO FIX IT — both steps, in this order
 
 Do not do step 2 alone. Editing the reference until this script goes green,
 without applying the migrations, silences the check and leaves production
-broken in exactly the way it was broken this morning.
+broken in exactly the way it was broken this morning.`
+    : `WHAT THIS MEANS
+
+You compared an operator-supplied reference against the migration journal:
+
+    reference : ${referenceSqlPath}
+    journal   : ${migrationsDir}
+
+That is the read-only drift check in docs/PHASE_B_RUNBOOK.md §4, where the
+reference is a \`.schema\` dump of a live database. So these differences mean
+THAT DATABASE HAS DRIFTED from the journal — its schema is not what replaying
+the journal produces. This is NOT the "a migration landed unapplied" case.
+
+WHAT TO DO
+
+  1. STOP. Do not run \`npm run db:migrate\` to "catch it up" — the journal is
+     not a description of that database, and applying it can collide with
+     columns that already exist.
+
+  2. Do not edit docs/db/prod-schema-reference.sql either. It is not the file
+     compared in this run, so changing it would hide the drift without
+     touching it.
+
+  3. Rule out the boring causes first: an incomplete or stale \`.schema\` dump,
+     and a journal that is not the one that database was built from.
+
+  4. If the drift is real, re-baseline rather than reconcile. Read
+     docs/PHASE_B_RUNBOOK.md — §4 is the step that produced this comparison,
+     and its instruction on a diff is to stop and re-baseline.`;
+
+  console.log(`
+------------------------------------------------------------------------------
+${whatThisMeans}
 
 If a diff listed above is a deliberate, functionally-equivalent spelling difference,
 add it to isAcceptedEquivalence() in this file with a comment saying why -
-do not paper over it in the reference.
+do not paper over it in ${referenceLabel}.
 ------------------------------------------------------------------------------`);
   process.exitCode = 1;
 } else {

@@ -55,7 +55,19 @@ jobs:
   #     runtime under tsc/jest/build for no benefit here;
   #   - it needs no dependencies, no credentials and no network, so it skips
   #     `npm ci` entirely and finishes in seconds, in parallel with `ci`.
+  #
+  # ADVISORY ONLY, TODAY. This job can report red on a PR but cannot block a
+  # merge: `main` has no branch protection and the `TabidreamsV1` ruleset
+  # declares only `deletion` and `non_fast_forward` — no required status checks,
+  # which is also why the `ci` job never blocked PR #30. Enabling required
+  # status checks on `main` for the `ci` and `schema-drift` contexts is
+  # authorised and happens immediately after this PR merges; it deliberately
+  # cannot happen in this PR, because a required check that has never run on
+  # `main` blocks every merge including this one. The status check context is
+  # the job name below, exactly `schema-drift` — match that string when
+  # configuring it.
   schema-drift:
+    name: schema-drift
     runs-on: ubuntu-latest
 
     steps:

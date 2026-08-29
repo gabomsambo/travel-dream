@@ -306,14 +306,23 @@ both at once, and real drift can produce any of them. Work the four steps.`,
   baseline is not in that ledger, which by itself does not say why. MAX tells
   the causes apart:
 
-    MAX is NULL, or no such table → that ledger records no migration history
-        at all, and that is two different states. The dump tells them apart:
-        it holds ${Object.keys(reference).length} table(s), counted above.
+    MAX is NULL, or the queries error "no such table" → that ledger records
+        no migration history at all, and that is two different states. The
+        dump tells them apart: it holds ${Object.keys(reference).length} table(s), counted above.
         Zero is a genuinely fresh database — \`npm run db:migrate\`. Non-zero
         means a schema built outside the migrations (a \`drizzle-kit push\`,
         or a restore that dropped the ledger); \`db:migrate\` would replay the
         baseline and die on "table ... already exists", so reconcile the
         ledger per §5 as below.
+
+        If the table itself is absent, §5's block cannot run as written — its
+        backup and DELETE both read \`__drizzle_migrations\`. Create it first
+        with drizzle's own DDL, then apply §5's INSERT to record the baseline
+        entry; that leaves the ledger describing the schema already present,
+        which is the state §5 assumes.
+
+            CREATE TABLE IF NOT EXISTS __drizzle_migrations
+              (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric);
 
     MAX older than the baseline \`when\` → that ledger genuinely predates this
         baseline. DO NOT MIGRATE: \`db:migrate\` would replay the baseline

@@ -20,7 +20,7 @@ throwaway local SQLite file and compares the result against `docs/db/prod-schema
 the checked-in description of production's schema. If a migration lands without that reference
 being refreshed, the job fails and its output names the fix.
 
-It needs no credentials, no network and no `node_modules` — only Node >= 22 for `node:sqlite`,
+It needs no credentials, no network and no `node_modules` — only Node >= 22.5 for `node:sqlite`,
 which is why it is a separate job (the main `ci` job pins Node 20, where the script cannot load).
 
 **Know what this does and does not prove.** It proves the journal and the reference agree. It
@@ -61,7 +61,11 @@ The script has two modes, and it prints the remediation matching the one you inv
     ⇒ no recorded history at all, which the dump splits — no application tables ⇒ a genuinely fresh
     database, migrate normally; application tables present ⇒ a schema built outside the migrations
     (a `drizzle-kit push`, or a restore that dropped the ledger), where `db:migrate` would replay
-    the baseline and die on `table ... already exists`, so reconcile the ledger instead; MAX
+    the baseline and die on `table ... already exists`, so reconcile the ledger instead — and if
+    the ledger *table* is absent rather than merely empty, §5's block cannot run as written
+    (its backup and `DELETE` both read `__drizzle_migrations`), so create it with drizzle's own
+    `CREATE TABLE IF NOT EXISTS __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL,
+    created_at numeric)` and then apply §5's `INSERT`; MAX
     **older** than the baseline `when` ⇒ the ledger
     genuinely predates the baseline, where `db:migrate` would replay `0000_baseline.sql` and die on
     `table ... already exists`, so the recovery is the ledger reconciliation in
@@ -81,7 +85,12 @@ The script has two modes, and it prints the remediation matching the one you inv
   makes those comparisons well-defined. The per-direction listing is printed as evidence subordinate
   to that check, not as an instruction. Either way the checked-in reference is not the file being
   compared, so do not edit it to make the run go green, and rule out a stale or truncated dump first
-  — a truncated dump looks exactly like an unapplied migration.
+  — a truncated dump looks exactly like an unapplied migration. Known bound on the **level** verdict:
+  a journal entry whose `when` is older than the ledger's newest `created_at` and was never applied
+  produces the same signature as drift — reachable when two migrations are generated on parallel
+  branches and merged out of generation order, since the migrator only applies entries newer than
+  the ledger — so that verdict's cause can be wrong even though its action (stop and investigate)
+  is right either way *(reasoned from the migrator's comparison, not reproduced)*.
 
 ### `scripts/rehearse-ledger-reconciliation.mjs` — run by nobody automatically
 

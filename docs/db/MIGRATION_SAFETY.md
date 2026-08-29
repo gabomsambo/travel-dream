@@ -46,13 +46,21 @@ The script has two modes, and it prints the remediation matching the one you inv
   checked-in reference. A diff means a migration landed that the reference does not describe.
 - `node scripts/verify-baseline-schema.mjs <live-dump.sql> src/db/migrations`
   (`docs/PHASE_B_RUNBOOK.md` §4) compares the journal against a read-only `.schema` dump of a live
-  database. Here the direction of each diff decides the fix, and the script prints them separately:
-  `EXTRA IN FRESH` means the **journal is ahead** of that database — a migration landed and was
-  never applied, so apply it (this is the PR #30 shape); `MISSING FROM FRESH` means **that database
-  is ahead** — real drift, so stop and re-baseline rather than `db:migrate`. Either way the
-  checked-in reference is not the file being compared, so do not edit it to make the run go green,
-  and rule out a stale or truncated dump first — a truncated dump looks exactly like an unapplied
-  migration.
+  database. Here the **direction of a diff does not decide the fix**, and the message deliberately
+  does not pretend it does. Unapplied migrations and real drift produce overlapping shapes:
+  `EXTRA IN FRESH` fits an unapplied *additive* migration, `MISSING FROM FRESH` fits both drift and
+  an unapplied *destructive* one (`DROP COLUMN` / `DROP TABLE`, or a drizzle-kit table rebuild that
+  removes a column), `MISMATCH` fits an unapplied column *alteration* — drizzle-kit cannot `ALTER` a
+  SQLite column in place and renders it as a table rebuild that redefines the column — and one
+  unapplied rename emits diffs in both directions at once. So the script routes the verdict through
+  the ledger instead: compare the journal's newest `when` (it prints the value) against
+  `SELECT MAX(created_at) FROM __drizzle_migrations` on the dumped database. Journal newer ⇒
+  merged-but-unapplied whatever the diffs look like, so `npm run db:migrate` (the PR #30 shape);
+  ledger level with or ahead of the journal while the schemas still differ ⇒ genuine drift, so stop
+  and re-baseline rather than `db:migrate`. The per-direction listing is printed as evidence
+  subordinate to that check, not as an instruction. Either way the checked-in reference is not the
+  file being compared, so do not edit it to make the run go green, and rule out a stale or truncated
+  dump first — a truncated dump looks exactly like an unapplied migration.
 
 ### `scripts/rehearse-ledger-reconciliation.mjs` — run by nobody automatically
 

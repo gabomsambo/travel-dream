@@ -3,8 +3,11 @@
 **Status: DONE — executed against production. Do not run it again.**
 The dangerous statement is the `DELETE FROM __drizzle_migrations` in **§5, "Step 3 — Reconcile
 the ledger"**. Re-running it would *un-record* migrations that are already applied, and the next
-`db:migrate` would then replay them and die on `duplicate column name`. (§4 and §6 are read-only
-and safe to re-run.)
+`db:migrate` would then replay them and die on `duplicate column name`. (§4 is read-only and safe
+to re-run. **§6 is not**: its `SELECT` is read-only, but the step then runs `npm run db:migrate`
+against production — a write, which is a no-op today only because everything is applied. Its
+"expect exactly 1 row" is likewise historical; the ledger now holds one row per journal entry,
+three as of this branch, so it is not a live pass criterion.)
 
 **§7's rollback is now obsolete for the same reason.** It runs the identical `DELETE` and then
 restores the 15 pre-baseline rows; after that the next `db:migrate` replays the baseline and dies

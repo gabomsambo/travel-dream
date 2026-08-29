@@ -27,9 +27,10 @@ const migrationsDir = process.argv[3] ?? path.join(repoRoot, 'src/db/migrations'
 
 // Two supported modes. Against the checked-in reference (CI, the default) a diff
 // means a migration landed that the reference does not describe. Against an
-// operator-supplied live `.schema` dump (docs/PHASE_B_RUNBOOK.md §4) the meaning
-// depends on which side is ahead: the journal being ahead is an unapplied
-// migration, the dump being ahead is drift, and the two need opposite fixes.
+// operator-supplied live `.schema` dump (docs/PHASE_B_RUNBOOK.md §4) the diffs
+// alone cannot say why: unapplied migrations and real drift need opposite fixes
+// and can produce the same shapes, so that mode's message routes the verdict
+// through the journal-vs-ledger timestamp comparison instead of the diffs.
 const usingCheckedInReference = path.resolve(referenceSqlPath) === defaultReferenceSqlPath;
 const referenceLabel = usingCheckedInReference ? 'docs/db/prod-schema-reference.sql' : referenceSqlPath;
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-schema-verify-'));
@@ -146,6 +147,13 @@ const freshStatements = journal.entries.flatMap((e) =>
   splitStatements(fs.readFileSync(path.join(migrationsDir, `${e.tag}.sql`), 'utf8')),
 );
 
+// The disambiguator for live-dump mode: the journal's newest entry is what an
+// operator compares against `SELECT MAX(created_at) FROM __drizzle_migrations`
+// on the database they dumped. Migrator and journal both key off epoch ms.
+const journalNewest = journal.entries.reduce((newest, e) => (newest && newest.when >= e.when ? newest : e), null);
+const journalNewestWhen = journalNewest?.when ?? null;
+const journalNewestTag = journalNewest?.tag ?? null;
+
 const reference = introspect(build(path.join(workDir, 'reference.db'), referenceStatements));
 const fresh = introspect(build(path.join(workDir, 'fresh.db'), freshStatements));
 
@@ -153,10 +161,10 @@ const diffs = [];
 const accepted = [];
 const allTables = [...new Set([...Object.keys(reference), ...Object.keys(fresh)])].sort();
 
-// Each diff carries which side is ahead, because the remediation depends on it.
-// 'journal-ahead': the journal builds something the reference lacks - a migration
-// that was never applied. 'reference-ahead': the reference has something no
-// migration produces - drift. 'mismatch': same object, two definitions.
+// Each diff carries which side holds the object, so the failure message can
+// report what differs. Against the checked-in reference that direction is also
+// the diagnosis; against a live dump it is only evidence — the ledger check in
+// the live-dump remediation is what decides unapplied-migration vs drift.
 const pushDiff = (direction, text) => diffs.push({ direction, text });
 
 for (const t of allTables) {
@@ -253,45 +261,95 @@ You compared an operator-supplied reference against the migration journal:
     journal   : ${migrationsDir}
 
 That is the read-only check in docs/PHASE_B_RUNBOOK.md §4, where the reference
-is a \`.schema\` dump of a live database. The diffs above do NOT all mean the
-same thing — the fix depends on which side is ahead, so read them by direction.`,
+is a \`.schema\` dump of a live database.
 
-        journalAhead &&
-          `  "EXTRA IN FRESH" / "TABLE ONLY IN FRESH" (${journalAhead} above)
-  → THE JOURNAL IS AHEAD OF THAT DATABASE: a migration landed and was never
-    applied to it. This is the PR #30 shape — production was missing three
-    \`sources\` columns and returned HTTP 500 on every screenshot upload, every
-    place-detail page, /review and the 5-minute cron until they were applied.
+Do NOT read the fix off the direction of the diffs. Direction tells you which
+side holds more objects, not why. Every shape below is ambiguous: an unapplied
+additive migration adds to the journal side, an unapplied destructive one (DROP
+COLUMN / DROP TABLE, or a drizzle-kit table rebuild that removes a column) adds
+to the dump side, an unapplied column alteration redefines an object on both
+sides, and a single unapplied rename produces two opposite-direction diffs at
+once. Real drift can produce any of them too. Work the three steps instead.`,
 
-    APPLY THE MIGRATIONS. That is what un-breaks it; nothing else here does.
+        `  STEP 1 — rule out the boring causes before interpreting anything.
 
-        npm run db:migrate      # atomic: one PRAGMA/BEGIN/.../COMMIT batch
+    An incomplete or stale \`.schema\` dump, or a journal that is not the one
+    that database was built from. A truncated dump looks exactly like an
+    unapplied migration.
 
-    Take a backup first. Never \`drizzle-kit push\` against a shared database -
-    it rebuilds tables.`,
-
-        referenceAhead &&
-          `  "MISSING FROM FRESH" / "TABLE MISSING FROM FRESH" (${referenceAhead} above)
-  → THAT DATABASE IS AHEAD OF THE JOURNAL: it carries objects that replaying
-    the journal does not produce. That is drift, and no migration reconciles it.
-
-    STOP. Do not run \`npm run db:migrate\` to "catch it up". Re-baseline rather
-    than reconcile — docs/PHASE_B_RUNBOOK.md §4 is the step that produced this
-    comparison, and its instruction on a diff is to stop and re-baseline.`,
-
-        mismatched &&
-          `  "MISMATCH" (${mismatched} above)
-  → The same object is defined differently on each side. No migration produces
-    that either; treat it as drift and stop, as above.`,
-
-        `  BEFORE ACTING EITHER WAY
-
-    Rule out the boring causes: an incomplete or stale \`.schema\` dump, and a
-    journal that is not the one that database was built from. A truncated dump
-    looks exactly like an unapplied migration.
-
-    And note that docs/db/prod-schema-reference.sql is NOT the file compared in
+    Note also that docs/db/prod-schema-reference.sql is NOT the file compared in
     this run. Editing it would hide this result without changing anything.`,
+
+        `  STEP 2 — ask the one question that actually decides it:
+  IS THE JOURNAL AHEAD OF THAT DATABASE'S MIGRATION LEDGER?
+
+    journal newest \`when\` : ${journalNewestWhen ?? '(journal has no entries)'}${
+      journalNewestTag ? `  (${journalNewestTag})` : ''
+    }
+        from ${path.join(migrationsDir, 'meta/_journal.json')}
+
+    ledger newest        : run this against the database you dumped —
+
+        SELECT MAX(created_at) FROM __drizzle_migrations;
+
+    Both are epoch milliseconds, so compare them directly.`,
+
+        `  STEP 3 — decide from step 2, not from the diffs.
+
+    Journal newer than the ledger
+      → Migrations are merged but were never applied to that database, whatever
+        direction the diffs point. This is the PR #30 shape — production was
+        missing three \`sources\` columns and returned HTTP 500 on every
+        screenshot upload, every place-detail page, /review and the 5-minute
+        cron until they were applied.
+
+        APPLY THE MIGRATIONS. That is what un-breaks it; nothing else here does.
+
+            npm run db:migrate    # atomic: one PRAGMA/BEGIN/.../COMMIT batch
+                                  # (docs/PHASE_B_RUNBOOK.md §1)
+
+        Take a backup first. Never \`drizzle-kit push\` against a shared
+        database - it rebuilds tables.
+
+    Ledger at or ahead of the journal, and the schemas still differ
+      → Genuine drift: no migration reconciles it. STOP. Do not run
+        \`npm run db:migrate\` to "catch it up". Re-baseline rather than
+        reconcile — docs/PHASE_B_RUNBOOK.md §4 is the step that produced this
+        comparison, and its instruction on a diff is to stop and re-baseline.`,
+
+        `  EVIDENCE — what differs, and what each shape is consistent with.
+  Diagnostics only. None of these is an instruction to act; step 3 decides.` +
+          [
+            journalAhead &&
+              `
+
+    "EXTRA IN FRESH" / "TABLE ONLY IN FRESH" (${journalAhead} above)
+      The journal builds objects the dump does not have. Consistent with an
+      unapplied additive migration, and with an object dropped out-of-band on
+      that database.`,
+            referenceAhead &&
+              `
+
+    "MISSING FROM FRESH" / "TABLE MISSING FROM FRESH" (${referenceAhead} above)
+      The dump has objects replaying the journal does not produce. Consistent
+      with drift, and with an unapplied destructive migration.`,
+            mismatched &&
+              `
+
+    "MISMATCH" (${mismatched} above)
+      The same object is defined differently on each side. Consistent with an
+      unapplied column alteration — drizzle-kit cannot ALTER a SQLite column in
+      place and renders it as a table rebuild that redefines the column — and
+      with drift.`,
+            journalAhead &&
+              referenceAhead &&
+              `
+
+    Diffs in BOTH directions at once usually mean one rename or one table
+    rebuild, not two independent problems. Do not treat them as two findings.`,
+          ]
+            .filter(Boolean)
+            .join(''),
       ]
         .filter(Boolean)
         .join('\n\n');

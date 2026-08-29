@@ -308,7 +308,7 @@ both at once, and real drift can produce any of them.`,
         the PR #30 shape: production was missing three \`sources\` columns and
         returned HTTP 500 on every screenshot upload, every place-detail page,
         /review and the 5-minute cron until they were applied. It is also the
-        one case here with a straightforward action.
+        one case here fixed by running something against that database.
 
         APPLY THE MIGRATIONS — nothing else un-breaks it.
 
@@ -338,13 +338,13 @@ both at once, and real drift can produce any of them.`,
         ledger predates this baseline. Newer means the database moved past
         this checkout.`,
 
-        `  Only the first case above has an action here. In every other one the
-  database's migration history does not match this checkout, and reconciling
-  that is a manual, data-affecting operation whose preconditions this script
-  cannot observe — it only ever reads a static dump. Work it through against
-  docs/PHASE_B_RUNBOOK.md with the live ledger in front of you, not from this
-  output; docs/db/MIGRATION_SAFETY.md records that no procedure for it has
-  been written yet.`,
+        `  The cases where that ledger is missing, empty or out of step with the
+  schema have no action here. Reconciling one is a manual, data-affecting
+  operation whose preconditions this script cannot observe — it only ever
+  reads a static dump. Work it through against docs/PHASE_B_RUNBOOK.md with
+  the live ledger in front of you, not from this output;
+  docs/db/MIGRATION_SAFETY.md records that no procedure for it has been
+  written yet.`,
 
         `  EVIDENCE — what differs, and what each shape is consistent with.
   Diagnostics only; the ledger answers above are the signal.` +

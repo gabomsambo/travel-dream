@@ -69,9 +69,11 @@ The script has two modes, and it prints the remediation matching the one you inv
   way (NULL or no such table ⇒ no recorded history at all, which the dump's table count splits into
   a fresh database versus a schema built outside the migrations).
 
-  Only the merged-but-unapplied case names an action, `npm run db:migrate`, because that is the case
-  the guard exists for and drizzle applies only the genuinely newer entries, atomically. **Every
-  other case stops at the diagnosis on purpose.** Reconciling a ledger is manual, data-affecting
+  The merged-but-unapplied case names `npm run db:migrate`, because that is the case the guard
+  exists for and drizzle applies only the genuinely newer entries, atomically; the checkout-behind
+  case names a `git checkout` and nothing against the database. **The cases where the ledger is
+  missing, empty or out of step with the schema stop at the diagnosis on purpose.** Reconciling one
+  is manual, data-affecting
   work whose preconditions the script cannot observe — it only ever reads a static dump — so the
   message says to work it through against `docs/PHASE_B_RUNBOOK.md` with the live ledger in hand and
   deliberately prints no `INSERT`/`DELETE` and no list of rows to record. It also deliberately gives
@@ -123,10 +125,11 @@ Sketch for whoever picks it up:
 
 ## A second gap — no written re-baseline procedure
 
-The guard's drift verdict tells the operator to stop and re-baseline, and nothing in this repo
-says how: `docs/PHASE_B_RUNBOOK.md` §4 carries the instruction but no procedure, and no procedure
+`docs/PHASE_B_RUNBOOK.md` §4 tells the operator to stop and re-baseline if production drifted, and
+nothing in this repo says how: that line carries the instruction but no procedure, and no procedure
 exists anywhere else either *(grepped across `docs/`, `scripts/` and `CLAUDE.md` while reviewing
-the PR that added the guard)*. So the most consequential branch of that decision procedure
+the PR that added the guard)*. The guard does not fill the gap — it reports what the ledger
+comparison indicates and prescribes nothing there — so the runbook's most consequential instruction
 currently depends on a document that has not been written. Writing it needs production access to
 validate against, which the PR that added the guard deliberately did not have — flagged here as a
 follow-up rather than improvised.

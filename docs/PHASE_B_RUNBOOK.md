@@ -180,9 +180,9 @@ scout investigation**, §3.1 and §3.3, not by this runbook and not by the PR th
 section.)*
 
 If `rows` and `newest` do not line up with the journal that way, **stop** and re-derive the
-situation before continuing — `scripts/verify-baseline-schema.mjs` step 3 and step 4 walk the
-possibilities, including a ledger that predates the baseline and a checkout that is behind the
-database.
+situation before continuing. The live-dump mode of `scripts/verify-baseline-schema.mjs` reports
+what the ledger-versus-journal comparison indicates for each shape, including a ledger that
+predates the baseline and a checkout that is behind the database.
 
 ---
 

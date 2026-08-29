@@ -195,8 +195,9 @@ verify-ocr.sh
 # ================================
 # Project-Specific: Documentation
 # ================================
-# AI agent instructions (not needed in production)
-AGENTS.md
+# AI agent instructions. AGENTS.md is the tracked project contract that every
+# harness reads (CLAUDE.md is an @AGENTS.md import pointer), so it must NOT be
+# ignored -- an ignored contract is invisible to crewmates on a fresh clone.
 
 # Planning/Requirements Documents (internal use)
 PRPs/*

@@ -1,3 +1,16 @@
+# Pipeline agent for review/test/document.
+#
+# Measured 2026-08-29 from ~/.no-mistakes/state.sqlite: every one of the 72
+# agent invocations on this repo ran on claude-opus-5, and review+test alone
+# were 96% of pipeline wall clock. Preferring codex moves that load off the
+# Claude plan; claude stays as the fallback so the gate never fails for
+# want of a runnable agent.
+#
+# This list is an AVAILABILITY fallback resolved once at run startup, not
+# quota-aware routing. Firstmate's config/crew-dispatch.json handles quota
+# balancing for crewmates; it does not reach this step.
+agent: [codex, claude]
+
 # no-mistakes gate configuration for travel-dream.
 #
 # Read ONLY from the default branch at a pinned SHA, never from a pushed

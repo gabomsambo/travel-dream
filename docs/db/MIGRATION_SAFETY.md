@@ -91,7 +91,7 @@ The script has two modes, and it prints the remediation matching the one you inv
 
 The rehearsal that models the ledger reconciliation is not in CI. Its pass criteria hardcoded
 `finalLedger.length === 1`, which silently rotted the moment PR #30 added two migrations, and
-nothing stops that recurring: `CLAUDE.md` records the "must not hardcode counts" rule, but no job
+nothing stops that recurring: `AGENTS.md` records the "must not hardcode counts" rule, but no job
 enforces it. Wiring it into `schema-drift` would cost that job its deliberate no-`npm ci`,
 no-network hermeticity, since unlike the guard the rehearsal imports `@libsql/client` and
 `drizzle-orm`. Stated as a known limit rather than a proposal; a separate job with `npm ci` is the
@@ -127,7 +127,7 @@ Sketch for whoever picks it up:
 
 `docs/PHASE_B_RUNBOOK.md` §4 tells the operator to stop and re-baseline if production drifted, and
 nothing in this repo says how: that line carries the instruction but no procedure, and no procedure
-exists anywhere else either *(grepped across `docs/`, `scripts/` and `CLAUDE.md` while reviewing
+exists anywhere else either *(grepped across `docs/`, `scripts/` and `AGENTS.md` while reviewing
 the PR that added the guard)*. The guard does not fill the gap — it reports what the ledger
 comparison indicates and prescribes nothing there — so the runbook's most consequential instruction
 currently depends on a document that has not been written. Writing it needs production access to

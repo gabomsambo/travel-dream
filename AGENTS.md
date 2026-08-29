@@ -297,8 +297,7 @@ it renders in classic too. Don't assume `ui-v2` == tropical.
 
 ## Maintaining this file
 
-`AGENTS.md` is gitignored here, so this file is the tracked home for agent
-instructions — keep it, don't promote it.
+`AGENTS.md` is the tracked home for agent instructions; `CLAUDE.md` imports it.
 
 Keep this file for knowledge useful to almost every future agent session in this
 project. Don't repeat what the codebase already shows; point to the

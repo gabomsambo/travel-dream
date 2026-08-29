@@ -1,0 +1,1 @@
+ALTER TABLE `sources` ADD `next_attempt_at` text;

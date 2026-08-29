@@ -2,6 +2,12 @@ import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
 
+// NOT the live definition of this table: `schema/index.ts` exports
+// `sourcesCurrentSchema` (in `./sources-current`) as `sources`, and only
+// `uploadSessions` below is imported from this file. `sources-current.ts` is the
+// authoritative column list — this copy is already missing the mass-upload queue
+// columns (`processing_lease_id`, `processing_interruptions`, `next_attempt_at`)
+// and should not be extended or relied on.
 export const sources = sqliteTable('sources', {
   // Primary key with custom prefix
   id: text('id').primaryKey().$defaultFn(() => `src_${crypto.randomUUID()}`),

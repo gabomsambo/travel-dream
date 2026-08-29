@@ -1,0 +1,89 @@
+
+=== BEFORE / scenario A: pure clock-out on one slow screenshot ===
+maxDuration simulated at 120000ms, MAX_ATTEMPTS=3
+
+run 1: killed after 120162ms | counts={"extracting":1,"queued":5} | src_load_0000 status=extracting attempts=1 err=-
+run 2: killed after 120186ms | counts={"extracting":1,"queued":5} | src_load_0000 status=extracting attempts=2 err=-
+run 3: killed after 120173ms | counts={"extracting":1,"queued":5} | src_load_0000 status=extracting attempts=3 err=-
+run 4: completed after 26601ms | counts={"completed":5,"failed":1} | src_load_0000 status=failed attempts=3 err=Timed out after maximum retry attempts
+
+final recovery run: completed | counts={"completed":5,"failed":1}
+src_load_0000 → status=failed attempts=3 error=Timed out after maximum retry attempts
+
+REPRODUCED: a perfectly good screenshot is now marked `failed` purely because runs ran out of clock.
+{
+  "scenario": "A",
+  "runs": [
+    {
+      "run": 1,
+      "wallMs": 120162,
+      "event": "killed",
+      "counts": {
+        "extracting": 1,
+        "queued": 5
+      },
+      "target": {
+        "id": "src_load_0000",
+        "processing_status": "extracting",
+        "processing_attempts": 1,
+        "processing_error": null
+      }
+    },
+    {
+      "run": 2,
+      "wallMs": 120186,
+      "event": "killed",
+      "counts": {
+        "extracting": 1,
+        "queued": 5
+      },
+      "target": {
+        "id": "src_load_0000",
+        "processing_status": "extracting",
+        "processing_attempts": 2,
+        "processing_error": null
+      }
+    },
+    {
+      "run": 3,
+      "wallMs": 120173,
+      "event": "killed",
+      "counts": {
+        "extracting": 1,
+        "queued": 5
+      },
+      "target": {
+        "id": "src_load_0000",
+        "processing_status": "extracting",
+        "processing_attempts": 3,
+        "processing_error": null
+      }
+    },
+    {
+      "run": 4,
+      "wallMs": 26601,
+      "event": "completed",
+      "counts": {
+        "completed": 5,
+        "failed": 1
+      },
+      "target": {
+        "id": "src_load_0000",
+        "processing_status": "failed",
+        "processing_attempts": 3,
+        "processing_error": "Timed out after maximum retry attempts"
+      }
+    }
+  ],
+  "finalCounts": {
+    "completed": 5,
+    "failed": 1
+  },
+  "target": {
+    "id": "src_load_0000",
+    "processing_status": "failed",
+    "processing_attempts": 3,
+    "processing_error": "Timed out after maximum retry attempts"
+  }
+}
+EXIT=0

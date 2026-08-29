@@ -170,6 +170,7 @@ describe('GET /api/mass-upload/status', () => {
       enriching: 0,
       completed: 1,
       failed: 1,
+      stalled: 0,
       cancelled: 0,
     });
   });
@@ -349,6 +350,7 @@ describe('GET /api/mass-upload/status', () => {
       enriching: 0,
       completed: 0,
       failed: 0,
+      stalled: 0,
       cancelled: 0,
     });
     // Neither the places count query nor the failed sources query should be called

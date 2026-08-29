@@ -241,3 +241,8 @@ scripts/test-*.js
 example-photos/
 example-photos2/
 test-example-photos/
+# Mass-upload load-test scratch files
+.loadtest-stub-state.json
+.loadtest-calls.tsv
+
+.env.local.realcreds

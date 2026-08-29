@@ -1,0 +1,9 @@
+
+=== AFTER / D: three concurrent runs on one 30-screenshot queue ===
+w1: completed in 12245ms → completed=12 claimed=12
+w2: completed in 12339ms → completed=9 claimed=9
+w3: completed in 12333ms → completed=9 claimed=9
+final: counts={"completed":30} geminiCalls=30
+
+claims across runs=30 items=30 geminiCalls=30 completed=30 failed=0
+PASS: each screenshot claimed once, extracted once, completed once

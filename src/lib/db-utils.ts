@@ -13,6 +13,13 @@ export function generateCollectionId(): string {
   return `col_${crypto.randomUUID()}`;
 }
 
+// Keeps the driver's own error (its class and `code`) reachable through the
+// friendlier message, so callers can still tell a locked database or a dropped
+// connection apart from a constraint violation.
+function rethrowable(message: string, cause: unknown): Error {
+  return Object.assign(new Error(message), { cause });
+}
+
 // Error handling wrapper for database operations
 export async function withErrorHandling<T>(
   operation: () => Promise<T>,
@@ -22,23 +29,26 @@ export async function withErrorHandling<T>(
     return await operation();
   } catch (error) {
     console.error(`Database error in ${context}:`, error);
-    
+
     if (error instanceof Error) {
       // Handle specific SQLite errors
       if (error.message.includes('UNIQUE constraint failed')) {
-        throw new Error(`Duplicate entry: ${error.message}`);
+        throw rethrowable(`Duplicate entry: ${error.message}`, error);
       }
-      
+
       if (error.message.includes('FOREIGN KEY constraint failed')) {
-        throw new Error(`Referenced entity does not exist: ${error.message}`);
+        throw rethrowable(`Referenced entity does not exist: ${error.message}`, error);
       }
-      
+
       if (error.message.includes('NOT NULL constraint failed')) {
-        throw new Error(`Required field missing: ${error.message}`);
+        throw rethrowable(`Required field missing: ${error.message}`, error);
       }
     }
-    
-    throw new Error(`Database operation failed in ${context}: ${error instanceof Error ? error.message : String(error)}`);
+
+    throw rethrowable(
+      `Database operation failed in ${context}: ${error instanceof Error ? error.message : String(error)}`,
+      error
+    );
   }
 }
 

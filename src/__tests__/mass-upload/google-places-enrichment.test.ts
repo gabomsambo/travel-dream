@@ -14,7 +14,10 @@ jest.mock('@/lib/address-parser', () => ({
 }));
 
 // ── Import AFTER mock setup ────────────────────────────────────────────
-import { GooglePlacesEnrichmentService } from '@/lib/mass-upload/google-places-enrichment';
+import {
+  GooglePlacesEnrichmentService,
+  GooglePlacesUnavailableError,
+} from '@/lib/mass-upload/google-places-enrichment';
 import type { GeminiExtractedPlace } from '@/types/extraction-pipeline';
 
 // ── Fixture Factories ──────────────────────────────────────────────────
@@ -91,8 +94,13 @@ function mockFetchSequence(
   detailsPayload: unknown
 ) {
   (global.fetch as jest.Mock)
-    .mockResolvedValueOnce({ json: async () => autocompletePayload })
-    .mockResolvedValueOnce({ json: async () => detailsPayload });
+    .mockResolvedValueOnce(googleResponse(autocompletePayload))
+    .mockResolvedValueOnce(googleResponse(detailsPayload));
+}
+
+/** A Google response as `fetch` actually returns it — status included. */
+function googleResponse(payload: unknown, init: { ok?: boolean; status?: number } = {}) {
+  return { ok: init.ok ?? true, status: init.status ?? 200, json: async () => payload };
 }
 
 // ── Test Suite ─────────────────────────────────────────────────────────
@@ -381,9 +389,9 @@ describe('GooglePlacesEnrichmentService', () => {
 
   describe('error handling', () => {
     it('returns unenriched place when autocomplete returns no predictions', async () => {
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        json: async () => ({ predictions: [], status: 'ZERO_RESULTS' }),
-      });
+      (global.fetch as jest.Mock).mockResolvedValueOnce(
+        googleResponse({ predictions: [], status: 'ZERO_RESULTS' })
+      );
 
       const place = makePlace();
       const promise = service.enrichPlaces([place]);
@@ -400,8 +408,8 @@ describe('GooglePlacesEnrichmentService', () => {
 
     it('returns unenriched place when details API returns no result', async () => {
       (global.fetch as jest.Mock)
-        .mockResolvedValueOnce({ json: async () => makeAutocompleteResponse() })
-        .mockResolvedValueOnce({ json: async () => ({ status: 'NOT_FOUND' }) }); // no .result
+        .mockResolvedValueOnce(googleResponse(makeAutocompleteResponse()))
+        .mockResolvedValueOnce(googleResponse({ status: 'NOT_FOUND' })); // no .result
 
       const place = makePlace();
       const promise = service.enrichPlaces([place]);
@@ -412,36 +420,73 @@ describe('GooglePlacesEnrichmentService', () => {
       expect(results[0].coords).toBeNull();
     });
 
-    it('handles a fetch network failure gracefully and returns unenriched place', async () => {
-      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+    it('reports a network failure instead of pretending the place does not exist', async () => {
+      // A failed call used to be indistinguishable from "no match": the place was
+      // stored unenriched and the screenshot marked completed. Now the caller is
+      // told, and retries the screenshot.
+      (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
 
-      const place = makePlace();
-      const promise = service.enrichPlaces([place]);
+      const promise = service.enrichPlaces([makePlace()]);
+      const assertion = expect(promise).rejects.toThrow(GooglePlacesUnavailableError);
+      await jest.runAllTimersAsync();
+      await assertion;
+    });
+
+    it('reports a non-2xx response instead of treating it as no match', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue(googleResponse('<html>error</html>', { ok: false, status: 500 }));
+
+      const promise = service.enrichPlaces([makePlace()]);
+      const assertion = expect(promise).rejects.toThrow(/HTTP 500/);
+      await jest.runAllTimersAsync();
+      await assertion;
+    });
+
+    it('reports OVER_QUERY_LIMIT instead of treating it as no match', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue(
+        googleResponse({ status: 'OVER_QUERY_LIMIT', error_message: 'quota' })
+      );
+
+      const promise = service.enrichPlaces([makePlace()]);
+      const assertion = expect(promise).rejects.toThrow(/OVER_QUERY_LIMIT/);
+      await jest.runAllTimersAsync();
+      await assertion;
+    });
+
+    it('retries a transient failure before giving up', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce(googleResponse({}, { ok: false, status: 503 }))
+        .mockResolvedValueOnce(googleResponse(makeAutocompleteResponse()))
+        .mockResolvedValueOnce(googleResponse(makeDetailsResponse()));
+
+      const promise = service.enrichPlaces([makePlace()]);
       await jest.runAllTimersAsync();
       const results = await promise;
 
-      // Must not throw — enrichPlaces resolves even when fetch fails
-      expect(results).toHaveLength(1);
-      expect(results[0].googlePlaceId).toBeNull();
-      expect(results[0].coords).toBeNull();
+      expect(results[0].googlePlaceId).toBe('ChIJ_test_id');
+      expect(global.fetch).toHaveBeenCalledTimes(3);
     });
 
-    it('continues processing remaining places after one fails', async () => {
-      const placeA = makePlace({ name: 'Failing Place' });
+    it('continues processing remaining places when one has no match', async () => {
+      const placeA = makePlace({ name: 'Unknown Place' });
       const placeB = makePlace({ name: 'Succeeding Place', city: 'Osaka', country: 'Japan' });
 
-      (global.fetch as jest.Mock)
-        .mockRejectedValueOnce(new Error('timeout')) // placeA autocomplete fails
-        .mockResolvedValueOnce({ json: async () => makeAutocompleteResponse('ChIJ_osaka') }) // placeB autocomplete
-        .mockResolvedValueOnce({ json: async () => makeDetailsResponse({ place_id: 'ChIJ_osaka' }) }); // placeB details
+      // Concurrent lanes make call order non-deterministic, so answer by URL.
+      (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/autocomplete/')) {
+          return url.includes('Unknown+Place')
+            ? googleResponse({ predictions: [], status: 'ZERO_RESULTS' })
+            : googleResponse(makeAutocompleteResponse('ChIJ_osaka'));
+        }
+        return googleResponse(makeDetailsResponse({ place_id: 'ChIJ_osaka' }));
+      });
 
       const promise = service.enrichPlaces([placeA, placeB]);
       await jest.runAllTimersAsync();
       const results = await promise;
 
       expect(results).toHaveLength(2);
-      expect(results[0].googlePlaceId).toBeNull(); // placeA failed
-      expect(results[1].googlePlaceId).toBe('ChIJ_osaka'); // placeB succeeded
+      expect(results[0].googlePlaceId).toBeNull(); // no match
+      expect(results[1].googlePlaceId).toBe('ChIJ_osaka'); // enriched
     });
 
     it('handles missing geometry in details response (defaults coords to 0,0)', async () => {
@@ -481,34 +526,31 @@ describe('GooglePlacesEnrichmentService', () => {
       await promise;
     });
 
-    it('applies two rate-limit delays for each enriched place (one per API call)', async () => {
-      const places = [makePlace(), makePlace({ name: 'Different Place', city: 'Osaka' })];
+    it('enriches places in parallel but never more than ENRICH_CONCURRENCY at a time', async () => {
+      // Serial enrichment was the second-biggest contributor to runs blowing the
+      // function time limit; parallel enrichment must still not stampede Google.
+      const places = Array.from({ length: 8 }, (_, i) =>
+        makePlace({ name: `Place ${i}`, city: `City ${i}` })
+      );
 
-      // First place: autocomplete + details
-      mockFetchSequence(makeAutocompleteResponse('ChIJ_first'), makeDetailsResponse({ place_id: 'ChIJ_first' }));
-      // Second place: autocomplete + details (different cache key — different name)
-      (global.fetch as jest.Mock)
-        .mockResolvedValueOnce({ json: async () => makeAutocompleteResponse('ChIJ_second') })
-        .mockResolvedValueOnce({ json: async () => makeDetailsResponse({ place_id: 'ChIJ_second' }) });
+      let inFlight = 0;
+      let peakInFlight = 0;
+      (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+        inFlight++;
+        peakInFlight = Math.max(peakInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 50));
+        inFlight--;
+        return url.includes('/autocomplete/')
+          ? googleResponse(makeAutocompleteResponse())
+          : googleResponse(makeDetailsResponse());
+      });
 
       const promise = service.enrichPlaces(places);
-
-      // Before any timers: nothing called
-      expect(global.fetch).toHaveBeenCalledTimes(0);
-
-      await jest.advanceTimersByTimeAsync(200); // sleep before 1st autocomplete
-      expect(global.fetch).toHaveBeenCalledTimes(1);
-
-      await jest.advanceTimersByTimeAsync(200); // sleep before 1st details
-      expect(global.fetch).toHaveBeenCalledTimes(2);
-
-      await jest.advanceTimersByTimeAsync(200); // sleep before 2nd autocomplete
-      expect(global.fetch).toHaveBeenCalledTimes(3);
-
-      await jest.advanceTimersByTimeAsync(200); // sleep before 2nd details
-      expect(global.fetch).toHaveBeenCalledTimes(4);
-
+      await jest.runAllTimersAsync();
       await promise;
+
+      expect(peakInFlight).toBeGreaterThan(1); // actually parallel
+      expect(peakInFlight).toBeLessThanOrEqual(3); // ENRICH_CONCURRENCY default
     });
   });
 

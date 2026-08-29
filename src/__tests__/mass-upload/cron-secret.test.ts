@@ -3,32 +3,51 @@
  */
 
 // ── Module mocks (BEFORE imports) ──────────────────────────────────────
-jest.mock('@/db', () => ({
-  db: { select: jest.fn(), update: jest.fn() },
-}));
-jest.mock('@/lib/db-queries', () => ({
-  getQueuedSources: jest.fn(),
-}));
-jest.mock('@/lib/db-mutations', () => ({
-  createPlacesFromPipeline: jest.fn(),
-}));
-jest.mock('@/lib/mass-upload/gemini-extraction-service', () => ({
-  getGeminiExtractionService: () => ({ extractFromImage: jest.fn() }),
-}));
-jest.mock('@/lib/mass-upload/google-places-enrichment', () => ({
-  getGooglePlacesEnrichmentService: () => ({ enrichPlaces: jest.fn() }),
-}));
+jest.mock('@/lib/mass-upload/queue-processor', () => ({ processQueue: jest.fn() }));
+jest.mock('@/lib/mass-upload/dispatch', () => ({ dispatchProcessors: jest.fn() }));
 
 import { GET } from '@/app/api/mass-upload/cron/route';
-import { db } from '@/db';
-import { getQueuedSources } from '@/lib/db-queries';
+import { processQueue } from '@/lib/mass-upload/queue-processor';
+import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 
-const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock };
-const mockGetQueuedSources = getQueuedSources as jest.MockedFunction<typeof getQueuedSources>;
+const mockProcessQueue = processQueue as jest.Mock;
+const mockDispatch = dispatchProcessors as jest.Mock;
 
 describe('CRON_SECRET security', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDispatch.mockResolvedValue({ queued: 0, activeWorkers: 0, desiredWorkers: 0, spawned: 0 });
+    mockProcessQueue.mockResolvedValue({
+      workerId: 'w_test',
+      claimed: 0,
+      completed: 0,
+      failed: 0,
+      interrupted: 0,
+      stalled: 0,
+      leaseLost: 0,
+      placesCreated: 0,
+      reclaimed: { requeued: 0, stalled: 0 },
+      remaining: 0,
+      stoppedBecause: 'queue-empty',
+      elapsedMs: 5,
+    });
+  });
+
+  it('returns 401 without authorization header', async () => {
+    process.env.CRON_SECRET = 'valid-secret';
+    const req = new Request('http://localhost/api/mass-upload/cron');
+    const res = await GET(req as never);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 with an incorrect secret', async () => {
+    process.env.CRON_SECRET = 'valid-secret';
+    const req = new Request('http://localhost/api/mass-upload/cron', {
+      headers: { authorization: 'Bearer wrong-secret' },
+    });
+    const res = await GET(req as never);
+    expect(res.status).toBe(401);
+    expect(mockProcessQueue).not.toHaveBeenCalled();
   });
 
   it('returns 500 when CRON_SECRET is not configured', async () => {
@@ -46,20 +65,11 @@ describe('CRON_SECRET security', () => {
     process.env.CRON_SECRET = 'valid-secret';
     process.env.GEMINI_VISION_ENABLED = 'true';
 
-    // Stale check → empty
-    const staleChain = {
-      from: jest.fn().mockReturnValue({
-        where: jest.fn().mockResolvedValue([]),
-      }),
-    };
-    mockDb.select.mockReturnValueOnce(staleChain);
-
-    mockGetQueuedSources.mockResolvedValue([]);
-
     const req = new Request('http://localhost/api/mass-upload/cron', {
       headers: { authorization: 'Bearer valid-secret' },
     });
     const res = await GET(req as never);
     expect(res.status).toBe(200);
+    expect(mockProcessQueue).toHaveBeenCalledTimes(1);
   });
 });

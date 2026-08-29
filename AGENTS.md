@@ -55,6 +55,11 @@ Travel Dreams (tabidreams.com) is a full-stack travel planning app built with **
 | `/implement-fix [issue#]` | Implement fix from RCA document |
 | `/create-prd` | Generate product requirements document |
 
+These are Claude Code slash commands. The **planning pair is harness-portable** and is also
+installed as Codex skills — invoke it as `/generate-prp` on Claude and `$generate-prp` on Codex
+(likewise `execute-prp`). Everything else in the table is Claude-only: on another harness, do the
+work the entry describes rather than looking for a command that is not there.
+
 ## Development Workflow
 
 **Plan before coding.** Every non-trivial change starts with a PRP. This applies to
@@ -62,9 +67,11 @@ anyone working in this repo — you at the keyboard, or an autonomous agent.
 
 ### Planning and building (always)
 
-1. `/prime` — understand the codebase
-2. `/generate-prp [feature]` — deep research into a plan saved under `PRPs/`
-3. `/execute-prp [path]` — build it, passing the plan's validation gates as you go
+1. Understand the codebase (`/prime` on Claude; otherwise read the code and this file)
+2. **`generate-prp`** — deep research into a plan saved under `PRPs/`
+   (`/generate-prp [feature]` on Claude, `$generate-prp` on Codex)
+3. **`execute-prp`** — build it, passing the plan's validation gates as you go
+   (`/execute-prp [path]` on Claude, `$execute-prp` on Codex)
 
 `PRPs/*.md` are gitignored (templates are not) — they are local planning artifacts.
 To ship one alongside its PR, `git add -f` that specific file.

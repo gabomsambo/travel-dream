@@ -1,7 +1,14 @@
 # Phase B runbook — reconcile production's migration ledger to the baseline
 
-**Status:** not yet executed. This document describes work to be run against **production**
-by a human (or firstmate with the captain's approval), *after* the baseline PR has merged.
+**Status: DONE — executed against production, and correct. Do not run it again.**
+Production's `__drizzle_migrations` now holds the baseline row plus one row per migration
+applied since, with the 15 pre-baseline rows preserved in
+`__drizzle_migrations_prebaseline_backup`. Re-running step 4's `DELETE FROM
+__drizzle_migrations` would *un-record* migrations that are already applied, and the next
+`db:migrate` would then die on `duplicate column name`.
+
+This document is kept as the reference for how the reconciliation was done and why. Everything
+below describes it in its original future tense.
 
 **Nothing in this runbook was run against production while writing it.** Every claim below
 was verified against throwaway local SQLite files.
@@ -34,7 +41,23 @@ in full and abort on the first statement:
 SQLITE_ERROR: table `accounts` already exists
 ```
 
-The migrator has no transaction wrapping the whole run, so a partial replay is possible.
+The whole run is atomic, so this failure leaves nothing behind. `migrate()` collects every
+statement — the migration SQL *and* its ledger INSERTs — and hands the lot to
+`db.session.migrate()`, which `@libsql/client` sends as a single batch:
+`PRAGMA foreign_keys=off; BEGIN; ...; COMMIT`, with each step conditioned on the previous one
+succeeding and a `ROLLBACK` step conditioned on the `COMMIT` not succeeding
+(`node_modules/@libsql/client/lib-esm/hrana.js`, `executeHranaBatch`). A statement that fails
+mid-run rolls the whole run back; there is no partial replay.
+
+*Verified on the installed versions (drizzle-orm 0.45.2, @libsql/client 0.17.4) both by reading
+that code path and by inducing a mid-run failure: with a conflicting column pre-seeded so the
+last migration failed, the earlier migration's `ADD COLUMN`s and its ledger row were both absent
+afterwards and the ledger was unchanged.* This corrects an earlier claim here that "the migrator
+has no transaction wrapping the whole run, so a partial replay is possible" — that was wrong, and
+it made `db:migrate` look riskier than it is.
+
+Atomicity is not permission to skip the reconciliation, though: the run below still *fails*, and
+production stays unmigrated until it is fixed.
 **Do not run `npm run db:migrate` against production until step 4 of this runbook is done.**
 
 This failure and its fix are both reproduced locally by:
@@ -43,9 +66,10 @@ This failure and its fix are both reproduced locally by:
 node scripts/rehearse-ledger-reconciliation.mjs
 ```
 
-which simulates production (real schema + the 15 old ledger rows) in a temp file and asserts
-that (a) migrating without reconciliation fails, and (b) migrating after reconciliation is a
-clean no-op. Run it first; it takes seconds and touches nothing.
+which simulates production (baseline-era schema + the 15 old ledger rows) in a temp file and
+asserts that (a) migrating without reconciliation fails, (b) migrating after reconciliation
+succeeds and applies exactly the journal entries newer than the baseline, and (c) a second run
+is a clean no-op. Run it first; it takes seconds and touches nothing.
 
 ---
 

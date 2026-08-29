@@ -194,6 +194,41 @@ if (accepted.length) {
 if (diffs.length) {
   console.log(`\nFAIL — ${diffs.length} difference(s):`);
   diffs.forEach((d) => console.log('  - ' + d));
+  console.log(`
+------------------------------------------------------------------------------
+WHAT THIS MEANS
+
+The migration journal now builds a schema that
+docs/db/prod-schema-reference.sql does not describe. That reference is what
+production is believed to have, so this is the shape of "a migration landed
+and the database was never migrated".
+
+This exact failure is what PR #30 would have produced. It merged instead,
+deployed, and production returned HTTP 500 on every screenshot upload, every
+place-detail page, /review and the 5-minute cron until the migrations were
+applied by hand.
+
+HOW TO FIX IT — both steps, in this order
+
+  1. APPLY THE MIGRATIONS to production. This is the step that actually
+     un-breaks production; nothing else here does.
+
+         npm run db:migrate        # atomic: one PRAGMA/BEGIN/.../COMMIT batch
+
+     Take a backup first and read docs/PHASE_B_RUNBOOK.md. Never run
+     \`drizzle-kit push\` against a shared database - it rebuilds tables.
+
+  2. THEN refresh docs/db/prod-schema-reference.sql from the migrated
+     production database (read-only \`.schema\` dump) and re-run this script.
+
+Do not do step 2 alone. Editing the reference until this script goes green,
+without applying the migrations, silences the check and leaves production
+broken in exactly the way it was broken this morning.
+
+If a diff listed above is a deliberate, functionally-equivalent spelling difference,
+add it to isAcceptedEquivalence() in this file with a comment saying why -
+do not paper over it in the reference.
+------------------------------------------------------------------------------`);
   process.exitCode = 1;
 } else {
   console.log('\nPASS — a fresh database from the journal is schema-equivalent to the reference.');

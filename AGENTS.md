@@ -218,9 +218,11 @@ a reclaimed item cannot be finished twice. A requeued item also gets a `next_att
 
 The queue columns on `sources` are read by widely-used queries, not only the queue paths
 (`getSourcesForPlace` selects them, so place detail breaks too). Apply the migrations to Turso
-**before** promoting the deployment that reads them — this branch deliberately ships the migration
-files without applying them. The timing invariants (lease TTL > item budget, run budget
-> item budget) are asserted by `src/__tests__/mass-upload/queue-config.test.ts` — change values in
+**before** promoting the deployment that reads them — shipping them unapplied is exactly what took
+production down on 2026-08-29 (see "Database migrations" below).
+
+The timing invariants (lease TTL > item budget, run budget > item budget) are asserted by
+`src/__tests__/mass-upload/queue-config.test.ts` — change values in
 `src/lib/mass-upload/queue-config.ts`, not in scattered constants, and keep route `maxDuration` and
 `vercel.json` in sync with `MASS_UPLOAD_MAX_DURATION_SECONDS`.
 
@@ -233,6 +235,29 @@ never re-charges the API. Anything that adds an upstream call to this pipeline s
 
 Load/kill testing runs against a throwaway Docker libSQL DB and a local blob server — never against
 Turso or the production Blob store. See `scripts/mass-upload-loadtest/README.md`.
+
+## Database migrations (production-critical)
+
+**A merged migration file is not an applied migration.** `tsc`, `jest` and `next build` never
+touch the database, so a PR that adds a migration is green whether or not production ever runs it.
+PR #30 did exactly that and 500'd live uploads, place pages, `/review` and the cron for an hour.
+
+`docs/db/MIGRATION_SAFETY.md` is the authoritative account: what the CI `schema-drift` job
+(`node scripts/verify-baseline-schema.mjs`) does and does not prove, the still-open deploy-time
+guard, and the standing rules. Read it before touching anything under `src/db/migrations/`.
+
+The short version:
+
+- Adding a migration means refreshing `docs/db/prod-schema-reference.sql` too, **after** applying
+  the migration to production. The CI job fails until the two agree; regenerating the reference
+  without applying is how you silence the check and keep the outage.
+- Never `drizzle-kit push` against a shared database — it rebuilds tables. `npm run db:migrate`
+  only, and it is atomic (`docs/PHASE_B_RUNBOOK.md` §1).
+- The `users.email` inline-`UNIQUE`-vs-named-index difference is an accepted equivalence in
+  `verify-baseline-schema.mjs`. Leave it; "fixing" it means a table rebuild.
+- `scripts/*.mjs` under `scripts/` that model the database (`verify-baseline-schema`,
+  `rehearse-ledger-reconciliation`) must stay runnable with no credentials and no network, and
+  must not hardcode counts that change when a migration is added.
 
 ## Theming (two visual themes, one component architecture)
 

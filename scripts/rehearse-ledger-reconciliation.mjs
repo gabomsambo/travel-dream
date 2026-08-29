@@ -3,13 +3,16 @@
  * Rehearse the Phase B ledger reconciliation (docs/PHASE_B_RUNBOOK.md) against a
  * throwaway local SQLite database that simulates production:
  *
- *   - schema built from docs/db/prod-schema-reference.sql
+ *   - schema built from src/db/migrations/0000_baseline.sql (production's
+ *     schema at the moment its ledger held those 15 rows)
  *   - `__drizzle_migrations` pre-loaded with the 15 pre-baseline ledger rows
  *
  * It then shows both outcomes:
  *   1. WITHOUT reconciliation -> `migrate()` replays the baseline and fails
- *      ("table already exists"), which is what would happen to production today.
- *   2. WITH reconciliation    -> `migrate()` is a clean no-op.
+ *      ("table already exists") — what would have happened to production had
+ *      Phase B not been run.
+ *   2. WITH reconciliation    -> `migrate()` succeeds, applying only the
+ *      journal entries newer than the baseline, and is a no-op on a second run.
  *
  * SAFETY: this never connects to a live database. It only ever opens a `file:`
  * SQLite database in a temp dir, which is deleted on exit. Run it before Phase B
@@ -28,7 +31,6 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const migrationsFolder = path.join(repoRoot, 'src/db/migrations');
-const referenceSql = path.join(repoRoot, 'docs/db/prod-schema-reference.sql');
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-ledger-rehearsal-'));
 process.on('exit', () => fs.rmSync(workDir, { recursive: true, force: true }));
 
@@ -46,8 +48,8 @@ const baselineSql = fs.readFileSync(path.join(migrationsFolder, `${baseline.tag}
 const baselineHash = crypto.createHash('sha256').update(baselineSql).digest('hex');
 
 function statements(sql) {
-  // Strip comment-only lines first: the reference dump's header comment contains
-  // a semicolon, which would otherwise split a statement mid-comment.
+  // Strip comment-only lines first: a header comment containing a semicolon
+  // would otherwise split a statement mid-comment.
   const stripped = sql.replace(/^\s*--.*$/gm, '');
   const out = [];
   let buf = '';
@@ -66,13 +68,30 @@ function statements(sql) {
   return out.map((s) => s.trim()).filter(Boolean);
 }
 
-/** Build a local stand-in for production: real schema + the old ledger rows. */
+/**
+ * Build a local stand-in for production *at the moment Phase B runs*: the
+ * baseline-era schema plus the 15 old ledger rows.
+ *
+ * The schema comes from `0000_baseline.sql`, not from
+ * docs/db/prod-schema-reference.sql. The reference tracks production as it is
+ * *today* and moves forward every time a migration is applied there, so
+ * building from it would hand this rehearsal a database that already contains
+ * the columns the post-baseline migrations add — a state that never existed,
+ * and one where scenario 2 dies on `duplicate column name`. The baseline is by
+ * construction the schema production had when its ledger held those 15 rows,
+ * and `scripts/verify-baseline-schema.mjs` is what keeps it equivalent to the
+ * reference.
+ */
 async function simulateProduction(name) {
   const file = path.join(workDir, name);
   const client = createClient({ url: `file:${file}` });
-  for (const stmt of statements(fs.readFileSync(referenceSql, 'utf8'))) {
+  for (const stmt of statements(baselineSql.replace(/-->\s*statement-breakpoint/g, ''))) {
     await client.execute(stmt);
   }
+  // The baseline does not create drizzle's ledger table; production already had it.
+  await client.execute(
+    'CREATE TABLE IF NOT EXISTS __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',
+  );
   for (const [i, createdAt] of PRE_BASELINE_LEDGER.entries()) {
     await client.execute({
       sql: 'INSERT INTO __drizzle_migrations ("hash", "created_at") VALUES (?, ?)',
@@ -119,11 +138,18 @@ await after.execute({
 });
 
 const reconciled = await tryMigrate(after);
-console.log(`\n[2] migrate() AFTER reconciliation   -> ${reconciled.ok ? 'clean no-op as expected' : 'FAILED (UNEXPECTED)'}`);
+const pendingAfterBaseline = journal.entries.length - 1;
+console.log(
+  `\n[2] migrate() AFTER reconciliation   -> ${
+    reconciled.ok
+      ? `succeeded as expected (applies the ${pendingAfterBaseline} migration(s) newer than the baseline)`
+      : 'FAILED (UNEXPECTED)'
+  }`,
+);
 if (!reconciled.ok) console.log(`    ${reconciled.error}`);
 
 const finalLedger = await ledger(after);
-console.log(`    ledger rows: ${finalLedger.length}`);
+console.log(`    ledger rows: ${finalLedger.length} (expected ${journal.entries.length})`);
 finalLedger.forEach((r) => console.log(`      ${r.created_at}  ${r.hash}`));
 
 // Migrating twice must stay a no-op and must not duplicate ledger rows.
@@ -131,12 +157,19 @@ const again = await tryMigrate(after);
 const ledgerAfterSecondRun = await ledger(after);
 console.log(`\n[3] migrate() run a second time      -> ${again.ok ? 'clean no-op' : 'FAILED'} (${ledgerAfterSecondRun.length} ledger row(s))`);
 
+// The end state is one ledger row per journal entry: the baseline row the
+// reconciliation writes, plus one for every migration `migrate()` then applies.
+// Do NOT hardcode this - it was pinned at 1, which made the script exit
+// non-zero the moment PR #30 added two migrations, even though every scenario
+// above still behaved exactly as documented.
+const expectedLedgerRows = journal.entries.length;
+
 const pass =
   !unreconciled.ok &&
   reconciled.ok &&
   again.ok &&
-  finalLedger.length === 1 &&
-  ledgerAfterSecondRun.length === 1 &&
+  finalLedger.length === expectedLedgerRows &&
+  ledgerAfterSecondRun.length === expectedLedgerRows &&
   String(finalLedger[0].hash) === baselineHash;
 
 console.log(`\n${pass ? 'PASS — runbook reconciliation behaves as documented.' : 'FAIL — runbook needs revisiting.'}`);

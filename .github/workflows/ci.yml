@@ -42,3 +42,29 @@ jobs:
           AUTH_GOOGLE_ID: "fake-google-id"
           AUTH_GOOGLE_SECRET: "fake-google-secret"
           NEXTAUTH_URL: "http://localhost:3000"
+
+  # Migration drift guard. Replays the migration journal into a throwaway local
+  # SQLite file and compares it against docs/db/prod-schema-reference.sql — the
+  # only check here that can notice a migration landed without the database
+  # being migrated. tsc, jest and next build all pass in that situation; PR #30
+  # did exactly that and took production down for an hour.
+  #
+  # A separate job on purpose:
+  #   - it needs Node >= 22 for `node:sqlite` (the `ci` job pins 20, where the
+  #     script cannot even load), and bumping the whole job would change the
+  #     runtime under tsc/jest/build for no benefit here;
+  #   - it needs no dependencies, no credentials and no network, so it skips
+  #     `npm ci` entirely and finishes in seconds, in parallel with `ci`.
+  schema-drift:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches .nvmrc. `node:sqlite` was added in Node 22.5.
+          node-version: 22
+
+      - name: Migration drift guard
+        run: node scripts/verify-baseline-schema.mjs

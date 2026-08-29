@@ -1,9 +1,20 @@
 -- travel-dream PRODUCTION schema (read-only dump) — ground truth for baselining
 -- captured 69 objects; NO row data included
 --
--- Captured 2026-07-24 from the production Turso database, schema only, no rows.
+-- Body captured 2026-07-24 from the production Turso database, schema only, no rows.
 -- This is the reference `src/db/migrations/0000_baseline.sql` was built to reproduce.
--- Verify with: node scripts/verify-baseline-schema.mjs
+-- Verify with: node scripts/verify-baseline-schema.mjs (CI runs this on every PR).
+--
+-- 2026-08-29 — `sources` updated for the two PR #30 migrations
+-- (`processing_interruptions`, `processing_lease_id`, `next_attempt_at`), which were
+-- applied to production by hand after they shipped unapplied and 500'd live traffic.
+-- Derived without production access, by replaying
+-- `src/db/migrations/20260725233809_*.sql` and `20260726020620_*.sql` onto this file
+-- and copying back SQLite's resulting `sqlite_master.sql` for `sources`. Production
+-- received those same ALTER statements verbatim on the same engine version
+-- (SQLite 3.47.0), and `ALTER TABLE ... ADD COLUMN` appends the column-def text
+-- unchanged, so the stored DDL matches.
+--
 -- Do not hand-edit. To refresh: turso db shell <db> ".schema" (read-only) and re-verify.
 
 -- [table] __drizzle_migrations
@@ -147,7 +158,7 @@ CREATE TABLE `sources` (
 	`meta` text,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
-, user_id text REFERENCES users(id) ON DELETE CASCADE, processing_status text DEFAULT 'pending', processing_attempts integer DEFAULT 0, processing_error text, processing_started_at text);
+, user_id text REFERENCES users(id) ON DELETE CASCADE, processing_status text DEFAULT 'pending', processing_attempts integer DEFAULT 0, processing_error text, processing_started_at text, `processing_interruptions` integer DEFAULT 0, `processing_lease_id` text, `next_attempt_at` text);
 
 -- [table] sources_to_places
 CREATE TABLE `sources_to_places` (

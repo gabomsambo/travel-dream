@@ -1,0 +1,29 @@
+# no-mistakes gate configuration for travel-dream.
+#
+# Read ONLY from the default branch at a pinned SHA, never from a pushed
+# branch, so a feature branch cannot change what executes here.
+
+commands:
+  # Deterministic gates. The pipeline runs in a fresh worktree with no
+  # node_modules, so each command installs on demand and reuses the install
+  # if an earlier step already made one.
+  #
+  # test: type check only. It is intentionally NOT the jest suite --
+  # .github/workflows/ci.yml owns broad regression (tsc + jest + build) on
+  # every PR, and no-mistakes' local Test step is targeted validation of the
+  # change's intent, not a second full suite. `npx tsc --noEmit` is clean on
+  # main (verified 2026-08-29; the only errors locally come from a stale
+  # .next/, which a fresh worktree does not have).
+  test: 'if [ ! -d node_modules ]; then npm ci --prefer-offline --no-audit --silent || exit 1; fi; npx tsc --noEmit'
+
+  # lint: `next lint` exits 0 today (warnings only, verified 2026-08-29), so
+  # it reports real static-analysis signal without failing the step and
+  # triggering auto-fix rounds against pre-existing warnings.
+  lint: 'if [ ! -d node_modules ]; then npm ci --prefer-offline --no-audit --silent || exit 1; fi; npm run lint'
+
+# Keep generated files out of the review and document steps. package-lock.json
+# is ~19k lines; a single dependency bump otherwise dominates the review diff,
+# and review cost scales with diff size (it was the largest step in every
+# measured run).
+ignore_patterns:
+  - package-lock.json

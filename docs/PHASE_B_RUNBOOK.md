@@ -1,16 +1,22 @@
 # Phase B runbook — reconcile production's migration ledger to the baseline
 
 **Status: DONE — executed against production. Do not run it again.**
-Re-running step 4's `DELETE FROM __drizzle_migrations` would *un-record* migrations that are
-already applied, and the next `db:migrate` would then die on `duplicate column name`.
+The dangerous statement is the `DELETE FROM __drizzle_migrations` in **§5, "Step 3 — Reconcile
+the ledger"**. Re-running it would *un-record* migrations that are already applied, and the next
+`db:migrate` would then replay them and die on `duplicate column name`. (§4 and §6 are read-only
+and safe to re-run.)
+
+**§7's rollback is now obsolete for the same reason.** It runs the identical `DELETE` and then
+restores the 15 pre-baseline rows; after that the next `db:migrate` replays the baseline and dies
+on `table ... already exists`. It was written to undo the reconciliation on the day it was done.
+Do not use it now.
 
 The production state this rests on was **measured read-only against production by a separate
 investigation** — the `td-prod-schema-drift` scout report, §3.1 and §3.3 — not by this runbook and
 not by the PR that added this status block, neither of which had production access. That
 investigation found `__drizzle_migrations` holding the baseline row plus one row per migration
 applied since, and the 15 pre-baseline rows preserved in `__drizzle_migrations_prebaseline_backup`.
-It also judged Phase B correct and complete. Anyone relying on §7's rollback, which reads from that
-backup table, should re-confirm the table still exists before depending on it.
+It also judged Phase B correct and complete.
 
 This document is kept as the reference for how the reconciliation was done and why. Everything
 below describes it in its original future tense.
@@ -231,6 +237,10 @@ Finally, smoke-test the app:
 ---
 
 ## 7. Rollback
+
+> **Obsolete — do not run this now.** It was the same-day undo for the reconciliation. Migrations
+> have been applied since, so restoring the pre-baseline ledger would make the next `db:migrate`
+> replay the baseline and fail on `table ... already exists`. See the status block at the top.
 
 The reconciliation is metadata-only and reversible without touching app data:
 

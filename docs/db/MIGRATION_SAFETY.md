@@ -40,15 +40,29 @@ authorised and happens right after that PR merges — separately, because a requ
 never run on `main` would block every merge including the one that introduces it. Until that is
 done, this guard tells you; it does not stop you.
 
-The script has two modes and a diff means opposite things in each — it prints the matching
-remediation for the one you invoked:
+The script has two modes, and it prints the remediation matching the one you invoked:
 
 - `node scripts/verify-baseline-schema.mjs` (CI, the default) compares the journal against the
   checked-in reference. A diff means a migration landed that the reference does not describe.
 - `node scripts/verify-baseline-schema.mjs <live-dump.sql> src/db/migrations`
   (`docs/PHASE_B_RUNBOOK.md` §4) compares the journal against a read-only `.schema` dump of a live
-  database. A diff there means **that database has drifted**: stop and re-baseline, do not
-  `db:migrate` to catch it up, and do not touch the checked-in reference.
+  database. Here the direction of each diff decides the fix, and the script prints them separately:
+  `EXTRA IN FRESH` means the **journal is ahead** of that database — a migration landed and was
+  never applied, so apply it (this is the PR #30 shape); `MISSING FROM FRESH` means **that database
+  is ahead** — real drift, so stop and re-baseline rather than `db:migrate`. Either way the
+  checked-in reference is not the file being compared, so do not edit it to make the run go green,
+  and rule out a stale or truncated dump first — a truncated dump looks exactly like an unapplied
+  migration.
+
+### `scripts/rehearse-ledger-reconciliation.mjs` — run by nobody automatically
+
+The rehearsal that models the ledger reconciliation is not in CI. Its pass criteria hardcoded
+`finalLedger.length === 1`, which silently rotted the moment PR #30 added two migrations, and
+nothing stops that recurring: `CLAUDE.md` records the "must not hardcode counts" rule, but no job
+enforces it. Wiring it into `schema-drift` would cost that job its deliberate no-`npm ci`,
+no-network hermeticity, since unlike the guard the rehearsal imports `@libsql/client` and
+`drizzle-orm`. Stated as a known limit rather than a proposal; a separate job with `npm ci` is the
+follow-up if the rot proves likely to recur.
 
 ## The gap that is still open — a deploy-time applied-migrations guard
 

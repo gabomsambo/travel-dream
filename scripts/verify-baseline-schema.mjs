@@ -25,11 +25,11 @@ const defaultReferenceSqlPath = path.join(repoRoot, 'docs/db/prod-schema-referen
 const referenceSqlPath = process.argv[2] ?? defaultReferenceSqlPath;
 const migrationsDir = process.argv[3] ?? path.join(repoRoot, 'src/db/migrations');
 
-// Two supported modes, and a diff means opposite things in each. Against the
-// checked-in reference (CI, the default) a diff means a migration landed that
-// the reference does not describe. Against an operator-supplied live `.schema`
-// dump (docs/PHASE_B_RUNBOOK.md §4) it means that database has drifted from the
-// journal. The remediation for one is wrong for the other, so pick per mode.
+// Two supported modes. Against the checked-in reference (CI, the default) a diff
+// means a migration landed that the reference does not describe. Against an
+// operator-supplied live `.schema` dump (docs/PHASE_B_RUNBOOK.md §4) the meaning
+// depends on which side is ahead: the journal being ahead is an unapplied
+// migration, the dump being ahead is drift, and the two need opposite fixes.
 const usingCheckedInReference = path.resolve(referenceSqlPath) === defaultReferenceSqlPath;
 const referenceLabel = usingCheckedInReference ? 'docs/db/prod-schema-reference.sql' : referenceSqlPath;
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-schema-verify-'));
@@ -153,13 +153,19 @@ const diffs = [];
 const accepted = [];
 const allTables = [...new Set([...Object.keys(reference), ...Object.keys(fresh)])].sort();
 
+// Each diff carries which side is ahead, because the remediation depends on it.
+// 'journal-ahead': the journal builds something the reference lacks - a migration
+// that was never applied. 'reference-ahead': the reference has something no
+// migration produces - drift. 'mismatch': same object, two definitions.
+const pushDiff = (direction, text) => diffs.push({ direction, text });
+
 for (const t of allTables) {
   if (!reference[t]) {
-    diffs.push(`TABLE ONLY IN FRESH: ${t}`);
+    pushDiff('journal-ahead', `TABLE ONLY IN FRESH: ${t}`);
     continue;
   }
   if (!fresh[t]) {
-    diffs.push(`TABLE MISSING FROM FRESH: ${t}`);
+    pushDiff('reference-ahead', `TABLE MISSING FROM FRESH: ${t}`);
     continue;
   }
   for (const kind of ['cols', 'fks', 'indexes']) {
@@ -173,9 +179,10 @@ for (const t of allTables) {
       if (!frs.has(k)) {
         const match = fresh[t][kind].find((f) => isAcceptedEquivalence(t, v, f));
         if (match) accepted.push(`${t}: ${JSON.stringify(v)} == ${JSON.stringify(match)}`);
-        else diffs.push(`${t}.${kind}: MISSING FROM FRESH ${JSON.stringify(v)}`);
+        else pushDiff('reference-ahead', `${t}.${kind}: MISSING FROM FRESH ${JSON.stringify(v)}`);
       } else if (JSON.stringify(frs.get(k)) !== JSON.stringify(v)) {
-        diffs.push(
+        pushDiff(
+          'mismatch',
           `${t}.${kind}: MISMATCH\n      reference: ${JSON.stringify(v)}\n      fresh    : ${JSON.stringify(frs.get(k))}`,
         );
       }
@@ -183,7 +190,7 @@ for (const t of allTables) {
     for (const [k, v] of frs) {
       if (ref.has(k)) continue;
       if (reference[t][kind].some((r) => isAcceptedEquivalence(t, r, v))) continue;
-      diffs.push(`${t}.${kind}: EXTRA IN FRESH ${JSON.stringify(v)}`);
+      pushDiff('journal-ahead', `${t}.${kind}: EXTRA IN FRESH ${JSON.stringify(v)}`);
     }
   }
 }
@@ -202,7 +209,12 @@ if (accepted.length) {
 
 if (diffs.length) {
   console.log(`\nFAIL — ${diffs.length} difference(s):`);
-  diffs.forEach((d) => console.log('  - ' + d));
+  diffs.forEach((d) => console.log('  - ' + d.text));
+
+  const count = (direction) => diffs.filter((d) => d.direction === direction).length;
+  const journalAhead = count('journal-ahead');
+  const referenceAhead = count('reference-ahead');
+  const mismatched = count('mismatch');
   const whatThisMeans = usingCheckedInReference
     ? `WHAT THIS MEANS
 
@@ -232,34 +244,57 @@ HOW TO FIX IT — both steps, in this order
 Do not do step 2 alone. Editing the reference until this script goes green,
 without applying the migrations, silences the check and leaves production
 broken in exactly the way it was broken this morning.`
-    : `WHAT THIS MEANS
+    : [
+        `WHAT THIS MEANS
 
 You compared an operator-supplied reference against the migration journal:
 
     reference : ${referenceSqlPath}
     journal   : ${migrationsDir}
 
-That is the read-only drift check in docs/PHASE_B_RUNBOOK.md §4, where the
-reference is a \`.schema\` dump of a live database. So these differences mean
-THAT DATABASE HAS DRIFTED from the journal — its schema is not what replaying
-the journal produces. This is NOT the "a migration landed unapplied" case.
+That is the read-only check in docs/PHASE_B_RUNBOOK.md §4, where the reference
+is a \`.schema\` dump of a live database. The diffs above do NOT all mean the
+same thing — the fix depends on which side is ahead, so read them by direction.`,
 
-WHAT TO DO
+        journalAhead &&
+          `  "EXTRA IN FRESH" / "TABLE ONLY IN FRESH" (${journalAhead} above)
+  → THE JOURNAL IS AHEAD OF THAT DATABASE: a migration landed and was never
+    applied to it. This is the PR #30 shape — production was missing three
+    \`sources\` columns and returned HTTP 500 on every screenshot upload, every
+    place-detail page, /review and the 5-minute cron until they were applied.
 
-  1. STOP. Do not run \`npm run db:migrate\` to "catch it up" — the journal is
-     not a description of that database, and applying it can collide with
-     columns that already exist.
+    APPLY THE MIGRATIONS. That is what un-breaks it; nothing else here does.
 
-  2. Do not edit docs/db/prod-schema-reference.sql either. It is not the file
-     compared in this run, so changing it would hide the drift without
-     touching it.
+        npm run db:migrate      # atomic: one PRAGMA/BEGIN/.../COMMIT batch
 
-  3. Rule out the boring causes first: an incomplete or stale \`.schema\` dump,
-     and a journal that is not the one that database was built from.
+    Take a backup first. Never \`drizzle-kit push\` against a shared database -
+    it rebuilds tables.`,
 
-  4. If the drift is real, re-baseline rather than reconcile. Read
-     docs/PHASE_B_RUNBOOK.md — §4 is the step that produced this comparison,
-     and its instruction on a diff is to stop and re-baseline.`;
+        referenceAhead &&
+          `  "MISSING FROM FRESH" / "TABLE MISSING FROM FRESH" (${referenceAhead} above)
+  → THAT DATABASE IS AHEAD OF THE JOURNAL: it carries objects that replaying
+    the journal does not produce. That is drift, and no migration reconciles it.
+
+    STOP. Do not run \`npm run db:migrate\` to "catch it up". Re-baseline rather
+    than reconcile — docs/PHASE_B_RUNBOOK.md §4 is the step that produced this
+    comparison, and its instruction on a diff is to stop and re-baseline.`,
+
+        mismatched &&
+          `  "MISMATCH" (${mismatched} above)
+  → The same object is defined differently on each side. No migration produces
+    that either; treat it as drift and stop, as above.`,
+
+        `  BEFORE ACTING EITHER WAY
+
+    Rule out the boring causes: an incomplete or stale \`.schema\` dump, and a
+    journal that is not the one that database was built from. A truncated dump
+    looks exactly like an unapplied migration.
+
+    And note that docs/db/prod-schema-reference.sql is NOT the file compared in
+    this run. Editing it would hide this result without changing anything.`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
 
   console.log(`
 ------------------------------------------------------------------------------

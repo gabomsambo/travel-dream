@@ -147,12 +147,18 @@ const freshStatements = journal.entries.flatMap((e) =>
   splitStatements(fs.readFileSync(path.join(migrationsDir, `${e.tag}.sql`), 'utf8')),
 );
 
-// The disambiguator for live-dump mode: the journal's newest entry is what an
-// operator compares against `SELECT MAX(created_at) FROM __drizzle_migrations`
-// on the database they dumped. Migrator and journal both key off epoch ms.
-const journalNewest = journal.entries.reduce((newest, e) => (newest && newest.when >= e.when ? newest : e), null);
+// The disambiguators for live-dump mode. drizzle records each applied migration's
+// `created_at` as that journal entry's `when`, so both are epoch ms and directly
+// comparable against the ledger on the database the operator dumped. The baseline
+// entry answers the precondition (is that ledger reconciled at all); the newest
+// entry answers whether the journal is ahead of it.
+const byWhen = (a, b) => (a && a.when >= b.when ? a : b);
+const journalBaseline = journal.entries[0] ?? null;
+const journalNewest = journal.entries.reduce((newest, e) => byWhen(newest, e), null);
 const journalNewestWhen = journalNewest?.when ?? null;
 const journalNewestTag = journalNewest?.tag ?? null;
+const journalBaselineWhen = journalBaseline?.when ?? null;
+const journalBaselineTag = journalBaseline?.tag ?? null;
 
 const reference = introspect(build(path.join(workDir, 'reference.db'), referenceStatements));
 const fresh = introspect(build(path.join(workDir, 'fresh.db'), freshStatements));
@@ -269,7 +275,7 @@ additive migration adds to the journal side, an unapplied destructive one (DROP
 COLUMN / DROP TABLE, or a drizzle-kit table rebuild that removes a column) adds
 to the dump side, an unapplied column alteration redefines an object on both
 sides, and a single unapplied rename produces two opposite-direction diffs at
-once. Real drift can produce any of them too. Work the three steps instead.`,
+once. Real drift can produce any of them too. Work the four steps instead.`,
 
         `  STEP 1 — rule out the boring causes before interpreting anything.
 
@@ -280,23 +286,45 @@ once. Real drift can produce any of them too. Work the three steps instead.`,
     Note also that docs/db/prod-schema-reference.sql is NOT the file compared in
     this run. Editing it would hide this result without changing anything.`,
 
-        `  STEP 2 — ask the one question that actually decides it:
-  IS THE JOURNAL AHEAD OF THAT DATABASE'S MIGRATION LEDGER?
+        `  STEP 2 — read the ledger of the database you dumped. That, not the
+  diffs, is what decides this. Two read-only queries:
 
-    journal newest \`when\` : ${journalNewestWhen ?? '(journal has no entries)'}${
-      journalNewestTag ? `  (${journalNewestTag})` : ''
-    }
-        from ${path.join(migrationsDir, 'meta/_journal.json')}
-
-    ledger newest        : run this against the database you dumped —
-
+        SELECT COUNT(*) FROM __drizzle_migrations WHERE created_at = ${
+          journalBaselineWhen ?? '<baseline when>'
+        };
         SELECT MAX(created_at) FROM __drizzle_migrations;
 
-    Both are epoch milliseconds, so compare them directly.`,
+    From ${path.join(migrationsDir, 'meta/_journal.json')}:
 
-        `  STEP 3 — decide from step 2, not from the diffs.
+        journal baseline \`when\` : ${journalBaselineWhen ?? '(journal has no entries)'}${
+          journalBaselineTag ? `  (${journalBaselineTag})` : ''
+        }
+        journal newest   \`when\` : ${journalNewestWhen ?? '(journal has no entries)'}${
+          journalNewestTag ? `  (${journalNewestTag})` : ''
+        }
 
-    Journal newer than the ledger
+    drizzle records each applied migration's \`created_at\` as that journal
+    entry's \`when\`, so all of these are epoch milliseconds and compare directly.`,
+
+        `  STEP 3 — the precondition, from the FIRST query. Check this before
+  comparing anything else.
+
+    Count is 0 — the baseline entry is not in that ledger
+      → That ledger predates the baseline. \`npm run db:migrate\` would replay
+        ${journalBaselineTag ?? 'the baseline'}.sql and die on "table ... already exists"; this is the
+        situation docs/PHASE_B_RUNBOOK.md §1 describes. DO NOT MIGRATE. The
+        recovery is the ledger reconciliation in §5, "Step 3 — Reconcile the
+        ledger" — not \`db:migrate\`, and not re-baselining. (§5 is marked done
+        because production's ledger is already reconciled; it applies here only
+        to a database whose ledger is not. Read the runbook's status block
+        first.)
+
+    Count is 1 — the ledger is reconciled
+      → Continue to step 4.`,
+
+        `  STEP 4 — compare the newest values from step 2. Three outcomes.
+
+    Journal NEWER than the ledger
       → Migrations are merged but were never applied to that database, whatever
         direction the diffs point. This is the PR #30 shape — production was
         missing three \`sources\` columns and returned HTTP 500 on every
@@ -311,14 +339,24 @@ once. Real drift can produce any of them too. Work the three steps instead.`,
         Take a backup first. Never \`drizzle-kit push\` against a shared
         database - it rebuilds tables.
 
-    Ledger at or ahead of the journal, and the schemas still differ
-      → Genuine drift: no migration reconciles it. STOP. Do not run
-        \`npm run db:migrate\` to "catch it up". Re-baseline rather than
-        reconcile — docs/PHASE_B_RUNBOOK.md §4 is the step that produced this
-        comparison, and its instruction on a diff is to stop and re-baseline.`,
+    Journal and ledger LEVEL, and the schemas still differ
+      → Genuine drift: that database has been changed outside the migrations,
+        and no migration reconciles it. STOP. Do not run \`npm run db:migrate\`
+        to "catch it up". Re-baseline rather than reconcile —
+        docs/PHASE_B_RUNBOOK.md §4 is the step that produced this comparison,
+        and its instruction on a diff is to stop and re-baseline.
+
+    Ledger NEWER than the journal
+      → That database has applied migrations this checkout does not contain:
+        YOUR WORKING TREE IS BEHIND THE DATABASE. This is not drift, and it is
+        neither something to migrate nor something to re-baseline — doing
+        either would destroy work that is already live.
+
+        Fetch and check out the commit whose journal matches that database,
+        then re-run this comparison before concluding anything from the diffs.`,
 
         `  EVIDENCE — what differs, and what each shape is consistent with.
-  Diagnostics only. None of these is an instruction to act; step 3 decides.` +
+  Diagnostics only. None of these is an instruction to act; steps 3 and 4 decide.` +
           [
             journalAhead &&
               `

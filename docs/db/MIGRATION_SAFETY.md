@@ -53,14 +53,25 @@ The script has two modes, and it prints the remediation matching the one you inv
   removes a column), `MISMATCH` fits an unapplied column *alteration* — drizzle-kit cannot `ALTER` a
   SQLite column in place and renders it as a table rebuild that redefines the column — and one
   unapplied rename emits diffs in both directions at once. So the script routes the verdict through
-  the ledger instead: compare the journal's newest `when` (it prints the value) against
-  `SELECT MAX(created_at) FROM __drizzle_migrations` on the dumped database. Journal newer ⇒
-  merged-but-unapplied whatever the diffs look like, so `npm run db:migrate` (the PR #30 shape);
-  ledger level with or ahead of the journal while the schemas still differ ⇒ genuine drift, so stop
-  and re-baseline rather than `db:migrate`. The per-direction listing is printed as evidence
-  subordinate to that check, not as an instruction. Either way the checked-in reference is not the
-  file being compared, so do not edit it to make the run go green, and rule out a stale or truncated
-  dump first — a truncated dump looks exactly like an unapplied migration.
+  the ledger instead, as a precondition plus a three-way comparison (it prints the journal values it
+  is comparing against):
+  - **Precondition** — `SELECT COUNT(*) FROM __drizzle_migrations WHERE created_at = <baseline
+    when>`. If the baseline entry is absent, that ledger predates the baseline and `db:migrate`
+    would replay `0000_baseline.sql` and die on `table ... already exists`; the recovery is the
+    ledger reconciliation in `docs/PHASE_B_RUNBOOK.md` §5, not `db:migrate` and not re-baselining.
+  - Otherwise compare the journal's newest `when` against `SELECT MAX(created_at) FROM
+    __drizzle_migrations`. Journal **newer** ⇒ merged-but-unapplied whatever the diffs look like, so
+    `npm run db:migrate` (the PR #30 shape). **Level**, with the schemas still differing ⇒ genuine
+    drift, so stop and re-baseline rather than `db:migrate`. Ledger **newer** ⇒ that database has
+    applied migrations this checkout does not contain, i.e. the working tree is behind the database:
+    neither drift nor something to migrate or re-baseline, so check out the commit whose journal
+    matches that database and re-run first.
+
+  drizzle records each applied migration's `created_at` as its journal entry's `when`, which is what
+  makes those comparisons well-defined. The per-direction listing is printed as evidence subordinate
+  to that check, not as an instruction. Either way the checked-in reference is not the file being
+  compared, so do not edit it to make the run go green, and rule out a stale or truncated dump first
+  — a truncated dump looks exactly like an unapplied migration.
 
 ### `scripts/rehearse-ledger-reconciliation.mjs` — run by nobody automatically
 

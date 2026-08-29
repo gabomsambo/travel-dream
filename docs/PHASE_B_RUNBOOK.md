@@ -6,8 +6,9 @@ the ledger"**. Re-running it would *un-record* migrations that are already appli
 `db:migrate` would then replay them and die on `duplicate column name`. (§4 is read-only and safe
 to re-run. **§6 is not**: its `SELECT` is read-only, but the step then runs `npm run db:migrate`
 against production — a write, which is a no-op today only because everything is applied. Its
-"expect exactly 1 row" is likewise historical; the ledger now holds one row per journal entry,
-three as of this branch, so it is not a live pass criterion.)
+"expect exactly 1 row" is likewise historical; the ledger now holds one row per entry in
+`src/db/migrations/meta/_journal.json`, so it is not a live pass criterion — see §4 for the
+derived version.)
 
 **§7's rollback is now obsolete for the same reason.** It runs the identical `DELETE` and then
 restores the 15 pre-baseline rows; after that the next `db:migrate` replays the baseline and dies
@@ -153,11 +154,35 @@ Also confirm the ledger is in the state this runbook assumes:
 ```sql
 -- read-only
 SELECT COUNT(*) AS rows, MAX(created_at) AS newest FROM __drizzle_migrations;
--- expect: rows = 15, newest = 1777154624696
 ```
 
-If `rows` is not 15 or `newest` is not 1777154624696, **stop** — someone has run a migration
-since this runbook was written. Re-derive the situation before continuing.
+**Historical pass criterion (pre-Phase-B, no longer what you should see):** `rows = 15,
+newest = 1777154624696`. Those are the 15 pre-baseline rows this runbook was written to
+reconcile. Phase B has since been executed, and §5 moved them into
+`__drizzle_migrations_prebaseline_backup`. A database still showing them today has not had
+Phase B applied.
+
+**Live criterion, post-Phase-B.** Do not hardcode a row count here; derive it from the repo, so
+it cannot rot the way the numbers above did:
+
+- `rows` should equal the number of entries in `src/db/migrations/meta/_journal.json` — the
+  baseline row plus one row per migration applied since.
+- `newest` should equal that journal's newest `when`. drizzle records each applied migration's
+  `created_at` as its journal entry's `when`, so the two are the same epoch-millisecond value.
+  This is the comparison `scripts/verify-baseline-schema.mjs` prints in live-dump mode, and it
+  is what decides unapplied-migration versus drift.
+
+*(That mapping and the row-count rule are **reasoned** from the journal and from the migrator's
+behaviour, not observed against production. The production ledger state they are expected to
+match — baseline row plus one row per migration applied since, with the 15 pre-baseline rows
+preserved in the backup table — was **measured read-only by the separate `td-prod-schema-drift`
+scout investigation**, §3.1 and §3.3, not by this runbook and not by the PR that revised this
+section.)*
+
+If `rows` and `newest` do not line up with the journal that way, **stop** and re-derive the
+situation before continuing — `scripts/verify-baseline-schema.mjs` step 3 and step 4 walk the
+possibilities, including a ledger that predates the baseline and a checkout that is behind the
+database.
 
 ---
 

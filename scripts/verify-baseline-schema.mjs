@@ -257,7 +257,7 @@ HOW TO FIX IT — both steps, in this order
 
 Do not do step 2 alone. Editing the reference until this script goes green,
 without applying the migrations, silences the check and leaves production
-broken in exactly the way it was broken this morning.`
+broken in exactly the way it was broken on 2026-08-29.`
     : [
         `WHAT THIS MEANS
 
@@ -308,7 +308,7 @@ both at once, and real drift can produce any of them.`,
         the PR #30 shape: production was missing three \`sources\` columns and
         returned HTTP 500 on every screenshot upload, every place-detail page,
         /review and the 5-minute cron until they were applied. It is also the
-        one case here fixed by running something against that database.
+        one shape here with a safe, standard, one-command remedy.
 
         APPLY THE MIGRATIONS — nothing else un-breaks it.
 

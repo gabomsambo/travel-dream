@@ -306,8 +306,14 @@ both at once, and real drift can produce any of them. Work the four steps.`,
   baseline is not in that ledger, which by itself does not say why. MAX tells
   the causes apart:
 
-    MAX is NULL, or no such table → a fresh, never-migrated database.
-        npm run db:migrate
+    MAX is NULL, or no such table → that ledger records no migration history
+        at all, and that is two different states. The dump tells them apart:
+        it holds ${Object.keys(reference).length} table(s), counted above.
+        Zero is a genuinely fresh database — \`npm run db:migrate\`. Non-zero
+        means a schema built outside the migrations (a \`drizzle-kit push\`,
+        or a restore that dropped the ledger); \`db:migrate\` would replay the
+        baseline and die on "table ... already exists", so reconcile the
+        ledger per §5 as below.
 
     MAX older than the baseline \`when\` → that ledger genuinely predates this
         baseline. DO NOT MIGRATE: \`db:migrate\` would replay the baseline
@@ -340,8 +346,13 @@ both at once, and real drift can produce any of them. Work the four steps.`,
 
     LEVEL, and the schemas still differ → genuine drift: that database was
         changed outside the migrations and no migration reconciles it. STOP;
-        do not \`db:migrate\` to "catch it up". Re-baseline per
-        docs/PHASE_B_RUNBOOK.md §4, the step that produced this comparison.
+        do not \`db:migrate\` to "catch it up". The recovery is a re-baseline:
+        take a fresh read-only \`.schema\` dump of that database as the new
+        docs/db/prod-schema-reference.sql, regenerate the baseline migration
+        so replaying the journal reproduces it, and reconcile the ledger to
+        match. This repo has no written step-by-step procedure for that yet
+        (docs/db/MIGRATION_SAFETY.md records the gap), so it is not a routine
+        operation to improvise mid-incident.
 
     MAX NEWER → that database has migrations this checkout lacks: YOUR
         CHECKOUT IS BEHIND IT, and the diffs above are not evidence of drift.

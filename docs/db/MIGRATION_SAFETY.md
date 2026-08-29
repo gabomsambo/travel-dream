@@ -58,7 +58,11 @@ The script has two modes, and it prints the remediation matching the one you inv
   - **Precondition** — `SELECT COUNT(*) FROM __drizzle_migrations WHERE created_at = <baseline
     when>`. A count of 0 means that ledger does not record *this checkout's* baseline entry, which
     on its own does not say why, so `MAX(created_at)` separates the causes: NULL (or no such table)
-    ⇒ a fresh database, migrate normally; MAX **older** than the baseline `when` ⇒ the ledger
+    ⇒ no recorded history at all, which the dump splits — no application tables ⇒ a genuinely fresh
+    database, migrate normally; application tables present ⇒ a schema built outside the migrations
+    (a `drizzle-kit push`, or a restore that dropped the ledger), where `db:migrate` would replay
+    the baseline and die on `table ... already exists`, so reconcile the ledger instead; MAX
+    **older** than the baseline `when` ⇒ the ledger
     genuinely predates the baseline, where `db:migrate` would replay `0000_baseline.sql` and die on
     `table ... already exists`, so the recovery is the ledger reconciliation in
     `docs/PHASE_B_RUNBOOK.md` §5; MAX **newer** ⇒ the database has moved past this checkout (it was
@@ -114,6 +118,16 @@ Sketch for whoever picks it up:
 - Run it as a deploy-gating step, and prove both directions against a throwaway libSQL container
   (see `scripts/mass-upload-loadtest/README.md`) before it gates anything real.
 - Never against a shared database, and never `drizzle-kit push`.
+
+## A second gap — no written re-baseline procedure
+
+The guard's drift verdict tells the operator to stop and re-baseline, and nothing in this repo
+says how: `docs/PHASE_B_RUNBOOK.md` §4 carries the instruction but no procedure, and no procedure
+exists anywhere else either *(grepped across `docs/`, `scripts/` and `CLAUDE.md` while reviewing
+the PR that added the guard)*. So the most consequential branch of that decision procedure
+currently depends on a document that has not been written. Writing it needs production access to
+validate against, which the PR that added the guard deliberately did not have — flagged here as a
+follow-up rather than improvised.
 
 ## Standing rules
 

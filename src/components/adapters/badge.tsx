@@ -5,7 +5,7 @@ import { Badge as BadgeV1, badgeVariants as badgeVariantsV1 } from "@/components
 import { Badge as BadgeV2, badgeVariants as badgeVariantsV2 } from "@/components/ui-v2/badge"
 import type { VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 
 export interface BadgeProps
   extends React.HTMLAttributes<HTMLDivElement>,
@@ -14,7 +14,7 @@ export interface BadgeProps
 }
 
 function Badge({ className, variant, asChild = false, ...props }: BadgeProps) {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return (

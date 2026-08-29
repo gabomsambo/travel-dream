@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
 import { Download, Trash2, Keyboard, Sun, Moon, Laptop, Grid3x3, List, Sparkles } from 'lucide-react'
@@ -14,7 +14,9 @@ import { Separator } from "@/components/adapters/separator"
 import { Switch } from "@/components/adapters/switch"
 import { toast } from 'sonner'
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog'
-import { useUIRefresh } from '@/lib/feature-flags'
+import { useUiTheme } from '@/components/ui-refresh-provider'
+import { setUiTheme } from '@/lib/ui-theme-actions'
+import { writeUiThemeCookie, type UiTheme } from '@/lib/ui-theme'
 import {
   Select,
   SelectContent,
@@ -34,11 +36,49 @@ export function SettingsClient() {
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [uiRefreshEnabled, toggleUIRefresh] = useUIRefresh()
+  const uiTheme = useUiTheme()
+  const uiRefreshEnabled = uiTheme === 'tropical'
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // The switch keeps its old position for the whole round-trip, so it is easy
+  // to click it again mid-flight; without this each extra click would fire a
+  // redundant server action racing the one already in progress. The ref is the
+  // actual guard — it is already true for a second click dispatched in the same
+  // tick — and the state drives `disabled`, so a click that would be dropped is
+  // visibly refused rather than silently swallowed.
+  const savingUiTheme = useRef(false)
+  const [isSavingUiTheme, setIsSavingUiTheme] = useState(false)
+
+  const toggleUIRefresh = (enabled: boolean) => {
+    if (savingUiTheme.current) return
+
+    const next: UiTheme = enabled ? 'tropical' : 'classic'
+
+    // The cookie is written client-side immediately, but the switch and the
+    // theme only change once router.refresh() has completed its RSC round-trip
+    // and the layout has re-rendered with the new value. The server action
+    // persists the same cookie durably.
+    savingUiTheme.current = true
+    setIsSavingUiTheme(true)
+    writeUiThemeCookie(next)
+    setUiTheme(next)
+      .catch((error) => {
+        // Nothing reaches the user here: no <Toaster /> is mounted anywhere in
+        // the app, so this toast is a no-op and only the console log lands. The
+        // client-written cookie means the choice still holds in this browser —
+        // it just is not persisted durably by the server.
+        console.error('UI theme save error:', error)
+        toast.error('Failed to save theme preference')
+      })
+      .finally(() => {
+        savingUiTheme.current = false
+        setIsSavingUiTheme(false)
+      })
+    router.refresh()
+  }
 
   const handleExportData = async () => {
     setIsExporting(true)
@@ -227,6 +267,7 @@ export function SettingsClient() {
               id="ui-refresh"
               checked={uiRefreshEnabled}
               onCheckedChange={toggleUIRefresh}
+              disabled={isSavingUiTheme}
             />
           </div>
         </CardContent>

@@ -5,7 +5,7 @@ import { Button as ButtonV1, buttonVariants as buttonVariantsV1 } from "@/compon
 import { Button as ButtonV2, buttonVariants as buttonVariantsV2 } from "@/components/ui-v2/button"
 import type { VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -15,7 +15,7 @@ export interface ButtonProps
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size = "default", asChild = false, ...props }, ref) => {
-    const [uiRefreshEnabled] = useUIRefresh()
+    const uiRefreshEnabled = useUiRefreshEnabled()
     const sizeOverride = size === "default" ? "h-10" : ""
 
     if (uiRefreshEnabled) {

@@ -50,9 +50,10 @@ jobs:
   # did exactly that and took production down for an hour.
   #
   # A separate job on purpose:
-  #   - it needs Node >= 22 for `node:sqlite` (the `ci` job pins 20, where the
-  #     script cannot even load), and bumping the whole job would change the
-  #     runtime under tsc/jest/build for no benefit here;
+  #   - it needs a Node with `node:sqlite` unflagged (the `ci` job pins 20,
+  #     where the module does not exist and the script cannot even load), and
+  #     bumping the whole job would change the runtime under tsc/jest/build
+  #     for no benefit here;
   #   - it needs no dependencies, no credentials and no network, so it skips
   #     `npm ci` entirely and finishes in seconds, in parallel with `ci`.
   #
@@ -75,7 +76,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Matches .nvmrc. `node:sqlite` was added in Node 22.5.
+          # Matches .nvmrc. `node:sqlite` was added in Node 22.5, behind
+          # `--experimental-sqlite` at first; this resolves to the latest
+          # 22.x, where it is on by default.
           node-version: 22
 
       - name: Migration drift guard

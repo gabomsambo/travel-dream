@@ -317,19 +317,32 @@ both at once, and real drift can produce any of them. Work the four steps.`,
 
         If the table itself is absent, §5's block cannot run as written — its
         backup and DELETE both read \`__drizzle_migrations\`. Create it first
-        with drizzle's own DDL, then apply §5's INSERT to record the baseline
-        entry; that leaves the ledger describing the schema already present,
-        which is the state §5 assumes.
+        with drizzle's own DDL:
 
             CREATE TABLE IF NOT EXISTS __drizzle_migrations
               (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric);
+
+        Then record what that database actually has. §5's INSERT writes the
+        baseline row alone, which describes the schema only if the database
+        is exactly at the baseline — reaching this message does not prove
+        that. Work out how far it has already advanced (the diffs above are
+        that comparison), then insert one row per journal entry whose effects
+        are already present, in journal order, each with its own hash and
+        \`when\` — §5's derivation snippet, with \`entries[0]\` replaced by the
+        entry you are recording. Afterwards \`db:migrate\` should apply only
+        the entries genuinely still missing, and a second run should be a
+        clean no-op; that is the check that you recorded the right set. If
+        you cannot establish which entries are already applied, do not guess
+        — recording the wrong set is what breaks the next migrate.
 
     MAX older than the baseline \`when\` → that ledger genuinely predates this
         baseline. DO NOT MIGRATE: \`db:migrate\` would replay the baseline
         (${journalBaselineTag ?? 'the baseline'}.sql) and die on "table ... already exists"
         (docs/PHASE_B_RUNBOOK.md §1). Reconcile the ledger per §5, "Step 3 —
         Reconcile the ledger" — §5 is marked done because production is already
-        reconciled, so read the runbook's status block first.
+        reconciled, so read the runbook's status block first. Its single-row
+        INSERT assumes the schema is at the baseline; if it has advanced past
+        it, record one row per already-applied entry as above.
 
     MAX newer than the baseline \`when\` → that database has moved past this
         checkout: it was re-baselined, or your checkout is behind it. DO NOT

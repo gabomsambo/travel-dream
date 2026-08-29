@@ -20,8 +20,14 @@ throwaway local SQLite file and compares the result against `docs/db/prod-schema
 the checked-in description of production's schema. If a migration lands without that reference
 being refreshed, the job fails and its output names the fix.
 
-It needs no credentials, no network and no `node_modules` — only Node >= 22.5 for `node:sqlite`,
-which is why it is a separate job (the main `ci` job pins Node 20, where the script cannot load).
+It needs no credentials, no network and no `node_modules` — only a Node with `node:sqlite`
+available *unflagged*, since the documented invocation passes no flags. The module does not exist
+at all before Node 22.5 *(measured: Node 20.20.2 fails with `ERR_UNKNOWN_BUILTIN_MODULE`)*, and on
+current Node 22 and 24 it is on by default *(measured: 22.23.1 and 24.13.0 both spell the option
+`--no-experimental-sqlite`, and a bare `require('node:sqlite')` succeeds on 22.23.1)*; on early
+22.x it was behind `--experimental-sqlite`, so a sufficiently old 22.x may still need that flag
+*(reasoned from that option spelling, not reproduced — no such build is installed here)*. That is
+why it is a separate job: the main `ci` job pins Node 20, where the script cannot load.
 
 **Know what this does and does not prove.** It proves the journal and the reference agree. It
 does *not* read production, so it cannot prove production was migrated. Its real job is to make
@@ -65,7 +71,10 @@ The script has two modes, and it prints the remediation matching the one you inv
     the ledger *table* is absent rather than merely empty, §5's block cannot run as written
     (its backup and `DELETE` both read `__drizzle_migrations`), so create it with drizzle's own
     `CREATE TABLE IF NOT EXISTS __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL,
-    created_at numeric)` and then apply §5's `INSERT`; MAX
+    created_at numeric)` and then record one row per journal entry the schema already contains —
+    §5's `INSERT` writes the baseline row alone, which is correct only for a database at the
+    baseline, and under-recording makes the next `db:migrate` replay migrations whose effects are
+    already there; MAX
     **older** than the baseline `when` ⇒ the ledger
     genuinely predates the baseline, where `db:migrate` would replay `0000_baseline.sql` and die on
     `table ... already exists`, so the recovery is the ledger reconciliation in

@@ -236,6 +236,21 @@ never re-charges the API. Anything that adds an upstream call to this pipeline s
 Load/kill testing runs against a throwaway Docker libSQL DB and a local blob server — never against
 Turso or the production Blob store. See `scripts/mass-upload-loadtest/README.md`.
 
+## Production legacy rows (do not touch)
+
+Production has rows that look like stranded work. **They are deliberate — do not process or clean
+them up.** The approximate counts below come from the external decision record, not a live query.
+
+- **`sources`**: ~50 rows at `processing_status = 'pending'` from December 2025 predate the
+  mass-upload queue. Do not flip them to `queued` or otherwise process them — that spends ~50
+  Gemini vision calls and creates places the owner did not ask for. The queue only claims
+  `queued`, so these will never be picked up on their own; that is the intended resting state.
+- **`upload_sessions`**: ~77 rows still marked `active` from the old uploader are harmless
+  leftovers. Do not bulk-close or delete them.
+
+The captain decided on 2026-08-29 to leave the pending sources as-is. Fuller account (not in
+this repo): `data/td-prod-schema-drift/decision-legacy-pending-sources.md`.
+
 ## Database migrations (production-critical)
 
 **A merged migration file is not an applied migration.** `tsc`, `jest` and `next build` never

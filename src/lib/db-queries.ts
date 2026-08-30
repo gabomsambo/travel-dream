@@ -1029,8 +1029,9 @@ export async function getQueueStats(
  * Status histogram for a caller-supplied list of source ids.
  *
  * `userId` is required, like every other tenant-scoped function here. The ids
- * arrive from `upload_sessions.meta.uploadedFiles`, which a caller can write —
- * so the list is an input to filter, never an authorization decision.
+ * arrive from `upload_sessions.meta.uploadedFiles`, which is rebuilt from
+ * source metadata rather than being a record of ownership — so the list is an
+ * input to filter, never an authorization decision.
  */
 export async function getProcessingStatusCounts(
   sourceIds: string[],

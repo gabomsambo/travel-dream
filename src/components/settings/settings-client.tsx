@@ -66,10 +66,6 @@ export function SettingsClient() {
     writeUiThemeCookie(next)
     setUiTheme(next)
       .catch((error) => {
-        // Nothing reaches the user here: no <Toaster /> is mounted anywhere in
-        // the app, so this toast is a no-op and only the console log lands. The
-        // client-written cookie means the choice still holds in this browser —
-        // it just is not persisted durably by the server.
         console.error('UI theme save error:', error)
         toast.error('Failed to save theme preference')
       })

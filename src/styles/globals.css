@@ -128,3 +128,45 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/*
+ * Sonner toasts — compact top-right notifications. Semantic tokens keep classic
+ * and tropical (via data-theme on html/shell) in sync with the rest of the app.
+ */
+@layer components {
+  .toaster [data-sonner-toast] {
+    width: auto !important;
+    max-width: min(18rem, calc(100vw - 1.5rem)) !important;
+    padding: 0.5rem 0.625rem !important;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    border-radius: calc(var(--radius) - 2px);
+    box-shadow: 0 4px 12px hsl(var(--foreground) / 0.08);
+  }
+
+  .toaster .app-toast-title {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+  }
+
+  .toaster .app-toast-description {
+    font-size: 0.75rem;
+    line-height: 1.125rem;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .toaster .app-toast-action {
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.125rem 0.375rem;
+    min-height: 1.5rem;
+  }
+
+  .toaster .app-toast-close {
+    width: 1.25rem;
+    height: 1.25rem;
+    min-width: 1.25rem;
+    min-height: 1.25rem;
+  }
+}

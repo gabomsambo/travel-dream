@@ -76,13 +76,17 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
     const timer = setTimeout(async () => {
       setIsSaving(true);
       try {
-        await fetch(`/api/collections/${collection.id}/settings`, {
+        const response = await fetch(`/api/collections/${collection.id}/settings`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ transportMode }),
         });
+        if (!response.ok) {
+          toast.error('Failed to save transport mode');
+        }
       } catch (error) {
         console.error('Error saving transport mode:', error);
+        toast.error('Failed to save transport mode');
       }
       setIsSaving(false);
     }, 1000);
@@ -97,13 +101,17 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
       const timer = setTimeout(async () => {
         setIsSaving(true);
         try {
-          await fetch(`/api/collections/${collection.id}/places/${placeId}/note`, {
+          const response = await fetch(`/api/collections/${collection.id}/places/${placeId}/note`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ note: note || null }),
           });
+          if (!response.ok) {
+            toast.error('Failed to save note');
+          }
         } catch (error) {
           console.error('Error saving note:', error);
+          toast.error('Failed to save note');
         }
         setIsSaving(false);
       }, 1000);
@@ -121,9 +129,12 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
     );
 
     try {
-      await fetch(`/api/collections/${collection.id}/places/${placeId}/pin`, {
+      const response = await fetch(`/api/collections/${collection.id}/places/${placeId}/pin`, {
         method: 'PATCH',
       });
+      if (!response.ok) {
+        toast.error('Failed to update pin status');
+      }
     } catch (error) {
       console.error('Error toggling pin:', error);
       toast.error('Failed to update pin status');

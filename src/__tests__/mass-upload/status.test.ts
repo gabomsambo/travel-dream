@@ -61,6 +61,7 @@ function mockSessionSelect(
   mockDb.select.mockReturnValueOnce(selectChain);
   if (session?.userId === 'user_test-1') {
     const uploadedFiles = session.meta.uploadedFiles as string[];
+    if (uploadedFiles.length === 0) return undefined;
     const ownedWhere = jest.fn().mockResolvedValue(
       (ownedSourceIds ?? uploadedFiles).map(id => ({ id }))
     );

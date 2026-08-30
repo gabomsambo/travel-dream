@@ -12,7 +12,8 @@ import http from 'node:http'
 import WebSocket from 'ws'
 
 const DOCS = join(process.cwd(), 'docs/screenshots')
-const BASE = 'http://localhost:3001'
+const BASE = process.env.BASE || 'http://localhost:3001'
+const BASE_ORIGIN = new URL(BASE).origin
 mkdirSync(DOCS, { recursive: true })
 
 const SESSION = process.env.CHROME_DEVTOOLS_AXI_SESSION || 'td-activity-bell'
@@ -74,8 +75,8 @@ async function getPage() {
   const selected = selectedPageUrl()
   return (
     (selected && targets.find(t => t.type === 'page' && t.url === selected)) ||
-    targets.find(t => t.type === 'page' && t.url.includes('localhost:3001') && t.url.includes('/library')) ||
-    targets.find(t => t.type === 'page' && t.url.includes('localhost:3001')) ||
+    targets.find(t => t.type === 'page' && t.url.startsWith(BASE_ORIGIN) && t.url.includes('/library')) ||
+    targets.find(t => t.type === 'page' && t.url.startsWith(BASE_ORIGIN)) ||
     targets.find(t => t.type === 'page')
   )
 }
@@ -155,7 +156,7 @@ const BOOTSTRAP = `(() => {
   window.fetch = async (input, init) => {
     const url = String(input);
     const scenario = sessionStorage.getItem('td-activity-scenario') || 'idle';
-    if (url.includes('/api/upload/sessions?limit=')) {
+    if (url.includes('/api/upload/sessions?status=active&hasUploads=true&limit=')) {
       if (scenario === 'active') {
         return new Response(JSON.stringify({
           status: 'success',
@@ -261,14 +262,22 @@ async function openLibrary() {
 async function applyScenario(scenario, theme) {
   axi(['open', `${BASE}/library`])
   await waitHeader()
+  const ownerUserId = await evalCdp(`fetch('/api/auth/session')
+    .then(response => response.json())
+    .then(session => session?.user?.id ?? null)`)
+  if (!ownerUserId) {
+    throw new Error('authenticated user id is required to seed activity jobs')
+  }
+  const storageKey = `td:activity-jobs:v1:${ownerUserId}`
+  const completedJobs = COMPLETE_JOB.map(job => ({ ...job, ownerUserId }))
   await withCdp(async send => {
     await send('Runtime.evaluate', {
       expression: `
         sessionStorage.setItem('td-activity-scenario', ${JSON.stringify(scenario)});
         document.cookie = 'ui-theme=${theme}; path=/; max-age=31536000; samesite=lax';
         ${scenario === 'complete'
-          ? `localStorage.setItem('td:activity-jobs:v1', ${JSON.stringify(JSON.stringify(COMPLETE_JOB))});`
-          : `localStorage.removeItem('td:activity-jobs:v1');`}
+          ? `localStorage.setItem(${JSON.stringify(storageKey)}, ${JSON.stringify(JSON.stringify(completedJobs))});`
+          : `localStorage.removeItem(${JSON.stringify(storageKey)});`}
         'ok'
       `,
       returnByValue: true,

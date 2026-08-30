@@ -13,9 +13,10 @@
  * AND-ed and AND can only narrow.
  *
  * It is paired with a `no-restricted-imports` rule in `.eslintrc.json` banning
- * `db` / `client` from `src/app/api/**` and `src/app/(app)/**`. The rule is
- * what makes this the default path; this module is what makes that default
- * usable. See `AGENTS.md` § Multi-Tenancy.
+ * `db` / `client` from all of `src/app/**` — every route group, present and
+ * future — by both the `@/db` alias and any relative path to the same module.
+ * The rule is what makes this the default path; this module is what makes that
+ * default usable. See `AGENTS.md` § Multi-Tenancy.
  *
  * ## Two kinds of table
  *
@@ -181,8 +182,9 @@ function scopedOn(exec: Executor, userId: string) {
 }
 
 /**
- * Outcome of `findOwned`. `not-found` and `forbidden` are separate so handlers
- * can keep answering 404 and 403 the way they always have.
+ * Outcome of `findOwned(table, id)`. `not-found` and `forbidden` are separate
+ * so handlers can keep answering 404 and 403 the way they always have; the
+ * `forbidden` verdict never carries the foreign row.
  */
 export type OwnedLookup<T extends OwnedTable> =
   | { status: 'ok'; row: T['$inferSelect'] }
@@ -192,18 +194,23 @@ export type OwnedLookup<T extends OwnedTable> =
 /** A database handle on which every query is pinned to one user. */
 export type TenantDb = ReturnType<typeof scopedOn> & {
   /**
-   * Look up a single owned row, distinguishing "no such row" from "someone
-   * else's row".
+   * Look up a single owned row **by primary key**, distinguishing "no such
+   * row" from "someone else's row".
    *
-   * This is the one method that runs an unscoped query, and it is deliberately
-   * narrow: the foreign probe selects `id` only and that value never leaves
-   * this function, so the caller can learn a row exists but nothing about it.
+   * This is the one method that runs an unscoped query, and the signature is
+   * what keeps it narrow. It takes an id rather than a predicate on purpose: an
+   * arbitrary `SQL` here would let a caller probe `status = 'active'` and turn
+   * a single-row existence signal into a cross-tenant existence oracle over
+   * every other user's rows. Built internally as `id = :id`, the probe can only
+   * ever answer "does this exact row exist", it selects `id` alone, and that
+   * value never leaves this function.
+   *
    * Handlers in this codebase already answer 404 for a missing id and 403 for a
    * foreign one, which is that same existence signal — an intentional,
    * pre-existing product decision. This exists so migrating a handler to the
    * accessor preserves it rather than silently turning every 403 into a 404.
    */
-  findOwned<T extends OwnedTable>(table: T, where: SQL): Promise<OwnedLookup<T>>;
+  findOwned<T extends OwnedTable>(table: T, id: string): Promise<OwnedLookup<T>>;
 
   /** Runs `fn` in a transaction; `tx` is scoped to the same user. */
   transaction<T>(fn: (tx: ReturnType<typeof scopedOn>) => Promise<T>): Promise<T>;
@@ -227,12 +234,14 @@ export function forUser(userId: string): TenantDb {
   const scoped = scopedOn(db, userId);
   return {
     ...scoped,
-    async findOwned<T extends OwnedTable>(table: T, where: SQL): Promise<OwnedLookup<T>> {
-      const owned = await scoped.select(table, where).get();
+    async findOwned<T extends OwnedTable>(table: T, id: string): Promise<OwnedLookup<T>> {
+      const byId = eq(table.id, id);
+      const owned = await scoped.select(table, byId).get();
       if (owned) return { status: 'ok', row: owned as T['$inferSelect'] };
-      // Existence probe, reached only when the scoped read found nothing.
-      // `id` only, and it never leaves this function.
-      const foreign = await db.select({ id: table.id }).from(table).where(where).get();
+      // Existence probe, reached only when the scoped read found nothing. It is
+      // pinned to the one primary key the caller named, selects `id` only, and
+      // that value never leaves this function.
+      const foreign = await db.select({ id: table.id }).from(table).where(byId).get();
       return foreign ? { status: 'forbidden' } : { status: 'not-found' };
     },
     transaction<T>(fn: (tx: ReturnType<typeof scopedOn>) => Promise<T>): Promise<T> {

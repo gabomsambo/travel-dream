@@ -186,14 +186,18 @@ leaks private content, not just graph edges.
 ### The scoped accessor, and the rule that makes it the default
 
 Route handlers and pages **must not import `db` or `client` from `@/db`** — ESLint
-(`no-restricted-imports` in `.eslintrc.json`) errors on it under `src/app/api/**` and
-`src/app/(app)/**`, and `next build` fails, so CI catches it. Use `forUser(user.id)` from
+(`no-restricted-imports` in `.eslintrc.json`) errors on it across all of `src/app/**`, so a new
+route group is covered the day it is created, and it catches a relative path to the same module as
+well as the `@/db` spelling. `next build` fails on it, so CI catches it. Use `forUser(user.id)` from
 `src/lib/tenant-db.ts`, or a `userId`-taking function from `db-queries` / `db-mutations`.
 
 `forUser()` pins every query it builds to one user before the caller sees a builder: `select` /
 `update` / `deleteFrom` / `insert` for tables with their own `user_id`, the `…Via` variants for the
-transitively-owned ones, `findOwned` when a handler needs to keep answering 404 and 403 differently,
-and `transaction` for a `tx` scoped to the same user. Extra predicates are always AND-ed, so a caller
+transitively-owned ones, `findOwned(table, id)` when a handler needs to keep answering 404 and 403
+differently, and `transaction` for a `tx` scoped to the same user. `findOwned` takes a primary key
+rather than a predicate on purpose: its existence probe is the module's one unscoped query, and an
+arbitrary predicate there would turn a single-row 404-vs-403 signal into a cross-tenant existence
+oracle. Extra predicates are always AND-ed, so a caller
 can narrow the scope but never widen it.
 
 Not every route is migrated. The unmigrated ones carry a per-file

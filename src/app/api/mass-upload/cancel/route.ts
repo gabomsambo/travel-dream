@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     const { sessionId } = parsed.data;
     const tdb = forUser(user.id);
 
-    const found = await tdb.findOwned(uploadSessions, eq(uploadSessions.id, sessionId));
+    const found = await tdb.findOwned(uploadSessions, sessionId);
     if (found.status === 'not-found') {
       return NextResponse.json({ status: 'error', message: 'Session not found' }, { status: 404 });
     }

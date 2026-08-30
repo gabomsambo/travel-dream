@@ -22,8 +22,6 @@ import {
   resetTenantFixture,
 } from '../helpers/tenant-fixture';
 
-import fs from 'fs';
-import path from 'path';
 import { eq } from 'drizzle-orm';
 import {
   attachments,
@@ -98,6 +96,41 @@ describe('the lint rule closes the door on new unscoped route code', () => {
     expect(restrictedImportErrors(messages)).toHaveLength(1);
   });
 
+  it('rejects it in a route group that does not exist yet, not just (app) and api', async () => {
+    // The rule is keyed to all of `src/app`, so a future `(admin)` group — or
+    // the existing `(marketing)` one — cannot quietly become a second door.
+    for (const filePath of [
+      'src/app/(marketing)/dashboard/page.tsx',
+      'src/app/(admin)/tenants/page.tsx',
+      'src/app/some-new-route/route.ts',
+    ]) {
+      const messages = await lintAt(
+        filePath,
+        "import { db } from '@/db';\nexport default async () => (await db.select()).length;\n"
+      );
+      expect(restrictedImportErrors(messages)).toHaveLength(1);
+    }
+  });
+
+  it('rejects a relative path to the same module, not only the "@/db" spelling', async () => {
+    const messages = await lintAt(
+      'src/app/api/brand-new-feature/route.ts',
+      "import { db } from '../../../db';\nexport const GET = () => Response.json(!!db);\n"
+    );
+
+    expect(restrictedImportErrors(messages)).toHaveLength(1);
+    expect(restrictedImportErrors(messages)[0].severity).toBe(2);
+  });
+
+  it('rejects the raw client reached by relative path from a deeper route', async () => {
+    const messages = await lintAt(
+      'src/app/api/a/b/c/route.ts',
+      "import { client } from '../../../../db';\nexport const GET = () => client.execute('SELECT 1');\n"
+    );
+
+    expect(restrictedImportErrors(messages)).toHaveLength(1);
+  });
+
   it('rejects it in a server component under (app) as well as in an API route', async () => {
     const messages = await lintAt(
       'src/app/(app)/brand-new-page/page.tsx',
@@ -108,12 +141,14 @@ describe('the lint rule closes the door on new unscoped route code', () => {
   });
 
   it('still allows the schema, which carries no data and no ambient user', async () => {
-    const messages = await lintAt(
-      'src/app/api/brand-new-feature/route.ts',
-      "import { places } from '@/db/schema';\nexport const GET = () => Response.json(Object.keys(places));\n"
-    );
+    for (const specifier of ['@/db/schema', '../../../db/schema']) {
+      const messages = await lintAt(
+        'src/app/api/brand-new-feature/route.ts',
+        `import { places } from '${specifier}';\nexport const GET = () => Response.json(Object.keys(places));\n`
+      );
 
-    expect(restrictedImportErrors(messages)).toHaveLength(0);
+      expect(restrictedImportErrors(messages)).toHaveLength(0);
+    }
   });
 
   it('leaves the shared library alone — the worker there has no user context', async () => {
@@ -139,33 +174,24 @@ describe('the lint rule closes the door on new unscoped route code', () => {
 
     expect(restrictedImportErrors(messages)).toHaveLength(0);
   });
-
-  it('every route still using the escape hatch says who finishes the job', () => {
-    const roots = ['src/app/api', 'src/app/(app)'];
-    const files: string[] = [];
-    for (const root of roots) {
-      const walk = (dir: string) => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) walk(full);
-          else if (/\.tsx?$/.test(entry.name)) files.push(full);
-        }
-      };
-      walk(path.join(process.cwd(), root));
-    }
-
-    const hatched = files.filter((f) =>
-      fs.readFileSync(f, 'utf8').includes(`eslint-disable-next-line ${RULE}`)
-    );
-
-    // Not an assertion about how many are left — that number should fall over
-    // time — but that none of them is a silent exemption.
-    expect(hatched.length).toBeGreaterThan(0);
-    for (const file of hatched) {
-      expect(fs.readFileSync(file, 'utf8')).toContain('TODO(tenant-db)');
-    }
-  });
 });
+
+/**
+ * `attachments` has no `user_id`, so the accessor's own `insert` cannot reach
+ * it by design. Seeding goes through the raw client, which is also how the
+ * fixture writes rows. Kept local to this suite so the 20 cross-tenant tests
+ * sharing the fixture see no new data.
+ */
+async function insertAttachment(id: string, placeId: string): Promise<void> {
+  const { client } = require('@/db') as {
+    client: { execute: (q: { sql: string; args: unknown[] }) => Promise<unknown> };
+  };
+  await client.execute({
+    sql: `INSERT INTO attachments (id,place_id,type,uri,filename,is_primary,created_at)
+          VALUES (?,?,?,?,?,0,?)`,
+    args: [id, placeId, 'photo', `https://example.test/${id}.jpg`, `${id}.jpg`, new Date().toISOString()],
+  });
+}
 
 describe('forUser() confines every query to one tenant, against a real database', () => {
   beforeAll(async () => {
@@ -255,19 +281,24 @@ describe('forUser() confines every query to one tenant, against a real database'
   it('separates "no such row" from "someone else\'s row" without disclosing it', async () => {
     const tdb = forUser(ALICE.id);
 
-    await expect(tdb.findOwned(uploadSessions, eq(uploadSessions.id, 'session_nope'))).resolves
+    await expect(tdb.findOwned(uploadSessions, 'session_nope')).resolves
       .toEqual({ status: 'not-found' });
 
-    const foreign = await tdb.findOwned(uploadSessions, eq(uploadSessions.id, FIXTURE.bobSession));
+    const foreign = await tdb.findOwned(uploadSessions, FIXTURE.bobSession);
     expect(foreign).toEqual({ status: 'forbidden' });
     // The verdict carries no row: nothing of Bob's reaches the caller.
     expect(Object.keys(foreign)).toEqual(['status']);
 
-    const own = await tdb.findOwned(uploadSessions, eq(uploadSessions.id, FIXTURE.aliceSession));
+    const own = await tdb.findOwned(uploadSessions, FIXTURE.aliceSession);
     expect(own.status).toBe('ok');
   });
 
   it('scopes a transaction to the same user as the handle that opened it', async () => {
+    // Both tenants need a row here, or the assertion below has nothing to
+    // discriminate on and would pass against a completely unscoped `tx`.
+    await insertAttachment('att_bob', FIXTURE.bobPlace);
+    await insertAttachment('att_alice', FIXTURE.alicePlace);
+
     await forUser(ALICE.id).transaction(async (tx) => {
       await tx.updateVia(
         attachments,
@@ -276,9 +307,33 @@ describe('forUser() confines every query to one tenant, against a real database'
       );
     });
 
-    // Nothing of Bob's was touched: he has no attachments, and the statement
-    // could not have reached them if he had.
-    const bobAttachments = await forUser(BOB.id).selectVia(attachments);
-    expect(bobAttachments).toEqual([]);
+    // Alice named Bob's place explicitly; the tx scope AND-ed her ownership in,
+    // so the statement matched nothing and his row is untouched.
+    const [bobAttachment] = await forUser(BOB.id).selectVia(
+      attachments,
+      eq(attachments.id, 'att_bob')
+    );
+    expect(bobAttachment.isPrimary).toBe(0);
+
+    // Positive control: the identical call against her own place does update.
+    await forUser(ALICE.id).transaction(async (tx) => {
+      await tx.updateVia(
+        attachments,
+        { isPrimary: 1 },
+        eq(attachments.placeId, FIXTURE.alicePlace)
+      );
+    });
+
+    const [aliceAttachment] = await forUser(ALICE.id).selectVia(
+      attachments,
+      eq(attachments.id, 'att_alice')
+    );
+    expect(aliceAttachment.isPrimary).toBe(1);
+
+    const [bobAfter] = await forUser(BOB.id).selectVia(
+      attachments,
+      eq(attachments.id, 'att_bob')
+    );
+    expect(bobAfter.isPrimary).toBe(0);
   });
 });

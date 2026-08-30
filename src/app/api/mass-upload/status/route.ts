@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     const tdb = forUser(user.id);
 
-    const found = await tdb.findOwned(uploadSessions, eq(uploadSessions.id, sessionId));
+    const found = await tdb.findOwned(uploadSessions, sessionId);
     if (found.status === 'not-found') {
       return NextResponse.json({ status: 'error', message: 'Session not found' }, { status: 404 });
     }

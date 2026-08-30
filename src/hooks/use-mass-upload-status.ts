@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
+import { toastWithNavigate } from '@/lib/toast-navigate'
 
 const POLL_INTERVAL = 5000
 
@@ -146,8 +147,10 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
       if (isComplete && !hasCompletedRef.current) {
         hasCompletedRef.current = true
         stopPolling()
-        toast.success(
-          `Processing complete! ${data.placesCreated || 0} places found from ${counts.completed} screenshots.`
+        toastWithNavigate(
+          `Processing complete! ${data.placesCreated || 0} places found from ${counts.completed} screenshots.`,
+          '/library',
+          { actionLabel: 'View library' }
         )
         // Mark session as completed so revisit detection skips it
         if (sessionIdRef.current) {
@@ -159,11 +162,16 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
         }
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch status'
       setState(prev => ({
         ...prev,
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch status',
+        error: message,
       }))
+      toast.error('Could not refresh upload status. Retrying…', {
+        id: 'mass-upload-poll-error',
+        duration: 10000,
+      })
     }
   }, [stopPolling])
 

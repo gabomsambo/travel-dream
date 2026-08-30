@@ -3,6 +3,7 @@ import { Sidebar } from '@/components/navigation/sidebar'
 import { Header } from '@/components/layout/header'
 import { GlobalHotkeys } from '@/components/global-hotkeys'
 import { UIRefreshProvider } from '@/components/ui-refresh-provider'
+import { AppToaster } from '@/components/app-toaster'
 import { requireAuth } from '@/lib/auth-helpers'
 import { UI_THEME_COOKIE, normalizeUiTheme } from '@/lib/ui-theme'
 
@@ -48,6 +49,7 @@ export default async function AppLayout({
           </main>
         </div>
       </div>
+      <AppToaster />
     </UIRefreshProvider>
   )
 }

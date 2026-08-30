@@ -565,6 +565,14 @@ export function MassUploadPage() {
         ) : (
           // Processing in progress
           <>
+            {status.error && (
+              <div
+                role="alert"
+                className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+              >
+                {status.error}. Polling will retry automatically.
+              </div>
+            )}
             <Card className="p-8 text-center">
               <Loader2 className="mx-auto h-12 w-12 text-blue-500 animate-spin mb-4" />
               <h2 className="text-xl font-semibold mb-2">Processing Screenshots</h2>

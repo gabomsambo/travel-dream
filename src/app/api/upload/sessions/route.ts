@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withErrorHandling } from '@/lib/db-utils';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: ten queries across
+// four handlers, including the source dereference that leaked in the first
+// place.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { uploadSessions, sources } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';

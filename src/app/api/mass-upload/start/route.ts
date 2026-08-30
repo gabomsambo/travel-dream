@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
-import { db } from '@/db';
 import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, inArray } from 'drizzle-orm';
+import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
@@ -26,37 +26,37 @@ export async function POST(request: NextRequest) {
       );
     }
     const { sessionId } = parsed.data;
+    const tdb = forUser(user.id);
 
-    // Fetch and verify session
-    const session = await db.select()
-      .from(uploadSessions)
-      .where(eq(uploadSessions.id, sessionId))
-      .get();
-
-    if (!session) {
+    const found = await tdb.findOwned(uploadSessions, sessionId);
+    if (found.status === 'not-found') {
       return NextResponse.json({ status: 'error', message: 'Session not found' }, { status: 404 });
     }
-    if (session.userId !== user.id) {
+    if (found.status === 'forbidden') {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
 
-    const sourceIds = session.meta?.uploadedFiles || [];
+    // Owning the session is not owning the rows it names: `meta.uploadedFiles`
+    // is rebuilt from source metadata by mass-upload/register, so it is input to
+    // filter, not an authorization boundary. The update below goes through the
+    // tenant accessor, which re-scopes to the caller on its own.
+    const sourceIds = found.row.meta?.uploadedFiles || [];
     if (sourceIds.length === 0) {
       return NextResponse.json({ status: 'success', queued: 0, timestamp: new Date().toISOString() });
     }
 
     // Flip all 'uploaded' sources in this session to 'queued'
-    const updated = await db.update(sourcesCurrentSchema)
-      .set({
+    const updated = await tdb.update(
+      sourcesCurrentSchema,
+      {
         processingStatus: 'queued',
         updatedAt: new Date().toISOString(),
-      })
-      .where(and(
+      },
+      and(
         inArray(sourcesCurrentSchema.id, sourceIds),
-        eq(sourcesCurrentSchema.userId, user.id),
         eq(sourcesCurrentSchema.processingStatus, 'uploaded')
-      ))
-      .returning();
+      )
+    ).returning();
 
     // Start processing now rather than on the next safety-net cron tick. Runs
     // after the response so the upload UI is never held up by it, and a failure

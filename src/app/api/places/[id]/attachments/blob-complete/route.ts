@@ -3,6 +3,12 @@ import { withErrorHandling } from '@/lib/db-utils';
 import { createAttachment } from '@/lib/db-mutations';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { isAllowedBlobUrl, BLOB_URL_REJECTED_MESSAGE } from '@/lib/blob-url';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: place lookup then
+// an attachment insert; needs an `insertVia` for derived tables, which this PR
+// does not add.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { places } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';

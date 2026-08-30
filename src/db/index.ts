@@ -25,7 +25,9 @@ client.execute('PRAGMA foreign_keys = ON').catch((err) => {
 // Create Drizzle database instance with schema
 export const db = drizzle(client, { schema });
 
-// Export client for direct access if needed
+// Export client for direct access if needed. Not from route handlers or pages:
+// ESLint bans `db`/`client` here across src/app — use forUser(user.id) from
+// '@/lib/tenant-db'. See AGENTS.md § Multi-Tenancy.
 export { client };
 
 // Connection test function

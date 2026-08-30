@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: place lookup, an
+// attachments count and a transaction that writes `attachments`; also wants
+// `insertVia`.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { attachments, places } from '@/db/schema';
 import type { AttributionMeta } from '@/db/schema/attachments';

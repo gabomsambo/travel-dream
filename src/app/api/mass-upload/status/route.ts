@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/db';
 import { uploadSessions, sourcesToPlaces } from '@/db/schema';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
+import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { getProcessingStatusCounts } from '@/lib/db-queries';
 
@@ -31,16 +31,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch and verify session
-    const session = await db.select()
-      .from(uploadSessions)
-      .where(eq(uploadSessions.id, sessionId))
-      .get();
+    const tdb = forUser(user.id);
 
-    if (!session) {
+    const found = await tdb.findOwned(uploadSessions, sessionId);
+    if (found.status === 'not-found') {
       return NextResponse.json({ status: 'error', message: 'Session not found' }, { status: 404 });
     }
-    if (session.userId !== user.id) {
+    if (found.status === 'forbidden') {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
 
@@ -48,14 +45,13 @@ export async function GET(request: NextRequest) {
     // is rebuilt from source metadata by mass-upload/register, so it is not an
     // authorization boundary. The list is narrowed to the sources the caller
     // owns, and every query below independently re-scopes to the caller too.
-    const metadataSourceIds = session.meta?.uploadedFiles || [];
+    const metadataSourceIds = found.row.meta?.uploadedFiles || [];
     const ownedSources = metadataSourceIds.length > 0
-      ? await db.select({ id: sourcesCurrentSchema.id })
-        .from(sourcesCurrentSchema)
-        .where(and(
-          inArray(sourcesCurrentSchema.id, metadataSourceIds),
-          eq(sourcesCurrentSchema.userId, user.id)
-        ))
+      ? await tdb.selectFields(
+          sourcesCurrentSchema,
+          { id: sourcesCurrentSchema.id },
+          inArray(sourcesCurrentSchema.id, metadataSourceIds)
+        )
       : [];
     const sourceIds = ownedSources.map(source => source.id);
 
@@ -65,32 +61,30 @@ export async function GET(request: NextRequest) {
     // Count places created from these sources
     let placesCreated = 0;
     if (sourceIds.length > 0) {
-      const placesResult = await db.select({
-        count: sql<number>`count(DISTINCT ${sourcesToPlaces.placeId})`,
-      })
-      .from(sourcesToPlaces)
-      // sources_to_places has no user_id — ownership is transitive via sources.
-      .innerJoin(sourcesCurrentSchema, eq(sourcesToPlaces.sourceId, sourcesCurrentSchema.id))
-      .where(and(
-        inArray(sourcesToPlaces.sourceId, sourceIds),
-        eq(sourcesCurrentSchema.userId, user.id)
-      ));
+      // sources_to_places has no user_id — `selectFieldsVia` scopes it through
+      // the sources the caller owns.
+      const placesResult = await tdb.selectFieldsVia(
+        sourcesToPlaces,
+        { count: sql<number>`count(DISTINCT ${sourcesToPlaces.placeId})` },
+        inArray(sourcesToPlaces.sourceId, sourceIds)
+      );
       placesCreated = Number(placesResult[0]?.count ?? 0);
     }
 
     // Fetch per-source error messages for failed sources
     let failedErrors: Array<{ sourceId: string; error: string }> = [];
     if (sourceIds.length > 0) {
-      const failedSources = await db.select({
-        id: sourcesCurrentSchema.id,
-        processingError: sourcesCurrentSchema.processingError,
-      })
-      .from(sourcesCurrentSchema)
-      .where(and(
-        inArray(sourcesCurrentSchema.id, sourceIds),
-        eq(sourcesCurrentSchema.userId, user.id),
-        eq(sourcesCurrentSchema.processingStatus, 'failed')
-      ));
+      const failedSources = await tdb.selectFields(
+        sourcesCurrentSchema,
+        {
+          id: sourcesCurrentSchema.id,
+          processingError: sourcesCurrentSchema.processingError,
+        },
+        and(
+          inArray(sourcesCurrentSchema.id, sourceIds),
+          eq(sourcesCurrentSchema.processingStatus, 'failed')
+        )
+      );
       failedErrors = failedSources
         .filter(s => s.processingError)
         .map(s => ({ sourceId: s.id, error: toUserFriendlyError(s.processingError!) }));

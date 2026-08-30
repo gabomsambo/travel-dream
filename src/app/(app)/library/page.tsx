@@ -57,7 +57,7 @@ export default async function LibraryPage({ searchParams }: PageProps) {
   ])
 
   // Single follow-up await — depends on placeIds from `places`.
-  const coverMap = await getCoverImagesForPlaces(places.map(p => p.id))
+  const coverMap = await getCoverImagesForPlaces(places.map(p => p.id), userId)
 
   // Omit the coverUrl key entirely when no cover exists, to keep the RSC payload tight.
   const placesWithCovers: LibraryPlaceWithCover[] = places.map(place =>

@@ -31,7 +31,7 @@ import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { getProcessingStatusCounts } from '@/lib/db-queries';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
-import { whereMentions } from '../helpers/authz-helpers';
+import { mockSelect, whereMentions } from '../helpers/authz-helpers';
 
 const mockDb = db as unknown as { select: jest.Mock };
 const mockRequireAuth = requireAuthForApi as jest.MockedFunction<typeof requireAuthForApi>;
@@ -47,45 +47,41 @@ function createStatusRequest(sessionId?: string) {
   return new Request(url, { method: 'GET' });
 }
 
+/**
+ * The session lookup goes through `forUser(...).findOwned`: a scoped read
+ * first, and — only when that misses — an id-only probe that separates "no such
+ * session" from "someone else's session". `foreignSessionId` stands in for that
+ * probe finding a row the caller does not own.
+ */
 function mockSessionSelect(
   session: ReturnType<typeof createMockSession> | null,
-  ownedSourceIds?: string[]
+  ownedSourceIds?: string[],
+  foreignSessionId?: string
 ) {
-  const selectChain = {
-    from: jest.fn().mockReturnValue({
-      where: jest.fn().mockReturnValue({
-        get: jest.fn().mockResolvedValue(session),
-      }),
-    }),
-  };
-  mockDb.select.mockReturnValueOnce(selectChain);
-  if (session?.userId === 'user_test-1') {
-    const uploadedFiles = session.meta.uploadedFiles as string[];
-    if (uploadedFiles.length === 0) return undefined;
-    const ownedWhere = jest.fn().mockResolvedValue(
-      (ownedSourceIds ?? uploadedFiles).map(id => ({ id }))
+  const owned = session?.userId === 'user_test-1' ? session : null;
+  const scoped = mockSelect(owned);
+  mockDb.select.mockReturnValueOnce(scoped.chain);
+
+  if (!owned) {
+    // findOwned falls through to the existence probe.
+    mockDb.select.mockReturnValueOnce(
+      mockSelect(foreignSessionId ? { id: foreignSessionId } : null).chain
     );
-    mockDb.select.mockReturnValueOnce({
-      from: jest.fn().mockReturnValue({
-        where: ownedWhere,
-      }),
-    });
-    return ownedWhere;
+    return undefined;
   }
-  return undefined;
+
+  const uploadedFiles = session!.meta.uploadedFiles as string[];
+  if (uploadedFiles.length === 0) return undefined;
+  const ownedSources = mockSelect((ownedSourceIds ?? uploadedFiles).map(id => ({ id })));
+  mockDb.select.mockReturnValueOnce(ownedSources.chain);
+  return ownedSources;
 }
 
 function mockPlacesCountSelect(count: number) {
-  // sources_to_places has no user_id of its own, so the route joins back to
-  // sources to scope the count to the caller.
-  const selectChain = {
-    from: jest.fn().mockReturnValue({
-      innerJoin: jest.fn().mockReturnValue({
-        where: jest.fn().mockResolvedValue([{ count }]),
-      }),
-    }),
-  };
-  mockDb.select.mockReturnValueOnce(selectChain);
+  // sources_to_places has no user_id of its own; the tenant accessor scopes it
+  // through the sources the caller owns, so this is a plain from/where chain.
+  const selectChain = mockSelect([{ count }]);
+  mockDb.select.mockReturnValueOnce(selectChain.chain);
 }
 
 function mockFailedSourcesSelect(
@@ -147,7 +143,7 @@ describe('GET /api/mass-upload/status', () => {
   // ── 4. Forbidden – session belongs to a different user ───────────────
   it('returns 403 when session belongs to a different user', async () => {
     const session = createMockSession({ userId: 'other-user-id' });
-    mockSessionSelect(session);
+    mockSessionSelect(session, undefined, 'session_test-1');
 
     const req = createStatusRequest('session_test-1');
     const res = await GET(req as never);
@@ -202,7 +198,7 @@ describe('GET /api/mass-upload/status', () => {
     const session = createMockSession({
       meta: { uploadedFiles: ['src_owned', 'src_victim'], processingQueue: [], errors: [] },
     });
-    const ownedWhere = mockSessionSelect(session, []);
+    const ownedSources = mockSessionSelect(session, []);
     mockGetProcessingStatusCounts.mockResolvedValueOnce({});
 
     const res = await GET(createStatusRequest('session_test-1') as never);
@@ -213,7 +209,7 @@ describe('GET /api/mass-upload/status', () => {
     expect(data.placesCreated).toBe(0);
     expect(data.failedErrors).toEqual([]);
     expect(mockGetProcessingStatusCounts).toHaveBeenCalledWith([], mockUser.id);
-    expect(whereMentions(ownedWhere?.mock.calls[0][0], mockUser.id)).toBe(true);
+    expect(whereMentions(ownedSources?.conditions[0], mockUser.id)).toBe(true);
   });
 
   // ── 6. placesCreated count ───────────────────────────────────────────

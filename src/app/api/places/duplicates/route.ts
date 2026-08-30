@@ -8,6 +8,11 @@ import {
   DEFAULT_DETECTION_CONFIG,
   type DuplicateDetectionConfig
 } from '@/lib/duplicate-detection';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: the largest of the
+// group — six reads plus the duplicate-detection joins.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { places, dismissedDuplicates } from '@/db/schema';
 import { eq, inArray, and, ne } from 'drizzle-orm';

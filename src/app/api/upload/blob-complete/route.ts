@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withErrorHandling, generateSourceId } from '@/lib/db-utils';
 import { createSource } from '@/lib/db-mutations';
 import { uploadSessions } from '@/db/schema';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: creates an upload
+// session under a client-supplied id, then writes sources in a transaction.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { eq, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';

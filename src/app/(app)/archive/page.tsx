@@ -60,7 +60,7 @@ export default async function ArchivePage({ searchParams }: PageProps) {
   })
 
   const placeIds = places.map(p => p.id)
-  const coverMap = await getCoverImagesForPlaces(placeIds)
+  const coverMap = await getCoverImagesForPlaces(placeIds, userId)
 
   const placesWithCovers: PlaceWithCover[] = places.map(place => ({
     ...place,

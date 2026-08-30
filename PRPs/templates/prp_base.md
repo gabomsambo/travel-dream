@@ -65,6 +65,10 @@ Template optimized for AI agents to implement features with sufficient context a
 
 // CRITICAL: Database queries use Drizzle ORM with Turso
 // Example: Use db.select().from(table).where(eq(table.column, value))
+// CRITICAL: Route handlers and pages under src/app must NOT import db/client
+// from '@/db' - ESLint errors and the build fails. Use forUser(user.id) from
+// '@/lib/tenant-db' or a userId-taking db-queries/db-mutations function.
+// See AGENTS.md section Multi-Tenancy.
 
 // CRITICAL: Auth uses NextAuth v5 - check session with auth() in server components
 // Example: const session = await auth(); if (!session) redirect("/login")

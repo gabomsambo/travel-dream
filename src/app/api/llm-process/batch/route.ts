@@ -4,6 +4,11 @@ import { getSourcesForLLMProcessing } from '@/lib/db-queries';
 import { batchCreatePlacesFromExtractions } from '@/lib/db-mutations';
 import { llmExtractionService } from '@/lib/llm-extraction-service';
 import { uploadSessions, sources } from '@/db/schema';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: three unscoped
+// session/source reads plus batch bookkeeping.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { eq, inArray, and, or, isNull, sql, desc } from 'drizzle-orm';
 import type { ExtractionContext } from '@/types/llm-extraction';

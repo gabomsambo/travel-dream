@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server'
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers'
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: one transaction
+// over five owned tables; needs `tdb.transaction` plus a delete for each.
+// Small, and a good next one to take.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db'
 import { eq, inArray, or } from 'drizzle-orm'
 import {

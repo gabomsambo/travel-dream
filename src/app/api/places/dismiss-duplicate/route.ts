@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor:
+// insert/delete/select over `dismissed_duplicates`; straightforward, and the
+// accessor already covers every shape it uses.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { dismissedDuplicates } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';

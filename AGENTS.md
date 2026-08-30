@@ -173,15 +173,39 @@ The inbox `ProcessingBanner` is in-flight only; completion belongs to the bell.
 
 ## Multi-Tenancy (security-critical)
 
-Every user-owned table carries a `userId` (`places`, `sources`, `collections`, `uploadSessions`).
-**Authentication is not authorization**: any handler that reads or writes a row by a caller-supplied
-id must also filter on the caller's `user.id`.
+Every user-owned table carries a `userId` (`places`, `sources`, `collections`, `uploadSessions`,
+`dismissedDuplicates`). **Authentication is not authorization**: any handler that reads or writes a
+row by a caller-supplied id must also filter on the caller's `user.id`.
 
-The tables with no `user_id` of their own are owned transitively and must be inner-joined to their
-owner, which is not always `places`: `attachments` via `places`, `sources_to_places` via `sources`,
+The tables with no `user_id` of their own are owned transitively through another table, which is not
+always `places`: `attachments` via `places`, `sources_to_places` via `sources`,
 `places_to_collections` via `collections`. `places_to_collections` is not a bare join table — it
 carries `order_index`, `is_pinned` and a user-authored free-text `note`, so reading it unfiltered
 leaks private content, not just graph edges.
+
+### The scoped accessor, and the rule that makes it the default
+
+Route handlers and pages **must not import `db` or `client` from `@/db`** — ESLint
+(`no-restricted-imports` in `.eslintrc.json`) errors on it across all of `src/app/**`, so a new
+route group is covered the day it is created, and it catches a relative path to the same module as
+well as the `@/db` spelling. `next build` fails on it, so CI catches it. Use `forUser(user.id)` from
+`src/lib/tenant-db.ts`, or a `userId`-taking function from `db-queries` / `db-mutations`.
+
+`forUser()` pins every query it builds to one user before the caller sees a builder: `select` /
+`selectFields` / `update` / `deleteFrom` / `insert` for tables with their own `user_id`, the `…Via`
+variants for the transitively-owned ones, `findOwned(table, id)` when a handler needs to keep
+answering 404 and 403 differently, and `transaction` for a `tx` scoped to the same user. `findOwned`
+takes a primary key rather than a predicate on purpose: its existence probe is the module's one
+unscoped query, and an arbitrary predicate there would turn a single-row 404-vs-403 signal into a
+cross-tenant existence oracle. Extra predicates are always AND-ed, so a caller can narrow the scope
+but never widen it.
+
+Not every route is migrated. The unmigrated ones carry a per-file
+`eslint-disable-next-line no-restricted-imports` above a `TODO(tenant-db)` saying what makes them
+awkward; `grep -rl 'TODO(tenant-db)' src/app` is the remaining list. Adding a *new* exemption needs a
+comparable justification — the rule exists so route N+1 cannot quietly join that list. The shared
+mass-upload worker under `src/lib/mass-upload/` legitimately has no user context (it derives one from
+the row it claimed) and `api/auth/register` runs before the user exists; both keep the raw client.
 
 **Owning a container is not owning the rows it names.** When a handler reads ids out of a row and
 then queries or mutates by those ids, the follow-up query must independently filter on the caller —
@@ -191,11 +215,17 @@ source metadata by `mass-upload/register`, so the session check in `mass-upload/
 was standing in for a row check it could not carry. Treat any such id list as untrusted input to
 filter, not as an authorization boundary.
 
+A `userId` parameter is part of a query function's *signature*, not something its callers are trusted
+to have already applied — see `getCoverImagesForPlaces` in `src/lib/library-adapters.ts`, which used
+to take bare place ids and was safe only because both call sites happened to pass a scoped list.
+
 - Ownership-scoped read: `src/app/api/photos/resolve/[attachmentId]/route.ts`
 - Session ownership check (404 then 403): `src/app/api/mass-upload/start/route.ts`
-- Transitively-owned rows joined to their owner: `src/app/api/export/all/route.ts`
+- Transitively-owned rows: `src/app/api/export/all/route.ts`
 - Row-scoped follow-up on a caller-supplied id list: `src/app/api/mass-upload/cancel/route.ts`
-- Regression tests for these shapes: `src/__tests__/authorization/`
+- Scoped transaction: `src/app/api/places/[id]/attachments/[attachmentId]/primary/route.ts`
+- Regression tests for these shapes: `src/__tests__/authorization/`, and
+  `tenant-db-chokepoint.test.ts` there proves both the lint rule and the accessor
 
 Most of that suite mocks `@/db` and asserts the *shape* of the `WHERE` clause, which cannot catch a
 query that is scoped on the container and unscoped on the rows. For cross-tenant tests prefer

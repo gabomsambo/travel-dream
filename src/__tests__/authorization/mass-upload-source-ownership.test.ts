@@ -1,0 +1,290 @@
+/**
+ * @jest-environment node
+ *
+ * Cross-tenant regression tests for the rule an id list cannot enforce:
+ *
+ *   **Owning a container is not owning the rows it names.**
+ *
+ * `mass-upload/{cancel,start,status}`, `mass-upload/register` and the details
+ * branch of `GET /api/upload/sessions` all read source ids out of
+ * `upload_sessions.meta.uploadedFiles` and then queried or mutated by those ids
+ * with no owner predicate. Checking that the caller owned the *session* was
+ * standing in for checking that they owned the *sources* — and the list is
+ * caller-controllable by two independent routes:
+ *
+ *   Path A — `PATCH /api/upload/sessions` on your OWN session. Legitimate; the
+ *            violation is downstream.
+ *   Path B — a source row survives its session row (DELETE without
+ *            `cleanup=true`), another caller claims the dangling id through
+ *            `POST /api/upload/blob-complete`, and `mass-upload/register`
+ *            rebuilds the list from a `json_extract` sweep over all users.
+ *
+ * Worst case was destructive: cancel flipped another user's sources to
+ * `cancelled` and called `del()` on their uploaded blobs.
+ *
+ * Every assertion runs the real handler against a real seeded database — mocks
+ * of the Drizzle chain assert the shape of a WHERE clause, which is exactly the
+ * evidence that looked like proof here and was not. See
+ * `../helpers/tenant-fixture`; it must be imported first, because it pins
+ * TURSO_DATABASE_URL to a local file before `@/db` can pick up the production
+ * URL that `jest.setup.js`'s dotenv call leaves in the environment.
+ */
+import {
+  ALICE,
+  FIXTURE,
+  apiRequest,
+  assertLocalDatabase,
+  readCell,
+  resetTenantFixture,
+  setSessionUploadedFiles,
+  useUniqueUuids,
+} from '../helpers/tenant-fixture';
+
+jest.mock('@vercel/blob', () => ({ del: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('@/lib/blob-url', () => ({
+  isAllowedBlobUrl: () => true,
+  BLOB_URL_REJECTED_MESSAGE: 'rejected',
+}));
+jest.mock('@/lib/auth-helpers', () => ({
+  requireAuthForApi: jest.fn(),
+  getCurrentUser: jest.fn(),
+  isAuthError: jest.fn((e: unknown) => e instanceof Error && e.message === 'Unauthorized'),
+}));
+
+import { del } from '@vercel/blob';
+import { requireAuthForApi } from '@/lib/auth-helpers';
+
+const BOB_BLOB = FIXTURE.bobSourceBlob;
+
+const sourceStatus = (id: string) =>
+  readCell('SELECT processing_status FROM sources WHERE id = ?', [id]);
+
+const sessionMeta = (id: string) =>
+  readCell('SELECT meta FROM upload_sessions WHERE id = ?', [id]).then(String);
+
+beforeAll(() => {
+  assertLocalDatabase();
+  // jest.setup.js pins crypto.randomUUID to a constant, which collides on the
+  // sources primary key as soon as a test inserts more than one row.
+  useUniqueUuids();
+});
+
+beforeEach(async () => {
+  await resetTenantFixture();
+  (requireAuthForApi as jest.Mock).mockResolvedValue(ALICE);
+  (global.fetch as jest.Mock).mockResolvedValue({
+    ok: true,
+    status: 200,
+    arrayBuffer: async () => new ArrayBuffer(8),
+  });
+});
+
+describe('Path A — a foreign source id planted in the caller\'s own session', () => {
+  // Alice may legitimately write whatever she likes into her own session's
+  // metadata. Every assertion below is about what the handlers do with it.
+  beforeEach(async () => {
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource]);
+  });
+
+  it('PATCH on your own session is still allowed (this is not the defect)', async () => {
+    const { PATCH } = require('@/app/api/upload/sessions/route');
+    const res = await PATCH(
+      apiRequest(`http://t/api/upload/sessions?sessionId=${FIXTURE.aliceSession}`, 'PATCH', {
+        metadata: { uploadedFiles: [FIXTURE.bobSource], errors: [] },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(await sessionMeta(FIXTURE.aliceSession)).toContain(FIXTURE.bobSource);
+  });
+
+  it('mass-upload/status reports nothing about the foreign source', async () => {
+    const { GET } = require('@/app/api/mass-upload/status/route');
+    const body = await (
+      await GET(apiRequest(`http://t/api/mass-upload/status?sessionId=${FIXTURE.aliceSession}`))
+    ).json();
+
+    expect(body.status).toBe('success');
+    expect(body.counts.uploaded).toBe(0);
+    expect(Object.values(body.counts as Record<string, number>)).toEqual(
+      Array(Object.keys(body.counts).length).fill(0)
+    );
+    expect(body.placesCreated).toBe(0);
+    expect(body.failedErrors).toEqual([]);
+  });
+
+  it('GET /api/upload/sessions?details=true does not dereference it into source rows', async () => {
+    const { GET } = require('@/app/api/upload/sessions/route');
+    const body = await (
+      await GET(
+        apiRequest(`http://t/api/upload/sessions?sessionId=${FIXTURE.aliceSession}&details=true`)
+      )
+    ).json();
+
+    // `uri` is the blob URL and `ocrText` is the OCR'd contents of a travel
+    // screenshot — booking references, addresses, confirmation numbers.
+    expect(JSON.stringify(body.session.sources ?? [])).not.toContain(FIXTURE.bobSourceOcr);
+    expect(JSON.stringify(body.session.sources ?? [])).not.toContain(BOB_BLOB);
+  });
+
+  it('mass-upload/start does not requeue it', async () => {
+    const { POST } = require('@/app/api/mass-upload/start/route');
+    const body = await (
+      await POST(
+        apiRequest('http://t/api/mass-upload/start', 'POST', { sessionId: FIXTURE.aliceSession })
+      )
+    ).json();
+
+    expect(body.queued).toBe(0);
+    expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
+  });
+
+  it('mass-upload/cancel neither cancels it nor deletes its blob', async () => {
+    const { POST } = require('@/app/api/mass-upload/cancel/route');
+    const body = await (
+      await POST(
+        apiRequest('http://t/api/mass-upload/cancel', 'POST', { sessionId: FIXTURE.aliceSession })
+      )
+    ).json();
+
+    expect(body.cancelled).toBe(0);
+    expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
+    expect(JSON.stringify((del as jest.Mock).mock.calls)).not.toContain(BOB_BLOB);
+  });
+});
+
+describe('Path A — a mixed list acts on the caller\'s rows only', () => {
+  // The strongest form of the test: the fixes must filter the list, not empty
+  // the response. Alice's own source is in the same list as Bob's.
+  beforeEach(async () => {
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [
+      FIXTURE.bobSource,
+      FIXTURE.aliceSource,
+    ]);
+  });
+
+  it('status counts only the caller\'s source', async () => {
+    const { GET } = require('@/app/api/mass-upload/status/route');
+    const body = await (
+      await GET(apiRequest(`http://t/api/mass-upload/status?sessionId=${FIXTURE.aliceSession}`))
+    ).json();
+
+    expect(body.counts.uploaded).toBe(1);
+  });
+
+  it('details returns the caller\'s source and only that one', async () => {
+    const { GET } = require('@/app/api/upload/sessions/route');
+    const body = await (
+      await GET(
+        apiRequest(`http://t/api/upload/sessions?sessionId=${FIXTURE.aliceSession}&details=true`)
+      )
+    ).json();
+
+    expect(body.session.sources.map((s: { id: string }) => s.id)).toEqual([FIXTURE.aliceSource]);
+  });
+
+  it('start requeues the caller\'s source and leaves the other alone', async () => {
+    const { POST } = require('@/app/api/mass-upload/start/route');
+    const body = await (
+      await POST(
+        apiRequest('http://t/api/mass-upload/start', 'POST', { sessionId: FIXTURE.aliceSession })
+      )
+    ).json();
+
+    expect(body.queued).toBe(1);
+    expect(await sourceStatus(FIXTURE.aliceSource)).toBe('queued');
+    expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
+  });
+
+  it('cancel cancels the caller\'s source and releases only the caller\'s blob', async () => {
+    const { POST } = require('@/app/api/mass-upload/cancel/route');
+    const body = await (
+      await POST(
+        apiRequest('http://t/api/mass-upload/cancel', 'POST', { sessionId: FIXTURE.aliceSession })
+      )
+    ).json();
+
+    expect(body.cancelled).toBe(1);
+    expect(await sourceStatus(FIXTURE.aliceSource)).toBe('cancelled');
+    expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
+
+    const deleted = JSON.stringify((del as jest.Mock).mock.calls);
+    expect(deleted).toContain(FIXTURE.aliceSourceBlob);
+    expect(deleted).not.toContain(BOB_BLOB);
+  });
+});
+
+describe('Path B — claiming a dangling session id cannot absorb foreign sources', () => {
+  // A source row can outlive its session row: DELETE /api/upload/sessions
+  // without cleanup=true removes the session and leaves the sources tagged with
+  // its id. blob-complete then lets any caller create a session under that
+  // client-supplied id, so register's json_extract sweep must be owner-scoped.
+  const ORPHANED_SESSION = 'session_bob_deleted';
+  const BOB_ORPHAN = 'src_bob_orphan';
+  const BOB_ORPHAN_BLOB = 'https://store.public.blob.vercel-storage.com/bob-orphan.jpg';
+
+  beforeEach(async () => {
+    const { client } = require('@/db');
+    const now = new Date().toISOString();
+    await client.execute({
+      sql: `INSERT OR REPLACE INTO sources
+              (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?)`,
+      args: [
+        BOB_ORPHAN, 'user_bob', 'screenshot', BOB_ORPHAN_BLOB, 'BOB ORPHAN OCR', 'uploaded',
+        JSON.stringify({ uploadInfo: { sessionId: ORPHANED_SESSION } }), now, now,
+      ],
+    });
+    await client.execute({
+      sql: 'DELETE FROM upload_sessions WHERE id = ?',
+      args: [ORPHANED_SESSION],
+    });
+  });
+
+  async function claimAndRegister() {
+    const { POST: blobComplete } = require('@/app/api/upload/blob-complete/route');
+    const claimed = await blobComplete(
+      apiRequest('http://t/api/upload/blob-complete', 'POST', {
+        sessionId: ORPHANED_SESSION,
+        blobUrl: 'https://store.public.blob.vercel-storage.com/alice-1.jpg',
+        originalName: 'alice-1.png',
+        fileSize: 10,
+        mimeType: 'image/png',
+      })
+    );
+    expect(claimed.status).toBe(200);
+
+    const { POST: register } = require('@/app/api/mass-upload/register/route');
+    const registered = await register(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: ORPHANED_SESSION,
+        blobUrl: 'https://store.public.blob.vercel-storage.com/alice-2.jpg',
+        originalName: 'alice-2.png',
+        fileSize: 10,
+        mimeType: 'image/png',
+      })
+    );
+    expect(registered.status).toBe(200);
+    return (await registered.json()).sourceId as string;
+  }
+
+  it('register\'s rebuild sweep never names a source it does not own', async () => {
+    const registeredId = await claimAndRegister();
+
+    const meta = await sessionMeta(ORPHANED_SESSION);
+    expect(meta).not.toContain(BOB_ORPHAN);
+    // …but it does still name the caller's own uploads in that session.
+    expect(meta).toContain(registeredId);
+  });
+
+  it('cancel through the claimed session leaves the foreign source untouched', async () => {
+    await claimAndRegister();
+
+    const { POST } = require('@/app/api/mass-upload/cancel/route');
+    await POST(
+      apiRequest('http://t/api/mass-upload/cancel', 'POST', { sessionId: ORPHANED_SESSION })
+    );
+
+    expect(await sourceStatus(BOB_ORPHAN)).toBe('uploaded');
+    expect(JSON.stringify((del as jest.Mock).mock.calls)).not.toContain(BOB_ORPHAN_BLOB);
+  });
+});

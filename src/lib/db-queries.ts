@@ -1025,7 +1025,17 @@ export async function getQueueStats(
   }, 'getQueueStats');
 }
 
-export async function getProcessingStatusCounts(sourceIds: string[]): Promise<Record<string, number>> {
+/**
+ * Status histogram for a caller-supplied list of source ids.
+ *
+ * `userId` is required, like every other tenant-scoped function here. The ids
+ * arrive from `upload_sessions.meta.uploadedFiles`, which a caller can write —
+ * so the list is an input to filter, never an authorization decision.
+ */
+export async function getProcessingStatusCounts(
+  sourceIds: string[],
+  userId: string
+): Promise<Record<string, number>> {
   return withErrorHandling(async () => {
     if (sourceIds.length === 0) return {};
 
@@ -1034,7 +1044,10 @@ export async function getProcessingStatusCounts(sourceIds: string[]): Promise<Re
       count: sql<number>`count(*)`,
     })
     .from(sourcesCurrentSchema)
-    .where(inArray(sourcesCurrentSchema.id, sourceIds))
+    .where(and(
+      inArray(sourcesCurrentSchema.id, sourceIds),
+      eq(sourcesCurrentSchema.userId, userId)
+    ))
     .groupBy(sourcesCurrentSchema.processingStatus);
 
     return Object.fromEntries(rows.map(r => [r.status || 'unknown', Number(r.count)]));

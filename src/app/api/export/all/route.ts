@@ -12,7 +12,24 @@ export async function GET() {
     const allPlaces = await db.select().from(places).where(eq(places.userId, user.id))
     const allSources = await db.select().from(sources).where(eq(sources.userId, user.id))
     const allCollections = await db.select().from(collections).where(eq(collections.userId, user.id))
-    const placesToCollectionsData = await db.select().from(placesToCollections)
+    // Membership rows are owned transitively, through the collection they sit
+    // in — `places_to_collections` has no user_id of its own, and it carries the
+    // user-authored per-place `note`. Without this join every signed-in user
+    // exports every other user's membership graph and notes.
+    // The projection is explicit on purpose: a bare select() after a join
+    // returns `{ places_to_collections: {...}, collections: {...} }`, which would
+    // silently change the shape of the exported JSON.
+    const placesToCollectionsData = await db
+      .select({
+        placeId: placesToCollections.placeId,
+        collectionId: placesToCollections.collectionId,
+        orderIndex: placesToCollections.orderIndex,
+        isPinned: placesToCollections.isPinned,
+        note: placesToCollections.note,
+      })
+      .from(placesToCollections)
+      .innerJoin(collections, eq(placesToCollections.collectionId, collections.id))
+      .where(eq(collections.userId, user.id))
 
     const exportData = {
       exportDate: new Date().toISOString(),

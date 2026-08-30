@@ -173,14 +173,36 @@ The inbox `ProcessingBanner` is in-flight only; completion belongs to the bell.
 
 ## Multi-Tenancy (security-critical)
 
-Every user-owned table carries a `userId` (`places`, `sources`, `collections`, `uploadSessions`, and
-`attachments` transitively via `places.placeId`). **Authentication is not authorization**: any handler
-that reads or writes a row by a caller-supplied id must also filter on the caller's `user.id`, or join
-through `places` when the row is only owned transitively.
+Every user-owned table carries a `userId` (`places`, `sources`, `collections`, `uploadSessions`).
+**Authentication is not authorization**: any handler that reads or writes a row by a caller-supplied
+id must also filter on the caller's `user.id`.
+
+The tables with no `user_id` of their own are owned transitively and must be inner-joined to their
+owner, which is not always `places`: `attachments` via `places`, `sources_to_places` via `sources`,
+`places_to_collections` via `collections`. `places_to_collections` is not a bare join table — it
+carries `order_index`, `is_pinned` and a user-authored free-text `note`, so reading it unfiltered
+leaks private content, not just graph edges.
+
+**Owning a container is not owning the rows it names.** When a handler reads ids out of a row and
+then queries or mutates by those ids, the follow-up query must independently filter on the caller —
+even when the container is already ownership-checked. `upload_sessions.meta.uploadedFiles` is not
+written by the caller directly (`POST`/`PATCH /api/upload/sessions` strip it) but is rebuilt from
+source metadata by `mass-upload/register`, so the session check in `mass-upload/{cancel,start,status}`
+was standing in for a row check it could not carry. Treat any such id list as untrusted input to
+filter, not as an authorization boundary.
 
 - Ownership-scoped read: `src/app/api/photos/resolve/[attachmentId]/route.ts`
 - Session ownership check (404 then 403): `src/app/api/mass-upload/start/route.ts`
-- Regression tests for both shapes: `src/__tests__/authorization/`
+- Transitively-owned rows joined to their owner: `src/app/api/export/all/route.ts`
+- Row-scoped follow-up on a caller-supplied id list: `src/app/api/mass-upload/cancel/route.ts`
+- Regression tests for these shapes: `src/__tests__/authorization/`
+
+Most of that suite mocks `@/db` and asserts the *shape* of the `WHERE` clause, which cannot catch a
+query that is scoped on the container and unscoped on the rows. For cross-tenant tests prefer
+`src/__tests__/helpers/tenant-fixture.ts`: it runs the real handlers against a real SQLite file built
+from `src/db/migrations/`, needs no credentials and no network, and pins `TURSO_DATABASE_URL` to that
+file. Import it **first** in a suite — `jest.setup.js` runs `dotenv.config()`, so without the pin
+`@/db` resolves the production Turso URL at import time.
 
 Client-supplied URLs the server will fetch or persist must pass `isAllowedBlobUrl()`
 (`src/lib/blob-url.ts`) first — `sources.uri` is re-fetched later by the privileged cron.

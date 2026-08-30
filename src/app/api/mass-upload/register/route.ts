@@ -107,9 +107,18 @@ export async function POST(request: NextRequest) {
           .set({ completedCount: sql`${uploadSessions.completedCount} + 1` })
           .where(eq(uploadSessions.id, sessionId));
 
+        // Owner-scoped: a session id is client-supplied, and a source row
+        // tagged with it may belong to someone else (a session row can be
+        // deleted while its sources survive, and blob-complete will then let
+        // another caller claim the same id). Without the userId predicate this
+        // sweep pulls foreign sources into the caller's session, where the
+        // cancel/start/status routes would act on them.
         const sessionSources = await tx.select({ id: sourcesCurrentSchema.id })
           .from(sourcesCurrentSchema)
-          .where(sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`);
+          .where(and(
+            eq(sourcesCurrentSchema.userId, user.id),
+            sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`
+          ));
         const allSourceIds = [...sessionSources.map((s: { id: string }) => s.id), existingSource.id];
 
         await tx.update(uploadSessions)
@@ -173,10 +182,15 @@ export async function POST(request: NextRequest) {
         .set({ completedCount: sql`${uploadSessions.completedCount} + 1` })
         .where(eq(uploadSessions.id, sessionId));
 
-      // Step 4: Rebuild uploadedFiles from all session sources
+      // Step 4: Rebuild uploadedFiles from this caller's sources in the session.
+      // Owner-scoped for the same reason as the duplicate branch above: the
+      // session id alone does not establish who owns a source row.
       const sessionSources = await tx.select({ id: sourcesCurrentSchema.id })
         .from(sourcesCurrentSchema)
-        .where(sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`);
+        .where(and(
+          eq(sourcesCurrentSchema.userId, user.id),
+          sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`
+        ));
 
       const allSourceIds = sessionSources.map((s: { id: string }) => s.id);
       await tx.update(uploadSessions)

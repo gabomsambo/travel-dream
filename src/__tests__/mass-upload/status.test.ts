@@ -76,9 +76,13 @@ function mockSessionSelect(
 }
 
 function mockPlacesCountSelect(count: number) {
+  // sources_to_places has no user_id of its own, so the route joins back to
+  // sources to scope the count to the caller.
   const selectChain = {
     from: jest.fn().mockReturnValue({
-      where: jest.fn().mockResolvedValue([{ count }]),
+      innerJoin: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue([{ count }]),
+      }),
     }),
   };
   mockDb.select.mockReturnValueOnce(selectChain);
@@ -208,7 +212,7 @@ describe('GET /api/mass-upload/status', () => {
     expect(data.total).toBe(0);
     expect(data.placesCreated).toBe(0);
     expect(data.failedErrors).toEqual([]);
-    expect(mockGetProcessingStatusCounts).toHaveBeenCalledWith([]);
+    expect(mockGetProcessingStatusCounts).toHaveBeenCalledWith([], mockUser.id);
     expect(whereMentions(ownedWhere?.mock.calls[0][0], mockUser.id)).toBe(true);
   });
 

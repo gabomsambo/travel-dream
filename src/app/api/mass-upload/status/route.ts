@@ -44,6 +44,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
 
+    // Owning the session is NOT owning the rows it names. `meta.uploadedFiles`
+    // is rebuilt from source metadata by mass-upload/register, so it is not an
+    // authorization boundary. The list is narrowed to the sources the caller
+    // owns, and every query below independently re-scopes to the caller too.
     const metadataSourceIds = session.meta?.uploadedFiles || [];
     const ownedSources = metadataSourceIds.length > 0
       ? await db.select({ id: sourcesCurrentSchema.id })
@@ -56,7 +60,7 @@ export async function GET(request: NextRequest) {
     const sourceIds = ownedSources.map(source => source.id);
 
     // Get counts per processingStatus
-    const counts = await getProcessingStatusCounts(sourceIds);
+    const counts = await getProcessingStatusCounts(sourceIds, user.id);
 
     // Count places created from these sources
     let placesCreated = 0;
@@ -65,7 +69,12 @@ export async function GET(request: NextRequest) {
         count: sql<number>`count(DISTINCT ${sourcesToPlaces.placeId})`,
       })
       .from(sourcesToPlaces)
-      .where(inArray(sourcesToPlaces.sourceId, sourceIds));
+      // sources_to_places has no user_id — ownership is transitive via sources.
+      .innerJoin(sourcesCurrentSchema, eq(sourcesToPlaces.sourceId, sourcesCurrentSchema.id))
+      .where(and(
+        inArray(sourcesToPlaces.sourceId, sourceIds),
+        eq(sourcesCurrentSchema.userId, user.id)
+      ));
       placesCreated = Number(placesResult[0]?.count ?? 0);
     }
 

@@ -3,7 +3,6 @@
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import { X, Image as ImageIcon, Star } from "lucide-react"
-import { notify } from '@/lib/notify'
 import { Button } from "@/components/adapters/button"
 import { Card } from "@/components/adapters/card"
 import { PhotoUploader } from "@/components/upload/photo-uploader"
@@ -87,6 +86,7 @@ export function MediaTab({ place, onUpdate }: MediaTabProps) {
       <PhotoUploader
         placeId={place.id}
         onUploadComplete={handleUploadComplete}
+        onUploadError={setMediaError}
       />
 
       {photos.length === 0 && (

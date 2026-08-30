@@ -18,6 +18,7 @@ import {
   CardContent,
 } from '@/components/ui-v2/card';
 import { Save, Trash, Download } from 'lucide-react';
+import type { SaveTemplateResult } from '@/hooks/use-export-templates';
 import type { ExportTemplate, ExportScope, ExportFormat, FieldPreset } from '@/types/export';
 
 interface TemplateManagerProps {
@@ -29,7 +30,7 @@ interface TemplateManagerProps {
     options?: ExportTemplate['options'];
   };
   templates: ExportTemplate[];
-  onSaveTemplate: (name: string) => void;
+  onSaveTemplate: (name: string) => SaveTemplateResult;
   onLoadTemplate: (templateId: string) => void;
   onDeleteTemplate: (templateId: string) => void;
 }
@@ -43,13 +44,20 @@ export function TemplateManager({
 }: TemplateManagerProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSaveTemplate = () => {
-    if (templateName.trim()) {
-      onSaveTemplate(templateName.trim());
-      setTemplateName('');
-      setIsDialogOpen(false);
+    if (!templateName.trim()) return;
+
+    const result = onSaveTemplate(templateName.trim());
+    if (result && typeof result === 'object' && 'error' in result) {
+      setSaveError(result.error);
+      return;
     }
+
+    setSaveError(null);
+    setTemplateName('');
+    setIsDialogOpen(false);
   };
 
   const getScopeLabel = (scope: ExportScope): string => {
@@ -71,7 +79,13 @@ export function TemplateManager({
         <CardTitle>Export Templates</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog
+          open={isDialogOpen}
+          onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) setSaveError(null);
+          }}
+        >
           <DialogTrigger asChild>
             <Button variant="outline" className="w-full">
               <Save />
@@ -99,6 +113,9 @@ export function TemplateManager({
                   }}
                   maxLength={50}
                 />
+                {saveError && (
+                  <p role="alert" className="text-sm text-destructive">{saveError}</p>
+                )}
               </div>
               <div className="flex justify-end gap-2">
                 <Button
@@ -106,6 +123,7 @@ export function TemplateManager({
                   onClick={() => {
                     setIsDialogOpen(false);
                     setTemplateName('');
+                    setSaveError(null);
                   }}
                 >
                   Cancel

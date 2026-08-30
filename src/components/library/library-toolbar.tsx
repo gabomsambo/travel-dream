@@ -113,17 +113,19 @@ export function LibraryToolbar({
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onAddToCollectionSelected}
-                    disabled={disabled || loading || addToCollectionDisabled}
-                    className="h-8"
-                    title={addToCollectionTitle}
-                  >
-                    <FolderPlus className="mr-1 h-3 w-3" />
-                    Add to Collection
-                  </Button>
+                  <span tabIndex={0} className="inline-flex">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onAddToCollectionSelected}
+                      disabled={disabled || loading || addToCollectionDisabled}
+                      className="h-8"
+                      title={addToCollectionTitle}
+                    >
+                      <FolderPlus className="mr-1 h-3 w-3" />
+                      Add to Collection
+                    </Button>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   {addToCollectionTitle}

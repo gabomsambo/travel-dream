@@ -28,7 +28,7 @@ interface MassUploadFile {
   id: string
   file: File
   progress: number
-  status: 'pending' | 'uploading' | 'completed' | 'failed'
+  status: 'pending' | 'uploading' | 'completed' | 'failed' | 'rejected'
   error?: string
   previewUrl?: string
   blobUrl?: string
@@ -205,7 +205,7 @@ export function MassUploadPage() {
     setBatchError(null)
 
     const validFiles: File[] = []
-    const invalidEntries: Array<[string, MassUploadFile]> = []
+    const rejectedEntries: Array<[string, MassUploadFile]> = []
 
     newFileList.forEach(file => {
       const validation = validateFile(file)
@@ -213,45 +213,43 @@ export function MassUploadPage() {
         validFiles.push(file)
       } else {
         const fileId = crypto.randomUUID()
-        invalidEntries.push([fileId, {
+        rejectedEntries.push([fileId, {
           id: fileId,
           file,
           progress: 0,
-          status: 'failed',
+          status: 'rejected',
           error: validation.error,
         }])
       }
     })
 
-    if (validFiles.length + files.size + invalidEntries.length > MAX_FILES) {
-      setBatchError(`Cannot upload more than ${MAX_FILES} files`)
-      if (invalidEntries.length > 0) {
-        setFiles(prev => {
-          const newMap = new Map(prev)
-          invalidEntries.forEach(([id, entry]) => newMap.set(id, entry))
-          return newMap
-        })
-      }
-      return
-    }
-
-    if (validFiles.length === 0 && invalidEntries.length === 0) return
-
-    if (invalidEntries.length > 0) {
+    const commitRejected = () => {
+      if (rejectedEntries.length === 0) return
       setFiles(prev => {
         const newMap = new Map(prev)
-        invalidEntries.forEach(([id, entry]) => newMap.set(id, entry))
+        rejectedEntries.forEach(([id, entry]) => newMap.set(id, entry))
         return newMap
       })
     }
 
-    if (validFiles.length === 0) return
+    const queuedCount = Array.from(files.values()).filter(f => f.status !== 'rejected').length
+
+    if (validFiles.length + queuedCount > MAX_FILES) {
+      setBatchError(`Cannot upload more than ${MAX_FILES} files`)
+      commitRejected()
+      return
+    }
+
+    if (validFiles.length === 0) {
+      commitRejected()
+      return
+    }
 
     setIsUploading(true)
 
     // Add files to state
     const updatedFiles = new Map(files)
-    invalidEntries.forEach(([id, entry]) => updatedFiles.set(id, entry))
+    rejectedEntries.forEach(([id, entry]) => updatedFiles.set(id, entry))
     const newEntries: Array<[string, MassUploadFile]> = []
     validFiles.forEach(file => {
       const fileId = crypto.randomUUID()
@@ -514,6 +512,7 @@ export function MassUploadPage() {
 
   const completedFiles = filesArray.filter(f => f.status === 'completed').length
   const failedFiles = filesArray.filter(f => f.status === 'failed').length
+  const rejectedFiles = filesArray.filter(f => f.status === 'rejected').length
   const uploadingFiles = filesArray.filter(f => f.status === 'uploading').length
   const allUploaded = filesArray.length > 0 && uploadingFiles === 0
 
@@ -753,6 +752,7 @@ export function MassUploadPage() {
             <p className="text-sm text-muted-foreground">
               {completedFiles} screenshot{completedFiles !== 1 ? 's' : ''} ready to process
               {failedFiles > 0 && ` (${failedFiles} failed)`}
+              {rejectedFiles > 0 && ` (${rejectedFiles} skipped)`}
             </p>
           </div>
           <Button
@@ -903,6 +903,9 @@ export function MassUploadPage() {
             {failedFiles > 0 && (
               <Badge variant="destructive">{failedFiles} failed</Badge>
             )}
+            {rejectedFiles > 0 && (
+              <Badge variant="destructive">{rejectedFiles} skipped</Badge>
+            )}
           </div>
           {/* Task 3: Retry All Failed button */}
           {failedFiles > 0 && !isUploading && (
@@ -972,7 +975,7 @@ export function MassUploadPage() {
                           {file.status === 'completed' && (
                             <CheckCircle2 className="w-4 h-4 text-green-500" />
                           )}
-                          {file.status === 'failed' && (
+                          {(file.status === 'failed' || file.status === 'rejected') && (
                             <AlertCircle className="w-4 h-4 text-red-500" />
                           )}
                         </div>

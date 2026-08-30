@@ -211,6 +211,7 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
       if (!destDay) return
 
       if (destDay.placeIds.includes(activeId)) {
+        notify.error('Place already in this day')
         return
       }
 
@@ -273,6 +274,7 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
     if (!targetDay) return
 
     if (targetDay.placeIds.includes(placeId)) {
+      notify.error('Place already in this day')
       return
     }
 

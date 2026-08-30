@@ -353,10 +353,7 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
   }, [selectedItems.size])
 
   const exportPlaces = useCallback(async (format: ExportFormat) => {
-    if (selectedItems.size === 0) {
-      notify.error('No places selected for export')
-      return
-    }
+    if (selectedItems.size === 0) return
 
     setIsExporting(true)
     try {

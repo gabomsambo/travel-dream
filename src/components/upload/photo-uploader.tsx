@@ -19,7 +19,7 @@ interface UploadingFile {
 interface PhotoUploaderProps {
   placeId: string
   onUploadComplete?: () => void
-  onUploadError?: (error: string) => void
+  onUploadError: (error: string) => void
   maxFiles?: number
   maxFileSize?: number
   compact?: boolean
@@ -124,11 +124,11 @@ export function PhotoUploader({
     }
 
     if (errors.length > 0) {
-      onUploadError?.(errors.join('; '))
+      onUploadError(errors.join('; '))
     }
 
     if (validFiles.length > maxFiles) {
-      onUploadError?.(`Cannot upload more than ${maxFiles} files at once`)
+      onUploadError(`Cannot upload more than ${maxFiles} files at once`)
       return
     }
 

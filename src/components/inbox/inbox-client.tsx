@@ -225,7 +225,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
   }, [router])
 
   const handleMergePlace = useCallback((_placeId: string) => {
-    // Merge workflow not implemented — control stays disabled in PlaceGrid
+    // Merge workflow not implemented — PlaceGrid renders no merge control yet
   }, [])
 
   // Keyboard navigation

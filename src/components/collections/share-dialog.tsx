@@ -113,6 +113,10 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
     const url = `https://maps.apple.com?ll=${place.coords!.lat},${place.coords!.lon}&q=${encodeURIComponent(place.name)}`;
 
     window.open(url, '_blank');
+
+    if (placesWithCoords.length > 1) {
+      notify.info('Apple Maps opened with first location only. Use CSV for all places.');
+    }
   };
 
   return (

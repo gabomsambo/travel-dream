@@ -54,7 +54,9 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
   const [expandedClusterId, setExpandedClusterId] = useState<string | undefined>(undefined);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isLoading, setIsLoading] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(fetchError);
+  const [rescanError, setRescanError] = useState<string | null>(null);
+
+  const scanError = rescanError ?? fetchError;
 
   const toggleSelection = useCallback((clusterId: string) => {
     setSelected(prev => {
@@ -276,7 +278,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
 
   const handleRescan = useCallback(async () => {
     setIsLoading(true);
-    setScanError(null);
+    setRescanError(null);
     try {
       // Clear the API in-process cache, then re-run the server fetch via router.refresh()
       const cacheClearRes = await fetch('/api/places/duplicates', { method: 'DELETE' });
@@ -285,7 +287,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       }
       router.refresh();
     } catch (error) {
-      setScanError(error instanceof Error ? error.message : 'Rescan failed');
+      setRescanError(error instanceof Error ? error.message : 'Rescan failed');
       console.error('[Rescan] Failed:', error);
     } finally {
       setIsLoading(false);

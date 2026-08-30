@@ -3,7 +3,6 @@
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import { Star, X } from "lucide-react"
-import { notify } from '@/lib/notify'
 import { Button } from "@/components/adapters/button"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
@@ -94,6 +93,7 @@ export function MediaSection({ place }: MediaSectionProps) {
             <PhotoUploader
               placeId={place.id}
               onUploadComplete={handleUploadComplete}
+              onUploadError={setMediaError}
               compact
             />
           </div>

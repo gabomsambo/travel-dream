@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition, useOptimistic } from "react"
+import { useState, useTransition, useOptimistic, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check } from "lucide-react"
 import { Button } from "@/components/adapters/button"
@@ -80,12 +80,24 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
+  const saveGenerationRef = useRef(0)
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+  }, [])
 
   // Optimistic state for immediate UI feedback
   const [optimisticPlace, setOptimisticPlace] = useOptimistic(initialPlace)
 
   // Auto-save function
   const handleSave = async () => {
+    const generation = ++saveGenerationRef.current
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = null
+    }
+
     setSaveStatus('saving')
     setSaveError(null)
 
@@ -104,16 +116,24 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
         throw new Error(errorMessage)
       }
 
+      if (generation !== saveGenerationRef.current) return
+
       setSaveStatus('saved')
-      setTimeout(() => setSaveStatus('idle'), 2000)
+      idleTimerRef.current = setTimeout(() => {
+        idleTimerRef.current = null
+        if (generation === saveGenerationRef.current) setSaveStatus('idle')
+      }, 2000)
 
       // Refresh server data
       router.refresh()
     } catch (error) {
-      setSaveStatus('error')
-      setSaveError(error instanceof Error ? error.message : 'Failed to save')
       console.error('Save failed:', error)
       console.error('Form data being sent:', formData)
+
+      if (generation !== saveGenerationRef.current) return
+
+      setSaveStatus('error')
+      setSaveError(error instanceof Error ? error.message : 'Failed to save')
     }
   }
 

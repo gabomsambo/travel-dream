@@ -1,0 +1,44 @@
+[
+  {
+    "theme": "classic",
+    "scenario": "idle",
+    "html": null,
+    "cookie": "classic",
+    "upload": "rgb(37, 99, 235)"
+  },
+  {
+    "theme": "classic",
+    "scenario": "active",
+    "html": null,
+    "cookie": "classic",
+    "upload": "rgb(37, 99, 235)"
+  },
+  {
+    "theme": "classic",
+    "scenario": "complete",
+    "html": null,
+    "cookie": "classic",
+    "upload": "rgb(37, 99, 235)"
+  },
+  {
+    "theme": "tropical",
+    "scenario": "idle",
+    "html": "tropical",
+    "cookie": "tropical",
+    "upload": "rgb(41, 142, 139)"
+  },
+  {
+    "theme": "tropical",
+    "scenario": "active",
+    "html": "tropical",
+    "cookie": "tropical",
+    "upload": "rgb(41, 142, 139)"
+  },
+  {
+    "theme": "tropical",
+    "scenario": "complete",
+    "html": "tropical",
+    "cookie": "tropical",
+    "upload": "rgb(41, 142, 139)"
+  }
+]

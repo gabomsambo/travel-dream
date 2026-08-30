@@ -1,33 +1,30 @@
-# Toast notifications — ship 1 evidence
+# Screenshots
 
-Sonner is mounted in `(app)/layout.tsx` via `AppToaster` so existing `toast.*` call sites become visible.
+Live captures at **1440×900** from headless Chrome (CDP `:9222`) against the app on **`:3001`** (`AUTH_URL=http://localhost:3001`). Theme proof is `data-theme` on `<html>` plus the Upload button’s computed colour — classic Upload is blue, tropical is teal.
 
-Captured at **2026-08-30** against branch HEAD with headless Chrome (CDP on port 9222) and the dev server on **`:3001`** (`AUTH_URL=http://localhost:3001`). Theme was toggled via Settings → “Tropical Boutique UI”; each capture logged `document.documentElement.getAttribute('data-theme')` and the Upload button colour before shooting.
+## Activity bell — ship 2
 
-## Screenshots (live browser)
+Header bell beside the profile avatar. Terminal mass-upload jobs persist in `localStorage` until dismissed. Regenerate: `node scripts/capture-activity-bell-screenshots.mjs`.
 
-| File | Viewport | What it shows |
-|------|----------|---------------|
-| `toast-before-classic-library.png` | 1440×900 | Classic (`data-theme` absent, Upload `rgb(59,130,246)`) — `/library` with no toast |
-| `toast-before-tropical-library.png` | 1440×900 | Tropical (`data-theme=tropical`, Upload `rgb(49,196,191)`) — `/library` with no toast |
-| `toast-after-classic-success.png` | 1440×900 | Classic — compact success toast after Settings → Export All Data; top-right below header; Upload uncovered |
-| `toast-after-classic-error.png` | 1440×900 | Classic — error toast after mocked export failure |
-| `toast-after-tropical-success.png` | 1440×900 | Tropical — same export success flow; shell accents differ (teal Upload, tropical tokens) |
-| `toast-after-tropical-error.png` | 1440×900 | Tropical — error toast after mocked export failure |
-| `toast-after-classic-narrow-success.png` | 780×900 | Classic at narrow width — toast stays top-right with `12px` inset, does not overlap Upload |
+Theme log from the capture run: [`activity-bell-theme-log.json`](activity-bell-theme-log.json).
 
-**Toast chrome vs theme:** Notification styling is mostly fixed sizing plus semantic tokens (`--popover`, `--border`, `--muted-foreground`). Success/error toasts therefore look similar in both themes; the theme difference is visible in the surrounding shell (Upload colour, cards, sidebar), not in radically different toast palettes.
+| File | Theme proof | What it shows |
+|------|-------------|---------------|
+| `activity-bell-rest-classic.png` | `data-theme` absent, Upload `rgb(37, 99, 235)` | Bell at rest — no indicator |
+| `activity-bell-rest-tropical.png` | `data-theme=tropical`, Upload `rgb(41, 142, 139)` | Same rest state in tropical |
+| `activity-bell-active-classic.png` | classic blue Upload | Bell with active-work dot |
+| `activity-bell-active-tropical.png` | tropical teal Upload | Active-work dot on tropical tokens |
+| `activity-bell-popover-active-classic.png` | classic | Popover: `Processing 183 of 500 · 42 places found` |
+| `activity-bell-popover-active-tropical.png` | tropical | Same active popover; shell accents differ |
+| `activity-bell-popover-complete-classic.png` | classic | Completed job with counts, View results / Retry stalled / Dismiss |
+| `activity-bell-popover-complete-tropical.png` | tropical | Same completed popover in tropical |
 
-## Unit-tested (not screenshoted)
+**Exercised live:** authenticated `/library` shell, theme cookie round-trip, bell indicator, popover copy and actions. Active counts came from an in-page `fetch` mock of `/api/mass-upload/status` after login; completed jobs were hydrated from `td:activity-jobs:v1` the same way a reload would.
 
-- Singleton toaster mount, all toast types render visible text, survival across client navigation — `src/__tests__/toaster/app-toaster.test.tsx`
-- Mass-upload poll errors surface via `toast.error` — `src/hooks/__tests__/use-mass-upload-status.test.tsx`
-- Collection-builder transport/note/pin failures surface via `toast.error` — `src/components/collections/__tests__/collection-builder-failures.test.tsx`
+**Unit-tested, not screenshoted:** provider toast-once + persist-across-remount, acknowledge clears storage, poll-paused copy, session list `userId` scope, 404-then-403 on GET/PATCH.
 
-## Reasoned (not screenshoted)
+**Reasoned:** in-page `/mass-upload` progress card (unchanged); `toastWithNavigate` on a real completing run (provider unit test covers the call).
 
-- Mass-upload completion action toast (`toastWithNavigate` → `/library`) — wired in `use-mass-upload-status.ts`; needs an active processing session to capture live.
+## Toast notifications — ship 1
 
-Before reference (no toast on add-place success): `/home/gabo/firstmate/data/td-notifications-ux/assets/current-add-place-success-no-feedback.png`.
-
-Regenerate: `node scripts/capture-toast-screenshots.mjs` (requires logged-in session, Chrome on `:9222`, dev server on `:3001`).
+Sonner is mounted in `(app)/layout.tsx` via `AppToaster`. Capture script: `node scripts/capture-toast-screenshots.mjs`.

@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/header'
 import { GlobalHotkeys } from '@/components/global-hotkeys'
 import { UIRefreshProvider } from '@/components/ui-refresh-provider'
 import { AppToaster } from '@/components/app-toaster'
+import { ActivityProvider } from '@/components/activity/activity-provider'
 import { requireAuth } from '@/lib/auth-helpers'
 import { UI_THEME_COOKIE, normalizeUiTheme } from '@/lib/ui-theme'
 
@@ -35,20 +36,22 @@ export default async function AppLayout({
         classic background for the first frame, until the provider mirrors the
         attribute onto <html>. In the steady state both resolve identically.
       */}
-      <div
-        data-theme={uiTheme === 'tropical' ? 'tropical' : undefined}
-        className="flex h-screen overflow-hidden bg-background text-foreground"
-      >
-        <div className="hidden md:block">
-          <Sidebar />
+      <ActivityProvider>
+        <div
+          data-theme={uiTheme === 'tropical' ? 'tropical' : undefined}
+          className="flex h-screen overflow-hidden bg-background text-foreground"
+        >
+          <div className="hidden md:block">
+            <Sidebar />
+          </div>
+          <div className="flex flex-1 flex-col">
+            <Header />
+            <main className="flex-1 overflow-y-auto p-3 sm:p-6">
+              {children}
+            </main>
+          </div>
         </div>
-        <div className="flex flex-1 flex-col">
-          <Header />
-          <main className="flex-1 overflow-y-auto p-3 sm:p-6">
-            {children}
-          </main>
-        </div>
-      </div>
+      </ActivityProvider>
       <AppToaster />
     </UIRefreshProvider>
   )

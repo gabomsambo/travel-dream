@@ -100,6 +100,12 @@ export async function GET(request: NextRequest) {
           { status: 404 }
         );
       }
+      if (session.userId !== user.id) {
+        return NextResponse.json(
+          { status: 'error', message: 'Forbidden' },
+          { status: 403 }
+        );
+      }
 
       let sessionDetails = { ...session };
 
@@ -146,9 +152,11 @@ export async function GET(request: NextRequest) {
       });
 
     } else {
-      // List recent sessions
+      // List recent sessions for this user only — the activity bell discovers
+      // work from this list, so it must never include another tenant's rows.
       const sessions = await db.select()
         .from(uploadSessions)
+        .where(eq(uploadSessions.userId, user.id))
         .orderBy(desc(uploadSessions.startedAt))
         .limit(limit);
 
@@ -193,16 +201,25 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json() as UpdateSessionRequest;
     const { status, metadata } = body;
 
-    const updatedSession = await withErrorHandling(async () => {
-      // Get current session
-      const currentSession = await db.select()
-        .from(uploadSessions)
-        .where(eq(uploadSessions.id, sessionId))
-        .get();
+    const currentSession = await db.select()
+      .from(uploadSessions)
+      .where(eq(uploadSessions.id, sessionId))
+      .get();
 
-      if (!currentSession) {
-        throw new Error('Session not found');
-      }
+    if (!currentSession) {
+      return NextResponse.json(
+        { status: 'error', message: 'Session not found' },
+        { status: 404 }
+      );
+    }
+    if (currentSession.userId !== user.id) {
+      return NextResponse.json(
+        { status: 'error', message: 'Forbidden' },
+        { status: 403 }
+      );
+    }
+
+    const updatedSession = await withErrorHandling(async () => {
 
       const updateData: any = {};
 

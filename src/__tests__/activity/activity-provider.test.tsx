@@ -1,0 +1,228 @@
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { ActivityProvider, useActivityJobs } from '@/components/activity/activity-provider'
+import { ActivityBell } from '@/components/activity/activity-bell'
+import { ProcessingBanner } from '@/components/mass-upload/processing-banner'
+import { toastWithNavigate } from '@/lib/toast-navigate'
+import { ACTIVITY_JOBS_STORAGE_KEY } from '@/lib/activity-jobs'
+
+jest.mock('@/lib/toast-navigate', () => ({
+  toastWithNavigate: jest.fn(),
+}))
+
+const mockedToast = toastWithNavigate as jest.MockedFunction<typeof toastWithNavigate>
+
+const SESSION_ID = 'session_bell-1'
+
+function statusPayload(counts: Record<string, number>, total: number, placesCreated: number) {
+  return {
+    status: 'success',
+    sessionId: SESSION_ID,
+    counts: {
+      uploaded: 0,
+      queued: 0,
+      extracting: 0,
+      enriching: 0,
+      completed: 0,
+      failed: 0,
+      stalled: 0,
+      cancelled: 0,
+      ...counts,
+    },
+    total,
+    placesCreated,
+    failedErrors: [],
+  }
+}
+
+function mockNetwork(opts: {
+  sessions?: Array<Record<string, unknown>>
+  status?: ReturnType<typeof statusPayload> | (() => ReturnType<typeof statusPayload>)
+  statusOk?: boolean
+}) {
+  ;(global.fetch as jest.Mock).mockImplementation((input: RequestInfo, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method || 'GET'
+    if (url.startsWith('/api/upload/sessions?limit=')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'success',
+          sessions: opts.sessions ?? [
+            {
+              id: SESSION_ID,
+              status: 'active',
+              startedAt: new Date().toISOString(),
+              meta: { uploadedFiles: ['src_1', 'src_2'] },
+            },
+          ],
+        }),
+      })
+    }
+    if (url.startsWith('/api/mass-upload/status')) {
+      if (opts.statusOk === false) {
+        return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+      }
+      const payload = typeof opts.status === 'function' ? opts.status() : opts.status
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => payload,
+      })
+    }
+    if (method === 'PATCH') {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ status: 'success' }) })
+    }
+    return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+  })
+}
+
+function JobProbe() {
+  const { jobs, connectionState, acknowledge } = useActivityJobs()
+  return (
+    <div>
+      <div data-testid="phases">{jobs.map(job => job.phase).join(',')}</div>
+      <div data-testid="summaries">{jobs.map(job => job.summary).join('|')}</div>
+      <div data-testid="connection">{connectionState}</div>
+      {jobs.map(job => (
+        <button key={job.id} type="button" onClick={() => acknowledge(job.id)}>
+          dismiss {job.id}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+describe('ActivityProvider', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    mockedToast.mockClear()
+    ;(global.fetch as jest.Mock).mockReset()
+  })
+
+  it('discovers an active session and shows live progress', async () => {
+    mockNetwork({
+      status: statusPayload({ queued: 317, extracting: 17, completed: 183 }, 500, 42),
+    })
+
+    render(
+      <ActivityProvider>
+        <JobProbe />
+        <ProcessingBanner />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phases')).toHaveTextContent('active')
+    })
+    expect(screen.getByTestId('summaries')).toHaveTextContent(
+      'Processing 183 of 500 · 42 places found'
+    )
+    expect(screen.getByRole('link', { name: /Details/ })).toHaveAttribute('href', '/mass-upload')
+    expect(mockedToast).not.toHaveBeenCalled()
+  })
+
+  it('announces a terminal job once, persists it, and keeps it after remount', async () => {
+    mockNetwork({
+      status: statusPayload({ completed: 487, failed: 9, stalled: 4 }, 500, 118),
+    })
+
+    const { unmount } = render(
+      <ActivityProvider>
+        <JobProbe />
+        <ProcessingBanner />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phases')).toHaveTextContent('complete')
+    })
+    expect(screen.getByTestId('summaries')).toHaveTextContent(
+      '487 processed · 9 failed · 4 need retry · 118 places found'
+    )
+    expect(screen.queryByText(/Processing /)).not.toBeInTheDocument()
+    expect(mockedToast).toHaveBeenCalledTimes(1)
+    expect(mockedToast).toHaveBeenCalledWith(
+      'Processing finished · 487 processed · 4 need retry.',
+      '/mass-upload',
+      { type: 'warning', actionLabel: 'Review upload' }
+    )
+    expect(localStorage.getItem(ACTIVITY_JOBS_STORAGE_KEY)).toContain('session_bell-1')
+
+    unmount()
+    mockedToast.mockClear()
+
+    render(
+      <ActivityProvider>
+        <JobProbe />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phases')).toHaveTextContent('complete')
+    })
+    expect(mockedToast).not.toHaveBeenCalled()
+  })
+
+  it('clears a terminal job when the user acknowledges it', async () => {
+    mockNetwork({
+      status: statusPayload({ completed: 10 }, 10, 3),
+    })
+
+    render(
+      <ActivityProvider>
+        <JobProbe />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phases')).toHaveTextContent('complete')
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: `dismiss ${SESSION_ID}` }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phases')).toHaveTextContent('')
+    })
+    expect(localStorage.getItem(ACTIVITY_JOBS_STORAGE_KEY)).toBe('[]')
+  })
+
+  it('says so when polling fails instead of pretending numbers are current', async () => {
+    mockNetwork({ statusOk: false })
+
+    render(
+      <ActivityProvider>
+        <JobProbe />
+        <ActivityBell />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connection')).toHaveTextContent('paused')
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /Activity/ }))
+    expect(await screen.findByText(/Updates paused — retrying/)).toBeInTheDocument()
+  })
+
+  it('shows a bell indicator while work is active and lists it in the popover', async () => {
+    mockNetwork({
+      status: statusPayload({ queued: 300, completed: 183, extracting: 17 }, 500, 42),
+    })
+
+    render(
+      <ActivityProvider>
+        <ActivityBell />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('activity-bell-indicator')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /Activity, 1 in progress/ }))
+    expect(await screen.findByText('Mass upload')).toBeInTheDocument()
+    expect(screen.getByText(/Processing 183 of 500 · 42 places found/)).toBeInTheDocument()
+  })
+})

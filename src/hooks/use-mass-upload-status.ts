@@ -1,20 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
-import { toastWithNavigate } from '@/lib/toast-navigate'
+import {
+  computeEta,
+  emptyMassUploadCounts,
+  isSessionComplete,
+  normalizeCounts,
+  type EtaTiming,
+  type MassUploadStatusCounts,
+} from '@/lib/mass-upload/status-view'
 
 const POLL_INTERVAL = 5000
-
-interface MassUploadStatusCounts {
-  uploaded: number
-  queued: number
-  extracting: number
-  enriching: number
-  completed: number
-  failed: number
-  /** Repeatedly interrupted before finishing — retryable, not a bad image. */
-  stalled: number
-  cancelled: number
-}
 
 interface UseMassUploadStatusState {
   counts: MassUploadStatusCounts
@@ -35,19 +30,8 @@ interface UseMassUploadStatusActions {
   reset: () => void
 }
 
-const initialCounts: MassUploadStatusCounts = {
-  uploaded: 0,
-  queued: 0,
-  extracting: 0,
-  enriching: 0,
-  completed: 0,
-  failed: 0,
-  stalled: 0,
-  cancelled: 0,
-}
-
 const initialState: UseMassUploadStatusState = {
-  counts: initialCounts,
+  counts: emptyMassUploadCounts,
   total: 0,
   placesCreated: 0,
   isActive: false,
@@ -65,9 +49,7 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
   const [state, setState] = useState<UseMassUploadStatusState>(initialState)
   const sessionIdRef = useRef<string | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
-  const hasCompletedRef = useRef(false)
-  const processingStartTimeRef = useRef<number | null>(null)
-  const initialCompletedRef = useRef<number>(0)
+  const etaTimingRef = useRef<EtaTiming>({ startMs: null, initialCompleted: 0 })
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
@@ -92,74 +74,28 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
         throw new Error(data.message || 'Failed to get status')
       }
 
-      const counts: MassUploadStatusCounts = {
-        uploaded: data.counts.uploaded || 0,
-        queued: data.counts.queued || 0,
-        extracting: data.counts.extracting || 0,
-        enriching: data.counts.enriching || 0,
-        completed: data.counts.completed || 0,
-        failed: data.counts.failed || 0,
-        stalled: data.counts.stalled || 0,
-        cancelled: data.counts.cancelled || 0,
-      }
-
-      const activeCount = counts.queued + counts.extracting + counts.enriching
-      const isActive = activeCount > 0
-      const hasTerminalSources =
-        counts.completed > 0 || counts.failed > 0 || counts.stalled > 0 || counts.cancelled > 0
-      const isComplete = !isActive && hasTerminalSources && (data.total || 0) > 0
-
-      // ETA calculation
-      let estimatedMinutesRemaining: number | null = null
-      let processingRate = 0
-
-      const completedNow = counts.completed + counts.failed + counts.stalled + counts.cancelled
-      const remaining = (data.total || 0) - completedNow
-
-      if (isActive && completedNow > 0) {
-        if (processingStartTimeRef.current === null) {
-          processingStartTimeRef.current = Date.now()
-          initialCompletedRef.current = completedNow
-        }
-
-        const elapsedMs = Date.now() - processingStartTimeRef.current
-        const processed = completedNow - initialCompletedRef.current
-
-        if (elapsedMs > 10000 && processed > 0) {
-          processingRate = processed / (elapsedMs / 60000)
-          estimatedMinutesRemaining = Math.max(1, Math.ceil(remaining / processingRate))
-        }
-      }
+      const counts = normalizeCounts(data.counts)
+      const total = data.total || 0
+      const isActive = counts.queued + counts.extracting + counts.enriching > 0
+      const isComplete = isSessionComplete(counts, total)
+      const eta = computeEta(counts, total, etaTimingRef.current, Date.now())
+      etaTimingRef.current = eta.timing
 
       setState({
         counts,
-        total: data.total || 0,
+        total,
         placesCreated: data.placesCreated || 0,
         isActive,
         isComplete,
         isLoading: false,
         error: null,
-        estimatedMinutesRemaining,
-        processingRate,
+        estimatedMinutesRemaining: eta.estimatedMinutesRemaining,
+        processingRate: eta.processingRate,
         failedErrors: data.failedErrors || [],
       })
 
-      if (isComplete && !hasCompletedRef.current) {
-        hasCompletedRef.current = true
+      if (isComplete) {
         stopPolling()
-        toastWithNavigate(
-          `Processing complete! ${data.placesCreated || 0} places found from ${counts.completed} screenshots.`,
-          '/library',
-          { actionLabel: 'View library' }
-        )
-        // Mark session as completed so revisit detection skips it
-        if (sessionIdRef.current) {
-          fetch(`/api/upload/sessions?sessionId=${sessionIdRef.current}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'completed' }),
-          }).catch(() => {})
-        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch status'
@@ -178,9 +114,7 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
   const startPolling = useCallback((sessionId: string) => {
     stopPolling()
     sessionIdRef.current = sessionId
-    hasCompletedRef.current = false
-    processingStartTimeRef.current = null
-    initialCompletedRef.current = 0
+    etaTimingRef.current = { startMs: null, initialCompleted: 0 }
     fetchStatus()
     intervalRef.current = setInterval(fetchStatus, POLL_INTERVAL)
   }, [fetchStatus, stopPolling])
@@ -188,9 +122,7 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
   const reset = useCallback(() => {
     stopPolling()
     sessionIdRef.current = null
-    hasCompletedRef.current = false
-    processingStartTimeRef.current = null
-    initialCompletedRef.current = 0
+    etaTimingRef.current = { startMs: null, initialCompleted: 0 }
     setState(initialState)
   }, [stopPolling])
 

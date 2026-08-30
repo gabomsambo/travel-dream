@@ -17,6 +17,7 @@ import { POST } from '@/app/api/mass-upload/start/route';
 import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
+import { whereMentions } from '../helpers/authz-helpers';
 
 const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock };
 
@@ -160,5 +161,27 @@ describe('POST /api/mass-upload/start', () => {
     expect(res.status).toBe(200);
     expect(data.status).toBe('success');
     expect(data.queued).toBe(2);
+  });
+
+  it('does not queue a planted source owned by another tenant', async () => {
+    const session = createMockSession({ meta: { uploadedFiles: ['src_victim'] } });
+    mockDb.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({ get: jest.fn().mockResolvedValue(session) }),
+      }),
+    });
+    const sourceWhere = jest.fn().mockReturnValue({
+      returning: jest.fn().mockResolvedValue([]),
+    });
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: sourceWhere }),
+    });
+
+    const res = await POST(createStartRequest({ sessionId: session.id }) as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.queued).toBe(0);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], mockUser.id)).toBe(true);
   });
 });

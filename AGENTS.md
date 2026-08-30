@@ -162,6 +162,15 @@ npm run db:studio       # visual DB browser (port 4983)
 least `TURSO_DATABASE_URL` it fails during "Collecting page data", which looks
 like a code error but is not. `npx tsc --noEmit` and `npm run test` need no env.
 
+## Background activity (header bell)
+
+Mass-upload observation lives in `src/components/activity/activity-provider.tsx`,
+mounted in `(app)/layout.tsx` beside `AppToaster`. Terminal jobs persist per user in
+`localStorage` (`td:activity-jobs:v1:<userId>`) until dismissed — there is no
+acknowledgement column. Announce transitions with `toastWithNavigate`
+(`src/lib/toast-navigate.ts`).
+The inbox `ProcessingBanner` is in-flight only; completion belongs to the bell.
+
 ## Multi-Tenancy (security-critical)
 
 Every user-owned table carries a `userId` (`places`, `sources`, `collections`, `uploadSessions`, and

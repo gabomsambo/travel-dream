@@ -20,6 +20,7 @@ import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Card } from "@/components/adapters/card"
 import { useMassUploadStatus } from '@/hooks/use-mass-upload-status'
+import { useActivityJobs } from '@/components/activity/activity-provider'
 import { toast } from 'sonner'
 import Link from 'next/link'
 
@@ -53,6 +54,7 @@ export function MassUploadPage() {
   const listParentRef = useRef<HTMLDivElement>(null)
 
   const status = useMassUploadStatus()
+  const { observeSession } = useActivityJobs()
   const [isCancelling, setIsCancelling] = useState(false)
   const [isTriggering, setIsTriggering] = useState(false)
   const [triggerResult, setTriggerResult] = useState<string | null>(null)
@@ -62,7 +64,7 @@ export function MassUploadPage() {
     const init = async () => {
       try {
         // Check for an existing active processing session
-        const sessionsRes = await fetch('/api/upload/sessions?limit=5')
+        const sessionsRes = await fetch('/api/upload/sessions?status=active&hasUploads=true&limit=5')
         if (sessionsRes.ok) {
           const sessionsData = await sessionsRes.json()
           if (sessionsData.status === 'success' && sessionsData.sessions) {
@@ -80,6 +82,7 @@ export function MassUploadPage() {
               setSessionId(active.id)
               setStep('processing')
               status.startPolling(active.id)
+              observeSession(active.id)
               return
             }
           }
@@ -338,6 +341,7 @@ export function MassUploadPage() {
       if (data.status === 'success') {
         setStep('processing')
         status.startPolling(sessionId)
+        observeSession(sessionId)
         toast.success(`${data.queued} screenshots queued for processing`)
       } else {
         toast.error(data.message || 'Failed to start processing')
@@ -347,7 +351,7 @@ export function MassUploadPage() {
     } finally {
       setIsStarting(false)
     }
-  }, [sessionId, status])
+  }, [sessionId, status, observeSession])
 
   const handleStartFresh = useCallback(async () => {
     // Best-effort mark old session completed

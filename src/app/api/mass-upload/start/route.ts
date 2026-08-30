@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
       })
       .where(and(
         inArray(sourcesCurrentSchema.id, sourceIds),
+        eq(sourcesCurrentSchema.userId, user.id),
         eq(sourcesCurrentSchema.processingStatus, 'uploaded')
       ))
       .returning();

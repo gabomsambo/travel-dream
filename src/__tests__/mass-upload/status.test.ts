@@ -17,6 +17,7 @@ jest.mock('@/db/schema/sources-current', () => ({
     id: 'id',
     processingStatus: 'processingStatus',
     processingError: 'processingError',
+    userId: 'userId',
   },
 }));
 
@@ -30,6 +31,7 @@ import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { getProcessingStatusCounts } from '@/lib/db-queries';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
+import { whereMentions } from '../helpers/authz-helpers';
 
 const mockDb = db as unknown as { select: jest.Mock };
 const mockRequireAuth = requireAuthForApi as jest.MockedFunction<typeof requireAuthForApi>;
@@ -45,7 +47,10 @@ function createStatusRequest(sessionId?: string) {
   return new Request(url, { method: 'GET' });
 }
 
-function mockSessionSelect(session: ReturnType<typeof createMockSession> | null) {
+function mockSessionSelect(
+  session: ReturnType<typeof createMockSession> | null,
+  ownedSourceIds?: string[]
+) {
   const selectChain = {
     from: jest.fn().mockReturnValue({
       where: jest.fn().mockReturnValue({
@@ -54,6 +59,20 @@ function mockSessionSelect(session: ReturnType<typeof createMockSession> | null)
     }),
   };
   mockDb.select.mockReturnValueOnce(selectChain);
+  if (session?.userId === 'user_test-1') {
+    const uploadedFiles = session.meta.uploadedFiles as string[];
+    if (uploadedFiles.length === 0) return undefined;
+    const ownedWhere = jest.fn().mockResolvedValue(
+      (ownedSourceIds ?? uploadedFiles).map(id => ({ id }))
+    );
+    mockDb.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: ownedWhere,
+      }),
+    });
+    return ownedWhere;
+  }
+  return undefined;
 }
 
 function mockPlacesCountSelect(count: number) {
@@ -173,6 +192,24 @@ describe('GET /api/mass-upload/status', () => {
       stalled: 0,
       cancelled: 0,
     });
+  });
+
+  it('excludes a planted source id that the caller does not own', async () => {
+    const session = createMockSession({
+      meta: { uploadedFiles: ['src_owned', 'src_victim'], processingQueue: [], errors: [] },
+    });
+    const ownedWhere = mockSessionSelect(session, []);
+    mockGetProcessingStatusCounts.mockResolvedValueOnce({});
+
+    const res = await GET(createStatusRequest('session_test-1') as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.total).toBe(0);
+    expect(data.placesCreated).toBe(0);
+    expect(data.failedErrors).toEqual([]);
+    expect(mockGetProcessingStatusCounts).toHaveBeenCalledWith([]);
+    expect(whereMentions(ownedWhere?.mock.calls[0][0], mockUser.id)).toBe(true);
   });
 
   // ── 6. placesCreated count ───────────────────────────────────────────

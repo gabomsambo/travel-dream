@@ -12,15 +12,20 @@ jest.mock('@/lib/auth-helpers', () => ({
   isAuthError: jest.fn((err: unknown) => err instanceof Error && err.message === 'Unauthorized'),
 }));
 
+jest.mock('@vercel/blob', () => ({ del: jest.fn() }));
+
 // ── Imports (after mocks) ──────────────────────────────────────────────
 import { POST } from '@/app/api/mass-upload/cancel/route';
 import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
+import { del } from '@vercel/blob';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
+import { whereMentions } from '../helpers/authz-helpers';
 
 const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock };
 
 const mockRequireAuth = requireAuthForApi as jest.MockedFunction<typeof requireAuthForApi>;
+const mockDel = del as jest.MockedFunction<typeof del>;
 
 // ── Helpers ────────────────────────────────────────────────────────────
 function createCancelRequest(body: Record<string, unknown>) {
@@ -146,5 +151,38 @@ describe('POST /api/mass-upload/cancel', () => {
     expect(data.status).toBe('success');
     expect(data.cancelled).toBe(2);
     expect(data.alreadyProcessing).toBe(1);
+  });
+
+  it('does not cancel or delete a planted source owned by another tenant', async () => {
+    const session = createMockSession({ meta: { uploadedFiles: ['src_victim'] } });
+    mockDb.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({ get: jest.fn().mockResolvedValue(session) }),
+      }),
+    });
+
+    const sourceWhere = jest.fn().mockReturnValue({
+      returning: jest.fn().mockResolvedValue([]),
+    });
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: sourceWhere }),
+    });
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+    });
+    const inFlightWhere = jest.fn().mockResolvedValue([{ count: 0 }]);
+    mockDb.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({ where: inFlightWhere }),
+    });
+
+    const res = await POST(createCancelRequest({ sessionId: session.id }) as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.cancelled).toBe(0);
+    expect(data.alreadyProcessing).toBe(0);
+    expect(mockDel).not.toHaveBeenCalled();
+    expect(whereMentions(sourceWhere.mock.calls[0][0], mockUser.id)).toBe(true);
+    expect(whereMentions(inFlightWhere.mock.calls[0][0], mockUser.id)).toBe(true);
   });
 });

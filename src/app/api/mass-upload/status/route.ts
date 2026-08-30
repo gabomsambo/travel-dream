@@ -44,7 +44,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
 
-    const sourceIds = session.meta?.uploadedFiles || [];
+    const metadataSourceIds = session.meta?.uploadedFiles || [];
+    const ownedSources = metadataSourceIds.length > 0
+      ? await db.select({ id: sourcesCurrentSchema.id })
+        .from(sourcesCurrentSchema)
+        .where(and(
+          inArray(sourcesCurrentSchema.id, metadataSourceIds),
+          eq(sourcesCurrentSchema.userId, user.id)
+        ))
+      : [];
+    const sourceIds = ownedSources.map(source => source.id);
 
     // Get counts per processingStatus
     const counts = await getProcessingStatusCounts(sourceIds);
@@ -70,6 +79,7 @@ export async function GET(request: NextRequest) {
       .from(sourcesCurrentSchema)
       .where(and(
         inArray(sourcesCurrentSchema.id, sourceIds),
+        eq(sourcesCurrentSchema.userId, user.id),
         eq(sourcesCurrentSchema.processingStatus, 'failed')
       ));
       failedErrors = failedSources

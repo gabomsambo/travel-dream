@@ -7,6 +7,7 @@ import { Upload, Plus, LogOut, User } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { ActivityBell } from "@/components/activity/activity-bell"
 import { MobileNav } from "@/components/navigation/mobile-nav"
 import { SearchBar } from "@/components/search/search-bar"
 import {
@@ -138,6 +139,7 @@ export function Header() {
           </Button>
 
           <ThemeToggle />
+          <ActivityBell />
           <UserMenu />
         </div>
       </div>

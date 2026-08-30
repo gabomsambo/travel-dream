@@ -1,8 +1,9 @@
 /**
  * @jest-environment node
  *
- * The activity bell discovers work via GET /api/upload/sessions. That list
- * must be scoped to the caller, and per-id GET/PATCH must 404 then 403.
+ * The activity bell discovers work via GET /api/upload/sessions. Lists and
+ * per-session operations must enforce ownership, including associated-source
+ * detail reads and cleanup driven by session metadata.
  */
 
 jest.mock('@/db', () => ({

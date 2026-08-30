@@ -19,7 +19,7 @@ Theme log from the capture run: [`activity-bell-theme-log.json`](activity-bell-t
 | `activity-bell-popover-complete-classic.png` | classic | Completed job with counts, View results / Retry stalled / Dismiss |
 | `activity-bell-popover-complete-tropical.png` | tropical | Same completed popover in tropical |
 
-**Exercised live:** authenticated `/library` shell, theme cookie round-trip, bell indicator, popover copy and actions. Active counts came from an in-page `fetch` mock of `/api/mass-upload/status` after login; completed jobs were hydrated from `td:activity-jobs:v1` the same way a reload would.
+**Exercised live:** authenticated `/library` shell, theme cookie round-trip, bell indicator, and rendered popover copy and action controls. Active counts came from an in-page `fetch` mock of `/api/mass-upload/status` after login; completed jobs were hydrated from the signed-in user's `td:activity-jobs:v1:<userId>` key the same way a reload would.
 
 **Unit-tested, not screenshoted:** provider toast-once + persist-across-remount, acknowledge clears storage, poll-paused copy, session list `userId` scope, 404-then-403 on GET/PATCH.
 

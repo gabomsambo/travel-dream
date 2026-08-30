@@ -1,4 +1,5 @@
-import { toast, type ExternalToast } from 'sonner'
+import type { ExternalToast } from 'sonner'
+import { NOTIFY_DURATION, notify } from '@/lib/notify'
 
 type NavigateFn = (href: string) => void
 
@@ -29,13 +30,14 @@ export function toastWithNavigate(
   options?: ToastWithNavigateOptions
 ): void {
   const { actionLabel = 'View', type = 'success', ...toastOptions } = options ?? {}
-  toast[type](message, {
-    duration: 8000,
+  const payload = {
+    duration: NOTIFY_DURATION.warning,
     closeButton: true,
     ...toastOptions,
     action: {
       label: actionLabel,
       onClick: () => navigateFromToast(href),
     },
-  })
+  }
+  notify[type](message, payload)
 }

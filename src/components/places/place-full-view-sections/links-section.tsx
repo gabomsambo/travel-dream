@@ -17,11 +17,14 @@ export function LinksSection({ place }: LinksSectionProps) {
   const [showAddForm, setShowAddForm] = useState(false)
   const [url, setUrl] = useState("")
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const handleAddLink = async () => {
     if (!url.trim()) return
 
     setSaving(true)
+    setFormError(null)
 
     try {
       const response = await fetch(`/api/places/${place.id}/links`, {
@@ -36,7 +39,7 @@ export function LinksSection({ place }: LinksSectionProps) {
       setShowAddForm(false)
       window.location.reload()
     } catch (error) {
-      alert("Failed to add link")
+      setFormError("Failed to add link")
     } finally {
       setSaving(false)
     }
@@ -45,6 +48,7 @@ export function LinksSection({ place }: LinksSectionProps) {
   const handleDelete = async (linkId: string) => {
     if (!confirm("Delete this link?")) return
 
+    setDeleteError(null)
     try {
       const response = await fetch(`/api/places/${place.id}/links/${linkId}`, {
         method: "DELETE",
@@ -54,7 +58,7 @@ export function LinksSection({ place }: LinksSectionProps) {
 
       window.location.reload()
     } catch (error) {
-      alert("Failed to delete link")
+      setDeleteError("Failed to delete link")
     }
   }
 
@@ -103,7 +107,14 @@ export function LinksSection({ place }: LinksSectionProps) {
                 Cancel
               </Button>
             </div>
+            {formError && (
+              <p className="text-sm text-destructive">{formError}</p>
+            )}
           </Card>
+        )}
+
+        {deleteError && (
+          <p className="text-sm text-destructive">{deleteError}</p>
         )}
 
         {place.links.length === 0 ? (

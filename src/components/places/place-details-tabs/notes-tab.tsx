@@ -15,9 +15,11 @@ export function NotesTab({ place }: NotesTabProps) {
   const [notes, setNotes] = useState(place.notes || "")
   const [practicalInfo, setPracticalInfo] = useState(place.practicalInfo || "")
   const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
 
   const handleSave = async () => {
     setSaving(true)
+    setSaveStatus('idle')
 
     try {
       const response = await fetch(`/api/places/${place.id}`, {
@@ -33,9 +35,9 @@ export function NotesTab({ place }: NotesTabProps) {
         throw new Error("Failed to save notes")
       }
 
-      alert("Notes saved successfully!")
+      setSaveStatus('saved')
     } catch (error) {
-      alert("Failed to save notes")
+      setSaveStatus('error')
     } finally {
       setSaving(false)
     }
@@ -74,6 +76,12 @@ export function NotesTab({ place }: NotesTabProps) {
       <Button onClick={handleSave} disabled={saving} className="w-full">
         {saving ? "Saving..." : "Save Notes"}
       </Button>
+      {saveStatus === 'saved' && (
+        <p className="text-sm text-green-600">Notes saved</p>
+      )}
+      {saveStatus === 'error' && (
+        <p className="text-sm text-destructive">Failed to save notes</p>
+      )}
     </div>
   )
 }

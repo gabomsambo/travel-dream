@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import type { ExportScope, ExportFormat, FieldPreset } from '@/types/export';
 
 interface ExportOptions {
@@ -67,7 +67,7 @@ export function useExport() {
       window.URL.revokeObjectURL(url);
 
       const count = recordCount || 'unknown';
-      toast.success(`Exported ${count} places as ${format.toUpperCase()}`);
+      notify.success(`Exported ${count} places as ${format.toUpperCase()}`);
 
       return {
         filename: a.download,
@@ -77,7 +77,7 @@ export function useExport() {
     } catch (error) {
       console.error('Export error:', error);
       const message = error instanceof Error ? error.message : 'Export failed. Please try again.';
-      toast.error(message);
+      notify.error(message);
       throw error;
     } finally {
       setIsExporting(false);

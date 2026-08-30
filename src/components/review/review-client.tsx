@@ -7,7 +7,7 @@ import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Separator } from "@/components/adapters/separator"
 import { X, Image as ImageIcon } from "lucide-react"
-import { toast } from "sonner"
+import { notify } from '@/lib/notify'
 import { PlaceEditForm } from '@/components/places/place-edit-form'
 import { ConfidenceIndicator } from '@/components/inbox/confidence-indicator'
 import type { Place, Source } from '@/types/database'
@@ -21,12 +21,14 @@ interface ReviewClientProps {
 export function ReviewClient({ initialPlace, initialSources = [], initialPlaces = [] }: ReviewClientProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
   if (initialPlace) {
     const primarySource = initialSources[0]
 
     const handleSave = async (updates: Partial<Place>) => {
       setIsSubmitting(true)
+      setFormError(null)
       try {
         const response = await fetch(`/api/places/${initialPlace.id}`, {
           method: 'PATCH',
@@ -36,10 +38,9 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
 
         if (!response.ok) throw new Error('Update failed')
 
-        const result = await response.json()
-        toast.success('Place updated successfully')
+        await response.json()
       } catch (error) {
-        toast.error('Failed to update place')
+        setFormError('Failed to update place')
       } finally {
         setIsSubmitting(false)
       }
@@ -47,6 +48,7 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
 
     const handleSaveAndConfirm = async (updates: Partial<Place>) => {
       setIsSubmitting(true)
+      setFormError(null)
       try {
         const response = await fetch(`/api/places/${initialPlace.id}`, {
           method: 'PATCH',
@@ -56,10 +58,10 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
 
         if (!response.ok) throw new Error('Confirm failed')
 
-        toast.success('Place saved and confirmed to library')
+        notify.success('Place saved and confirmed to library')
         router.push('/library')
       } catch (error) {
-        toast.error('Failed to confirm place')
+        setFormError('Failed to confirm place')
         setIsSubmitting(false)
       }
     }
@@ -68,6 +70,7 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
       if (!confirm('Archive this place? This action can be undone from the archived view.')) return
 
       setIsSubmitting(true)
+      setFormError(null)
       try {
         const response = await fetch(`/api/places/${initialPlace.id}`, {
           method: 'PATCH',
@@ -77,10 +80,9 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
 
         if (!response.ok) throw new Error('Archive failed')
 
-        toast.success('Place archived')
         router.push('/inbox')
       } catch (error) {
-        toast.error('Failed to archive place')
+        setFormError('Failed to archive place')
         setIsSubmitting(false)
       }
     }
@@ -160,6 +162,9 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
             </p>
           </CardHeader>
           <CardContent>
+            {formError && (
+              <p role="alert" className="mb-4 text-sm text-destructive">{formError}</p>
+            )}
             <PlaceEditForm
               place={initialPlace}
               onSave={handleSave}

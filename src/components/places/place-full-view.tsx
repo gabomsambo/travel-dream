@@ -111,7 +111,6 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
       setSaveStatus('error')
       console.error('Save failed:', error)
       console.error('Form data being sent:', formData)
-      alert(`Save failed: ${error instanceof Error ? error.message : 'Please try again'}`)
     }
   }
 

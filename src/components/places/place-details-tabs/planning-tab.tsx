@@ -36,9 +36,11 @@ export function PlanningTab({ place }: PlanningTabProps) {
     return ""
   })
   const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
 
   const handleSave = async () => {
     setSaving(true)
+    setSaveStatus('idle')
 
     try {
       const response = await fetch(`/api/places/${place.id}`, {
@@ -60,9 +62,9 @@ export function PlanningTab({ place }: PlanningTabProps) {
         throw new Error("Failed to save")
       }
 
-      alert("Planning details saved successfully!")
+      setSaveStatus('saved')
     } catch (error) {
-      alert("Failed to save planning details")
+      setSaveStatus('error')
     } finally {
       setSaving(false)
     }
@@ -189,6 +191,12 @@ export function PlanningTab({ place }: PlanningTabProps) {
       <Button onClick={handleSave} disabled={saving} className="w-full">
         {saving ? "Saving..." : "Save Planning Details"}
       </Button>
+      {saveStatus === 'saved' && (
+        <p className="text-sm text-green-600">Planning details saved</p>
+      )}
+      {saveStatus === 'error' && (
+        <p className="text-sm text-destructive">Failed to save planning details</p>
+      )}
     </div>
   )
 }

@@ -26,7 +26,7 @@ import { Input } from "@/components/adapters/input";
 import { Label } from "@/components/adapters/label";
 import { Textarea } from "@/components/adapters/textarea";
 import { FolderPlus } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import { useRouter } from 'next/navigation';
 import type { Collection } from '@/types/database';
 
@@ -52,13 +52,17 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      toast.error('Collection name is required');
+      setNameError('Collection name is required');
       return;
     }
 
+    setNameError(null);
+    setCreateError(null);
     setIsCreating(true);
     try {
       const response = await fetch('/api/collections', {
@@ -76,7 +80,6 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
         throw new Error(data.message || 'Failed to create collection');
       }
 
-      toast.success('Collection created successfully');
       setCreateDialogOpen(false);
       setName('');
       setDescription('');
@@ -85,7 +88,7 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
       router.refresh();
     } catch (error) {
       console.error('Error creating collection:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create collection');
+      setCreateError(error instanceof Error ? error.message : 'Failed to create collection');
     } finally {
       setIsCreating(false);
     }
@@ -145,7 +148,7 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
         router.refresh();
       } catch (error) {
         console.error('Error deleting collection:', error);
-        toast.error('Failed to delete collection');
+        notify.error('Failed to delete collection');
         // Restore on error
         if (toDelete) {
           setCollections(prev => [...prev, toDelete]);
@@ -183,14 +186,12 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
         if (!response.ok) {
           throw new Error('Failed to remove cover');
         }
-
-        toast.success('Cover image removed');
       }
       // Note: When coverUrl is set, the dialog already handles the API call
       // and we just need to update local state here
     } catch (error) {
       console.error('Error updating cover:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to update cover');
+      notify.error(error instanceof Error ? error.message : 'Failed to update cover');
       // Revert on error by refreshing
       router.refresh();
     }
@@ -254,7 +255,13 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
       )}
 
       {/* Create Collection Dialog */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+      <Dialog open={createDialogOpen} onOpenChange={(open) => {
+        setCreateDialogOpen(open);
+        if (!open) {
+          setNameError(null);
+          setCreateError(null);
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create New Collection</DialogTitle>
@@ -270,7 +277,10 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
                 id="name"
                 placeholder="e.g., Tokyo Food Tour, Paris Museums..."
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) setNameError(null);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -280,6 +290,9 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
                 maxLength={200}
                 autoFocus
               />
+              {nameError && (
+                <p className="text-sm text-destructive">{nameError}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -294,6 +307,10 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
               />
             </div>
           </div>
+
+          {createError && (
+            <p className="text-sm text-destructive">{createError}</p>
+          )}
 
           <DialogFooter>
             <Button

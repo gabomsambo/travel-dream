@@ -3,7 +3,7 @@
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import { X, Image as ImageIcon, Star } from "lucide-react"
-import { toast } from "sonner"
+import { notify } from '@/lib/notify'
 import { Button } from "@/components/adapters/button"
 import { Card } from "@/components/adapters/card"
 import { PhotoUploader } from "@/components/upload/photo-uploader"
@@ -25,6 +25,7 @@ interface MediaTabProps {
 export function MediaTab({ place, onUpdate }: MediaTabProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [mediaError, setMediaError] = useState<string | null>(null)
 
   const photos = place.attachments.filter((a) => a.type === "photo")
 
@@ -54,8 +55,8 @@ export function MediaTab({ place, onUpdate }: MediaTabProps) {
       }
 
       window.location.reload()
-    } catch (error) {
-      alert("Failed to delete photo")
+    } catch {
+      setMediaError('Failed to delete photo')
     }
   }
 
@@ -72,15 +73,17 @@ export function MediaTab({ place, onUpdate }: MediaTabProps) {
         throw new Error("Failed to set cover image")
       }
 
-      toast.success("Set as cover image")
       window.location.reload()
-    } catch (error) {
-      toast.error("Failed to set cover image")
+    } catch {
+      setMediaError('Failed to set cover image')
     }
   }
 
   return (
     <div className="space-y-6">
+      {mediaError && (
+        <p role="alert" className="text-sm text-destructive">{mediaError}</p>
+      )}
       <PhotoUploader
         placeId={place.id}
         onUploadComplete={handleUploadComplete}

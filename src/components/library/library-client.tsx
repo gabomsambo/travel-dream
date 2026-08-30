@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { Library, FileText, FileSpreadsheet, Download, Loader2, Trash2, Archive } from 'lucide-react'
-import { toast } from 'sonner'
+import { notify } from '@/lib/notify'
 import { PlaceDetailsDialogEnhanced } from "@/components/places/place-details-dialog-enhanced"
 import { PlaceCardV2 } from "@/components/library-v2/place-card-v2"
 import { PlaceFiltersSidebar } from "@/components/library-v2/place-filters-sidebar"
@@ -332,12 +332,12 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
       }
 
       const result = await response.json()
-      toast.success(`Archived ${result.result?.updatedCount || placeIds.length} place(s)`)
+      notify.success(`Archived ${result.result?.updatedCount || placeIds.length} place(s)`)
 
       selectNone()
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to archive places')
+      notify.error(error instanceof Error ? error.message : 'Failed to archive places')
       console.error('Error archiving places:', error)
     } finally {
       setIsLoading(false)
@@ -360,14 +360,14 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
       }
 
       const result = await response.json()
-      toast.success(`Deleted ${result.result?.updatedCount || placeIds.length} place(s)`)
+      notify.success(`Deleted ${result.result?.updatedCount || placeIds.length} place(s)`)
 
       setDeleteDialogOpen(false)
       setConfirmText('')
       selectNone()
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to delete places')
+      notify.errorPersistent(error instanceof Error ? error.message : 'Failed to delete places')
       console.error('Error deleting places:', error)
     } finally {
       setIsDeleting(false)
@@ -375,27 +375,13 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
   }, [router, selectNone])
 
   const handleArchiveClick = useCallback(() => {
-    if (selectedItems.size === 0) {
-      toast.error('No places selected')
-      return
-    }
+    if (selectedItems.size === 0) return
     setArchiveDialogOpen(true)
   }, [selectedItems.size])
 
   const handleDeleteClick = useCallback(() => {
-    if (selectedItems.size === 0) {
-      toast.error('No places selected')
-      return
-    }
+    if (selectedItems.size === 0) return
     setDeleteDialogOpen(true)
-  }, [selectedItems.size])
-
-  const handleAddToCollection = useCallback(() => {
-    if (selectedItems.size === 0) {
-      toast.error('No places selected')
-      return
-    }
-    toast.info('Add to collection feature coming soon!')
   }, [selectedItems.size])
 
   const handleExport = useCallback(async (format: ExportFormat) => {
@@ -429,18 +415,15 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
         document.body.removeChild(a)
         window.URL.revokeObjectURL(url)
 
-        toast.success(`Exported ${selectedItems.size} place(s)`)
+        notify.success(`Exported ${selectedItems.size} place(s)`)
       } catch (error) {
-        toast.error('Failed to export places')
+        notify.error('Failed to export places')
         console.error('Export error:', error)
       } finally {
         setIsExporting(false)
       }
     } else {
-      if (filteredPlaces.length === 0) {
-        toast.error('No places to export')
-        return
-      }
+      if (filteredPlaces.length === 0) return
 
       setIsExporting(true)
       try {
@@ -484,10 +467,10 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
         document.body.removeChild(a)
         window.URL.revokeObjectURL(url)
 
-        toast.success(`Exported ${filteredPlaces.length} places as ${format.toUpperCase()}`)
+        notify.success(`Exported ${filteredPlaces.length} places as ${format.toUpperCase()}`)
       } catch (error) {
         console.error('Export error:', error)
-        toast.error('Export failed. Please try again.')
+        notify.error('Export failed. Please try again.')
       } finally {
         setIsExporting(false)
       }
@@ -519,7 +502,7 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
 
       window.location.reload()
     } catch (error) {
-      alert('Failed to delete place. Please try again.')
+      notify.errorPersistent('Failed to delete place. Please try again.')
       console.error('Delete error:', error)
     }
   }, [initialPlaces])
@@ -663,7 +646,9 @@ export function LibraryClient({ initialPlaces, filterOptions }: LibraryClientPro
           isSomeSelected={selectedItems.size > 0 && selectedItems.size < sortedPlaces.length}
           onArchiveSelected={handleArchiveClick}
           onDeleteSelected={handleDeleteClick}
-          onAddToCollectionSelected={handleAddToCollection}
+          onAddToCollectionSelected={() => {}}
+          addToCollectionDisabled
+          addToCollectionTitle="Add to collection — coming soon"
           onSelectAll={selectAll}
           onSelectNone={selectNone}
           showKeyboardHints={showKeyboardHints}

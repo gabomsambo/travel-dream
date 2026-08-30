@@ -21,7 +21,7 @@ import { Badge } from "@/components/adapters/badge"
 import { Card } from "@/components/adapters/card"
 import { useMassUploadStatus } from '@/hooks/use-mass-upload-status'
 import { useActivityJobs } from '@/components/activity/activity-provider'
-import { toast } from 'sonner'
+import { notify } from '@/lib/notify'
 import Link from 'next/link'
 
 interface MassUploadFile {
@@ -58,6 +58,10 @@ export function MassUploadPage() {
   const [isCancelling, setIsCancelling] = useState(false)
   const [isTriggering, setIsTriggering] = useState(false)
   const [triggerResult, setTriggerResult] = useState<string | null>(null)
+  const [sessionError, setSessionError] = useState<string | null>(null)
+  const [batchError, setBatchError] = useState<string | null>(null)
+  const [startError, setStartError] = useState<string | null>(null)
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   // On mount: resume active session if one exists, otherwise create new
   useEffect(() => {
@@ -101,11 +105,12 @@ export function MassUploadPage() {
         const data = await res.json()
         if (data.status === 'success' && data.session?.id) {
           setSessionId(data.session.id)
+          setSessionError(null)
         } else {
-          toast.error('Failed to create upload session')
+          setSessionError('Failed to create upload session')
         }
       } catch {
-        toast.error('Failed to create upload session')
+        setSessionError('Failed to create upload session')
       }
     }
     init()
@@ -193,29 +198,51 @@ export function MassUploadPage() {
 
   const processFiles = useCallback(async (newFileList: File[]) => {
     if (!sessionId) {
-      toast.error('Session not ready. Please wait a moment and try again.')
+      setSessionError('Session not ready. Please wait a moment and try again.')
       return
     }
 
+    setBatchError(null)
+
     const validFiles: File[] = []
-    const errors: string[] = []
+    const invalidEntries: Array<[string, MassUploadFile]> = []
 
     newFileList.forEach(file => {
       const validation = validateFile(file)
       if (validation.isValid) {
         validFiles.push(file)
       } else {
-        errors.push(`${file.name}: ${validation.error}`)
+        const fileId = crypto.randomUUID()
+        invalidEntries.push([fileId, {
+          id: fileId,
+          file,
+          progress: 0,
+          status: 'failed',
+          error: validation.error,
+        }])
       }
     })
 
-    if (errors.length > 0) {
-      toast.error(`${errors.length} file(s) skipped`, { description: errors.slice(0, 3).join('; ') })
+    if (validFiles.length + files.size + invalidEntries.length > MAX_FILES) {
+      setBatchError(`Cannot upload more than ${MAX_FILES} files`)
+      if (invalidEntries.length > 0) {
+        setFiles(prev => {
+          const newMap = new Map(prev)
+          invalidEntries.forEach(([id, entry]) => newMap.set(id, entry))
+          return newMap
+        })
+      }
+      return
     }
 
-    if (validFiles.length + files.size > MAX_FILES) {
-      toast.error(`Cannot upload more than ${MAX_FILES} files`)
-      return
+    if (validFiles.length === 0 && invalidEntries.length === 0) return
+
+    if (invalidEntries.length > 0) {
+      setFiles(prev => {
+        const newMap = new Map(prev)
+        invalidEntries.forEach(([id, entry]) => newMap.set(id, entry))
+        return newMap
+      })
     }
 
     if (validFiles.length === 0) return
@@ -224,6 +251,7 @@ export function MassUploadPage() {
 
     // Add files to state
     const updatedFiles = new Map(files)
+    invalidEntries.forEach(([id, entry]) => updatedFiles.set(id, entry))
     const newEntries: Array<[string, MassUploadFile]> = []
     validFiles.forEach(file => {
       const fileId = crypto.randomUUID()
@@ -330,6 +358,7 @@ export function MassUploadPage() {
     if (!sessionId) return
 
     setIsStarting(true)
+    setStartError(null)
     try {
       const res = await fetch('/api/mass-upload/start', {
         method: 'POST',
@@ -342,12 +371,11 @@ export function MassUploadPage() {
         setStep('processing')
         status.startPolling(sessionId)
         observeSession(sessionId)
-        toast.success(`${data.queued} screenshots queued for processing`)
       } else {
-        toast.error(data.message || 'Failed to start processing')
+        setStartError(data.message || 'Failed to start processing')
       }
     } catch {
-      toast.error('Failed to start processing')
+      setStartError('Failed to start processing')
     } finally {
       setIsStarting(false)
     }
@@ -373,6 +401,7 @@ export function MassUploadPage() {
     setFiles(new Map())
     setStep('upload')
     setSessionId(null)
+    setSessionError(null)
 
     // Create fresh session
     try {
@@ -385,16 +414,17 @@ export function MassUploadPage() {
       if (data.status === 'success' && data.session?.id) {
         setSessionId(data.session.id)
       } else {
-        toast.error('Failed to create new upload session')
+        setSessionError('Failed to create new upload session')
       }
     } catch {
-      toast.error('Failed to create new upload session')
+      setSessionError('Failed to create new upload session')
     }
   }, [sessionId, status])
 
   const handleCancelProcessing = useCallback(async () => {
     if (!sessionId) return
     setIsCancelling(true)
+    setCancelError(null)
     try {
       const res = await fetch('/api/mass-upload/cancel', {
         method: 'POST',
@@ -403,12 +433,12 @@ export function MassUploadPage() {
       })
       const data = await res.json()
       if (data.status === 'success') {
-        toast.success(`Cancelled ${data.cancelled} remaining screenshot${data.cancelled !== 1 ? 's' : ''}`)
+        notify.success(`Cancelled ${data.cancelled} remaining screenshot${data.cancelled !== 1 ? 's' : ''}`)
       } else {
-        toast.error(data.message || 'Failed to cancel')
+        setCancelError(data.message || 'Failed to cancel')
       }
     } catch {
-      toast.error('Failed to cancel processing')
+      setCancelError('Failed to cancel processing')
     } finally {
       setIsCancelling(false)
     }
@@ -683,6 +713,9 @@ export function MassUploadPage() {
                 <Upload className="mr-2 h-4 w-4" />
                 Upload More Photos
               </Button>
+              {cancelError && (
+                <p className="text-sm text-destructive text-center w-full">{cancelError}</p>
+              )}
               {status.counts.queued > 0 && (
                 <Button
                   variant="outline"
@@ -763,6 +796,9 @@ export function MassUploadPage() {
           <p className="text-muted-foreground mb-4">
             Once started, processing continues in the background. You can close this page.
           </p>
+          {startError && (
+            <p className="text-sm text-destructive mb-4">{startError}</p>
+          )}
           <Button
             size="lg"
             onClick={handleStartProcessing}
@@ -788,6 +824,16 @@ export function MassUploadPage() {
   // Step 1: Upload
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      {sessionError && (
+        <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {sessionError}
+        </div>
+      )}
+      {batchError && (
+        <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {batchError}
+        </div>
+      )}
       <input
         ref={fileInputRef}
         type="file"

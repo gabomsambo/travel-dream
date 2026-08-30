@@ -21,6 +21,8 @@ export interface LibraryToolbarProps {
   onArchiveSelected?: () => void
   onDeleteSelected?: () => void
   onAddToCollectionSelected?: () => void
+  addToCollectionDisabled?: boolean
+  addToCollectionTitle?: string
   onSelectAll?: () => void
   onSelectNone?: () => void
 
@@ -40,6 +42,8 @@ export function LibraryToolbar({
   onArchiveSelected,
   onDeleteSelected,
   onAddToCollectionSelected,
+  addToCollectionDisabled = false,
+  addToCollectionTitle = 'Add selected items to a collection',
   onSelectAll,
   onSelectNone,
   showKeyboardHints = false,
@@ -113,15 +117,16 @@ export function LibraryToolbar({
                     variant="outline"
                     size="sm"
                     onClick={onAddToCollectionSelected}
-                    disabled={disabled || loading}
+                    disabled={disabled || loading || addToCollectionDisabled}
                     className="h-8"
+                    title={addToCollectionTitle}
                   >
                     <FolderPlus className="mr-1 h-3 w-3" />
                     Add to Collection
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Add selected items to a collection
+                  {addToCollectionTitle}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

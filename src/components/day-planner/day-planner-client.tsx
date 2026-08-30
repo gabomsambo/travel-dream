@@ -5,7 +5,7 @@ import { DndContext, type DragEndEvent, closestCenter, PointerSensor, useSensor,
 import { arrayMove } from "@dnd-kit/sortable"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Plus, Sparkles, Save } from "lucide-react"
-import { toast } from "sonner"
+import { notify } from '@/lib/notify'
 import { DayColumn } from "./day-column"
 import { UnscheduledList } from "./unscheduled-list"
 import { DayMetrics } from "./day-metrics"
@@ -55,6 +55,7 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
   )
   const [showAutoCreate, setShowAutoCreate] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const [isAltKeyPressed, setIsAltKeyPressed] = useState(false)
 
@@ -93,7 +94,7 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
   useEffect(() => {
     const timer = setTimeout(async () => {
       setIsSaving(true)
-      console.log('[DayPlannerClient] Auto-saving changes...')
+      setSaveError(null)
       console.log('[DayPlannerClient] Days count:', days.length)
       console.log('[DayPlannerClient] Days data:', days)
       console.log('[DayPlannerClient] Unscheduled place IDs count:', unscheduledPlaceIds.length)
@@ -111,13 +112,14 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
 
         if (!response.ok) {
           console.error('[DayPlannerClient] Save failed:', result)
-          toast.error('Failed to save changes')
+          setSaveError('Failed to save changes — retry by editing again')
         } else {
+          setSaveError(null)
           console.log('[DayPlannerClient] Save successful')
         }
       } catch (error) {
         console.error('[DayPlannerClient] Error saving day buckets:', error)
-        toast.error('Failed to save changes')
+        setSaveError('Failed to save changes — retry by editing again')
       }
       setIsSaving(false)
     }, 1000)
@@ -209,7 +211,6 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
       if (!destDay) return
 
       if (destDay.placeIds.includes(activeId)) {
-        toast.error('Place already in this day')
         return
       }
 
@@ -232,10 +233,6 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
       }
 
       setDays(days.map((d) => (d.id === destDayId ? { ...d, placeIds: newPlaceIds } : d)))
-
-      if (isCopyMode && sourceDayId) {
-        toast.success(`Copied to Day ${destDay.dayNumber}`)
-      }
     }
   }
 
@@ -276,7 +273,6 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
     if (!targetDay) return
 
     if (targetDay.placeIds.includes(placeId)) {
-      toast.error('Place already in this day')
       return
     }
 
@@ -285,7 +281,6 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
         ? { ...d, placeIds: [...d.placeIds, placeId] }
         : d
     ))
-    toast.success(`Copied to Day ${targetDay.dayNumber}`)
   }
 
   const handleRemovePlaceFromDay = (placeId: string) => {
@@ -307,11 +302,10 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
         setDays(data.dayBuckets)
         setUnscheduledPlaceIds([])
         setSelectedDayId(data.dayBuckets[0]?.id || null)
-        toast.success(`Created ${data.dayBuckets.length} days`)
       }
     } catch (error) {
       console.error('Error auto-creating days:', error)
-      toast.error('Failed to auto-create days')
+      notify.error('Failed to auto-create days')
     }
     setShowAutoCreate(false)
   }
@@ -330,7 +324,11 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
             <h1 className="text-lg font-semibold">{initialCollection.name} - Day Planner</h1>
           </div>
           <div className="flex items-center gap-2">
-            {isSaving ? (
+            {saveError ? (
+              <span role="alert" className="text-sm text-destructive flex items-center gap-2">
+                {saveError}
+              </span>
+            ) : isSaving ? (
               <span className="text-sm text-muted-foreground flex items-center gap-2">
                 <Save className="h-4 w-4 animate-pulse" />
                 Saving...

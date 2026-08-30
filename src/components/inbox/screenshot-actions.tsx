@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Button } from "@/components/adapters/button"
 import { Sparkles, Loader2, RefreshCw } from "lucide-react"
-import { toast } from "sonner"
+import { notify } from '@/lib/notify'
 
 interface ScreenshotActionsProps {
   screenshots: Array<{
@@ -15,22 +15,24 @@ interface ScreenshotActionsProps {
 
 export function ScreenshotActions({ screenshots, onProcessingComplete }: ScreenshotActionsProps) {
   const [isProcessing, setIsProcessing] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const unprocessedScreenshots = screenshots.filter(s => !s.llmProcessed || s.llmProcessed === 0)
   const processedScreenshots = screenshots.filter(s => s.llmProcessed === 1)
 
   const handleProcessUnprocessed = async () => {
     if (unprocessedScreenshots.length === 0) {
-      toast.info('No unprocessed screenshots to process')
       return
     }
 
     setIsProcessing(true)
+    setActionError(null)
+    const progressId = 'inbox-llm-process'
 
     try {
       const sourceIds = unprocessedScreenshots.map(s => s.id)
 
-      toast.info(`Processing ${sourceIds.length} screenshots with AI...`)
+      notify.loading(`Processing ${sourceIds.length} screenshots with AI...`, { id: progressId })
 
       const response = await fetch('/api/llm-process', {
         method: 'POST',
@@ -50,15 +52,15 @@ export function ScreenshotActions({ screenshots, onProcessingComplete }: Screens
       }
 
       const result = await response.json()
+      notify.dismiss(progressId)
 
-      toast.success(
+      notify.success(
         `Successfully processed ${result.summary.successful}/${result.summary.total} screenshots`,
         {
-          description: `Extracted ${result.summary.totalPlaces} places with avg confidence ${Math.round(result.summary.avgProcessingTime)}ms`
+          description: `Extracted ${result.summary.totalPlaces} places`
         }
       )
 
-      // Refresh the page or call callback
       if (onProcessingComplete) {
         onProcessingComplete()
       } else {
@@ -67,7 +69,8 @@ export function ScreenshotActions({ screenshots, onProcessingComplete }: Screens
 
     } catch (error) {
       console.error('Error processing screenshots:', error)
-      toast.error('Failed to process screenshots with AI')
+      notify.dismiss(progressId)
+      setActionError('Failed to process screenshots with AI')
     } finally {
       setIsProcessing(false)
     }
@@ -75,16 +78,17 @@ export function ScreenshotActions({ screenshots, onProcessingComplete }: Screens
 
   const handleReprocessAll = async () => {
     if (screenshots.length === 0) {
-      toast.info('No screenshots to reprocess')
       return
     }
 
     setIsProcessing(true)
+    setActionError(null)
+    const progressId = 'inbox-llm-reprocess'
 
     try {
       const sourceIds = screenshots.map(s => s.id)
 
-      toast.info(`Reprocessing ${sourceIds.length} screenshots with AI...`)
+      notify.loading(`Reprocessing ${sourceIds.length} screenshots with AI...`, { id: progressId })
 
       const response = await fetch('/api/llm-process', {
         method: 'POST',
@@ -104,12 +108,12 @@ export function ScreenshotActions({ screenshots, onProcessingComplete }: Screens
       }
 
       const result = await response.json()
+      notify.dismiss(progressId)
 
-      toast.success(
+      notify.success(
         `Successfully reprocessed ${result.summary.successful}/${result.summary.total} screenshots`
       )
 
-      // Refresh the page or call callback
       if (onProcessingComplete) {
         onProcessingComplete()
       } else {
@@ -118,7 +122,8 @@ export function ScreenshotActions({ screenshots, onProcessingComplete }: Screens
 
     } catch (error) {
       console.error('Error reprocessing screenshots:', error)
-      toast.error('Failed to reprocess screenshots with AI')
+      notify.dismiss(progressId)
+      setActionError('Failed to reprocess screenshots with AI')
     } finally {
       setIsProcessing(false)
     }
@@ -129,48 +134,53 @@ export function ScreenshotActions({ screenshots, onProcessingComplete }: Screens
   }
 
   return (
-    <div className="flex gap-2">
-      {unprocessedScreenshots.length > 0 && (
-        <Button
-          onClick={handleProcessUnprocessed}
-          disabled={isProcessing}
-          size="sm"
-          variant="default"
-        >
-          {isProcessing ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Processing...
-            </>
-          ) : (
-            <>
-              <Sparkles className="mr-2 h-4 w-4" />
-              Process {unprocessedScreenshots.length} with AI
-            </>
-          )}
-        </Button>
+    <div className="flex flex-col gap-2">
+      {actionError && (
+        <p role="alert" className="text-sm text-destructive">{actionError}</p>
       )}
+      <div className="flex gap-2">
+        {unprocessedScreenshots.length > 0 && (
+          <Button
+            onClick={handleProcessUnprocessed}
+            disabled={isProcessing}
+            size="sm"
+            variant="default"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Sparkles className="mr-2 h-4 w-4" />
+                Process {unprocessedScreenshots.length} with AI
+              </>
+            )}
+          </Button>
+        )}
 
-      {processedScreenshots.length > 0 && (
-        <Button
-          onClick={handleReprocessAll}
-          disabled={isProcessing}
-          size="sm"
-          variant="outline"
-        >
-          {isProcessing ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Reprocessing...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Reprocess All
-            </>
-          )}
-        </Button>
-      )}
+        {processedScreenshots.length > 0 && (
+          <Button
+            onClick={handleReprocessAll}
+            disabled={isProcessing}
+            size="sm"
+            variant="outline"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Reprocessing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Reprocess All
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   )
 }

@@ -11,7 +11,6 @@ import {
 } from "@/components/adapters/dialog";
 import { Button } from "@/components/adapters/button";
 import { Loader2, Upload, Image as ImageIcon, Check } from 'lucide-react';
-import { toast } from 'sonner';
 import { upload } from '@vercel/blob/client';
 import { cn } from '@/lib/utils';
 import {
@@ -47,6 +46,8 @@ export function CoverImagePickerDialog({
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [source, setSource] = useState<'collection' | 'all'>('collection');
   const [isDragging, setIsDragging] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch images based on source
@@ -55,6 +56,7 @@ export function CoverImagePickerDialog({
       if (!open) return;
 
       setIsLoading(true);
+      setLoadError(null);
       try {
         const response = await fetch(
           `/api/collections/${collectionId}/available-images?source=${source}`
@@ -65,7 +67,7 @@ export function CoverImagePickerDialog({
         setImages(data.images || []);
       } catch (error) {
         console.error('Error fetching images:', error);
-        toast.error('Failed to load images');
+        setLoadError('Failed to load images');
       } finally {
         setIsLoading(false);
       }
@@ -79,6 +81,8 @@ export function CoverImagePickerDialog({
     if (!open) {
       setSelectedImage(null);
       setSource('collection');
+      setLoadError(null);
+      setSubmitError(null);
     }
   }, [open]);
 
@@ -87,15 +91,16 @@ export function CoverImagePickerDialog({
     // file.name — see src/lib/image-upload.ts.
     const pathname = coverBlobPathname(collectionId, file.type, `${Date.now()}`);
     if (!pathname) {
-      toast.error(IMAGE_TYPE_REJECTED_MESSAGE);
+      setSubmitError(IMAGE_TYPE_REJECTED_MESSAGE);
       return;
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      toast.error('File too large. Max 10MB');
+      setSubmitError('File too large. Max 10MB');
       return;
     }
 
+    setSubmitError(null);
     setIsUploading(true);
     try {
       // Upload straight to Vercel Blob, then persist the URL — same pattern as
@@ -117,12 +122,11 @@ export function CoverImagePickerDialog({
       }
 
       const data = await response.json();
-      toast.success('Cover image uploaded successfully');
       onCoverChange(data.coverImageUrl);
       onOpenChange(false);
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error(error instanceof Error ? error.message : 'Upload failed');
+      setSubmitError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setIsUploading(false);
     }
@@ -150,10 +154,11 @@ export function CoverImagePickerDialog({
 
   const handleSelectExisting = async () => {
     if (!selectedImage) {
-      toast.error('Please select an image');
+      setSubmitError('Please select an image');
       return;
     }
 
+    setSubmitError(null);
     setIsUploading(true);
     try {
       const response = await fetch(`/api/collections/${collectionId}`, {
@@ -167,12 +172,11 @@ export function CoverImagePickerDialog({
         throw new Error(data.message || 'Failed to set cover');
       }
 
-      toast.success('Cover image set successfully');
       onCoverChange(selectedImage);
       onOpenChange(false);
     } catch (error) {
       console.error('Error setting cover:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to set cover');
+      setSubmitError(error instanceof Error ? error.message : 'Failed to set cover');
     } finally {
       setIsUploading(false);
     }
@@ -187,6 +191,13 @@ export function CoverImagePickerDialog({
             Upload a new image or select from existing place photos
           </DialogDescription>
         </DialogHeader>
+
+        {loadError && (
+          <p className="text-sm text-destructive">{loadError}</p>
+        )}
+        {submitError && (
+          <p className="text-sm text-destructive">{submitError}</p>
+        )}
 
         {/* Upload Dropzone */}
         <div

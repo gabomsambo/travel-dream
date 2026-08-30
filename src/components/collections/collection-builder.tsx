@@ -14,7 +14,7 @@ import { useCollectionMapContextOptional } from './collection-map-context';
 import { CollectionMapRenderer } from './collection-map-renderer';
 import { optimizeCollectionRoute } from '@/lib/algorithms/tsp';
 import type { Collection, Place } from '@/types/database';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 
 const DraggablePlacesList = dynamic(
   () => import('./draggable-places-list').then((mod) => mod.DraggablePlacesList),
@@ -39,6 +39,7 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
   const [isRemoving, setIsRemoving] = useState<string | null>(null);
   const [isReordering, setIsReordering] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizeHint, setOptimizeHint] = useState<string | null>(null);
 
   const [transportMode, setTransportMode] = useState<'drive' | 'walk'>(
     initialCollection.transportMode || 'drive'
@@ -82,11 +83,11 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
           body: JSON.stringify({ transportMode }),
         });
         if (!response.ok) {
-          toast.error('Failed to save transport mode');
+          notify.error('Failed to save transport mode');
         }
       } catch (error) {
         console.error('Error saving transport mode:', error);
-        toast.error('Failed to save transport mode');
+        notify.error('Failed to save transport mode');
       }
       setIsSaving(false);
     }, 1000);
@@ -107,11 +108,11 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
             body: JSON.stringify({ note: note || null }),
           });
           if (!response.ok) {
-            toast.error('Failed to save note');
+            notify.error('Failed to save note');
           }
         } catch (error) {
           console.error('Error saving note:', error);
-          toast.error('Failed to save note');
+          notify.error('Failed to save note');
         }
         setIsSaving(false);
       }, 1000);
@@ -133,11 +134,11 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
         method: 'PATCH',
       });
       if (!response.ok) {
-        toast.error('Failed to update pin status');
+        notify.error('Failed to update pin status');
       }
     } catch (error) {
       console.error('Error toggling pin:', error);
-      toast.error('Failed to update pin status');
+      notify.error('Failed to update pin status');
     }
     setIsSaving(false);
   };
@@ -173,13 +174,12 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
 
       setPlaces(newPlaces);
       console.log('[CollectionBuilder] Place removed successfully, new count:', newPlaces.length);
-      toast.success('Place removed from collection');
     } catch (error) {
       console.error('[CollectionBuilder] Error removing place:', error);
       startTransition(() => {
         setOptimisticPlaces(places);
       });
-      toast.error('Failed to remove place');
+      notify.error('Failed to remove place');
     } finally {
       setIsRemoving(null);
     }
@@ -204,13 +204,12 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
       }
 
       setPlaces(newOrder);
-      toast.success('Places reordered successfully');
     } catch (error) {
       console.error('Error reordering places:', error);
       startTransition(() => {
         setOptimisticPlaces(places);
       });
-      toast.error('Failed to reorder places. Please try again.');
+      notify.error('Failed to reorder places. Please try again.');
     } finally {
       setIsReordering(false);
     }
@@ -218,24 +217,25 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
 
   const handleOptimizeRoute = async () => {
     if (optimisticPlaces.length < 3) {
-      toast.error('Need at least 3 places to optimize route');
+      setOptimizeHint('Need at least 3 places to optimize route');
       return;
     }
 
     const placesWithCoords = optimisticPlaces.filter((p) => p.coords);
     if (placesWithCoords.length < 3) {
-      toast.error('Need at least 3 places with coordinates to optimize route');
+      setOptimizeHint('Need at least 3 places with coordinates to optimize route');
       return;
     }
 
     setIsOptimizing(true);
+    setOptimizeHint(null);
 
     try {
       // Filter out pinned places before optimization
       const unpinnedPlaces = optimisticPlaces.filter((p) => !pinnedPlaceIds.includes(p.id));
       
       if (unpinnedPlaces.filter(p => p.coords).length < 2) {
-        toast.error('Need at least 2 unpinned places with coordinates to optimize');
+        setOptimizeHint('Need at least 2 unpinned places with coordinates to optimize');
         setIsOptimizing(false);
         return;
       }
@@ -261,12 +261,12 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
 
       await handleReorder(newOrder);
 
-      toast.success(
+      notify.success(
         `Route optimized! Total distance: ${result.totalDistance.toFixed(1)}km`
       );
     } catch (error) {
       console.error('Error optimizing route:', error);
-      toast.error('Failed to optimize route. Please try again.');
+      notify.error('Failed to optimize route. Please try again.');
     } finally {
       setIsOptimizing(false);
     }
@@ -306,14 +306,19 @@ export function CollectionBuilder({ initialCollection }: CollectionBuilderProps)
             <TransportModeToggle value={transportMode} onChange={setTransportMode} />
 
             {optimisticPlaces.length >= 3 && (
-              <Button
-                variant="outline"
-                onClick={handleOptimizeRoute}
-                disabled={isOptimizing || isReordering}
-              >
-                <Sparkles className="h-4 w-4 mr-2" />
-                {isOptimizing ? 'Optimizing...' : 'Optimize Route'}
-              </Button>
+              <div className="flex flex-col items-end gap-1">
+                <Button
+                  variant="outline"
+                  onClick={handleOptimizeRoute}
+                  disabled={isOptimizing || isReordering}
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  {isOptimizing ? 'Optimizing...' : 'Optimize Route'}
+                </Button>
+                {optimizeHint && (
+                  <p className="text-xs text-destructive max-w-xs text-right">{optimizeHint}</p>
+                )}
+              </div>
             )}
 
             <Link href={`/collections/${collection.id}/planner`}>

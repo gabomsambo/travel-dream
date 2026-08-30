@@ -44,7 +44,7 @@ const TemplatesArraySchema = z.array(ExportTemplateSchema);
 
 const EMPTY_TEMPLATES: ExportTemplate[] = [];
 
-export type SaveTemplateResult = string | { error: string } | null;
+export type SaveTemplateResult = string | { error: string };
 
 export function useExportTemplates() {
   const [templates, setTemplates, removeTemplates] = useLocalStorage<ExportTemplate[]>(
@@ -86,12 +86,10 @@ export function useExportTemplates() {
       return newTemplate.id;
     } catch (error) {
       if (error instanceof Error && error.message.includes('QuotaExceededError')) {
-        notify.error('Storage quota exceeded. Try deleting some templates.');
-      } else {
-        notify.error('Failed to save template');
-        console.error('Save template error:', error);
+        return { error: 'Storage quota exceeded. Try deleting some templates.' };
       }
-      return null;
+      console.error('Save template error:', error);
+      return { error: 'Failed to save template' };
     }
   }, [setTemplates]);
 

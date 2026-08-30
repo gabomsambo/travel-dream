@@ -3,32 +3,34 @@
     "step": "theme-ready",
     "theme": "classic",
     "html": null,
-    "cookie": null,
-    "upload": "rgb(37, 99, 235)",
+    "cookie": "classic",
+    "upload": "rgb(59, 130, 246)",
     "toastCount": 0
   },
   {
     "scenario": "inline-error",
     "theme": "classic",
+    "inlineError": "Collection name is required",
     "html": null,
-    "cookie": null,
-    "upload": "rgb(37, 99, 235)",
+    "cookie": "classic",
+    "upload": "rgb(59, 130, 246)",
     "toastCount": 0
   },
   {
     "scenario": "silent-success",
     "theme": "classic",
+    "created": "Triage Silent 1788116872886",
     "html": null,
-    "cookie": null,
-    "upload": "rgb(37, 99, 235)",
+    "cookie": "classic",
+    "upload": "rgb(59, 130, 246)",
     "toastCount": 0
   },
   {
     "scenario": "toast-survived",
     "theme": "classic",
     "html": null,
-    "cookie": null,
-    "upload": "rgb(37, 99, 235)",
+    "cookie": "classic",
+    "upload": "rgb(59, 130, 246)",
     "toastCount": 1
   },
   {
@@ -36,23 +38,25 @@
     "theme": "tropical",
     "html": "tropical",
     "cookie": "tropical",
-    "upload": "rgb(41, 142, 139)",
+    "upload": "rgb(49, 196, 191)",
     "toastCount": 0
   },
   {
     "scenario": "inline-error",
     "theme": "tropical",
+    "inlineError": "Collection name is required",
     "html": "tropical",
     "cookie": "tropical",
-    "upload": "rgb(41, 142, 139)",
+    "upload": "rgb(49, 196, 191)",
     "toastCount": 0
   },
   {
     "scenario": "silent-success",
     "theme": "tropical",
+    "created": "Triage Silent 1788116909774",
     "html": "tropical",
     "cookie": "tropical",
-    "upload": "rgb(41, 142, 139)",
+    "upload": "rgb(49, 196, 191)",
     "toastCount": 0
   },
   {
@@ -60,7 +64,7 @@
     "theme": "tropical",
     "html": "tropical",
     "cookie": "tropical",
-    "upload": "rgb(41, 142, 139)",
+    "upload": "rgb(49, 196, 191)",
     "toastCount": 1
   }
 ]

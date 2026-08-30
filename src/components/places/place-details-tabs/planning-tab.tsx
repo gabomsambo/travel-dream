@@ -78,7 +78,10 @@ export function PlanningTab({ place }: PlanningTabProps) {
           {["not_visited", "planned", "visited"].map((status) => (
             <button
               key={status}
-              onClick={() => setVisitStatus(status)}
+              onClick={() => {
+                setVisitStatus(status)
+                setSaveStatus('idle')
+              }}
               className={`
                 px-4 py-2 rounded-md border transition-colors text-sm font-medium
                 ${
@@ -102,7 +105,10 @@ export function PlanningTab({ place }: PlanningTabProps) {
           {[1, 2, 3, 4, 5].map((star) => (
             <button
               key={star}
-              onClick={() => setPriority(star)}
+              onClick={() => {
+                setPriority(star)
+                setSaveStatus('idle')
+              }}
               className="transition-colors"
             >
               <Star
@@ -115,7 +121,10 @@ export function PlanningTab({ place }: PlanningTabProps) {
             </button>
           ))}
           <button
-            onClick={() => setPriority(0)}
+            onClick={() => {
+              setPriority(0)
+              setSaveStatus('idle')
+            }}
             className="ml-2 text-xs text-muted-foreground hover:text-foreground"
           >
             Clear
@@ -133,7 +142,10 @@ export function PlanningTab({ place }: PlanningTabProps) {
             id="last-visited"
             type="date"
             value={lastVisited}
-            onChange={(e) => setLastVisited(e.target.value)}
+            onChange={(e) => {
+              setLastVisited(e.target.value)
+              setSaveStatus('idle')
+            }}
             className="mt-2"
           />
         </div>
@@ -149,7 +161,10 @@ export function PlanningTab({ place }: PlanningTabProps) {
             id="planned-visit"
             type="date"
             value={plannedVisit}
-            onChange={(e) => setPlannedVisit(e.target.value)}
+            onChange={(e) => {
+              setPlannedVisit(e.target.value)
+              setSaveStatus('idle')
+            }}
             className="mt-2"
           />
         </div>
@@ -165,7 +180,10 @@ export function PlanningTab({ place }: PlanningTabProps) {
           type="text"
           placeholder="Friend, blog, Instagram, etc."
           value={recommendedBy}
-          onChange={(e) => setRecommendedBy(e.target.value)}
+          onChange={(e) => {
+            setRecommendedBy(e.target.value)
+            setSaveStatus('idle')
+          }}
           className="mt-2"
         />
       </div>
@@ -180,7 +198,10 @@ export function PlanningTab({ place }: PlanningTabProps) {
           type="text"
           placeholder="Alice, Bob, Carol (comma-separated)"
           value={companions}
-          onChange={(e) => setCompanions(e.target.value)}
+          onChange={(e) => {
+            setCompanions(e.target.value)
+            setSaveStatus('idle')
+          }}
           className="mt-2"
         />
         <p className="text-xs text-muted-foreground mt-1">

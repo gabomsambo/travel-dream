@@ -55,6 +55,13 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
   const [nameError, setNameError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const resetCreateDialog = () => {
+    setName('');
+    setDescription('');
+    setNameError(null);
+    setCreateError(null);
+  };
+
   const handleCreate = async () => {
     if (!name.trim()) {
       setNameError('Collection name is required');
@@ -80,9 +87,12 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
         throw new Error(data.message || 'Failed to create collection');
       }
 
+      if (data.collection) {
+        setCollections(prev => [...prev, { ...data.collection, placeCount: 0 }]);
+      }
+
       setCreateDialogOpen(false);
-      setName('');
-      setDescription('');
+      resetCreateDialog();
 
       // Refresh the page to show the new collection
       router.refresh();
@@ -258,8 +268,7 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
       <Dialog open={createDialogOpen} onOpenChange={(open) => {
         setCreateDialogOpen(open);
         if (!open) {
-          setNameError(null);
-          setCreateError(null);
+          resetCreateDialog();
         }
       }}>
         <DialogContent>
@@ -317,8 +326,7 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
               variant="outline"
               onClick={() => {
                 setCreateDialogOpen(false);
-                setName('');
-                setDescription('');
+                resetCreateDialog();
               }}
               disabled={isCreating}
             >

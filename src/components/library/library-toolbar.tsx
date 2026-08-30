@@ -120,7 +120,6 @@ export function LibraryToolbar({
                       onClick={onAddToCollectionSelected}
                       disabled={disabled || loading || addToCollectionDisabled}
                       className="h-8"
-                      title={addToCollectionTitle}
                     >
                       <FolderPlus className="mr-1 h-3 w-3" />
                       Add to Collection

@@ -51,7 +51,10 @@ export function NotesTab({ place }: NotesTabProps) {
           id="notes"
           placeholder="Your thoughts, impressions, memories..."
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          onChange={(e) => {
+            setNotes(e.target.value)
+            setSaveStatus('idle')
+          }}
           className="mt-2 min-h-[150px]"
         />
         <p className="text-xs text-muted-foreground mt-1">
@@ -65,7 +68,10 @@ export function NotesTab({ place }: NotesTabProps) {
           id="practical-info"
           placeholder="Bring cash only, entrance on side street, best to arrive early..."
           value={practicalInfo}
-          onChange={(e) => setPracticalInfo(e.target.value)}
+          onChange={(e) => {
+            setPracticalInfo(e.target.value)
+            setSaveStatus('idle')
+          }}
           className="mt-2 min-h-[150px]"
         />
         <p className="text-xs text-muted-foreground mt-1">

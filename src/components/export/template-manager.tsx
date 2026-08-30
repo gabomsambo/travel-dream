@@ -50,8 +50,8 @@ export function TemplateManager({
     if (!templateName.trim()) return;
 
     const result = onSaveTemplate(templateName.trim());
-    if (result && typeof result === 'object' && 'error' in result) {
-      setSaveError(result.error);
+    if (typeof result !== 'string') {
+      setSaveError(result?.error ?? 'Failed to save template');
       return;
     }
 

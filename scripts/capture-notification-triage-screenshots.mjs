@@ -11,6 +11,7 @@ import WebSocket from 'ws'
 
 const DOCS = join(process.cwd(), 'docs/screenshots')
 const BASE = process.env.BASE || 'http://localhost:3001'
+const BASE_HOST = new URL(BASE).host
 mkdirSync(DOCS, { recursive: true })
 
 const SESSION = 'td-notification-triage'
@@ -41,12 +42,12 @@ async function getPage(urlHint) {
       })
       .on('error', reject)
   })
-  const pages = targets.filter((t) => t.type === 'page')
+  const pages = targets.filter((t) => t.type === 'page' && t.url.includes(BASE_HOST))
   if (urlHint) {
     const matches = pages.filter((t) => t.url.includes(urlHint))
     if (matches.length > 0) return matches[matches.length - 1]
   }
-  return pages.find((t) => t.url.includes('localhost:3001')) ?? pages[0]
+  return pages[0]
 }
 
 async function withCdp(fn, urlHint) {
@@ -166,60 +167,93 @@ async function dismissToasts(urlHint) {
   await sleep(300)
 }
 
-async function captureInlineError(theme) {
-  await dismissToasts('/collections')
-  axi(['open', `${BASE}/collections`])
-  await sleep(2000)
-  await evalJs(`(() => {
+async function openCreateDialog(theme) {
+  const opened = await evalJs(`(() => {
     const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('New Collection'));
     btn?.click();
     return !!btn;
   })()`, '/collections')
+  if (!opened) throw new Error(`New Collection button not found in ${theme}`)
   await sleep(800)
-  await evalJs(`(() => {
-    const create = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Create');
-    create?.click();
-    return !!create;
+  const hasInput = await evalJs(`!!document.querySelector('input#name')`, '/collections')
+  if (!hasInput) throw new Error(`create dialog did not open in ${theme}`)
+}
+
+async function captureInlineError(theme) {
+  await dismissToasts('/collections')
+  axi(['open', `${BASE}/collections`])
+  await sleep(2000)
+  await openCreateDialog(theme)
+
+  const submitted = await evalJs(`(() => {
+    const input = document.querySelector('input#name');
+    if (!input) return false;
+    input.focus();
+    const init = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    input.dispatchEvent(new KeyboardEvent('keydown', init));
+    input.dispatchEvent(new KeyboardEvent('keyup', init));
+    return true;
   })()`, '/collections')
+  if (!submitted) throw new Error(`name input not found in ${theme}`)
   await sleep(600)
+
   const state = await readThemeState('/collections')
+  const inlineError = await evalJs(`(() => {
+    const el = [...document.querySelectorAll('p')].find(p => p.textContent?.trim() === 'Collection name is required');
+    return el ? el.textContent.trim() : null;
+  })()`, '/collections')
+  if (!inlineError) throw new Error(`expected inline name error in ${theme}, found none`)
+  if (state.toastCount > 0) {
+    throw new Error(`expected inline-only validation error in ${theme}, saw ${state.toastCount} toast(s)`)
+  }
   await screenshot(join(DOCS, `notify-triage-inline-error-${theme}.png`), '/collections')
-  return { scenario: 'inline-error', theme, ...state }
+  return { scenario: 'inline-error', theme, inlineError, ...state }
 }
 
 async function captureSilentSuccess(theme) {
   await dismissToasts('/collections')
   axi(['open', `${BASE}/collections`])
   await sleep(2000)
-  const stamp = Date.now()
-  await evalJs(`(() => {
-    const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('New Collection'));
-    btn?.click();
-    return !!btn;
+  const name = `Triage Silent ${Date.now()}`
+  await openCreateDialog(theme)
+
+  const typed = await evalJs(`(() => {
+    const input = document.querySelector('input#name');
+    if (!input) return null;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(name)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return input.value;
   })()`, '/collections')
-  await sleep(600)
-  await evalJs(`(() => {
-    const input = document.querySelector('input#name, input[placeholder*="Collection"], dialog input');
-    if (input) {
-      input.value = 'Triage Silent ${stamp}';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    return input?.value ?? null;
-  })()`, '/collections')
+  if (typed !== name) throw new Error(`name not typed in ${theme}, input holds ${typed}`)
   await sleep(400)
-  await evalJs(`(() => {
-    const create = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Create' && !b.disabled);
-    create?.click();
-    return !!create;
+
+  const clicked = await evalJs(`(() => {
+    const create = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Create Collection');
+    if (!create || create.disabled) return false;
+    create.click();
+    return true;
   })()`, '/collections')
-  await sleep(2500)
+  if (!clicked) throw new Error(`Create Collection button missing or disabled in ${theme}`)
+  await sleep(1500)
+
+  let landed = { dialogOpen: true, listed: false }
+  for (let i = 0; i < 24; i++) {
+    landed = await evalJs(
+      `({ dialogOpen: !!document.querySelector('input#name'), listed: document.body.textContent.includes(${JSON.stringify(name)}) })`,
+      '/collections'
+    )
+    if (!landed.dialogOpen && landed.listed) break
+    await sleep(500)
+  }
   const state = await readThemeState('/collections')
+  if (landed.dialogOpen) throw new Error(`create dialog still open in ${theme} — submit did not land`)
+  if (!landed.listed) throw new Error(`created collection not visible in ${theme}`)
   if (state.toastCount > 0) {
     throw new Error(`expected silent create in ${theme}, saw ${state.toastCount} toast(s)`)
   }
   await screenshot(join(DOCS, `notify-triage-silent-success-${theme}.png`), '/collections')
-  return { scenario: 'silent-success', theme, ...state }
+  return { scenario: 'silent-success', theme, created: name, ...state }
 }
 
 async function captureSurvivingToast(theme) {

@@ -112,6 +112,8 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       if (currentIndex >= clusters.length - 1) {
         setCurrentIndex(Math.max(0, clusters.length - 2));
       }
+
+      router.refresh();
     } catch (error) {
       notify.error('Failed to dismiss cluster');
       router.refresh();

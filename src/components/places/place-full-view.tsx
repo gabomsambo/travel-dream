@@ -79,6 +79,7 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
   })
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Optimistic state for immediate UI feedback
   const [optimisticPlace, setOptimisticPlace] = useOptimistic(initialPlace)
@@ -86,6 +87,7 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
   // Auto-save function
   const handleSave = async () => {
     setSaveStatus('saving')
+    setSaveError(null)
 
     try {
       const response = await fetch(`/api/places/${initialPlace.id}`, {
@@ -109,6 +111,7 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
       router.refresh()
     } catch (error) {
       setSaveStatus('error')
+      setSaveError(error instanceof Error ? error.message : 'Failed to save')
       console.error('Save failed:', error)
       console.error('Form data being sent:', formData)
     }
@@ -166,7 +169,9 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
               </span>
             )}
             {saveStatus === 'error' && (
-              <span className="text-sm text-red-600">Save failed</span>
+              <span role="alert" className="text-sm text-red-600">
+                {saveError ? `Save failed: ${saveError}` : 'Save failed'}
+              </span>
             )}
           </div>
         </div>

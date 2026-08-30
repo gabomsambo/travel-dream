@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import { db } from '@/db';
 import { places } from '@/db/schema';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { forUser } from '@/lib/tenant-db';
 import { getAdapter, ConfigError, RateLimitError } from '@/lib/photo-sources';
 
 export const runtime = 'nodejs';
@@ -29,10 +29,12 @@ export async function GET(request: NextRequest) {
 
     let googlePlaceId: string | undefined;
     if (parsed.source === 'google_places') {
-      const [place] = await db
-        .select({ id: places.id, googlePlaceId: places.googlePlaceId })
-        .from(places)
-        .where(and(eq(places.id, parsed.placeId), eq(places.userId, user.id)))
+      const [place] = await forUser(user.id)
+        .selectFields(
+          places,
+          { id: places.id, googlePlaceId: places.googlePlaceId },
+          eq(places.id, parsed.placeId)
+        )
         .limit(1);
 
       if (!place) {

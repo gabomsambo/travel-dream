@@ -2,13 +2,25 @@
 jest.mock('@/db', () => ({
   db: {},
 }));
+// `library-adapters` reaches the tenant accessor, which reads the foreign-key
+// columns of the transitively-owned tables when it loads. Stub them so this
+// suite (which only exercises the pure helpers below) can import the module.
 jest.mock('@/db/schema', () => ({
-  attachments: {},
+  attachments: { placeId: {} },
+  placesToCollections: { collectionId: {} },
+  sourcesToPlaces: { sourceId: {} },
+  places: {},
+  collections: {},
+  sources: {},
+  uploadSessions: {},
+  dismissedDuplicates: {},
 }));
 jest.mock('drizzle-orm', () => ({
   inArray: jest.fn(),
   eq: jest.fn(),
   and: jest.fn(),
+  sql: jest.fn(),
+  getTableName: jest.fn(),
 }));
 
 import { parsePriceLevel, formatPriceSymbols, adaptPlaceForCard, FavoriteManager } from '../library-adapters';

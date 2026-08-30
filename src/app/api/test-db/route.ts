@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: a debug endpoint
+// that enumerates `sqlite_master` through `db.all()`. It has no tenant data
+// and no scoped equivalent; it should be gated on NODE_ENV !== 'production' or
+// deleted, which is tracked separately.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db, testConnection } from '@/db';
 import { sql } from 'drizzle-orm';
 import { getPlaceStats } from '@/lib/db-queries';

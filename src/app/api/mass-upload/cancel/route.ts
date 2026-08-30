@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { db } from '@/db';
 import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, inArray, sql } from 'drizzle-orm';
+import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { del } from '@vercel/blob';
 
@@ -26,38 +26,38 @@ export async function POST(request: NextRequest) {
       );
     }
     const { sessionId } = parsed.data;
+    const tdb = forUser(user.id);
 
-    // Fetch and verify session
-    const session = await db.select()
-      .from(uploadSessions)
-      .where(eq(uploadSessions.id, sessionId))
-      .get();
-
-    if (!session) {
+    const found = await tdb.findOwned(uploadSessions, eq(uploadSessions.id, sessionId));
+    if (found.status === 'not-found') {
       return NextResponse.json({ status: 'error', message: 'Session not found' }, { status: 404 });
     }
-    if (session.userId !== user.id) {
+    if (found.status === 'forbidden') {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
 
-    const sourceIds = session.meta?.uploadedFiles || [];
+    // Owning the session is not owning the rows it names: `meta.uploadedFiles`
+    // is rebuilt from source metadata by mass-upload/register, so it is input to
+    // filter, not an authorization boundary. Every query below goes through the
+    // tenant accessor, which re-scopes to the caller on its own.
+    const sourceIds = found.row.meta?.uploadedFiles || [];
     if (sourceIds.length === 0) {
       return NextResponse.json({ status: 'success', cancelled: 0, alreadyProcessing: 0 });
     }
 
     // Cancel only sources that are not in flight — 'stalled' ones are parked
     // waiting for a retry, so they are safe to cancel too.
-    const cancelled = await db.update(sourcesCurrentSchema)
-      .set({
+    const cancelled = await tdb.update(
+      sourcesCurrentSchema,
+      {
         processingStatus: 'cancelled',
         updatedAt: new Date().toISOString(),
-      })
-      .where(and(
+      },
+      and(
         inArray(sourcesCurrentSchema.id, sourceIds),
-        eq(sourcesCurrentSchema.userId, user.id),
         sql`${sourcesCurrentSchema.processingStatus} IN ('queued', 'uploaded', 'stalled')`
-      ))
-      .returning();
+      )
+    ).returning();
 
     // Clean up blobs for cancelled sources (best-effort)
     const blobUrls = cancelled
@@ -72,18 +72,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Mark session as cancelled
-    await db.update(uploadSessions)
-      .set({ status: 'cancelled' })
-      .where(eq(uploadSessions.id, sessionId));
+    await tdb.update(uploadSessions, { status: 'cancelled' }, eq(uploadSessions.id, sessionId));
 
     // Count sources currently in-flight (can't cancel these)
-    const inFlight = await db.select({ count: sql<number>`count(*)` })
-      .from(sourcesCurrentSchema)
-      .where(and(
+    const inFlight = await tdb.selectFields(
+      sourcesCurrentSchema,
+      { count: sql<number>`count(*)` },
+      and(
         inArray(sourcesCurrentSchema.id, sourceIds),
-        eq(sourcesCurrentSchema.userId, user.id),
         sql`${sourcesCurrentSchema.processingStatus} IN ('extracting', 'enriching')`
-      ));
+      )
+    );
 
     return NextResponse.json({
       status: 'success',

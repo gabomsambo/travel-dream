@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
-import { db } from '@/db';
-import { attachments, places } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+import { attachments } from '@/db/schema';
+import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { resolveGooglePhotoUri } from '@/lib/photo-sources/google-resolver';
 
@@ -23,15 +23,18 @@ export async function GET(
     const wParsed = wParam ? parseInt(wParam, 10) : 1200;
     const width = clamp(Number.isFinite(wParsed) ? wParsed : 1200, 1, 4800);
 
-    const rows = await db
-      .select({
-        id: attachments.id,
-        source: attachments.source,
-        sourceId: attachments.sourceId,
-      })
-      .from(attachments)
-      .innerJoin(places, eq(attachments.placeId, places.id))
-      .where(and(eq(attachments.id, attachmentId), eq(places.userId, user.id)))
+    // `attachments` has no user_id — it is owned through its place, which is
+    // what `selectFieldsVia` scopes on.
+    const rows = await forUser(user.id)
+      .selectFieldsVia(
+        attachments,
+        {
+          id: attachments.id,
+          source: attachments.source,
+          sourceId: attachments.sourceId,
+        },
+        eq(attachments.id, attachmentId)
+      )
       .limit(1);
 
     if (rows.length === 0) {

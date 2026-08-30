@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/db';
-import { attachments, places } from '@/db/schema';
+import { attachments } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { del } from '@vercel/blob';
 
@@ -13,22 +13,20 @@ export async function DELETE(
     const user = await requireAuthForApi();
     const { id: placeId, attachmentId } = await params;
 
-    // Get the attachment to find the file paths. Join through `places` so the
-    // caller can only ever read/delete an attachment on a place they own.
-    const [attachment] = await db
-      .select({
-        id: attachments.id,
-        uri: attachments.uri,
-        thumbnailUri: attachments.thumbnailUri,
-      })
-      .from(attachments)
-      .innerJoin(places, eq(attachments.placeId, places.id))
-      .where(
-        and(
-          eq(attachments.id, attachmentId),
-          eq(attachments.placeId, placeId),
-          eq(places.userId, user.id)
-        )
+    const tdb = forUser(user.id);
+
+    // Get the attachment to find the file paths. `attachments` has no user_id;
+    // `selectFieldsVia` scopes it through `places`, so the caller can only ever
+    // read an attachment on a place they own.
+    const [attachment] = await tdb
+      .selectFieldsVia(
+        attachments,
+        {
+          id: attachments.id,
+          uri: attachments.uri,
+          thumbnailUri: attachments.thumbnailUri,
+        },
+        and(eq(attachments.id, attachmentId), eq(attachments.placeId, placeId))
       )
       .limit(1);
 
@@ -39,8 +37,10 @@ export async function DELETE(
       );
     }
 
-    // Delete the database record
-    await db.delete(attachments).where(eq(attachments.id, attachmentId));
+    // Delete the database record. Scoped again rather than relying on the check
+    // above: ownership of the row read is not, on its own, authorization for the
+    // row written.
+    await tdb.deleteVia(attachments, eq(attachments.id, attachmentId));
 
     // Try to delete the stored blobs (don't fail if they no longer exist).
     // Legacy `/uploads/...` attachments are left on disk: that storage never

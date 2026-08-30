@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ocrServiceServer } from '@/lib/ocr-service-server';
 import { withErrorHandling } from '@/lib/db-utils';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: the biggest file in
+// the group: fifteen queries across the OCR pipeline.
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { sources, uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';

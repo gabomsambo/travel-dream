@@ -10,6 +10,26 @@
     ],
     "@typescript-eslint/no-explicit-any": "warn"
   },
+  "overrides": [
+    {
+      "files": ["src/app/api/**/*.ts", "src/app/(app)/**/*.ts", "src/app/(app)/**/*.tsx"],
+      "excludedFiles": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@/db",
+                "importNames": ["db", "client"],
+                "message": "Route handlers and app pages must not use the unscoped database client — that is how the last three cross-tenant bugs happened. Use forUser(user.id) from @/lib/tenant-db, or a userId-taking function from @/lib/db-queries / @/lib/db-mutations. If this file genuinely cannot be scoped, add an eslint-disable-next-line with a TODO saying why and who finishes it."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
   "ignorePatterns": [
     "node_modules/",
     ".next/",

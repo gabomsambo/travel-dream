@@ -45,6 +45,7 @@ import { requireAuthForApi } from '@/lib/auth-helpers';
 import { getAdapter, ConfigError } from '@/lib/photo-sources';
 import { resolveGooglePhotoUri } from '@/lib/photo-sources/google-resolver';
 import type { NextRequest } from 'next/server';
+import { mockSelect, whereMentions } from '../helpers/authz-helpers';
 
 const mockDb = db as unknown as {
   select: jest.Mock;
@@ -130,30 +131,20 @@ describe('GET /api/photos/resolve/[attachmentId]', () => {
     expect(res.status).toBe(401);
   });
 
+  // `attachments` carries no user_id: the tenant accessor scopes it through the
+  // caller's places, so the route issues a plain from/where — no join of its own.
   it('returns 404 when attachment not found', async () => {
-    mockDb.select.mockReturnValueOnce({
-      from: () => ({
-        innerJoin: () => ({
-          where: () => ({ limit: () => Promise.resolve([]) }),
-        }),
-      }),
-    });
+    const lookup = mockSelect([]);
+    mockDb.select.mockReturnValueOnce(lookup.chain);
     const res = await resolveGET(makeResolveReq(), { params: Promise.resolve({ attachmentId: 'att_x' }) });
     expect(res.status).toBe(404);
+    expect(whereMentions(lookup.conditions[0], fakeUser.id)).toBe(true);
   });
 
   it('returns 400 for non-google source attachments', async () => {
-    mockDb.select.mockReturnValueOnce({
-      from: () => ({
-        innerJoin: () => ({
-          where: () => ({
-            limit: () => Promise.resolve([
-              { id: 'att_x', source: 'wikimedia', sourceId: '100' },
-            ]),
-          }),
-        }),
-      }),
-    });
+    mockDb.select.mockReturnValueOnce(
+      mockSelect([{ id: 'att_x', source: 'wikimedia', sourceId: '100' }]).chain
+    );
     const res = await resolveGET(makeResolveReq(), { params: Promise.resolve({ attachmentId: 'att_x' }) });
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -161,21 +152,13 @@ describe('GET /api/photos/resolve/[attachmentId]', () => {
   });
 
   it('returns 302 redirect with cache header on happy path', async () => {
-    mockDb.select.mockReturnValueOnce({
-      from: () => ({
-        innerJoin: () => ({
-          where: () => ({
-            limit: () => Promise.resolve([
-              { id: 'att_x', source: 'google_places', sourceId: 'places/p/photos/r' },
-            ]),
-          }),
-        }),
-      }),
-    });
+    const lookup = mockSelect([{ id: 'att_x', source: 'google_places', sourceId: 'places/p/photos/r' }]);
+    mockDb.select.mockReturnValueOnce(lookup.chain);
     mockResolveUri.mockResolvedValueOnce('https://lh3.googleusercontent.com/abc');
     const res = await resolveGET(makeResolveReq(), { params: Promise.resolve({ attachmentId: 'att_x' }) });
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('https://lh3.googleusercontent.com/abc');
     expect(res.headers.get('Cache-Control')).toContain('private');
+    expect(whereMentions(lookup.conditions[0], fakeUser.id)).toBe(true);
   });
 });

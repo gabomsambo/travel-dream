@@ -20,7 +20,7 @@ import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { del } from '@vercel/blob';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
-import { whereMentions } from '../helpers/authz-helpers';
+import { mockSelect, whereMentions } from '../helpers/authz-helpers';
 
 const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock };
 
@@ -62,37 +62,31 @@ describe('POST /api/mass-upload/cancel', () => {
     expect(data.errors).toBeDefined();
   });
 
+  // The session lookup goes through `forUser(...).findOwned`: a scoped read
+  // first, then — only if that misses — an id-only probe that separates "no
+  // such session" from "someone else's session".
   it('returns 404 for unknown session', async () => {
-    const selectChain = {
-      from: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          get: jest.fn().mockResolvedValue(null),
-        }),
-      }),
-    };
-    mockDb.select.mockReturnValueOnce(selectChain);
+    const scoped = mockSelect(null);
+    const probe = mockSelect(null);
+    mockDb.select.mockReturnValueOnce(scoped.chain).mockReturnValueOnce(probe.chain);
 
     const req = createCancelRequest({ sessionId: 'session_nonexistent' });
     const res = await POST(req as never);
 
     expect(res.status).toBe(404);
+    expect(whereMentions(scoped.conditions[0], mockUser.id)).toBe(true);
   });
 
   it('returns 403 for wrong user', async () => {
-    const session = createMockSession({ userId: 'other-user' });
-    const selectChain = {
-      from: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          get: jest.fn().mockResolvedValue(session),
-        }),
-      }),
-    };
-    mockDb.select.mockReturnValueOnce(selectChain);
+    const scoped = mockSelect(null); // not the caller's session
+    const probe = mockSelect({ id: 'session_test-1' }); // but it does exist
+    mockDb.select.mockReturnValueOnce(scoped.chain).mockReturnValueOnce(probe.chain);
 
     const req = createCancelRequest({ sessionId: 'session_test-1' });
     const res = await POST(req as never);
 
     expect(res.status).toBe(403);
+    expect(whereMentions(scoped.conditions[0], mockUser.id)).toBe(true);
   });
 
   it('cancels queued/uploaded sources and reports alreadyProcessing count', async () => {

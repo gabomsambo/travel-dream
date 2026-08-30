@@ -5,6 +5,12 @@ import { batchCreatePlacesFromExtractions } from '@/lib/db-mutations';
 import { llmExtractionService } from '@/lib/llm-extraction-service';
 import { uploadSessions, sources } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
+// TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
+// Not migrated in the change that introduced the accessor: seven queries,
+// including two `count(*)` aggregates and an in-memory singleton whose queue
+// is process-global (a separate, known leak).
+// See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
+// eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { eq, inArray, and, or, isNull, sql } from 'drizzle-orm';
 import type { ExtractionContext } from '@/types/llm-extraction';

@@ -62,6 +62,11 @@ const sourceStatus = (id: string) =>
 const sessionMeta = (id: string) =>
   readCell('SELECT meta FROM upload_sessions WHERE id = ?', [id]).then(String);
 
+const execute = (sql: string, args: unknown[] = []) => {
+  const { client } = require('@/db');
+  return client.execute({ sql, args });
+};
+
 beforeAll(() => {
   assertLocalDatabase();
   // jest.setup.js pins crypto.randomUUID to a constant, which collides on the
@@ -210,6 +215,126 @@ describe('Path A — a mixed list acts on the caller\'s rows only', () => {
     const deleted = JSON.stringify((del as jest.Mock).mock.calls);
     expect(deleted).toContain(FIXTURE.aliceSourceBlob);
     expect(deleted).not.toContain(BOB_BLOB);
+  });
+
+  it('cancel counts only the caller\'s in-flight sources', async () => {
+    await execute("UPDATE sources SET processing_status = 'extracting' WHERE id = ?", [
+      FIXTURE.bobSource,
+    ]);
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource]);
+
+    const { POST } = require('@/app/api/mass-upload/cancel/route');
+    const foreignOnly = await (
+      await POST(
+        apiRequest('http://t/api/mass-upload/cancel', 'POST', {
+          sessionId: FIXTURE.aliceSession,
+        })
+      )
+    ).json();
+    expect(foreignOnly.alreadyProcessing).toBe(0);
+
+    await execute("UPDATE sources SET processing_status = 'enriching' WHERE id = ?", [
+      FIXTURE.aliceSource,
+    ]);
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource, FIXTURE.aliceSource]);
+    const mixed = await (
+      await POST(
+        apiRequest('http://t/api/mass-upload/cancel', 'POST', {
+          sessionId: FIXTURE.aliceSession,
+        })
+      )
+    ).json();
+    expect(mixed.alreadyProcessing).toBe(1);
+  });
+
+  it('status counts places created from only the caller\'s sources', async () => {
+    await execute('INSERT INTO sources_to_places (source_id, place_id) VALUES (?, ?)', [
+      FIXTURE.bobSource, FIXTURE.bobPlace,
+    ]);
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource]);
+
+    const { GET } = require('@/app/api/mass-upload/status/route');
+    const foreignOnly = await (
+      await GET(apiRequest(`http://t/api/mass-upload/status?sessionId=${FIXTURE.aliceSession}`))
+    ).json();
+    expect(foreignOnly.placesCreated).toBe(0);
+
+    await execute('INSERT INTO sources_to_places (source_id, place_id) VALUES (?, ?)', [
+      FIXTURE.aliceSource, FIXTURE.alicePlace,
+    ]);
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource, FIXTURE.aliceSource]);
+    const mixed = await (
+      await GET(apiRequest(`http://t/api/mass-upload/status?sessionId=${FIXTURE.aliceSession}`))
+    ).json();
+    expect(mixed.placesCreated).toBe(1);
+  });
+
+  it('status returns failed errors from only the caller\'s sources', async () => {
+    const bobError = 'BOB PRIVATE FAILURE: booking reference exposed';
+    const aliceError = 'Alice timeout';
+    await execute(
+      "UPDATE sources SET processing_status = 'failed', processing_error = ? WHERE id = ?",
+      [bobError, FIXTURE.bobSource]
+    );
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource]);
+
+    const { GET } = require('@/app/api/mass-upload/status/route');
+    const foreignOnly = await (
+      await GET(apiRequest(`http://t/api/mass-upload/status?sessionId=${FIXTURE.aliceSession}`))
+    ).json();
+    expect(foreignOnly.failedErrors).toEqual([]);
+    expect(JSON.stringify(foreignOnly)).not.toContain(FIXTURE.bobSource);
+    expect(JSON.stringify(foreignOnly)).not.toContain(bobError);
+
+    await execute(
+      "UPDATE sources SET processing_status = 'failed', processing_error = ? WHERE id = ?",
+      [aliceError, FIXTURE.aliceSource]
+    );
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource, FIXTURE.aliceSource]);
+    const mixed = await (
+      await GET(apiRequest(`http://t/api/mass-upload/status?sessionId=${FIXTURE.aliceSession}`))
+    ).json();
+    expect(mixed.failedErrors).toEqual([
+      { sourceId: FIXTURE.aliceSource, error: 'Processing timed out after multiple attempts' },
+    ]);
+    expect(JSON.stringify(mixed)).not.toContain(FIXTURE.bobSource);
+    expect(JSON.stringify(mixed)).not.toContain(bobError);
+  });
+});
+
+describe('register duplicate branch scopes its rebuild sweep', () => {
+  it('keeps caller-owned session sources and excludes a foreign source', async () => {
+    const duplicateId = 'src_alice_duplicate';
+    const now = new Date().toISOString();
+    const fetchedBodyHash = '05fe405753166f125559e7c9ac558654f107c7e9';
+    await execute(
+      `INSERT INTO sources
+        (id,user_id,type,uri,hash,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [duplicateId, ALICE.id, 'screenshot', FIXTURE.aliceSourceBlob,
+       JSON.stringify({ sha1: fetchedBodyHash }), 'uploaded',
+       JSON.stringify({ uploadInfo: { sessionId: 'session_alice_previous' } }), now, now]
+    );
+    await execute('UPDATE sources SET meta = ? WHERE id = ?', [
+      JSON.stringify({ uploadInfo: { sessionId: FIXTURE.aliceSession } }), FIXTURE.bobSource,
+    ]);
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: 'https://store.public.blob.vercel-storage.com/alice-duplicate.jpg',
+        originalName: 'alice-duplicate.png',
+        fileSize: 8,
+        mimeType: 'image/png',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('duplicate');
+    const uploadedFiles = JSON.parse(await sessionMeta(FIXTURE.aliceSession)).uploadedFiles;
+    expect(uploadedFiles).toEqual(expect.arrayContaining([FIXTURE.aliceSource, duplicateId]));
+    expect(uploadedFiles).not.toContain(FIXTURE.bobSource);
   });
 });
 

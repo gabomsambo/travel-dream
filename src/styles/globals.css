@@ -137,6 +137,7 @@
   .toaster [data-sonner-toast] {
     width: auto !important;
     max-width: min(18rem, calc(100vw - 1.5rem)) !important;
+    margin-left: auto !important;
     padding: 0.5rem 0.625rem !important;
     font-size: 0.8125rem;
     line-height: 1.25rem;

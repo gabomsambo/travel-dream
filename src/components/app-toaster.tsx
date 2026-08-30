@@ -24,7 +24,8 @@ export function AppToaster() {
       duration={5000}
       pauseWhenPageIsHidden
       position="top-right"
-      offset={{ top: '4.25rem', right: '12px' }}
+      offset={{ top: '5rem', right: '12px' }}
+      mobileOffset={{ top: '4.5rem', right: '12px', left: '12px' }}
       containerAriaLabel="Notifications"
       toastOptions={{
         classNames: {

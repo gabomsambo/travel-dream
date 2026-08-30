@@ -25,6 +25,18 @@ Theme log from the capture run: [`activity-bell-theme-log.json`](activity-bell-t
 
 **Reasoned:** in-page `/mass-upload` progress card (unchanged); `toastWithNavigate` on a real completing run (provider unit test covers the call).
 
+## Notification triage
+
+Evidence for the notification cleanup: visible validation stays inline, an already-visible create success is silent, and an interrupting export success remains a toast. Regenerate both themes with `node scripts/capture-notification-triage-screenshots.mjs`.
+
+Theme and toast-count proof from the capture run: [`notify-triage-theme-log.json`](notify-triage-theme-log.json).
+
+| Files | What they show |
+|-------|----------------|
+| `notify-triage-inline-error-{classic,tropical}.png` | Empty collection names show “Collection name is required” beside the field with no toast |
+| `notify-triage-silent-success-{classic,tropical}.png` | A created collection is visible in the page with no redundant success toast |
+| `notify-triage-toast-survived-{classic,tropical}.png` | The retained “Data exported successfully” toast is visibly rendered |
+
 ## Toast notifications — ship 1
 
 Sonner is mounted in `(app)/layout.tsx` via `AppToaster`. Capture script: `node scripts/capture-toast-screenshots.mjs`.

@@ -22,7 +22,7 @@ import { KindSelector } from './kind-selector'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui-v2/collapsible'
 import { ChevronDown, ChevronUp, X, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { toast } from 'sonner'
+import { notify } from '@/lib/notify'
 import type { PlaceKind, Place } from '@/types/database'
 import type { LocationData } from '@/hooks/use-google-places'
 
@@ -74,6 +74,8 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
     count: number
     names: string[]
   } | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const router = useRouter()
 
   const [tagInput, setTagInput] = useState('')
@@ -182,14 +184,18 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
     setAmenityInput('')
     setShowMoreFields(false)
     setDuplicateWarning(null)
+    setNameError(null)
+    setSubmitError(null)
   }
 
   const handleSubmit = async () => {
     if (!formData.name.trim()) {
-      toast.error('Name is required')
+      setNameError('Name is required')
       return
     }
 
+    setNameError(null)
+    setSubmitError(null)
     setIsSubmitting(true)
     try {
       const response = await fetch('/api/places', {
@@ -227,13 +233,13 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
       }
 
       const place = await response.json()
-      toast.success(`${place.name} added to library`)
+      notify.success(`${place.name} added to library`)
       onPlaceCreated?.(place)
       resetForm()
       onOpenChange(false)
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to create place')
+      setSubmitError(error instanceof Error ? error.message : 'Failed to create place')
     } finally {
       setIsSubmitting(false)
     }
@@ -265,10 +271,16 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
               <Input
                 id="name"
                 value={formData.name}
-                onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                onChange={e => {
+                  setFormData(prev => ({ ...prev, name: e.target.value }))
+                  if (nameError) setNameError(null)
+                }}
                 placeholder="e.g., Café de Flore"
                 disabled={isSubmitting}
               />
+              {nameError && (
+                <p className="text-sm text-destructive">{nameError}</p>
+              )}
               {duplicateWarning && (
                 <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md text-sm">
                   <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 mt-0.5 shrink-0" />
@@ -658,6 +670,10 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
             </CollapsibleContent>
           </Collapsible>
         </div>
+
+        {submitError && (
+          <p className="text-sm text-destructive px-1">{submitError}</p>
+        )}
 
         <DialogFooter className="border-t pt-4">
           <Button

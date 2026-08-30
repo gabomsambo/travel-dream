@@ -1,0 +1,70 @@
+[
+  {
+    "step": "theme-ready",
+    "theme": "classic",
+    "html": null,
+    "cookie": "classic",
+    "upload": "rgb(59, 130, 246)",
+    "toastCount": 0
+  },
+  {
+    "scenario": "inline-error",
+    "theme": "classic",
+    "inlineError": "Collection name is required",
+    "html": null,
+    "cookie": "classic",
+    "upload": "rgb(59, 130, 246)",
+    "toastCount": 0
+  },
+  {
+    "scenario": "silent-success",
+    "theme": "classic",
+    "created": "Triage Silent 1788116872886",
+    "html": null,
+    "cookie": "classic",
+    "upload": "rgb(59, 130, 246)",
+    "toastCount": 0
+  },
+  {
+    "scenario": "toast-survived",
+    "theme": "classic",
+    "html": null,
+    "cookie": "classic",
+    "upload": "rgb(59, 130, 246)",
+    "toastCount": 1
+  },
+  {
+    "step": "theme-ready",
+    "theme": "tropical",
+    "html": "tropical",
+    "cookie": "tropical",
+    "upload": "rgb(49, 196, 191)",
+    "toastCount": 0
+  },
+  {
+    "scenario": "inline-error",
+    "theme": "tropical",
+    "inlineError": "Collection name is required",
+    "html": "tropical",
+    "cookie": "tropical",
+    "upload": "rgb(49, 196, 191)",
+    "toastCount": 0
+  },
+  {
+    "scenario": "silent-success",
+    "theme": "tropical",
+    "created": "Triage Silent 1788116909774",
+    "html": "tropical",
+    "cookie": "tropical",
+    "upload": "rgb(49, 196, 191)",
+    "toastCount": 0
+  },
+  {
+    "scenario": "toast-survived",
+    "theme": "tropical",
+    "html": "tropical",
+    "cookie": "tropical",
+    "upload": "rgb(49, 196, 191)",
+    "toastCount": 1
+  }
+]

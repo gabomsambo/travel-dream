@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Image as ImageIcon } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import {
   Dialog,
   DialogContent,
@@ -200,11 +200,11 @@ export function FindImageDialog({
       if (!res.ok) {
         throw new Error(body?.error || `Attach failed (${res.status})`);
       }
-      toast.success(body.deduped ? 'Image already attached' : 'Image added');
+      notify.success(body.deduped ? 'Image already attached' : 'Image added');
       onAttached?.();
       onOpenChange(false);
     } catch (err) {
-      toast.error('Could not add image', {
+      notify.error('Could not add image', {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {

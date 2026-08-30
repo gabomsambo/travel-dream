@@ -8,7 +8,7 @@ import { DuplicateClusterCard } from './duplicate-cluster-card';
 import { DuplicateReviewToolbar } from './duplicate-review-toolbar';
 import { Accordion } from '@/components/ui-v2/accordion';
 import { Button } from '@/components/ui-v2/button';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import { recommendMergeTarget, computeMergedPlace } from '@/lib/duplicate-target-selector';
 import type { Place } from '@/types/database';
 
@@ -54,6 +54,9 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
   const [expandedClusterId, setExpandedClusterId] = useState<string | undefined>(undefined);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isLoading, setIsLoading] = useState(false);
+  const [rescanError, setRescanError] = useState<string | null>(null);
+
+  const scanError = rescanError ?? fetchError;
 
   const toggleSelection = useCallback((clusterId: string) => {
     setSelected(prev => {
@@ -103,15 +106,16 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
         throw new Error('Failed to dismiss cluster');
       }
 
-      toast.success('Cluster dismissed');
       setExpandedClusterId(undefined);
 
       // Move to next cluster if available
       if (currentIndex >= clusters.length - 1) {
         setCurrentIndex(Math.max(0, clusters.length - 2));
       }
+
+      router.refresh();
     } catch (error) {
-      toast.error('Failed to dismiss cluster');
+      notify.error('Failed to dismiss cluster');
       router.refresh();
     } finally {
       setIsLoading(false);
@@ -125,7 +129,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
     const sources = cluster.places.filter(p => p.id !== targetId);
 
     if (!target) {
-      toast.error('No target found for merge');
+      notify.error('No target found for merge');
       setIsLoading(false);
       return;
     }
@@ -153,7 +157,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
 
       const result = await response.json();
       if (result.success > 0) {
-        toast.success(`Merged ${cluster.places.length} places`);
+        notify.success(`Merged ${cluster.places.length} places`);
         setExpandedClusterId(undefined);
         // Clear duplicate detection cache and refresh
         await fetch('/api/places/duplicates', { method: 'DELETE' });
@@ -167,7 +171,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
         throw new Error('Merge failed');
       }
     } catch (error) {
-      toast.error('Failed to merge cluster');
+      notify.error('Failed to merge cluster');
       router.refresh();
     } finally {
       setIsLoading(false);
@@ -180,7 +184,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
     const source = cluster.places.find(p => p.id === sourceId);
 
     if (!target || !source) {
-      toast.error('Invalid places for merge');
+      notify.error('Invalid places for merge');
       setIsLoading(false);
       return;
     }
@@ -209,7 +213,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       }
 
       if (result.success > 0) {
-        toast.success(`Merged "${source.name}" into "${target.name}"`);
+        notify.success(`Merged "${source.name}" into "${target.name}"`);
         // Clear duplicate detection cache and refresh
         await fetch('/api/places/duplicates', { method: 'DELETE' });
         router.refresh();
@@ -217,11 +221,11 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
         // Check what went wrong
         const errorMsg = result.results?.[0]?.error || 'Merge failed';
         console.error('[Merge] Merge failed:', errorMsg);
-        toast.error(`Merge failed: ${errorMsg}`);
+        notify.error(`Merge failed: ${errorMsg}`);
       }
     } catch (error) {
       console.error('[Merge] Exception:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to merge places');
+      notify.error(error instanceof Error ? error.message : 'Failed to merge places');
       router.refresh();
     } finally {
       setIsLoading(false);
@@ -256,7 +260,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       const result = await response.json();
 
       if (result.success > 0) {
-        toast.success(`Merged ${result.success} duplicate groups`);
+        notify.success(`Merged ${result.success} duplicate groups`);
         clearSelection();
         // Clear duplicate detection cache and refresh
         await fetch('/api/places/duplicates', { method: 'DELETE' });
@@ -264,10 +268,10 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       }
 
       if (result.failed > 0) {
-        toast.error(`Failed to merge ${result.failed} groups`);
+        notify.error(`Failed to merge ${result.failed} groups`);
       }
     } catch (error) {
-      toast.error('Failed to merge duplicates');
+      notify.error('Failed to merge duplicates');
       console.error(error);
     } finally {
       setIsLoading(false);
@@ -276,20 +280,16 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
 
   const handleRescan = useCallback(async () => {
     setIsLoading(true);
+    setRescanError(null);
     try {
       // Clear the API in-process cache, then re-run the server fetch via router.refresh()
       const cacheClearRes = await fetch('/api/places/duplicates', { method: 'DELETE' });
       if (!cacheClearRes.ok) {
         throw new Error('Failed to clear scan cache');
       }
-      // router.refresh() is fire-and-forget — no Promise to await.
-      // setIsLoading(false) below clears the spinner before the new server data
-      // lands on screen (~300-800ms gap). Acceptable given Next.js App Router
-      // constraints; the toast confirms the request succeeded.
       router.refresh();
-      toast.success('Library rescanned');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Rescan failed');
+      setRescanError(error instanceof Error ? error.message : 'Rescan failed');
       console.error('[Rescan] Failed:', error);
     } finally {
       setIsLoading(false);
@@ -322,11 +322,10 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
         throw new Error('Failed to dismiss clusters');
       }
 
-      toast.success(`Dismissed ${clustersToDismiss.length} groups`);
       clearSelection();
       router.refresh();
     } catch (error) {
-      toast.error('Failed to dismiss duplicates');
+      notify.error('Failed to dismiss duplicates');
       console.error(error);
     } finally {
       setIsLoading(false);
@@ -416,11 +415,11 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
 
   return (
     <div className="flex flex-col h-full">
-      {fetchError ? (
+      {scanError ? (
         <div className="border-b bg-red-50 dark:bg-red-950/30 px-4 py-2 text-sm text-red-800 dark:text-red-200 flex items-center justify-between gap-4">
           <span className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
-            <span>Scan failed: {fetchError}</span>
+            <span>Scan failed: {scanError}</span>
           </span>
           <Button size="sm" variant="outline" onClick={handleRescan} disabled={isLoading}>
             {isLoading ? 'Retrying…' : 'Retry'}
@@ -446,11 +445,11 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       />
 
       <div className="flex-1 overflow-auto p-4">
-        {fetchError ? (
+        {scanError ? (
           <div className="text-center text-muted-foreground py-12">
             <AlertCircle className="mx-auto h-12 w-12 mb-4 text-red-500/60" />
             <h3 className="text-lg font-medium mb-2">Could not load duplicates</h3>
-            <p className="text-sm">{fetchError}</p>
+            <p className="text-sm">{scanError}</p>
           </div>
         ) : clusters.length === 0 ? (
           <div className="text-center text-muted-foreground py-12">

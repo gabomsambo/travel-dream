@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useEffect } from 'react';
 import { z } from 'zod';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import { useLocalStorage } from './use-local-storage';
 import type { ExportTemplate } from '@/types/export';
 
@@ -44,13 +44,15 @@ const TemplatesArraySchema = z.array(ExportTemplateSchema);
 
 const EMPTY_TEMPLATES: ExportTemplate[] = [];
 
+export type SaveTemplateResult = string | { error: string };
+
 export function useExportTemplates() {
   const [templates, setTemplates, removeTemplates] = useLocalStorage<ExportTemplate[]>(
     STORAGE_KEY,
     EMPTY_TEMPLATES
   );
 
-  const saveTemplate = useCallback((name: string, config: Omit<ExportTemplate, 'id' | 'name' | 'createdAt'>) => {
+  const saveTemplate = useCallback((name: string, config: Omit<ExportTemplate, 'id' | 'name' | 'createdAt'>): SaveTemplateResult => {
     try {
       const newTemplate: ExportTemplate = {
         id: crypto.randomUUID(),
@@ -61,9 +63,8 @@ export function useExportTemplates() {
 
       const validation = ExportTemplateSchema.safeParse(newTemplate);
       if (!validation.success) {
-        toast.error('Invalid template configuration');
         console.error('Validation error:', validation.error);
-        return null;
+        return { error: 'Invalid template configuration' };
       }
 
       setTemplates(prevTemplates => {
@@ -81,25 +82,22 @@ export function useExportTemplates() {
         return updatedTemplates;
       });
 
-      toast.success(`Template "${name}" saved`);
+      notify.success(`Template "${name}" saved`);
       return newTemplate.id;
     } catch (error) {
       if (error instanceof Error && error.message.includes('QuotaExceededError')) {
-        toast.error('Storage quota exceeded. Try deleting some templates.');
-      } else {
-        toast.error('Failed to save template');
-        console.error('Save template error:', error);
+        return { error: 'Storage quota exceeded. Try deleting some templates.' };
       }
-      return null;
+      console.error('Save template error:', error);
+      return { error: 'Failed to save template' };
     }
   }, [setTemplates]);
 
   const deleteTemplate = useCallback((id: string) => {
     try {
       setTemplates(prevTemplates => prevTemplates.filter(t => t.id !== id));
-      toast.success('Template deleted');
     } catch (error) {
-      toast.error('Failed to delete template');
+      notify.error('Failed to delete template');
       console.error('Delete template error:', error);
     }
   }, [setTemplates]);

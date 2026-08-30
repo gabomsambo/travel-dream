@@ -5,7 +5,7 @@ import { Upload, X, CheckCircle2, AlertCircle } from 'lucide-react'
 import { upload } from '@vercel/blob/client'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
-import { toast } from 'sonner'
+import { notify } from '@/lib/notify'
 
 interface UploadingFile {
   id: string
@@ -19,7 +19,7 @@ interface UploadingFile {
 interface PhotoUploaderProps {
   placeId: string
   onUploadComplete?: () => void
-  onUploadError?: (error: string) => void
+  onUploadError: (error: string) => void
   maxFiles?: number
   maxFileSize?: number
   compact?: boolean
@@ -124,12 +124,11 @@ export function PhotoUploader({
     }
 
     if (errors.length > 0) {
-      onUploadError?.(errors.join('; '))
-      toast.error('Some files could not be uploaded', { description: errors[0] })
+      onUploadError(errors.join('; '))
     }
 
     if (validFiles.length > maxFiles) {
-      toast.error(`Cannot upload more than ${maxFiles} files at once`)
+      onUploadError(`Cannot upload more than ${maxFiles} files at once`)
       return
     }
 
@@ -197,7 +196,7 @@ export function PhotoUploader({
     setIsUploading(false)
 
     if (successCount > 0) {
-      toast.success(`${successCount} photo${successCount > 1 ? 's' : ''} uploaded successfully`)
+      notify.success(`${successCount} photo${successCount > 1 ? 's' : ''} uploaded successfully`)
       // Clean up preview URLs
       newFiles.forEach(f => {
         if (f.previewUrl) URL.revokeObjectURL(f.previewUrl)

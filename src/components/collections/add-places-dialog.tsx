@@ -14,7 +14,7 @@ import { Input } from "@/components/adapters/input";
 import { Checkbox } from "@/components/adapters/checkbox";
 import { Badge } from "@/components/adapters/badge";
 import { Search, MapPin, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import { useDebounce } from '@/hooks/use-debounce';
 import type { Place } from '@/types/database';
 
@@ -38,6 +38,8 @@ export function AddPlacesDialog({
   const [selectedPlaceIds, setSelectedPlaceIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -45,6 +47,7 @@ export function AddPlacesDialog({
   useEffect(() => {
     const fetchPlaces = async () => {
       setIsLoading(true);
+      setLoadError(null);
       try {
         const params = new URLSearchParams();
         if (debouncedSearch) {
@@ -59,7 +62,7 @@ export function AddPlacesDialog({
         setPlaces(data.places || []);
       } catch (error) {
         console.error('Error fetching places:', error);
-        toast.error('Failed to load places');
+        setLoadError('Failed to load places');
       } finally {
         setIsLoading(false);
       }
@@ -75,6 +78,8 @@ export function AddPlacesDialog({
     if (!open) {
       setSearchQuery('');
       setSelectedPlaceIds(new Set());
+      setLoadError(null);
+      setSubmitError(null);
     }
   }, [open]);
 
@@ -99,11 +104,11 @@ export function AddPlacesDialog({
 
   const handleSubmit = async () => {
     if (selectedPlaceIds.size === 0) {
-      toast.error('Please select at least one place');
       return;
     }
 
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
       const response = await fetch(`/api/collections/${collectionId}/places`, {
         method: 'POST',
@@ -120,13 +125,13 @@ export function AddPlacesDialog({
       }
 
       const addedCount = data.results?.successful?.length || selectedPlaceIds.size;
-      toast.success(`Added ${addedCount} ${addedCount === 1 ? 'place' : 'places'} to collection`);
+      notify.success(`Added ${addedCount} ${addedCount === 1 ? 'place' : 'places'} to collection`);
 
       onPlacesAdded();
       onOpenChange(false);
     } catch (error) {
       console.error('Error adding places:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to add places');
+      setSubmitError(error instanceof Error ? error.message : 'Failed to add places');
     } finally {
       setIsSubmitting(false);
     }
@@ -148,6 +153,10 @@ export function AddPlacesDialog({
             Search and select places from your library to add to this collection
           </DialogDescription>
         </DialogHeader>
+
+        {loadError && (
+          <p role="alert" className="text-sm text-destructive">{loadError}</p>
+        )}
 
         {/* Search */}
         <div className="relative">
@@ -205,9 +214,14 @@ export function AddPlacesDialog({
 
         <DialogFooter>
           <div className="flex items-center justify-between w-full">
-            <span className="text-sm text-muted-foreground">
-              {selectedPlaceIds.size} selected
-            </span>
+            <div className="flex flex-col gap-1">
+              <span className="text-sm text-muted-foreground">
+                {selectedPlaceIds.size} selected
+              </span>
+              {submitError && (
+                <p role="alert" className="text-sm text-destructive">{submitError}</p>
+              )}
+            </div>
             <div className="flex gap-2">
               <Button
                 variant="outline"

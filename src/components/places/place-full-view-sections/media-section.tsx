@@ -3,7 +3,6 @@
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import { Star, X } from "lucide-react"
-import { toast } from "sonner"
 import { Button } from "@/components/adapters/button"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
@@ -26,6 +25,7 @@ interface MediaSectionProps {
 export function MediaSection({ place }: MediaSectionProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [mediaError, setMediaError] = useState<string | null>(null)
   const photos = place.attachments.filter(a => a.type === 'photo')
 
   const openLightbox = (index: number) => {
@@ -50,10 +50,9 @@ export function MediaSection({ place }: MediaSectionProps) {
         throw new Error("Failed to set cover image")
       }
 
-      toast.success("Set as cover image")
       window.location.reload()
-    } catch (error) {
-      toast.error("Failed to set cover image")
+    } catch {
+      setMediaError('Failed to set cover image')
     }
   }
 
@@ -72,10 +71,9 @@ export function MediaSection({ place }: MediaSectionProps) {
         throw new Error("Failed to delete photo")
       }
 
-      toast.success("Photo deleted")
       window.location.reload()
-    } catch (error) {
-      toast.error("Failed to delete photo")
+    } catch {
+      setMediaError('Failed to delete photo')
     }
   }
 
@@ -95,12 +93,16 @@ export function MediaSection({ place }: MediaSectionProps) {
             <PhotoUploader
               placeId={place.id}
               onUploadComplete={handleUploadComplete}
+              onUploadError={setMediaError}
               compact
             />
           </div>
         </div>
       </CardHeader>
       <CardContent>
+        {mediaError && (
+          <p role="alert" className="mb-4 text-sm text-destructive">{mediaError}</p>
+        )}
         {photos.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-6 text-muted-foreground">
             <p className="text-sm">No photos yet</p>

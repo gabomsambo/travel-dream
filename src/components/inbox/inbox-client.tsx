@@ -6,7 +6,7 @@ import { PlaceGrid } from "@/components/places/place-grid"
 import { InboxToolbar, type ConfidenceFilter } from "@/components/inbox/inbox-toolbar"
 import { useConfidenceSelection } from "@/hooks/use-bulk-selection"
 import { Badge } from "@/components/adapters/badge"
-import { toast } from "sonner"
+import { notify } from '@/lib/notify'
 import type { Place } from "@/types/database"
 import type { ExportFormat } from "@/types/export"
 
@@ -113,7 +113,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
         const batchNum = Math.floor(i / BATCH_SIZE) + 1
 
         if (totalBatches > 1) {
-          progressToastId = toast.loading(
+          progressToastId = notify.loading(
             `Processing batch ${batchNum}/${totalBatches}...`,
             { id: progressToastId }
           )
@@ -137,23 +137,23 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
       }
 
       if (progressToastId) {
-        toast.dismiss(progressToastId)
+        notify.dismiss(progressToastId)
       }
 
       if (hasError && totalUpdated > 0) {
-        toast.warning(`${actionLabel} ${totalUpdated} of ${placeIds.length} places (some batches failed)`)
+        notify.warning(`${actionLabel} ${totalUpdated} of ${placeIds.length} places (some batches failed)`)
       } else if (hasError) {
-        toast.error(`Failed to ${actionLabelLower} places`)
+        notify.error(`Failed to ${actionLabelLower} places`)
       } else {
-        toast.success(`${actionLabel} ${totalUpdated} places`)
+        notify.success(`${actionLabel} ${totalUpdated} places`)
       }
 
       bulkSelection.selectNone()
     } catch (error) {
       if (progressToastId) {
-        toast.dismiss(progressToastId)
+        notify.dismiss(progressToastId)
       }
-      toast.error(error instanceof Error ? error.message : `Failed to ${actionLabelLower} places`)
+      notify.error(error instanceof Error ? error.message : `Failed to ${actionLabelLower} places`)
       console.error(`Error ${actionLabelLower}ing places:`, error)
     } finally {
       setIsLoading(false)
@@ -172,7 +172,6 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
 
   const exportPlaces = useCallback(async (format: ExportFormat) => {
     if (bulkSelection.selectedIds.length === 0) {
-      toast.error('No places selected for export')
       return
     }
 
@@ -202,10 +201,10 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
 
-      toast.success(`Exported ${bulkSelection.selectedIds.length} places as ${format.toUpperCase()}`)
+      notify.success(`Exported ${bulkSelection.selectedIds.length} places as ${format.toUpperCase()}`)
     } catch (error) {
       console.error('Export error:', error)
-      toast.error('Export failed. Please try again.')
+      notify.error('Export failed. Please try again.')
     } finally {
       setIsExporting(false)
     }
@@ -225,9 +224,8 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
     router.push(`/review?placeId=${placeId}`)
   }, [router])
 
-  const handleMergePlace = useCallback((placeId: string) => {
-    // TODO: Implement merge workflow
-    toast.info('Merge functionality coming soon')
+  const handleMergePlace = useCallback((_placeId: string) => {
+    // Merge workflow not implemented — PlaceGrid renders no merge control yet
   }, [])
 
   // Keyboard navigation

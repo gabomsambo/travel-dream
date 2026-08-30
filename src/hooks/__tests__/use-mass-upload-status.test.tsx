@@ -1,11 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 
-jest.mock('sonner', () => ({ toast: { error: jest.fn() } }))
-
-import { toast } from 'sonner'
 import { useMassUploadStatus } from '@/hooks/use-mass-upload-status'
-
-const toastError = toast.error as jest.MockedFunction<typeof toast.error>
 
 describe('useMassUploadStatus', () => {
   beforeEach(() => {
@@ -37,20 +32,16 @@ describe('useMassUploadStatus', () => {
     act(() => result.current.stopPolling())
   })
 
-  it('surfaces a polling error with a stable deduplication id', async () => {
+  it('surfaces a polling error in hook state only — inline banner owns the message', async () => {
     ;(global.fetch as jest.Mock).mockRejectedValueOnce(new Error('network unavailable'))
 
     const { result } = renderHook(() => useMassUploadStatus())
     act(() => result.current.startPolling('session-2'))
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not refresh upload status. Retrying…',
-        expect.objectContaining({ id: 'mass-upload-poll-error' })
-      )
+      expect(result.current.error).toBe('network unavailable')
     })
 
-    expect(result.current.error).toBe('network unavailable')
     act(() => result.current.stopPolling())
   })
 })

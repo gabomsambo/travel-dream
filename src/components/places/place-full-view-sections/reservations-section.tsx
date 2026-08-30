@@ -25,6 +25,8 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
     status: "confirmed",
     notes: "",
   })
+  const [formError, setFormError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
@@ -35,6 +37,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
   }
 
   const handleSave = async () => {
+    setFormError(null)
     try {
       const url = editingId
         ? `/api/places/${place.id}/reservations/${editingId}`
@@ -50,13 +53,14 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
 
       window.location.reload()
     } catch (error) {
-      alert("Failed to save reservation")
+      setFormError("Failed to save reservation")
     }
   }
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this reservation?")) return
 
+    setDeleteError(null)
     try {
       const response = await fetch(`/api/places/${place.id}/reservations/${id}`, {
         method: "DELETE",
@@ -66,7 +70,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
 
       window.location.reload()
     } catch (error) {
-      alert("Failed to delete reservation")
+      setDeleteError("Failed to delete reservation")
     }
   }
 
@@ -149,6 +153,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
                 onClick={() => {
                   setShowAddForm(false)
                   setEditingId(null)
+                  setFormError(null)
                   setFormData({
                     reservationDate: "",
                     reservationTime: "",
@@ -162,7 +167,14 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
                 Cancel
               </Button>
             </div>
+            {formError && (
+              <p className="text-sm text-destructive">{formError}</p>
+            )}
           </Card>
+        )}
+
+        {deleteError && (
+          <p className="text-sm text-destructive">{deleteError}</p>
         )}
 
         {place.reservations.length === 0 ? (

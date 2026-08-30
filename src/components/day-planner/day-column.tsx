@@ -9,7 +9,7 @@ import { Calendar, MapPin, Sparkles, Trash2, StickyNote, ChevronDown, ChevronUp 
 import type { DayBucket, Place } from "@/types/database"
 import { cn } from "@/lib/utils"
 import { optimizeCollectionRoute } from "@/lib/algorithms/tsp"
-import { toast } from "sonner"
+import { notify } from '@/lib/notify'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,6 +55,7 @@ export function DayColumn({
 }: DayColumnProps) {
   const [showNote, setShowNote] = useState(!!day.dayNote)
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [optimizeHint, setOptimizeHint] = useState<string | null>(null)
 
   const { setNodeRef } = useDroppable({ id: day.id })
 
@@ -81,9 +82,11 @@ export function DayColumn({
     const unlockedPlaces = placesWithCoords.filter((p) => !lockedPlaceIds.includes(p.id))
 
     if (unlockedPlaces.length < 2) {
-      toast.error('Need at least 2 unlocked places with coordinates to optimize')
+      setOptimizeHint('Need at least 2 unlocked places with coordinates to optimize')
       return
     }
+
+    setOptimizeHint(null)
 
     const result = optimizeCollectionRoute(unlockedPlaces, { returnToStart: false, maxPlaces: 50 })
 
@@ -106,7 +109,7 @@ export function DayColumn({
     onUpdate({ placeIds: newPlaceIds })
 
     const savedKm = totalDistance - result.totalDistance
-    toast.success(`Route optimized! Saved ${savedKm.toFixed(1)}km`)
+    notify.success(`Route optimized! Saved ${savedKm.toFixed(1)}km`)
   }
 
   const handleToggleLock = (placeId: string) => {
@@ -148,7 +151,11 @@ export function DayColumn({
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex flex-col items-end gap-1">
+            {optimizeHint && (
+              <p role="alert" className="text-xs text-destructive max-w-[12rem] text-right">{optimizeHint}</p>
+            )}
+            <div className="flex items-center gap-1">
             {canOptimize && (
               <Button
                 variant="ghost"
@@ -210,6 +217,7 @@ export function DayColumn({
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            </div>
           </div>
         </div>
 

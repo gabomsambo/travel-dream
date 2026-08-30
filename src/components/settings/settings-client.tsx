@@ -12,7 +12,7 @@ import { Label } from "@/components/adapters/label"
 import { Slider } from '@/components/ui/slider'
 import { Separator } from "@/components/adapters/separator"
 import { Switch } from "@/components/adapters/switch"
-import { toast } from 'sonner'
+import { notify } from '@/lib/notify'
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog'
 import { useUiTheme } from '@/components/ui-refresh-provider'
 import { setUiTheme } from '@/lib/ui-theme-actions'
@@ -51,6 +51,7 @@ export function SettingsClient() {
   // visibly refused rather than silently swallowed.
   const savingUiTheme = useRef(false)
   const [isSavingUiTheme, setIsSavingUiTheme] = useState(false)
+  const [themeError, setThemeError] = useState<string | null>(null)
 
   const toggleUIRefresh = (enabled: boolean) => {
     if (savingUiTheme.current) return
@@ -63,11 +64,12 @@ export function SettingsClient() {
     // persists the same cookie durably.
     savingUiTheme.current = true
     setIsSavingUiTheme(true)
+    setThemeError(null)
     writeUiThemeCookie(next)
     setUiTheme(next)
       .catch((error) => {
         console.error('UI theme save error:', error)
-        toast.error('Failed to save theme preference')
+        setThemeError('Failed to save theme preference')
       })
       .finally(() => {
         savingUiTheme.current = false
@@ -93,9 +95,9 @@ export function SettingsClient() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      toast.success('Data exported successfully')
+      notify.success('Data exported successfully')
     } catch (error) {
-      toast.error('Failed to export data')
+      notify.error('Failed to export data')
       console.error('Export error:', error)
     } finally {
       setIsExporting(false)
@@ -120,11 +122,10 @@ export function SettingsClient() {
       const response = await fetch('/api/data/delete-all', { method: 'DELETE' })
       if (!response.ok) throw new Error('Delete failed')
 
-      toast.success('All data deleted successfully')
       router.push('/')
       router.refresh()
     } catch (error) {
-      toast.error('Failed to delete data')
+      notify.error('Failed to delete data')
       console.error('Delete error:', error)
     } finally {
       setIsDeleting(false)
@@ -136,7 +137,7 @@ export function SettingsClient() {
       localStorage.clear()
       sessionStorage.clear()
       setPreferences(DEFAULT_PREFERENCES)
-      toast.success('Cache cleared successfully')
+      notify.success('Cache cleared successfully')
       router.refresh()
     }
   }
@@ -266,6 +267,9 @@ export function SettingsClient() {
               disabled={isSavingUiTheme}
             />
           </div>
+          {themeError && (
+            <p className="text-sm text-destructive">{themeError}</p>
+          )}
         </CardContent>
       </Card>
 

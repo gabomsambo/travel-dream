@@ -6,7 +6,7 @@ import { ScreenshotCard } from './screenshot-card'
 import { Button } from "@/components/adapters/button"
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog"
 import { Image, Trash2, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
+import { notify } from '@/lib/notify'
 
 interface ScreenshotSource {
   id: string
@@ -53,11 +53,11 @@ export function ScreenshotGrid({ sources: initialSources }: ScreenshotGridProps)
       startTransition(() => {
         setOptimisticSources('clear-all')
       })
-      toast.success(`Cleared ${result.deleted} screenshot${result.deleted !== 1 ? 's' : ''}`)
+      notify.success(`Cleared ${result.deleted} screenshot${result.deleted !== 1 ? 's' : ''}`)
       setClearDialogOpen(false)
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to clear screenshots')
+      notify.error(error instanceof Error ? error.message : 'Failed to clear screenshots')
       console.error('Error clearing screenshots:', error)
     } finally {
       setIsClearing(false)

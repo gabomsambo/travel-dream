@@ -182,15 +182,15 @@ export function ExportClient({ collections, filterOptions }: ExportClientProps) 
           options
         }}
         templates={templates}
-        onSaveTemplate={(name) => {
+        onSaveTemplate={(name) =>
           saveTemplate(name, {
             scope,
             format,
             preset,
             customFields: preset === 'custom' ? customFields : undefined,
             options
-          });
-        }}
+          })
+        }
         onLoadTemplate={handleLoadTemplate}
         onDeleteTemplate={deleteTemplate}
       />

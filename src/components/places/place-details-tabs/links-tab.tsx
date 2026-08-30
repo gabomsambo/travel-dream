@@ -27,11 +27,14 @@ export function LinksTab({ place }: LinksTabProps) {
   const [type, setType] = useState<string>("website")
   const [platform, setPlatform] = useState<string>("")
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const handleAddLink = async () => {
     if (!url.trim()) return
 
     setSaving(true)
+    setFormError(null)
 
     try {
       const response = await fetch(`/api/places/${place.id}/links`, {
@@ -50,7 +53,7 @@ export function LinksTab({ place }: LinksTabProps) {
       setShowAddForm(false)
       window.location.reload()
     } catch (error) {
-      alert("Failed to add link")
+      setFormError('Failed to add link')
     } finally {
       setSaving(false)
     }
@@ -59,6 +62,7 @@ export function LinksTab({ place }: LinksTabProps) {
   const handleDelete = async (linkId: string) => {
     if (!confirm("Delete this link?")) return
 
+    setDeleteError(null)
     try {
       const response = await fetch(
         `/api/places/${place.id}/links/${linkId}`,
@@ -73,7 +77,7 @@ export function LinksTab({ place }: LinksTabProps) {
 
       window.location.reload()
     } catch (error) {
-      alert("Failed to delete link")
+      setDeleteError('Failed to delete link')
     }
   }
 
@@ -156,7 +160,14 @@ export function LinksTab({ place }: LinksTabProps) {
               Cancel
             </Button>
           </div>
+          {formError && (
+            <p className="text-sm text-destructive">{formError}</p>
+          )}
         </Card>
+      )}
+
+      {deleteError && (
+        <p className="text-sm text-destructive">{deleteError}</p>
       )}
 
       {place.links.length === 0 && !showAddForm && (

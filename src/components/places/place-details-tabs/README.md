@@ -139,5 +139,5 @@ Total: ~33KB, 1078 lines of code
 
 - All components use "use client" directive for interactivity
 - API calls reload page on success (future: optimistic updates)
-- Error handling with alerts (future: toast notifications)
+- Save, validation, upload, and delete feedback renders inline at the relevant control
 - Upload validation: images only, 10MB max per file

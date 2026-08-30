@@ -73,12 +73,15 @@ Element.prototype.scrollIntoView = jest.fn()
 const mockFetch = jest.fn()
 global.fetch = mockFetch
 
-// Mock toast notifications
-jest.mock('sonner', () => ({
-  toast: {
+// Mock notify notifications
+jest.mock('@/lib/notify', () => ({
+  notify: {
     success: jest.fn(),
     error: jest.fn(),
     info: jest.fn(),
+    warning: jest.fn(),
+    loading: jest.fn(),
+    dismiss: jest.fn(),
   },
 }))
 
@@ -454,8 +457,8 @@ describe('InboxClient Keyboard Navigation', () => {
       })
 
       // Should show error toast (mocked)
-      const { toast } = require('sonner')
-      expect(toast.error).toHaveBeenCalledWith('Failed to confirm places')
+      const { notify } = require('@/lib/notify')
+      expect(notify.error).toHaveBeenCalledWith('Failed to confirm places')
     })
 
     it('handles network errors', async () => {
@@ -470,8 +473,8 @@ describe('InboxClient Keyboard Navigation', () => {
         expect(mockFetch).toHaveBeenCalled()
       })
 
-      const { toast } = require('sonner')
-      expect(toast.error).toHaveBeenCalledWith('Network error')
+      const { notify } = require('@/lib/notify')
+      expect(notify.error).toHaveBeenCalledWith('Network error')
     })
   })
 
@@ -535,8 +538,8 @@ describe('InboxClient Keyboard Navigation', () => {
       })
 
       // Item should be optimistically updated
-      const { toast } = require('sonner')
-      expect(toast.success).toHaveBeenCalledWith('Confirmed 1 places')
+      const { notify } = require('@/lib/notify')
+      expect(notify.success).toHaveBeenCalledWith('Confirmed 1 places')
     })
   })
 })

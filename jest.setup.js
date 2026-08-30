@@ -28,13 +28,24 @@ jest.mock('next/navigation', () => ({
   },
 }))
 
-// Mock sonner toast
-jest.mock('sonner', () => ({
-  toast: {
+// Mock notify facade (wraps sonner at call sites)
+jest.mock('@/lib/notify', () => ({
+  NOTIFY_DURATION: {
+    success: 4000,
+    info: 6000,
+    warning: 10000,
+    error: 10000,
+    persistent: Infinity,
+    clipboard: 3000,
+  },
+  notify: {
     success: jest.fn(),
     error: jest.fn(),
+    errorPersistent: jest.fn(),
     info: jest.fn(),
     warning: jest.fn(),
+    loading: jest.fn(),
+    dismiss: jest.fn(),
   },
 }))
 

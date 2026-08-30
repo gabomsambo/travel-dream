@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { toast } from 'sonner'
 import {
   computeEta,
   emptyMassUploadCounts,
@@ -104,10 +103,6 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
         isLoading: false,
         error: message,
       }))
-      toast.error('Could not refresh upload status. Retrying…', {
-        id: 'mass-upload-poll-error',
-        duration: 10000,
-      })
     }
   }, [stopPolling])
 

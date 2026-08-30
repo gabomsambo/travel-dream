@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useOptimistic, useCallback, startTransition } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
-import { toast } from 'sonner'
+import { notify } from '@/lib/notify'
 import { RotateCcw, Trash2, Loader2, Archive as ArchiveIcon } from 'lucide-react'
 import { PlaceDetailsDialogEnhanced } from "@/components/places/place-details-dialog-enhanced"
 import { PlaceCardV2 } from "@/components/library-v2/place-card-v2"
@@ -299,12 +299,12 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
       }
 
       const result = await response.json()
-      toast.success(`Restored ${result.result?.updatedCount || placeIds.length} place(s) to library`)
+      notify.success(`Restored ${result.result?.updatedCount || placeIds.length} place(s) to library`)
 
       selectNone()
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to restore places')
+      notify.error(error instanceof Error ? error.message : 'Failed to restore places')
       console.error('Error restoring places:', error)
       router.refresh()
     } finally {
@@ -328,14 +328,14 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
       }
 
       const result = await response.json()
-      toast.success(`Permanently deleted ${result.result?.updatedCount || placeIds.length} place(s)`)
+      notify.success(`Permanently deleted ${result.result?.updatedCount || placeIds.length} place(s)`)
 
       setDeleteDialogOpen(false)
       setConfirmText('')
       selectNone()
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to delete places')
+      notify.errorPersistent(error instanceof Error ? error.message : 'Failed to delete places')
       console.error('Error deleting places:', error)
     } finally {
       setIsDeleting(false)
@@ -343,26 +343,17 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
   }, [router, selectNone])
 
   const handleRestoreClick = useCallback(() => {
-    if (selectedItems.size === 0) {
-      toast.error('No places selected')
-      return
-    }
+    if (selectedItems.size === 0) return
     setRestoreDialogOpen(true)
   }, [selectedItems.size])
 
   const handleDeleteClick = useCallback(() => {
-    if (selectedItems.size === 0) {
-      toast.error('No places selected')
-      return
-    }
+    if (selectedItems.size === 0) return
     setDeleteDialogOpen(true)
   }, [selectedItems.size])
 
   const exportPlaces = useCallback(async (format: ExportFormat) => {
-    if (selectedItems.size === 0) {
-      toast.error('No places selected for export')
-      return
-    }
+    if (selectedItems.size === 0) return
 
     setIsExporting(true)
     try {
@@ -393,9 +384,9 @@ export function ArchiveClient({ initialPlaces, filterOptions }: ArchiveClientPro
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
 
-      toast.success(`Exported ${selectedItems.size} place(s)`)
+      notify.success(`Exported ${selectedItems.size} place(s)`)
     } catch (error) {
-      toast.error('Failed to export places')
+      notify.error('Failed to export places')
       console.error('Export error:', error)
     } finally {
       setIsExporting(false)

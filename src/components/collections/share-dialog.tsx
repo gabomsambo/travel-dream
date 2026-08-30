@@ -10,7 +10,7 @@ import {
 } from "@/components/adapters/dialog";
 import { Button } from "@/components/adapters/button";
 import { Download, Map, Navigation, FileText, FileSpreadsheet, Copy, Check, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify, NOTIFY_DURATION } from '@/lib/notify';
 import type { Collection, Place } from '@/types/database';
 import type { ExportFormat } from '@/types/export';
 
@@ -35,18 +35,15 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
-      toast.success('Link copied to clipboard');
+      notify.success('Link copied to clipboard', { duration: NOTIFY_DURATION.clipboard });
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
-      toast.error('Failed to copy link');
+      notify.error('Failed to copy link');
     }
   };
 
   const handleExport = async (format: ExportFormat) => {
-    if (collection.places.length === 0) {
-      toast.error('No places to export');
-      return;
-    }
+    if (collection.places.length === 0) return;
 
     setIsExporting(true);
     try {
@@ -75,10 +72,10 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
 
-      toast.success(`Exported ${collection.places.length} places as ${format.toUpperCase()}`);
+      notify.success(`Exported ${collection.places.length} places as ${format.toUpperCase()}`);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Export failed. Please try again.');
+      notify.error('Export failed. Please try again.');
     } finally {
       setIsExporting(false);
     }
@@ -87,10 +84,7 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
   const handleExportGoogleMaps = () => {
     const placesWithCoords = collection.places.filter((p) => p.coords);
 
-    if (placesWithCoords.length === 0) {
-      toast.error('No places with coordinates');
-      return;
-    }
+    if (placesWithCoords.length === 0) return;
 
     if (placesWithCoords.length === 1) {
       const place = placesWithCoords[0];
@@ -108,16 +102,12 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
 
     const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&waypoints=${waypoints}`;
     window.open(url, '_blank');
-    toast.success('Opened in Google Maps');
   };
 
   const handleExportAppleMaps = () => {
     const placesWithCoords = collection.places.filter((p) => p.coords);
 
-    if (placesWithCoords.length === 0) {
-      toast.error('No places with coordinates');
-      return;
-    }
+    if (placesWithCoords.length === 0) return;
 
     const place = placesWithCoords[0];
     const url = `https://maps.apple.com?ll=${place.coords!.lat},${place.coords!.lon}&q=${encodeURIComponent(place.name)}`;
@@ -125,9 +115,7 @@ export function ShareDialog({ collection, open, onOpenChange }: ShareDialogProps
     window.open(url, '_blank');
 
     if (placesWithCoords.length > 1) {
-      toast.info('Apple Maps opened with first location. Use CSV for all places.');
-    } else {
-      toast.success('Opened in Apple Maps');
+      notify.info('Apple Maps opened with first location only. Use CSV for all places.');
     }
   };
 

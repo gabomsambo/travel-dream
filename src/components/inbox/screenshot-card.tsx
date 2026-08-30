@@ -5,7 +5,7 @@ import { Card } from "@/components/adapters/card"
 import { Badge } from "@/components/adapters/badge"
 import { Button } from "@/components/adapters/button"
 import { Image, FileText, Clock, CheckCircle, AlertCircle, X, RefreshCw, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
+import { notify } from '@/lib/notify'
 
 interface ScreenshotSource {
   id: string
@@ -70,10 +70,9 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
         throw new Error(errorData.message || 'Failed to delete screenshot')
       }
 
-      toast.success('Screenshot deleted successfully')
       onDelete?.(source.id)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to delete screenshot')
+      notify.error(error instanceof Error ? error.message : 'Failed to delete screenshot')
       console.error('Error deleting screenshot:', error)
     } finally {
       setIsDeleting(false)
@@ -103,16 +102,16 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
       const result = await response.json()
 
       if (result.summary.successful > 0) {
-        toast.success('Screenshot reprocessed successfully', {
+        notify.success('Screenshot reprocessed successfully', {
           description: `Extracted ${result.summary.totalPlaces} places`
         })
         onRetryComplete?.()
         window.location.reload()
       } else {
-        toast.error('Failed to process screenshot')
+        notify.error('Failed to process screenshot')
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to retry processing')
+      notify.error(error instanceof Error ? error.message : 'Failed to retry processing')
       console.error('Error retrying screenshot:', error)
     } finally {
       setIsRetrying(false)

@@ -26,8 +26,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { toast } from 'sonner'
-
 interface UploadDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -261,7 +259,6 @@ export function UploadDialog({ open, onOpenChange, onComplete }: UploadDialogPro
 
   const handleUploadError = (error: string) => {
     setError(error)
-    toast.error(error, { duration: 2000 })
   }
 
   // Check if there's unsaved progress on current tab

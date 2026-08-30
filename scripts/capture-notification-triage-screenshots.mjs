@@ -45,7 +45,7 @@ async function getPage(urlHint) {
   const pages = targets.filter((t) => t.type === 'page' && t.url.includes(BASE_HOST))
   if (urlHint) {
     const matches = pages.filter((t) => t.url.includes(urlHint))
-    if (matches.length > 0) return matches[matches.length - 1]
+    if (matches.length > 0) return matches[0]
   }
   return pages[0]
 }
@@ -266,14 +266,30 @@ async function captureSurvivingToast(theme) {
     btn?.click();
     return btn?.textContent ?? 'missing';
   })()`, '/settings')
-  for (let i = 0; i < 40; i++) {
-    const count = await evalJs(`document.querySelectorAll('[data-sonner-toast]').length`, '/settings')
-    if (count > 0) break
-    await sleep(500)
+  let visibleToast = false
+  for (let i = 0; i < 80; i++) {
+    visibleToast = await evalJs(`(() => {
+      const toast = document.querySelector('[data-sonner-toast]');
+      if (!toast) return false;
+      const style = getComputedStyle(toast);
+      const bounds = toast.getBoundingClientRect();
+      return Number.parseFloat(style.opacity) >= 0.9 && bounds.height > 0 && bounds.top >= 70;
+    })()`, '/settings')
+    if (visibleToast) {
+      await sleep(150)
+      visibleToast = await evalJs(`(() => {
+        const toast = document.querySelector('[data-sonner-toast]');
+        if (!toast) return false;
+        const style = getComputedStyle(toast);
+        const bounds = toast.getBoundingClientRect();
+        return Number.parseFloat(style.opacity) >= 0.9 && bounds.height > 0 && bounds.top >= 70;
+      })()`, '/settings')
+      if (visibleToast) break
+    }
+    await sleep(250)
   }
-  await sleep(700)
   const state = await readThemeState('/settings')
-  if (state.toastCount === 0) throw new Error(`expected export toast in ${theme}`)
+  if (!visibleToast || state.toastCount === 0) throw new Error(`expected visible export toast in ${theme}`)
   await screenshot(join(DOCS, `notify-triage-toast-survived-${theme}.png`), '/settings')
   return { scenario: 'toast-survived', theme, ...state }
 }

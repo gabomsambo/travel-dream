@@ -178,15 +178,20 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
     }
 
     let stopped = false
+    const controller = new AbortController()
 
     const discover = async () => {
-      const res = await fetch(`/api/upload/sessions?status=active&hasUploads=true&limit=${DISCOVER_LIMIT}`)
+      const res = await fetch(`/api/upload/sessions?status=active&hasUploads=true&limit=${DISCOVER_LIMIT}`, {
+        signal: controller.signal,
+      })
+      if (stopped) return
       if (res.status === 401 || res.status === 403) {
         sessionIdsRef.current.clear()
         throw new Error('Authentication required')
       }
       if (!res.ok) throw new Error(`Session discovery failed: ${res.status}`)
       const data = await res.json() as { status?: string; sessions?: SessionRow[] }
+      if (stopped) return
       if (data.status !== 'success' || !data.sessions) return
       const nowMs = Date.now()
       for (const session of data.sessions) {
@@ -197,13 +202,17 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
     }
 
     const pollSession = async (sessionId: string) => {
-      const res = await fetch(`/api/mass-upload/status?sessionId=${sessionId}`)
+      const res = await fetch(`/api/mass-upload/status?sessionId=${sessionId}`, {
+        signal: controller.signal,
+      })
+      if (stopped) return
       if (res.status === 401 || res.status === 403) {
         sessionIdsRef.current.delete(sessionId)
         return
       }
       if (!res.ok) throw new Error(`Status request failed: ${res.status}`)
       const data = await res.json() as MassUploadStatusPayload & { status?: string; message?: string }
+      if (stopped) return
       if (data.status !== 'success') {
         throw new Error(data.message || 'Failed to get status')
       }
@@ -226,6 +235,7 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
     const interval = setInterval(() => { void tick() }, POLL_INTERVAL_MS)
     return () => {
       stopped = true
+      controller.abort()
       clearInterval(interval)
     }
   }, [applyPayload, ownerUserId])

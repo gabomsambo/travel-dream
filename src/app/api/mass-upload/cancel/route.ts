@@ -54,6 +54,7 @@ export async function POST(request: NextRequest) {
       })
       .where(and(
         inArray(sourcesCurrentSchema.id, sourceIds),
+        eq(sourcesCurrentSchema.userId, user.id),
         sql`${sourcesCurrentSchema.processingStatus} IN ('queued', 'uploaded', 'stalled')`
       ))
       .returning();
@@ -80,6 +81,7 @@ export async function POST(request: NextRequest) {
       .from(sourcesCurrentSchema)
       .where(and(
         inArray(sourcesCurrentSchema.id, sourceIds),
+        eq(sourcesCurrentSchema.userId, user.id),
         sql`${sourcesCurrentSchema.processingStatus} IN ('extracting', 'enriching')`
       ));
 

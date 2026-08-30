@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ActivityProvider, useActivityJobs } from '@/components/activity/activity-provider'
 import { ActivityBell } from '@/components/activity/activity-bell'
@@ -211,6 +211,58 @@ describe('ActivityProvider', () => {
     await waitFor(() => expect(screen.getByTestId('connection')).toHaveTextContent('live'))
     expect(screen.getByTestId('phases')).toHaveTextContent('')
     expect(screen.getByTestId('summaries')).toHaveTextContent('')
+  })
+
+  it('ignores a status response that resolves after the owner changes', async () => {
+    let resolveStatus: ((response: Response) => void) | undefined
+    let discoveryCount = 0
+    ;(global.fetch as jest.Mock).mockImplementation((input: RequestInfo) => {
+      const url = String(input)
+      if (url.startsWith('/api/upload/sessions?')) {
+        discoveryCount += 1
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: 'success',
+            sessions: discoveryCount === 1 ? [{
+              id: SESSION_ID,
+              status: 'active',
+              startedAt: new Date().toISOString(),
+              meta: { uploadedFiles: ['src_1'] },
+            }] : [],
+          }),
+        })
+      }
+      if (url.startsWith('/api/mass-upload/status')) {
+        return new Promise(resolve => { resolveStatus = resolve })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+
+    const { rerender } = render(
+      <ActivityProvider ownerUserId="user_a">
+        <JobProbe />
+      </ActivityProvider>
+    )
+    await waitFor(() => expect(resolveStatus).toBeDefined())
+
+    rerender(
+      <ActivityProvider ownerUserId="user_b">
+        <JobProbe />
+      </ActivityProvider>
+    )
+    await act(async () => {
+      resolveStatus?.({
+        ok: true,
+        status: 200,
+        json: async () => statusPayload({ completed: 10 }, 10, 3),
+      } as Response)
+    })
+
+    await waitFor(() => expect(screen.getByTestId('connection')).toHaveTextContent('live'))
+    expect(screen.getByTestId('phases')).toHaveTextContent('')
+    expect(localStorage.getItem(activityJobsStorageKey('user_b'))).toBeNull()
   })
 
   it('says so when polling fails instead of pretending numbers are current', async () => {

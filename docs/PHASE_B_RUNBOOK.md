@@ -1,7 +1,29 @@
 # Phase B runbook — reconcile production's migration ledger to the baseline
 
-**Status:** not yet executed. This document describes work to be run against **production**
-by a human (or firstmate with the captain's approval), *after* the baseline PR has merged.
+**Status: DONE — executed against production. Do not run it again.**
+The dangerous statement is the `DELETE FROM __drizzle_migrations` in **§5, "Step 3 — Reconcile
+the ledger"**. Re-running it would *un-record* migrations that are already applied, and the next
+`db:migrate` would then replay them and die on `duplicate column name`. (§4 is read-only and safe
+to re-run. **§6 is not**: its `SELECT` is read-only, but the step then runs `npm run db:migrate`
+against production — a write, which is a no-op today only because everything is applied. Its
+"expect exactly 1 row" is likewise historical; the ledger now holds one row per entry in
+`src/db/migrations/meta/_journal.json`, so it is not a live pass criterion — see §4 for the
+derived version.)
+
+**§7's rollback is now obsolete for the same reason.** It runs the identical `DELETE` and then
+restores the 15 pre-baseline rows; after that the next `db:migrate` replays the baseline and dies
+on `table ... already exists`. It was written to undo the reconciliation on the day it was done.
+Do not use it now.
+
+The production state this rests on was **measured read-only against production by a separate
+investigation** — the `td-prod-schema-drift` scout report, §3.1 and §3.3 — not by this runbook and
+not by the PR that added this status block, neither of which had production access. That
+investigation found `__drizzle_migrations` holding the baseline row plus one row per migration
+applied since, and the 15 pre-baseline rows preserved in `__drizzle_migrations_prebaseline_backup`.
+It also judged Phase B correct and complete.
+
+This document is kept as the reference for how the reconciliation was done and why. Everything
+below describes it in its original future tense.
 
 **Nothing in this runbook was run against production while writing it.** Every claim below
 was verified against throwaway local SQLite files.
@@ -34,7 +56,23 @@ in full and abort on the first statement:
 SQLITE_ERROR: table `accounts` already exists
 ```
 
-The migrator has no transaction wrapping the whole run, so a partial replay is possible.
+The whole run is atomic, so this failure leaves nothing behind. `migrate()` collects every
+statement — the migration SQL *and* its ledger INSERTs — and hands the lot to
+`db.session.migrate()`, which `@libsql/client` sends as a single batch:
+`PRAGMA foreign_keys=off; BEGIN; ...; COMMIT`, with each step conditioned on the previous one
+succeeding and a `ROLLBACK` step conditioned on the `COMMIT` not succeeding
+(`node_modules/@libsql/client/lib-esm/hrana.js`, `executeHranaBatch`). A statement that fails
+mid-run rolls the whole run back; there is no partial replay.
+
+*Verified on the installed versions (drizzle-orm 0.45.2, @libsql/client 0.17.4) both by reading
+that code path and by inducing a mid-run failure: with a conflicting column pre-seeded so the
+last migration failed, the earlier migration's `ADD COLUMN`s and its ledger row were both absent
+afterwards and the ledger was unchanged.* This corrects an earlier claim here that "the migrator
+has no transaction wrapping the whole run, so a partial replay is possible" — that was wrong, and
+it made `db:migrate` look riskier than it is.
+
+Atomicity is not permission to skip the reconciliation, though: the run below still *fails*, and
+production stays unmigrated until it is fixed.
 **Do not run `npm run db:migrate` against production until step 4 of this runbook is done.**
 
 This failure and its fix are both reproduced locally by:
@@ -43,9 +81,10 @@ This failure and its fix are both reproduced locally by:
 node scripts/rehearse-ledger-reconciliation.mjs
 ```
 
-which simulates production (real schema + the 15 old ledger rows) in a temp file and asserts
-that (a) migrating without reconciliation fails, and (b) migrating after reconciliation is a
-clean no-op. Run it first; it takes seconds and touches nothing.
+which simulates production (baseline-era schema + the 15 old ledger rows) in a temp file and
+asserts that (a) migrating without reconciliation fails, (b) migrating after reconciliation
+succeeds and applies exactly the journal entries newer than the baseline, and (c) a second run
+is a clean no-op. Run it first; it takes seconds and touches nothing.
 
 ---
 
@@ -115,11 +154,35 @@ Also confirm the ledger is in the state this runbook assumes:
 ```sql
 -- read-only
 SELECT COUNT(*) AS rows, MAX(created_at) AS newest FROM __drizzle_migrations;
--- expect: rows = 15, newest = 1777154624696
 ```
 
-If `rows` is not 15 or `newest` is not 1777154624696, **stop** — someone has run a migration
-since this runbook was written. Re-derive the situation before continuing.
+**Historical pass criterion (pre-Phase-B, no longer what you should see):** `rows = 15,
+newest = 1777154624696`. Those are the 15 pre-baseline rows this runbook was written to
+reconcile. Phase B has since been executed, and §5 moved them into
+`__drizzle_migrations_prebaseline_backup`. A database still showing them today has not had
+Phase B applied.
+
+**Live criterion, post-Phase-B.** Do not hardcode a row count here; derive it from the repo, so
+it cannot rot the way the numbers above did:
+
+- `rows` should equal the number of entries in `src/db/migrations/meta/_journal.json` — the
+  baseline row plus one row per migration applied since.
+- `newest` should equal that journal's newest `when`. drizzle records each applied migration's
+  `created_at` as its journal entry's `when`, so the two are the same epoch-millisecond value.
+  This is the comparison `scripts/verify-baseline-schema.mjs` prints in live-dump mode, and it
+  is what decides unapplied-migration versus drift.
+
+*(That mapping and the row-count rule are **reasoned** from the journal and from the migrator's
+behaviour, not observed against production. The production ledger state they are expected to
+match — baseline row plus one row per migration applied since, with the 15 pre-baseline rows
+preserved in the backup table — was **measured read-only by the separate `td-prod-schema-drift`
+scout investigation**, §3.1 and §3.3, not by this runbook and not by the PR that revised this
+section.)*
+
+If `rows` and `newest` do not line up with the journal that way, **stop** and re-derive the
+situation before continuing. The live-dump mode of `scripts/verify-baseline-schema.mjs` reports
+what the ledger-versus-journal comparison indicates for each shape, including a ledger that
+predates the baseline and a checkout that is behind the database.
 
 ---
 
@@ -202,6 +265,10 @@ Finally, smoke-test the app:
 ---
 
 ## 7. Rollback
+
+> **Obsolete — do not run this now.** It was the same-day undo for the reconciliation. Migrations
+> have been applied since, so restoring the pre-baseline ledger would make the next `db:migrate`
+> replay the baseline and fail on `table ... already exists`. See the status block at the top.
 
 The reconciliation is metadata-only and reversible without touching app data:
 

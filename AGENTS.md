@@ -238,8 +238,8 @@ Turso or the production Blob store. See `scripts/mass-upload-loadtest/README.md`
 
 ## Production legacy rows (do not touch)
 
-Production still holds rows that look like stranded work. **They are deliberate — do not process
-or clean them up.**
+Production has rows that look like stranded work. **They are deliberate — do not process or clean
+them up.** The approximate counts below come from the external decision record, not a live query.
 
 - **`sources`**: ~50 rows at `processing_status = 'pending'` from December 2025 predate the
   mass-upload queue. Do not flip them to `queued` or otherwise process them — that spends ~50

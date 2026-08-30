@@ -105,6 +105,7 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
   const sessionIdsRef = useRef<Set<string>>(new Set())
   const etaRef = useRef<Map<string, EtaTiming>>(new Map())
   const announcedRef = useRef<Set<string>>(new Set())
+  const pollGenerationRef = useRef<Map<string, number>>(new Map())
 
   jobsRef.current = jobs
 
@@ -117,6 +118,7 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
   const acknowledge = useCallback((sessionId: string) => {
     sessionIdsRef.current.delete(sessionId)
     etaRef.current.delete(sessionId)
+    pollGenerationRef.current.delete(sessionId)
     commitJobs(jobsRef.current.filter(job => job.id !== sessionId))
   }, [commitJobs])
 
@@ -167,6 +169,7 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
     sessionIdsRef.current.clear()
     etaRef.current.clear()
     announcedRef.current.clear()
+    pollGenerationRef.current.clear()
     setJobs([])
     const persisted = readPersistedJobs(ownerUserId)
     if (persisted.length > 0) {
@@ -202,17 +205,19 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
     }
 
     const pollSession = async (sessionId: string) => {
+      const requestGeneration = (pollGenerationRef.current.get(sessionId) ?? 0) + 1
+      pollGenerationRef.current.set(sessionId, requestGeneration)
       const res = await fetch(`/api/mass-upload/status?sessionId=${sessionId}`, {
         signal: controller.signal,
       })
-      if (stopped) return
+      if (stopped || pollGenerationRef.current.get(sessionId) !== requestGeneration) return
       if (res.status === 401 || res.status === 403) {
         sessionIdsRef.current.delete(sessionId)
         return
       }
       if (!res.ok) throw new Error(`Status request failed: ${res.status}`)
       const data = await res.json() as MassUploadStatusPayload & { status?: string; message?: string }
-      if (stopped) return
+      if (stopped || pollGenerationRef.current.get(sessionId) !== requestGeneration) return
       if (data.status !== 'success') {
         throw new Error(data.message || 'Failed to get status')
       }

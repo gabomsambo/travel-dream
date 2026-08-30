@@ -79,12 +79,13 @@ function mockNetwork(opts: {
 }
 
 function JobProbe() {
-  const { jobs, connectionState, acknowledge } = useActivityJobs()
+  const { jobs, connectionState, acknowledge, observeSession } = useActivityJobs()
   return (
     <div>
       <div data-testid="phases">{jobs.map(job => job.phase).join(',')}</div>
       <div data-testid="summaries">{jobs.map(job => job.summary).join('|')}</div>
       <div data-testid="connection">{connectionState}</div>
+      <button type="button" onClick={() => observeSession(SESSION_ID)}>observe</button>
       {jobs.map(job => (
         <button key={job.id} type="button" onClick={() => acknowledge(job.id)}>
           dismiss {job.id}
@@ -263,6 +264,61 @@ describe('ActivityProvider', () => {
     await waitFor(() => expect(screen.getByTestId('connection')).toHaveTextContent('live'))
     expect(screen.getByTestId('phases')).toHaveTextContent('')
     expect(localStorage.getItem(activityJobsStorageKey('user_b'))).toBeNull()
+  })
+
+  it('keeps a completed job when an older active poll resolves late', async () => {
+    const statusResolvers: Array<(response: Response) => void> = []
+    ;(global.fetch as jest.Mock).mockImplementation((input: RequestInfo, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('/api/upload/sessions?') && (init?.method || 'GET') === 'GET') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: 'success',
+            sessions: [{
+              id: SESSION_ID,
+              status: 'active',
+              startedAt: new Date().toISOString(),
+              meta: { uploadedFiles: ['src_1'] },
+            }],
+          }),
+        })
+      }
+      if (url.startsWith('/api/mass-upload/status')) {
+        return new Promise(resolve => { statusResolvers.push(resolve) })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ status: 'success' }) })
+    })
+
+    render(
+      <ActivityProvider ownerUserId="user_a">
+        <JobProbe />
+      </ActivityProvider>
+    )
+    await waitFor(() => expect(statusResolvers).toHaveLength(1))
+    await userEvent.click(screen.getByRole('button', { name: 'observe' }))
+    await waitFor(() => expect(statusResolvers).toHaveLength(2))
+
+    await act(async () => {
+      statusResolvers[1]({
+        ok: true,
+        status: 200,
+        json: async () => statusPayload({ completed: 10 }, 10, 3),
+      } as Response)
+    })
+    await waitFor(() => expect(screen.getByTestId('phases')).toHaveTextContent('complete'))
+
+    await act(async () => {
+      statusResolvers[0]({
+        ok: true,
+        status: 200,
+        json: async () => statusPayload({ queued: 9, completed: 1 }, 10, 1),
+      } as Response)
+    })
+
+    expect(screen.getByTestId('phases')).toHaveTextContent('complete')
+    expect(localStorage.getItem(activityJobsStorageKey('user_a'))).toContain('"completed":10')
   })
 
   it('says so when polling fails instead of pretending numbers are current', async () => {

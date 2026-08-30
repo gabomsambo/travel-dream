@@ -3,7 +3,7 @@
  * Notification triage screenshots — silent success, inline error, surviving toast.
  * Both themes with Upload-button colour proof (classic blue vs tropical teal).
  */
-import { execSync, execFileSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import http from 'node:http'
@@ -31,7 +31,7 @@ function axi(args) {
   return execFileSync('chrome-devtools-axi', args, { env, encoding: 'utf8', timeout: 120000 })
 }
 
-async function getPage() {
+async function getPage(urlHint) {
   const targets = await new Promise((resolve, reject) => {
     http
       .get('http://127.0.0.1:9222/json/list', (res) => {
@@ -41,11 +41,16 @@ async function getPage() {
       })
       .on('error', reject)
   })
-  return targets.find((t) => t.type === 'page' && t.url.includes('localhost:3001')) ?? targets.find((t) => t.type === 'page')
+  const pages = targets.filter((t) => t.type === 'page')
+  if (urlHint) {
+    const matches = pages.filter((t) => t.url.includes(urlHint))
+    if (matches.length > 0) return matches[matches.length - 1]
+  }
+  return pages.find((t) => t.url.includes('localhost:3001')) ?? pages[0]
 }
 
-async function withCdp(fn) {
-  const page = await getPage()
+async function withCdp(fn, urlHint) {
+  const page = await getPage(urlHint)
   const ws = new WebSocket(page.webSocketDebuggerUrl)
   let id = 0
   const pending = new Map()
@@ -90,12 +95,12 @@ function parseNetscapeCookies(file) {
   return cookies
 }
 
-async function evalJs(expr) {
+async function evalJs(expr, urlHint) {
   return withCdp(async (send) => {
     const result = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
     return result.result.value
-  })
+  }, urlHint)
 }
 
 async function installCookies() {
@@ -107,15 +112,15 @@ async function installCookies() {
   })
 }
 
-async function screenshot(path) {
+async function screenshot(path, urlHint) {
   await withCdp(async (send) => {
     const { data } = await send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(path, Buffer.from(data, 'base64'))
-  })
+  }, urlHint)
   console.log('screenshot', path)
 }
 
-async function readThemeState() {
+async function readThemeState(urlHint) {
   return evalJs(`({
     html: document.documentElement.getAttribute('data-theme'),
     cookie: document.cookie.match(/ui-theme=([^;]+)/)?.[1] ?? null,
@@ -125,7 +130,7 @@ async function readThemeState() {
       document.body
     ).backgroundColor,
     toastCount: document.querySelectorAll('[data-sonner-toast]').length
-  })`)
+  })`, urlHint)
 }
 
 async function ensureTheme(theme) {
@@ -133,18 +138,19 @@ async function ensureTheme(theme) {
   await sleep(2000)
   const wantTropical = theme === 'tropical'
   const on = await evalJs(
-    `document.querySelector('button[role="switch"]')?.closest('div')?.textContent?.includes('Tropical Boutique UI') && document.querySelector('button[role="switch"]')?.getAttribute('aria-checked') === 'true'`
+    `document.querySelector('button[role="switch"]')?.closest('div')?.textContent?.includes('Tropical Boutique UI') && document.querySelector('button[role="switch"]')?.getAttribute('aria-checked') === 'true'`,
+    '/settings'
   )
   if (on !== wantTropical) {
     await evalJs(`(() => {
       const row = [...document.querySelectorAll('div')].find(d => d.textContent?.includes('Tropical Boutique UI') && d.querySelector('button[role="switch"]'));
       row?.querySelector('button[role="switch"]')?.click();
       return 'toggled';
-    })()`)
+    })()`, '/settings')
     await sleep(3500)
   }
   for (let i = 0; i < 20; i++) {
-    const state = await readThemeState()
+    const state = await readThemeState('/settings')
     const ok = wantTropical ? state.html === 'tropical' : state.html !== 'tropical'
     if (ok) return state
     await sleep(400)
@@ -152,37 +158,37 @@ async function ensureTheme(theme) {
   throw new Error(`theme ${theme} not applied`)
 }
 
-async function dismissToasts() {
+async function dismissToasts(urlHint) {
   await evalJs(`(() => {
     document.querySelectorAll('[data-sonner-toast] [data-close-button]').forEach(b => b.click());
     return document.querySelectorAll('[data-sonner-toast]').length;
-  })()`)
+  })()`, urlHint)
   await sleep(300)
 }
 
 async function captureInlineError(theme) {
-  await dismissToasts()
+  await dismissToasts('/collections')
   axi(['open', `${BASE}/collections`])
   await sleep(2000)
   await evalJs(`(() => {
     const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('New Collection'));
     btn?.click();
     return !!btn;
-  })()`)
+  })()`, '/collections')
   await sleep(800)
   await evalJs(`(() => {
     const create = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Create');
     create?.click();
     return !!create;
-  })()`)
+  })()`, '/collections')
   await sleep(600)
-  const state = await readThemeState()
-  await screenshot(join(DOCS, `notify-triage-inline-error-${theme}.png`))
+  const state = await readThemeState('/collections')
+  await screenshot(join(DOCS, `notify-triage-inline-error-${theme}.png`), '/collections')
   return { scenario: 'inline-error', theme, ...state }
 }
 
 async function captureSilentSuccess(theme) {
-  await dismissToasts()
+  await dismissToasts('/collections')
   axi(['open', `${BASE}/collections`])
   await sleep(2000)
   const stamp = Date.now()
@@ -190,7 +196,7 @@ async function captureSilentSuccess(theme) {
     const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('New Collection'));
     btn?.click();
     return !!btn;
-  })()`)
+  })()`, '/collections')
   await sleep(600)
   await evalJs(`(() => {
     const input = document.querySelector('input#name, input[placeholder*="Collection"], dialog input');
@@ -200,50 +206,60 @@ async function captureSilentSuccess(theme) {
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }
     return input?.value ?? null;
-  })()`)
+  })()`, '/collections')
   await sleep(400)
   await evalJs(`(() => {
     const create = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Create' && !b.disabled);
     create?.click();
     return !!create;
-  })()`)
+  })()`, '/collections')
   await sleep(2500)
-  const state = await readThemeState()
+  const state = await readThemeState('/collections')
   if (state.toastCount > 0) {
     throw new Error(`expected silent create in ${theme}, saw ${state.toastCount} toast(s)`)
   }
-  await screenshot(join(DOCS, `notify-triage-silent-success-${theme}.png`))
+  await screenshot(join(DOCS, `notify-triage-silent-success-${theme}.png`), '/collections')
   return { scenario: 'silent-success', theme, ...state }
 }
 
 async function captureSurvivingToast(theme) {
-  await dismissToasts()
+  await dismissToasts('/settings')
   axi(['open', `${BASE}/settings`])
-  await sleep(1500)
+  await sleep(2000)
   await evalJs(`(() => {
     const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('Export All Data'));
     btn?.scrollIntoView({ block: 'center' });
     btn?.click();
     return btn?.textContent ?? 'missing';
-  })()`)
-  for (let i = 0; i < 30; i++) {
-    const count = await evalJs(`document.querySelectorAll('[data-sonner-toast]').length`)
+  })()`, '/settings')
+  for (let i = 0; i < 40; i++) {
+    const count = await evalJs(`document.querySelectorAll('[data-sonner-toast]').length`, '/settings')
     if (count > 0) break
-    await sleep(300)
+    await sleep(500)
   }
   await sleep(700)
-  const state = await readThemeState()
+  const state = await readThemeState('/settings')
   if (state.toastCount === 0) throw new Error(`expected export toast in ${theme}`)
-  await screenshot(join(DOCS, `notify-triage-toast-survived-${theme}.png`))
+  await screenshot(join(DOCS, `notify-triage-toast-survived-${theme}.png`), '/settings')
   return { scenario: 'toast-survived', theme, ...state }
 }
 
 async function main() {
-  execSync('chrome-devtools-axi stop 2>/dev/null || true', { env, stdio: 'ignore' })
-  axi(['start'])
-  axi(['open', `${BASE}/library`])
+  // Attach to headless Chrome on :9222 (launched separately with --remote-debugging-port).
+  try {
+    axi(['pages'])
+  } catch {
+    throw new Error('Chrome not reachable on CHROME_DEVTOOLS_AXI_BROWSER_URL — launch headless Chrome first')
+  }
+  try {
+    axi(['open', `${BASE}/library`])
+  } catch {
+    axi(['newpage', `${BASE}/library`])
+  }
   axi(['resize', '1440', '900'])
   await installCookies()
+  axi(['open', `${BASE}/library`])
+  await sleep(1500)
 
   const log = []
   for (const theme of ['classic', 'tropical']) {

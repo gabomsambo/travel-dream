@@ -55,7 +55,7 @@ function statusPayload(counts: Counts, total: number, placesCreated: number) {
 /** Resume an active session on mount, then answer status polls. */
 function mockApis(payload: ReturnType<typeof statusPayload>) {
   ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
-    if (String(url).startsWith('/api/upload/sessions?limit=')) {
+    if (String(url).startsWith('/api/upload/sessions?status=active&hasUploads=true&limit=')) {
       return Promise.resolve({
         ok: true,
         json: async () => ({

@@ -60,11 +60,11 @@ describe('activity job persistence', () => {
     expect(active.phase).toBe('active')
     expect(complete.phase).toBe('complete')
 
-    const stored = persistableJobs([active, complete])
+    const stored = persistableJobs([active, complete], 'user_a')
     expect(stored).toHaveLength(1)
     expect(stored[0].id).toBe('ses_done')
 
-    const revived = parsePersistedJobs(JSON.stringify(stored))
+    const revived = parsePersistedJobs(JSON.stringify(stored), 'user_a')
     expect(revived).toHaveLength(1)
     expect(revived[0].id).toBe('ses_done')
     expect(revived[0].phase).toBe('complete')
@@ -73,8 +73,13 @@ describe('activity job persistence', () => {
   })
 
   it('ignores corrupt storage instead of throwing', () => {
-    expect(parsePersistedJobs('not-json')).toEqual([])
-    expect(parsePersistedJobs(JSON.stringify([{ id: 1 }]))).toEqual([])
+    expect(parsePersistedJobs('not-json', 'user_a')).toEqual([])
+    expect(parsePersistedJobs(JSON.stringify([{ id: 1 }]), 'user_a')).toEqual([])
+  })
+
+  it('does not revive another user\'s persisted jobs', () => {
+    const stored = persistableJobs([toActivityJob('ses_done', counts, 500, 118, null, true)], 'user_a')
+    expect(parsePersistedJobs(JSON.stringify(stored), 'user_b')).toEqual([])
   })
 
   it('uses a stable localStorage key', () => {

@@ -43,7 +43,7 @@ function mockNetwork(opts: {
   ;(global.fetch as jest.Mock).mockImplementation((input: RequestInfo, init?: RequestInit) => {
     const url = String(input)
     const method = init?.method || 'GET'
-    if (url.startsWith('/api/upload/sessions?limit=')) {
+    if (url.startsWith('/api/upload/sessions?status=active&hasUploads=true&limit=')) {
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -107,7 +107,7 @@ describe('ActivityProvider', () => {
     })
 
     render(
-      <ActivityProvider>
+      <ActivityProvider ownerUserId="user_a">
         <JobProbe />
         <ProcessingBanner />
       </ActivityProvider>
@@ -129,7 +129,7 @@ describe('ActivityProvider', () => {
     })
 
     const { unmount } = render(
-      <ActivityProvider>
+      <ActivityProvider ownerUserId="user_a">
         <JobProbe />
         <ProcessingBanner />
       </ActivityProvider>
@@ -154,7 +154,7 @@ describe('ActivityProvider', () => {
     mockedToast.mockClear()
 
     render(
-      <ActivityProvider>
+      <ActivityProvider ownerUserId="user_a">
         <JobProbe />
       </ActivityProvider>
     )
@@ -171,7 +171,7 @@ describe('ActivityProvider', () => {
     })
 
     render(
-      <ActivityProvider>
+      <ActivityProvider ownerUserId="user_a">
         <JobProbe />
       </ActivityProvider>
     )
@@ -188,11 +188,36 @@ describe('ActivityProvider', () => {
     expect(localStorage.getItem(ACTIVITY_JOBS_STORAGE_KEY)).toBe('[]')
   })
 
+  it('does not hydrate a completion persisted by another user', async () => {
+    const stored = [{
+      id: 'session_user-a',
+      ownerUserId: 'user_a',
+      kind: 'mass-upload',
+      counts: statusPayload({ completed: 10 }, 10, 3).counts,
+      total: 10,
+      placesCreated: 3,
+      announced: true,
+      updatedAt: new Date().toISOString(),
+    }]
+    localStorage.setItem(ACTIVITY_JOBS_STORAGE_KEY, JSON.stringify(stored))
+    mockNetwork({ sessions: [] })
+
+    render(
+      <ActivityProvider ownerUserId="user_b">
+        <JobProbe />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => expect(screen.getByTestId('connection')).toHaveTextContent('live'))
+    expect(screen.getByTestId('phases')).toHaveTextContent('')
+    expect(screen.getByTestId('summaries')).toHaveTextContent('')
+  })
+
   it('says so when polling fails instead of pretending numbers are current', async () => {
     mockNetwork({ statusOk: false })
 
     render(
-      <ActivityProvider>
+      <ActivityProvider ownerUserId="user_a">
         <JobProbe />
         <ActivityBell />
       </ActivityProvider>
@@ -212,7 +237,7 @@ describe('ActivityProvider', () => {
     })
 
     render(
-      <ActivityProvider>
+      <ActivityProvider ownerUserId="user_a">
         <ActivityBell />
       </ActivityProvider>
     )

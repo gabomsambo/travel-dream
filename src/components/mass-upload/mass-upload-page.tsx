@@ -64,7 +64,7 @@ export function MassUploadPage() {
     const init = async () => {
       try {
         // Check for an existing active processing session
-        const sessionsRes = await fetch('/api/upload/sessions?limit=5')
+        const sessionsRes = await fetch('/api/upload/sessions?status=active&hasUploads=true&limit=5')
         if (sessionsRes.ok) {
           const sessionsData = await sessionsRes.json()
           if (sessionsData.status === 'success' && sessionsData.sessions) {

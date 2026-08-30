@@ -31,8 +31,8 @@ const mockRequireAuth = requireAuthForApi as jest.MockedFunction<typeof requireA
 
 const CALLER = createMockUser({ id: 'user_caller' })
 
-function listRequest() {
-  return new Request('http://localhost/api/upload/sessions?limit=5') as never
+function listRequest(query = 'limit=5') {
+  return new Request(`http://localhost/api/upload/sessions?${query}`) as never
 }
 
 function getRequest(sessionId: string) {
@@ -61,6 +61,18 @@ describe('GET/PATCH /api/upload/sessions ownership', () => {
     expect(res.status).toBe(200)
     expect(listed.conditions.length).toBeGreaterThan(0)
     expect(whereMentions(listed.conditions[0], CALLER.id)).toBe(true)
+  })
+
+  it('filters active sessions with uploads before applying the limit', async () => {
+    const olderEligibleSession = createMockSession({ id: 'session_older', userId: CALLER.id })
+    const listed = mockSelect([olderEligibleSession])
+    mockDb.select.mockReturnValueOnce(listed.chain)
+
+    const res = await GET(listRequest('status=active&hasUploads=true&limit=5'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ sessions: [{ id: 'session_older' }] })
+    expect(whereMentions(listed.conditions[0], CALLER.id)).toBe(true)
+    expect(whereMentions(listed.conditions[0], 'active')).toBe(true)
   })
 
   it('returns 404 when a session id does not exist', async () => {

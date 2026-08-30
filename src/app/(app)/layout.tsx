@@ -13,7 +13,7 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode
 }) {
-  await requireAuth()
+  const user = await requireAuth()
 
   // Resolved on the server so the first painted frame is already the right
   // theme. This layout is dynamic anyway (requireAuth reads the session), so
@@ -36,7 +36,7 @@ export default async function AppLayout({
         classic background for the first frame, until the provider mirrors the
         attribute onto <html>. In the steady state both resolve identically.
       */}
-      <ActivityProvider>
+      <ActivityProvider ownerUserId={user.id}>
         <div
           data-theme={uiTheme === 'tropical' ? 'tropical' : undefined}
           className="flex h-screen overflow-hidden bg-background text-foreground"

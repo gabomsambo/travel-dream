@@ -98,7 +98,7 @@ function markSessionCompleted(sessionId: string): void {
   }).catch(() => {})
 }
 
-export function ActivityProvider({ children }: { children: ReactNode }) {
+export function ActivityProvider({ children, ownerUserId }: { children: ReactNode; ownerUserId: string }) {
   const [jobs, setJobs] = useState<ActivityJob[]>([])
   const [connectionState, setConnectionState] = useState<ActivityConnectionState>('idle')
   const jobsRef = useRef<ActivityJob[]>([])
@@ -111,8 +111,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const commitJobs = useCallback((next: ActivityJob[]) => {
     jobsRef.current = next
     setJobs(next)
-    writePersistedJobs(next)
-  }, [])
+    writePersistedJobs(next, ownerUserId)
+  }, [ownerUserId])
 
   const acknowledge = useCallback((sessionId: string) => {
     sessionIdsRef.current.delete(sessionId)
@@ -163,7 +163,12 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   }, [commitJobs])
 
   useEffect(() => {
-    const persisted = readPersistedJobs()
+    jobsRef.current = []
+    sessionIdsRef.current.clear()
+    etaRef.current.clear()
+    announcedRef.current.clear()
+    setJobs([])
+    const persisted = readPersistedJobs(ownerUserId)
     if (persisted.length > 0) {
       for (const job of persisted) {
         if (job.announced) announcedRef.current.add(job.id)
@@ -175,7 +180,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     let stopped = false
 
     const discover = async () => {
-      const res = await fetch(`/api/upload/sessions?limit=${DISCOVER_LIMIT}`)
+      const res = await fetch(`/api/upload/sessions?status=active&hasUploads=true&limit=${DISCOVER_LIMIT}`)
       if (res.status === 401 || res.status === 403) {
         sessionIdsRef.current.clear()
         throw new Error('Authentication required')
@@ -223,7 +228,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       stopped = true
       clearInterval(interval)
     }
-  }, [applyPayload])
+  }, [applyPayload, ownerUserId])
 
   return (
     <ActivityJobsContext.Provider value={{ jobs, connectionState, observeSession, acknowledge }}>

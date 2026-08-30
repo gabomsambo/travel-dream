@@ -3,7 +3,7 @@ import { withErrorHandling } from '@/lib/db-utils';
 import { db } from '@/db';
 import { uploadSessions, sources } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 import { del } from '@vercel/blob';
@@ -85,6 +85,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
     const limit = parseInt(searchParams.get('limit') || '10');
+    const status = searchParams.get('status');
+    const hasUploads = searchParams.get('hasUploads') === 'true';
     const includeDetails = searchParams.get('details') === 'true';
 
     if (sessionId) {
@@ -154,9 +156,14 @@ export async function GET(request: NextRequest) {
     } else {
       // List recent sessions for this user only — the activity bell discovers
       // work from this list, so it must never include another tenant's rows.
+      const listConditions = [eq(uploadSessions.userId, user.id)];
+      if (status === 'active') listConditions.push(eq(uploadSessions.status, 'active'));
+      if (hasUploads) {
+        listConditions.push(sql`json_array_length(json_extract(${uploadSessions.meta}, '$.uploadedFiles')) > 0`);
+      }
       const sessions = await db.select()
         .from(uploadSessions)
-        .where(eq(uploadSessions.userId, user.id))
+        .where(and(...listConditions))
         .orderBy(desc(uploadSessions.startedAt))
         .limit(limit);
 

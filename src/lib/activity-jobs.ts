@@ -26,6 +26,7 @@ export interface ActivityJob {
 
 export interface PersistedActivityJob {
   id: string
+  ownerUserId: string
   kind: ActivityJobKind
   counts: MassUploadStatusCounts
   total: number
@@ -104,11 +105,12 @@ export function toActivityJob(
   }
 }
 
-export function persistableJobs(jobs: ActivityJob[]): PersistedActivityJob[] {
+export function persistableJobs(jobs: ActivityJob[], ownerUserId: string): PersistedActivityJob[] {
   return jobs
     .filter(job => job.phase === 'complete')
     .map(job => ({
       id: job.id,
+      ownerUserId,
       kind: job.kind,
       counts: job.counts,
       total: job.total,
@@ -121,15 +123,15 @@ export function persistableJobs(jobs: ActivityJob[]): PersistedActivityJob[] {
 function isPersistedJob(value: unknown): value is PersistedActivityJob {
   if (!value || typeof value !== 'object') return false
   const row = value as Partial<PersistedActivityJob>
-  return typeof row.id === 'string' && row.kind === 'mass-upload' && typeof row.total === 'number'
+  return typeof row.id === 'string' && typeof row.ownerUserId === 'string' && row.kind === 'mass-upload' && typeof row.total === 'number'
 }
 
-export function parsePersistedJobs(raw: string | null): ActivityJob[] {
+export function parsePersistedJobs(raw: string | null, ownerUserId: string): ActivityJob[] {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw) as unknown
     const rows = Array.isArray(parsed) ? parsed : []
-    return rows.filter(isPersistedJob).map(row =>
+    return rows.filter(isPersistedJob).filter(row => row.ownerUserId === ownerUserId).map(row =>
       toActivityJob(
         row.id,
         normalizeCounts(row.counts),
@@ -145,21 +147,21 @@ export function parsePersistedJobs(raw: string | null): ActivityJob[] {
   }
 }
 
-export function readPersistedJobs(): ActivityJob[] {
+export function readPersistedJobs(ownerUserId: string): ActivityJob[] {
   if (typeof window === 'undefined') return []
   try {
-    return parsePersistedJobs(window.localStorage.getItem(ACTIVITY_JOBS_STORAGE_KEY))
+    return parsePersistedJobs(window.localStorage.getItem(ACTIVITY_JOBS_STORAGE_KEY), ownerUserId)
   } catch {
     return []
   }
 }
 
-export function writePersistedJobs(jobs: ActivityJob[]): void {
+export function writePersistedJobs(jobs: ActivityJob[], ownerUserId: string): void {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(
       ACTIVITY_JOBS_STORAGE_KEY,
-      JSON.stringify(persistableJobs(jobs))
+      JSON.stringify(persistableJobs(jobs, ownerUserId))
     )
   } catch {
     // Private mode / quota — in-memory state still works for this session.

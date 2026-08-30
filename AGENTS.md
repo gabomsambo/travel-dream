@@ -192,13 +192,13 @@ well as the `@/db` spelling. `next build` fails on it, so CI catches it. Use `fo
 `src/lib/tenant-db.ts`, or a `userId`-taking function from `db-queries` / `db-mutations`.
 
 `forUser()` pins every query it builds to one user before the caller sees a builder: `select` /
-`update` / `deleteFrom` / `insert` for tables with their own `user_id`, the `…Via` variants for the
-transitively-owned ones, `findOwned(table, id)` when a handler needs to keep answering 404 and 403
-differently, and `transaction` for a `tx` scoped to the same user. `findOwned` takes a primary key
-rather than a predicate on purpose: its existence probe is the module's one unscoped query, and an
-arbitrary predicate there would turn a single-row 404-vs-403 signal into a cross-tenant existence
-oracle. Extra predicates are always AND-ed, so a caller
-can narrow the scope but never widen it.
+`selectFields` / `update` / `deleteFrom` / `insert` for tables with their own `user_id`, the `…Via`
+variants for the transitively-owned ones, `findOwned(table, id)` when a handler needs to keep
+answering 404 and 403 differently, and `transaction` for a `tx` scoped to the same user. `findOwned`
+takes a primary key rather than a predicate on purpose: its existence probe is the module's one
+unscoped query, and an arbitrary predicate there would turn a single-row 404-vs-403 signal into a
+cross-tenant existence oracle. Extra predicates are always AND-ed, so a caller can narrow the scope
+but never widen it.
 
 Not every route is migrated. The unmigrated ones carry a per-file
 `eslint-disable-next-line no-restricted-imports` above a `TODO(tenant-db)` saying what makes them

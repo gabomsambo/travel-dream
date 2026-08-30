@@ -9,12 +9,12 @@ jest.unmock('sonner')
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from 'next-themes'
-import Link from 'next/link'
-import { useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { AppToaster } from '@/components/app-toaster'
 
 const mockPush = jest.fn()
+let mockPathname = '/library'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -26,22 +26,7 @@ jest.mock('next/navigation', () => ({
     refresh: jest.fn(),
   }),
   useSearchParams: () => new URLSearchParams(),
-  usePathname: () => '/library',
-}))
-
-jest.mock('next/link', () => ({
-  __esModule: true,
-  default: ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a
-      href={href}
-      onClick={(event) => {
-        event.preventDefault()
-        mockPush(href)
-      }}
-    >
-      {children}
-    </a>
-  ),
+  usePathname: () => mockPathname,
 }))
 
 function AppShell({ children }: { children?: React.ReactNode }) {
@@ -61,6 +46,7 @@ function countToasters() {
 
 beforeEach(() => {
   mockPush.mockClear()
+  mockPathname = '/library'
   toast.dismiss()
 })
 
@@ -113,27 +99,29 @@ describe('AppToaster', () => {
   it('keeps a single toaster mounted across client navigation', async () => {
     const user = userEvent.setup()
 
-    function NavigationHarness() {
-      const [pathname, setPathname] = useState('/library')
-      mockPush.mockImplementation(setPathname)
+    function LibraryPage() {
+      return <div>Library page</div>
+    }
 
+    function InboxPage() {
       return (
-        <AppShell>
-          {pathname === '/library' ? (
-            <Link href="/inbox">Go to inbox</Link>
-          ) : (
-            <button type="button" onClick={() => toast.success('inbox toast')}>
-              fire on inbox
-            </button>
-          )}
-        </AppShell>
+        <button type="button" onClick={() => toast.success('inbox toast')}>
+          fire on inbox
+        </button>
       )
     }
 
-    render(<NavigationHarness />)
+    function AppLayoutHarness() {
+      const pathname = usePathname()
+      return <AppShell>{pathname === '/library' ? <LibraryPage /> : <InboxPage />}</AppShell>
+    }
 
-    await user.click(screen.getByRole('link', { name: 'Go to inbox' }))
-    expect(mockPush).toHaveBeenCalledWith('/inbox')
+    const { rerender } = render(<AppLayoutHarness />)
+    expect(screen.getByText('Library page')).toBeVisible()
+    expect(countToasters()).toBe(1)
+
+    mockPathname = '/inbox'
+    rerender(<AppLayoutHarness />)
     expect(await screen.findByRole('button', { name: 'fire on inbox' })).toBeVisible()
     expect(countToasters()).toBe(1)
 

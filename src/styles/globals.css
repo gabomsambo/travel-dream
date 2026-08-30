@@ -135,6 +135,8 @@
  */
 @layer components {
   .toaster [data-sonner-toast] {
+    position: absolute !important;
+    right: 0 !important;
     width: auto !important;
     max-width: min(18rem, calc(100vw - 1.5rem)) !important;
     margin-left: auto !important;

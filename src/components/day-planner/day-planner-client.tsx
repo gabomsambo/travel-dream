@@ -56,6 +56,7 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
   const [showAutoCreate, setShowAutoCreate] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const saveGenerationRef = useRef(0)
   const [isPending, startTransition] = useTransition()
   const [isAltKeyPressed, setIsAltKeyPressed] = useState(false)
 
@@ -93,6 +94,7 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
 
   useEffect(() => {
     const timer = setTimeout(async () => {
+      const generation = ++saveGenerationRef.current
       setIsSaving(true)
       setSaveError(null)
       console.log('[DayPlannerClient] Days count:', days.length)
@@ -110,6 +112,8 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
         const result = await response.json()
         console.log('[DayPlannerClient] Save response:', result)
 
+        if (generation !== saveGenerationRef.current) return
+
         if (!response.ok) {
           console.error('[DayPlannerClient] Save failed:', result)
           setSaveError('Failed to save changes — retry by editing again')
@@ -119,9 +123,13 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
         }
       } catch (error) {
         console.error('[DayPlannerClient] Error saving day buckets:', error)
+
+        if (generation !== saveGenerationRef.current) return
+
         setSaveError('Failed to save changes — retry by editing again')
+      } finally {
+        if (generation === saveGenerationRef.current) setIsSaving(false)
       }
-      setIsSaving(false)
     }, 1000)
 
     return () => clearTimeout(timer)

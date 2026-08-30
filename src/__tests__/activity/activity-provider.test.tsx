@@ -4,7 +4,7 @@ import { ActivityProvider, useActivityJobs } from '@/components/activity/activit
 import { ActivityBell } from '@/components/activity/activity-bell'
 import { ProcessingBanner } from '@/components/mass-upload/processing-banner'
 import { toastWithNavigate } from '@/lib/toast-navigate'
-import { ACTIVITY_JOBS_STORAGE_KEY } from '@/lib/activity-jobs'
+import { activityJobsStorageKey } from '@/lib/activity-jobs'
 
 jest.mock('@/lib/toast-navigate', () => ({
   toastWithNavigate: jest.fn(),
@@ -148,7 +148,7 @@ describe('ActivityProvider', () => {
       '/mass-upload',
       { type: 'warning', actionLabel: 'Review upload' }
     )
-    expect(localStorage.getItem(ACTIVITY_JOBS_STORAGE_KEY)).toContain('session_bell-1')
+    expect(localStorage.getItem(activityJobsStorageKey('user_a'))).toContain('session_bell-1')
 
     unmount()
     mockedToast.mockClear()
@@ -185,7 +185,7 @@ describe('ActivityProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('phases')).toHaveTextContent('')
     })
-    expect(localStorage.getItem(ACTIVITY_JOBS_STORAGE_KEY)).toBe('[]')
+    expect(localStorage.getItem(activityJobsStorageKey('user_a'))).toBe('[]')
   })
 
   it('does not hydrate a completion persisted by another user', async () => {
@@ -199,7 +199,7 @@ describe('ActivityProvider', () => {
       announced: true,
       updatedAt: new Date().toISOString(),
     }]
-    localStorage.setItem(ACTIVITY_JOBS_STORAGE_KEY, JSON.stringify(stored))
+    localStorage.setItem(activityJobsStorageKey('user_a'), JSON.stringify(stored))
     mockNetwork({ sessions: [] })
 
     render(

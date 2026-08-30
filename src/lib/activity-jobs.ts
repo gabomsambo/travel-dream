@@ -6,6 +6,10 @@ import {
 
 export const ACTIVITY_JOBS_STORAGE_KEY = 'td:activity-jobs:v1'
 
+export function activityJobsStorageKey(ownerUserId: string): string {
+  return `${ACTIVITY_JOBS_STORAGE_KEY}:${ownerUserId}`
+}
+
 export type ActivityJobKind = 'mass-upload'
 export type ActivityJobPhase = 'active' | 'complete'
 export type ActivityConnectionState = 'idle' | 'live' | 'paused'
@@ -150,7 +154,10 @@ export function parsePersistedJobs(raw: string | null, ownerUserId: string): Act
 export function readPersistedJobs(ownerUserId: string): ActivityJob[] {
   if (typeof window === 'undefined') return []
   try {
-    return parsePersistedJobs(window.localStorage.getItem(ACTIVITY_JOBS_STORAGE_KEY), ownerUserId)
+    return parsePersistedJobs(
+      window.localStorage.getItem(activityJobsStorageKey(ownerUserId)),
+      ownerUserId
+    )
   } catch {
     return []
   }
@@ -160,7 +167,7 @@ export function writePersistedJobs(jobs: ActivityJob[], ownerUserId: string): vo
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(
-      ACTIVITY_JOBS_STORAGE_KEY,
+      activityJobsStorageKey(ownerUserId),
       JSON.stringify(persistableJobs(jobs, ownerUserId))
     )
   } catch {

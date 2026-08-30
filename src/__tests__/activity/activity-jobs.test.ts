@@ -1,10 +1,13 @@
 import {
   ACTIVITY_JOBS_STORAGE_KEY,
+  activityJobsStorageKey,
   formatActiveSummary,
   formatCompleteSummary,
   parsePersistedJobs,
   persistableJobs,
+  readPersistedJobs,
   toActivityJob,
+  writePersistedJobs,
 } from '@/lib/activity-jobs'
 import { emptyMassUploadCounts } from '@/lib/mass-upload/status-view'
 
@@ -84,5 +87,19 @@ describe('activity job persistence', () => {
 
   it('uses a stable localStorage key', () => {
     expect(ACTIVITY_JOBS_STORAGE_KEY).toBe('td:activity-jobs:v1')
+    expect(activityJobsStorageKey('user_a')).toBe('td:activity-jobs:v1:user_a')
+  })
+
+  it('keeps each user\'s persisted jobs in an independent namespace', () => {
+    window.localStorage.clear()
+    const userAJob = toActivityJob('ses_a', counts, 500, 118, null, true)
+    const userBJob = toActivityJob('ses_b', counts, 500, 118, null, true)
+
+    writePersistedJobs([userAJob], 'user_a')
+    writePersistedJobs([userBJob], 'user_b')
+
+    expect(readPersistedJobs('user_a').map(job => job.id)).toEqual(['ses_a'])
+    expect(readPersistedJobs('user_b').map(job => job.id)).toEqual(['ses_b'])
+    expect(window.localStorage.getItem(activityJobsStorageKey('user_a'))).toContain('ses_a')
   })
 })

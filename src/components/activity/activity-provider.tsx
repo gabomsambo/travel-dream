@@ -223,7 +223,13 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
       }
       applyPayload(sessionId, data)
     }
-    pollOneRef.current = pollSession
+    pollOneRef.current = async (sessionId: string) => {
+      try {
+        await pollSession(sessionId)
+      } catch {
+        if (!stopped) setConnectionState('paused')
+      }
+    }
 
     const tick = async () => {
       try {

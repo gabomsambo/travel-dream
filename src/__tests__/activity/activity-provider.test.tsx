@@ -339,6 +339,34 @@ describe('ActivityProvider', () => {
     expect(await screen.findByText(/Updates paused — retrying/)).toBeInTheDocument()
   })
 
+  it('marks updates paused when an explicitly observed poll fails', async () => {
+    ;(global.fetch as jest.Mock).mockImplementation((input: RequestInfo) => {
+      const url = String(input)
+      if (url.startsWith('/api/upload/sessions?')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'success', sessions: [] }),
+        })
+      }
+      if (url.startsWith('/api/mass-upload/status')) {
+        return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+
+    render(
+      <ActivityProvider ownerUserId="user_a">
+        <JobProbe />
+      </ActivityProvider>
+    )
+    await waitFor(() => expect(screen.getByTestId('connection')).toHaveTextContent('live'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'observe' }))
+
+    await waitFor(() => expect(screen.getByTestId('connection')).toHaveTextContent('paused'))
+  })
+
   it('shows a bell indicator while work is active and lists it in the popover', async () => {
     mockNetwork({
       status: statusPayload({ queued: 300, completed: 183, extracting: 17 }, 500, 42),

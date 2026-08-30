@@ -45,10 +45,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'success', queued: 0, timestamp: new Date().toISOString() });
     }
 
-    // Flip all 'uploaded' sources in this session to 'queued'.
-    // Owning the session is NOT owning the rows it names: `meta.uploadedFiles`
-    // is rebuilt from source metadata by mass-upload/register, so the update
-    // re-scopes to the caller rather than trusting the id list.
+    // Flip all 'uploaded' sources in this session to 'queued'
     const updated = await db.update(sourcesCurrentSchema)
       .set({
         processingStatus: 'queued',

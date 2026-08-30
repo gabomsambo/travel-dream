@@ -147,11 +147,7 @@ export async function GET(request: NextRequest) {
           sessionMeta = {};
         }
 
-        // Get associated sources using compatible schema.
-        // Owning the session is NOT owning the rows it names: this id list is
-        // rebuilt from source metadata by mass-upload/register, so each source
-        // is fetched scoped to the caller. A foreign id resolves to nothing
-        // rather than returning that source's uri and ocrText.
+        // Get associated sources using compatible schema
         const uploadedFiles = uploadedFileIds(sessionMeta);
         if (uploadedFiles.length > 0) {
           try {

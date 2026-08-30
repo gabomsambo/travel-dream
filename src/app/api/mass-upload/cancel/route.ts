@@ -40,10 +40,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
 
-    // Owning the session is NOT owning the rows it names. `meta.uploadedFiles`
-    // is rebuilt from source metadata by mass-upload/register, so it is not an
-    // authorization boundary. Every query below therefore re-scopes to the
-    // caller rather than trusting the id list.
     const sourceIds = session.meta?.uploadedFiles || [];
     if (sourceIds.length === 0) {
       return NextResponse.json({ status: 'success', cancelled: 0, alreadyProcessing: 0 });

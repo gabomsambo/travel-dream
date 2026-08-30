@@ -9,18 +9,26 @@
  * branch of `GET /api/upload/sessions` all read source ids out of
  * `upload_sessions.meta.uploadedFiles` and then queried or mutated by those ids
  * with no owner predicate. Checking that the caller owned the *session* was
- * standing in for checking that they owned the *sources* — and the list is
- * caller-controllable by two independent routes:
+ * standing in for checking that they owned the *sources*. Worst case was
+ * destructive: cancel flipped another user's sources to `cancelled` and called
+ * `del()` on their uploaded blobs.
  *
- *   Path A — `PATCH /api/upload/sessions` on your OWN session. Legitimate; the
- *            violation is downstream.
- *   Path B — a source row survives its session row (DELETE without
+ * Two things could put a foreign id in that list:
+ *
+ *   Path A — `PATCH /api/upload/sessions` on your OWN session, writing the ids
+ *            directly. Closed at the source: both `POST` and `PATCH` now strip
+ *            `uploadedFiles` from caller-supplied metadata. Asserted below, so
+ *            that stripping cannot be quietly dropped again.
+ *   Path B — a source row survives its session row (`DELETE` without
  *            `cleanup=true`), another caller claims the dangling id through
  *            `POST /api/upload/blob-complete`, and `mass-upload/register`
  *            rebuilds the list from a `json_extract` sweep over all users.
  *
- * Worst case was destructive: cancel flipped another user's sources to
- * `cancelled` and called `del()` on their uploaded blobs.
+ * The consumer-side tests seed the poisoned list directly rather than through a
+ * route, because they are asserting the second line of defence: whatever put a
+ * foreign id in the list, the route acting on it must still refuse. That is the
+ * whole point of scoping at the row — a producer fixed today is not a guarantee
+ * about the producer added tomorrow.
  *
  * Every assertion runs the real handler against a real seeded database — mocks
  * of the Drizzle chain assert the shape of a WHERE clause, which is exactly the
@@ -91,15 +99,23 @@ describe('Path A — a foreign source id planted in the caller\'s own session', 
     await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource]);
   });
 
-  it('PATCH on your own session is still allowed (this is not the defect)', async () => {
+  it('PATCH cannot plant a foreign source id in the list', async () => {
+    // Updating your own session is legitimate and still succeeds; what it may
+    // not do is set `uploadedFiles`, which the handler strips from metadata.
+    await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.aliceSource]);
+
     const { PATCH } = require('@/app/api/upload/sessions/route');
     const res = await PATCH(
       apiRequest(`http://t/api/upload/sessions?sessionId=${FIXTURE.aliceSession}`, 'PATCH', {
-        metadata: { uploadedFiles: [FIXTURE.bobSource], errors: [] },
+        metadata: { uploadedFiles: [FIXTURE.bobSource], label: 'renamed' },
       })
     );
+
     expect(res.status).toBe(200);
-    expect(await sessionMeta(FIXTURE.aliceSession)).toContain(FIXTURE.bobSource);
+    const meta = await sessionMeta(FIXTURE.aliceSession);
+    expect(meta).not.toContain(FIXTURE.bobSource);
+    expect(meta).toContain(FIXTURE.aliceSource);
+    expect(meta).toContain('renamed');
   });
 
   it('mass-upload/status reports nothing about the foreign source', async () => {

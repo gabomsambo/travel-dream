@@ -8,8 +8,28 @@
 #
 # This list is an AVAILABILITY fallback resolved once at run startup, not
 # quota-aware routing. Firstmate's config/crew-dispatch.json handles quota
-# balancing for crewmates; it does not reach this step.
-agent: [codex, claude]
+# balancing for crewmates; it does not reach this step. The FIRST available
+# entry becomes the primary agent for the whole run, so order is the only
+# dial here.
+#
+# opencode leads as of 2026-09-05. It runs on OpenCode's free tier with no
+# credential at all (verified: `opencode run` answers on the free big-pickle
+# model, exit 0), so every run it takes is Claude and Codex quota preserved.
+#
+# Two known weaknesses, accepted deliberately -- codex sits directly behind it
+# and claude behind that, so the gate never fails for want of a runnable agent:
+#
+#   1. Structured output. codex has native structured-output parsing; opencode
+#      goes through no-mistakes' "prompt-only structured output fallback",
+#      which validates JSON out of the final assistant text. That is the
+#      weaker path for the review step's findings, and review is where 42 of
+#      46 lifetime fixes on these repos came from.
+#   2. No session reuse. `session_reuse` is supported for claude and codex
+#      only; other agents run cold, so opencode re-reads context on every
+#      review round rather than keeping a durable session.
+#
+# To revert to the previous behaviour, delete `opencode,` from the list.
+agent: [opencode, codex, claude]
 
 # no-mistakes gate configuration for travel-dream.
 #

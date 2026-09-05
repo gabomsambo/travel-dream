@@ -11,8 +11,6 @@ services:
       - /app/node_modules
       # Exclude .next to prevent build conflicts
       - /app/.next
-      # Persistent uploads storage with all subdirectories
-      - uploads_data:/app/public/uploads
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=true
@@ -47,7 +45,6 @@ services:
       - travel-dreams-network
 
 volumes:
-  uploads_data:
   redis_data:
   sqlite_data:
 

@@ -8,6 +8,22 @@
 
 ## Quick Start
 
+### 0. Initial Setup (first time)
+
+```bash
+npm run docker:setup
+```
+
+This script (`scripts/docker-dev.sh`) will:
+
+- Create `.env.local` from `.env.docker` if it is missing
+- Build Docker images
+- Start all services
+- Install dependencies in the container
+- Initialize the database (`db:push` for local SQLite, `db:migrate` for Turso)
+
+If `.env.local` already exists, skip this and start from the next step.
+
 ### 1. Configure Environment Variables
 
 Copy the Docker environment template:
@@ -96,6 +112,9 @@ docker-compose exec travel-dreams npm run db:studio
 ## Common Commands
 
 ```bash
+# Complete first-time setup (env template, build, start, db)
+npm run docker:setup
+
 # Start services
 npm run docker:dev
 
@@ -146,6 +165,14 @@ If you get Sharp errors:
 docker-compose up --build
 ```
 
+### Rebuilding from Scratch
+
+```bash
+npm run docker:down
+docker-compose build --no-cache
+npm run docker:dev
+```
+
 ### Database Connection Issues
 
 **For Turso:**
@@ -156,6 +183,7 @@ docker-compose up --build
 - Set `TURSO_DATABASE_URL=file:./local.db`
 - Leave `TURSO_AUTH_TOKEN` empty
 - The database file will be created automatically
+- Reset from inside the container with `npm run docker:shell` then `npm run db:push`
 
 ### Redis Connection Issues
 
@@ -222,9 +250,9 @@ CMD ["node", "server.js"]
 
 ## Volumes and Data Persistence
 
-### uploads_data
-Mounted at `/app/public/uploads`, but no longer written to: uploads live in
-Vercel Blob. Only pre-Blob leftovers remain here.
+Uploads are not stored in a Docker volume. They go to Vercel Blob, so the
+container needs `BLOB_READ_WRITE_TOKEN` in `.env.local`. Do not mount or
+write under `public/uploads`.
 
 ### redis_data
 Redis cache and rate limiting data
@@ -250,7 +278,6 @@ docker cp $(docker-compose ps -q travel-dreams):/app/local.db ./database-backup.
 │  │ :3000          │  └──────────┘  └────────────┘  │
 │  └────────────────┘                                 │
 │         │                                            │
-│         ├─ public/uploads (volume: uploads_data)    │
 │         ├─ .next (excluded from volume)             │
 │         └─ node_modules (excluded from volume)      │
 └─────────────────────────────────────────────────────┘

@@ -15,5 +15,6 @@ Live captures from headless Chrome (`chrome-devtools-axi`, CDP `:9333`) against 
 `/explore/atlas/japan/tokyo`, confirming the full-screen deck loads with the scoped title and
 back link to the atlas page.
 
-**Covered by unit tests:** `shufflePool` country-only and country+city slug filtering in
+**Covered by unit tests:** `shufflePool` country-only and country+city scoping, which reuses the
+atlas `groupByCity` grouping so cityless saves land in the same city deck the atlas shows, in
 `src/__tests__/explore/shuffle.test.ts`.

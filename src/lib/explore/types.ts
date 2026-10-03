@@ -77,6 +77,9 @@ export interface Rail {
 export interface TripNudge {
   city: string;
   country: string;
+  /** The atlas slugs for this city, stable across spellings; also the dismissal key. */
+  citySlug: string;
+  countrySlug: string;
   placeIds: string[];
   photos: string[];
   /** Broad kinds of place saved there ("Eat & drink", "Outdoors"), most common first. */

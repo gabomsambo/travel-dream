@@ -50,13 +50,25 @@ export function groupBySlug(places: ExplorePlace[], nameOf: (p: ExplorePlace) =>
   }));
 }
 
+/**
+ * The one grouping rule every Explore surface shares: by country slug, then by
+ * city slug, with a place that has no city filed under its country's name.
+ * Places without a country are left out.
+ */
+export function groupByCity(places: ExplorePlace[]) {
+  const located = places.filter((p) => p.country?.trim());
+  return groupBySlug(located, (p) => p.country!.trim()).map((country) => ({
+    ...country,
+    cities: groupBySlug(country.places, (p) => p.city?.trim() || p.country!.trim()),
+  }));
+}
+
 /** Countries -> cities, both ordered by how much the user has saved there. */
 export function buildAtlas(places: ExplorePlace[]): CountryGroup[] {
   // Old rows without a country live in "Somewhere" (see atlas page).
-  const located = places.filter((p) => p.country?.trim());
   const countries: CountryGroup[] = [];
-  for (const { slug, name: country, places: list } of groupBySlug(located, (p) => p.country!.trim())) {
-    const cities: CityGroup[] = groupBySlug(list, (p) => p.city?.trim() || p.country!.trim()).map((c) => ({
+  for (const { slug, name: country, places: list, cities: byCity } of groupByCity(places)) {
+    const cities: CityGroup[] = byCity.map((c) => ({
       city: c.name,
       country,
       slug: c.slug,

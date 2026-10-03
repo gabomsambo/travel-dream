@@ -1,4 +1,4 @@
-import { groupBySlug } from './atlas';
+import { groupByCity } from './atlas';
 import { sectionOf } from './sections';
 import type { ExploreCollection, ExplorePlace, TripNudge } from './types';
 
@@ -10,9 +10,8 @@ export function buildTripNudges(
   collections: ExploreCollection[],
   threshold = TRIP_THRESHOLD
 ): TripNudge[] {
-  const eligible = places.filter((p) => p.city?.trim() && p.country?.trim() && p.visitStatus !== 'visited');
-  const byCity = groupBySlug(eligible, (p) => p.country!.trim()).flatMap((country) =>
-    groupBySlug(country.places, (p) => p.city!.trim()).map((city) => ({ country: country.name, city: city.name, list: city.places }))
+  const byCity = groupByCity(places.filter((p) => p.visitStatus !== 'visited')).flatMap((country) =>
+    country.cities.map((city) => ({ country, city, list: city.places }))
   );
 
   const nudges: TripNudge[] = [];
@@ -32,8 +31,10 @@ export function buildTripNudges(
       kindCounts.set(title, (kindCounts.get(title) ?? 0) + 1);
     }
     nudges.push({
-      city,
-      country,
+      city: city.name,
+      country: country.name,
+      citySlug: city.slug,
+      countrySlug: country.slug,
       placeIds: sorted.map((p) => p.id),
       photos: sorted.filter((p) => p.photos.length).slice(0, 3).map((p) => p.photos[0].thumb),
       kinds: [...kindCounts].sort((a, b) => b[1] - a[1]).map(([title]) => title),

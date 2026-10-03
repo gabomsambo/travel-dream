@@ -9,7 +9,6 @@ import { editorialFont } from './fonts';
 import { SaveCollectionDialog } from './save-collection-dialog';
 import type { TripNudge } from '@/lib/explore/types';
 import { useExplore } from './explore-provider';
-import { slugify } from '@/lib/explore/geo';
 
 const DISMISS_KEY = 'td:explore:dismissed-trips:v1';
 
@@ -42,7 +41,7 @@ export function TripNudgeCard({
   dismissible?: boolean;
 }) {
   const { collections, addToTrip, busy } = useExplore();
-  const key = `${nudge.country}/${nudge.city}`;
+  const key = `${nudge.countrySlug}/${nudge.citySlug}`;
   const [checked, setChecked] = React.useState<{ key: string; hidden: boolean } | null>(null);
   React.useEffect(() => setChecked({ key, hidden: dismissible && readDismissed().includes(key) }), [dismissible, key]);
   if (dismissible && (checked?.key !== key || checked.hidden)) return null;
@@ -50,7 +49,7 @@ export function TripNudgeCard({
   const existing = nudge.existingCollection;
   const already = existing ? (collections.find((c) => c.id === existing.id)?.placeIds ?? []) : [];
   const missing = nudge.placeIds.filter((id) => !already.includes(id));
-  const cityHref = `/explore/atlas/${slugify(nudge.country)}/${slugify(nudge.city)}`;
+  const cityHref = `/explore/atlas/${nudge.countrySlug}/${nudge.citySlug}`;
 
   const dismiss = () => {
     try {

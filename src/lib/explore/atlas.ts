@@ -65,7 +65,7 @@ export function groupByCity(places: ExplorePlace[]) {
 
 /** Countries -> cities, both ordered by how much the user has saved there. */
 export function buildAtlas(places: ExplorePlace[]): CountryGroup[] {
-  // Old rows without a country live in "Somewhere" (see atlas page).
+  // Rows without a country are left out; the atlas page points to them in the Library.
   const countries: CountryGroup[] = [];
   for (const { slug, name: country, places: list, cities: byCity } of groupByCity(places)) {
     const cities: CityGroup[] = byCity.map((c) => ({

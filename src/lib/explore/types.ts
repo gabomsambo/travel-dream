@@ -1,5 +1,27 @@
 import type { BestTime } from './best-time';
 
+/**
+ * One city the user has saved in: the places, the slug for `/explore/atlas/[country]/[city]`,
+ * and a chosen cover for the tiles.
+ */
+export interface CityGroup {
+  city: string;
+  country: string;
+  slug: string;
+  places: ExplorePlace[];
+  cover: string | null;
+}
+
+/** One country: cities, places, and the cover that opens the country page. */
+export interface CountryGroup {
+  country: string;
+  slug: string;
+  flag: string;
+  places: ExplorePlace[];
+  cities: CityGroup[];
+  cover: string | null;
+}
+
 /** The narrow projection Explore renders. Built server-side from a scoped query. */
 export interface ExplorePlace {
   id: string;
@@ -34,7 +56,7 @@ export interface ExplorePhoto {
   uri: string;
 }
 
-export type RailShape = 'poster' | 'landscape';
+export type RailShape = 'poster' | 'landscape' | 'hero';
 
 /** The "Browse all" shelf a rail is filed under. */
 export type RailGroup = 'timing' | 'people' | 'moods' | 'food' | 'list';

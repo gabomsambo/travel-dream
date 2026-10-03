@@ -3,11 +3,14 @@ import { loadExploreCached } from "@/lib/explore/load"
 import { buildRails, homeRails, toRailRef } from "@/lib/explore/rails"
 import { pickFeatured } from "@/lib/explore/featured"
 import { buildTripNudges } from "@/lib/explore/trip-nudges"
+import { buildAtlas } from "@/lib/explore/atlas"
 import { ExploreHero } from "@/components/explore/explore-hero"
 import { RailRow } from "@/components/explore/rail-row"
 import { TripMoment } from "@/components/explore/trip-moment"
 import { BrowseAll } from "@/components/explore/browse-all"
 import { ExploreEmpty } from "@/components/explore/explore-empty"
+import { AtlasStrip } from "@/components/explore/atlas-strip"
+import { TopCitiesRail } from "@/components/explore/top-cities-rail"
 
 export default async function ExplorePage() {
   const user = await requireAuth()
@@ -21,6 +24,9 @@ export default async function ExplorePage() {
   const countries = new Set(places.map((p) => p.country).filter(Boolean)).size
   const cities = new Set(places.filter((p) => p.city).map((p) => `${p.country}/${p.city}`)).size
   const firstName = user.name?.split(" ")[0]
+  const atlas = buildAtlas(places)
+  // The top-10 rail sorts every city across the atlas, deduped.
+  const cityGroups = atlas.flatMap((c) => c.cities).sort((a, b) => b.places.length - a.places.length).slice(0, 10)
 
   // Rails come first (the captain's ask). The first one sits over the hero's
   // fading photo; trip moments interrupt the rest so the page has a rhythm
@@ -43,7 +49,9 @@ export default async function ExplorePage() {
         />
         {first && <RailRow rail={first} className="relative z-10 -mt-14 sm:-mt-20" />}
       </div>
+      <AtlasStrip countries={atlas.slice(0, 12)} total={atlas.length} />
       {blocks}
+      {cityGroups.length > 0 && <TopCitiesRail cities={cityGroups} />}
       <BrowseAll rails={all.map((r) => ({ id: r.id, title: r.title, group: r.group, placeIds: r.places.map((p) => p.id) }))} />
     </div>
   )

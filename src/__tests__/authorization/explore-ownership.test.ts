@@ -12,6 +12,8 @@
 import { ALICE, BOB, FIXTURE, assertLocalDatabase, resetTenantFixture } from '../helpers/tenant-fixture';
 
 import { getExploreCollections, getExplorePlaces } from '@/lib/explore/queries';
+import { buildAtlas } from '@/lib/explore/atlas';
+import { buildTripNudges } from '@/lib/explore/trip-nudges';
 
 const BOB_PHOTO = 'https://store.public.blob.vercel-storage.com/bob-photo.jpg';
 const ALICE_PHOTO = 'https://store.public.blob.vercel-storage.com/alice-photo.jpg';
@@ -83,5 +85,47 @@ describe('getExploreCollections', () => {
     const cols = await getExploreCollections(ALICE.id);
     expect(cols.map((c) => c.id)).toEqual([FIXTURE.aliceCollection]);
     expect(cols.flatMap((c) => c.placeIds)).toEqual([FIXTURE.alicePlace]);
+  });
+});
+
+describe('atlas drill-down authorization', () => {
+  // The atlas pages reuse `getExplorePlaces`, which already filters by user.
+  // This guards against a refactor that drifts the country/city pages onto an
+  // unscoped query by accident. With Bob's single place nowhere near Alice's
+  // and Alice's fixture data tagged to her, neither side should ever see
+  // Bob's row in the drill-down.
+  it("never builds an atlas containing another tenant's place", async () => {
+    const alicePlaces = await getExplorePlaces(ALICE.id);
+    const bobPlaces = await getExplorePlaces(BOB.id);
+    const aliceIds = new Set(alicePlaces.map((p) => p.id));
+    const bobIds = new Set(bobPlaces.map((p) => p.id));
+
+    const aliceAtlas = buildAtlas(alicePlaces);
+    const aliceFlat = aliceAtlas.flatMap((c) => [c, ...c.cities.map((ci) => ({ ...ci, country: c.country }))]);
+    expect(aliceFlat.flatMap((g) => 'places' in g ? g.places : [])).not.toContain(FIXTURE.bobPlace);
+
+    const bobAtlas = buildAtlas(bobPlaces);
+    const bobAllPlaces = bobAtlas.flatMap((c) => c.cities.flatMap((ci) => ci.places));
+    expect(bobAllPlaces.map((p) => p.id)).not.toContain(FIXTURE.alicePlace);
+    expect(aliceIds.has(FIXTURE.bobPlace)).toBe(false);
+    expect(bobIds.has(FIXTURE.alicePlace)).toBe(false);
+  });
+
+  it('trip-nudges never suggest a trip based on another tenant\'s collection membership', async () => {
+    // Bob has a single place and no unvisited saves anywhere, so a trip nudge
+    // must not exist for him — even if Alice's collection has him on it via a
+    // bug. The assertion is the empty case here.
+    const bobPlaces = await getExplorePlaces(BOB.id);
+    const bobCollections = await getExploreCollections(BOB.id);
+    const bobNudges = buildTripNudges(bobPlaces, bobCollections);
+    expect(bobNudges).toHaveLength(0);
+
+    // Alice's nudge must not include Bob's place even if a hypothetical cross-tenant
+    // bug linked them.
+    const alicePlaces = await getExplorePlaces(ALICE.id);
+    const aliceCollections = await getExploreCollections(ALICE.id);
+    const aliceNudges = buildTripNudges(alicePlaces, aliceCollections);
+    const allPlaceIds = aliceNudges.flatMap((n) => n.placeIds);
+    expect(allPlaceIds).not.toContain(FIXTURE.bobPlace);
   });
 });

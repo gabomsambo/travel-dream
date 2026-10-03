@@ -22,6 +22,7 @@ import {
 import type { ExplorePlace } from "@/lib/explore/types"
 import { Button } from "@/components/adapters/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/adapters/select"
+import { notify } from "@/lib/notify"
 import { useExplore } from "./explore-provider"
 import { FallbackArt } from "./fallback-art"
 import { kindLabel } from "./kind-icon"
@@ -32,6 +33,18 @@ const SWIPE_PX = 110
 
 const emptySession = (): ShuffleSession => ({ index: 0, history: [], finishedEarly: false })
 
+const TEXT_ENTRY = "input, textarea, select, [contenteditable=''], [contenteditable='true'], [role=combobox], [role=listbox]"
+const ACTIVATABLE = "button, a[href], [role=button], [role=link], [role=option], [role=menuitem]"
+
+function deckShortcutsBlocked(e: KeyboardEvent): boolean {
+  if (e.defaultPrevented) return true
+  if (document.querySelector("[role=dialog], [role=listbox]")) return true
+  const target = e.target instanceof Element ? e.target : null
+  if (!target) return false
+  if (target.closest(TEXT_ENTRY)) return true
+  return (e.key === "Enter" || e.key === " ") && !!target.closest(ACTIVATABLE)
+}
+
 /**
  * Daydream mode: one full-screen card at a time. Right (or ♥, or →) keeps the
  * place in your dreams; left (or ✕, or ←) moves on; ↑ opens the full story.
@@ -41,7 +54,11 @@ const emptySession = (): ShuffleSession => ({ index: 0, history: [], finishedEar
 export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref: string; deck: string[] }) {
   const router = useRouter()
   const { places, openPlace, busy } = useExplore()
-  const cards = React.useMemo(() => deck.map((id) => places.get(id)).filter((p): p is ExplorePlace => !!p), [deck, places])
+  const [activeDeck, setActiveDeck] = React.useState(deck)
+  const cards = React.useMemo(
+    () => activeDeck.map((id) => places.get(id)).filter((p): p is ExplorePlace => !!p),
+    [activeDeck, places]
+  )
 
   const [session, setSession] = React.useState<ShuffleSession>(emptySession)
   const [coach, setCoach] = React.useState(false)
@@ -63,9 +80,21 @@ export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref
     }
   }
 
+  const scopeKey = `${backHref}|${title}`
+  const scopeRef = React.useRef(scopeKey)
+  const reshuffleRequested = React.useRef(false)
   React.useEffect(() => {
+    if (!reshuffleRequested.current && scopeRef.current === scopeKey) return
+    reshuffleRequested.current = false
+    scopeRef.current = scopeKey
+    setActiveDeck(deck)
     setSession(emptySession())
-  }, [deck])
+  }, [deck, scopeKey])
+
+  const shuffleAgain = React.useCallback(() => {
+    reshuffleRequested.current = true
+    router.refresh()
+  }, [router])
 
   const current = cards[session.index]
   const done = isDeckComplete(session, cards.length)
@@ -104,7 +133,7 @@ export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (document.querySelector("[role=dialog]")) return
+      if (deckShortcutsBlocked(e)) return
       if (!done && (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "Enter")) {
         if (e.key === "ArrowRight") decide("dream")
         else if (e.key === "ArrowLeft") decide("next")
@@ -184,7 +213,7 @@ export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref
             busy={busy}
             defaultCollectionName={defaultCollectionName}
             dreamIds={dreams}
-            onAgain={() => router.refresh()}
+            onAgain={shuffleAgain}
             onUndo={undo}
           />
         ) : (
@@ -414,8 +443,12 @@ function EndOfDeck({
 
   const addExisting = async () => {
     if (!collectionId || dreamIds.length === 0) return
-    const toAdd = dreamIdsToAdd(dreamIds, collections.find((c) => c.id === collectionId)?.placeIds ?? [])
-    if (toAdd.length === 0) return
+    const collection = collections.find((c) => c.id === collectionId)
+    const toAdd = dreamIdsToAdd(dreamIds, collection?.placeIds ?? [])
+    if (toAdd.length === 0) {
+      notify.info(`Already in ${collection?.name ?? "that collection"}`)
+      return
+    }
     await addToTrip(collectionId, toAdd)
   }
 

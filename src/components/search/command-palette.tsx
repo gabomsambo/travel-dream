@@ -13,6 +13,7 @@ import {
   CommandShortcut,
 } from "@/components/adapters/command"
 import {
+  Compass,
   Inbox,
   Library,
   FolderOpen,
@@ -83,6 +84,11 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             <GitPullRequest className="mr-2 h-4 w-4" />
             <span>Go to Review</span>
             <CommandShortcut>⌘R</CommandShortcut>
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push('/explore'))}>
+            <Compass className="mr-2 h-4 w-4" />
+            <span>Go to Explore</span>
+            <CommandShortcut>⌘E</CommandShortcut>
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push('/library'))}>
             <Library className="mr-2 h-4 w-4" />

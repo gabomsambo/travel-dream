@@ -93,6 +93,13 @@ export function useNavigationHotkeys(openCommandPalette?: () => void) {
       category: 'Navigation'
     },
     {
+      key: 'e',
+      cmd: true,
+      action: () => router?.push('/explore'),
+      description: 'Go to Explore',
+      category: 'Navigation'
+    },
+    {
       key: 'l',
       cmd: true,
       action: () => router?.push('/library'),

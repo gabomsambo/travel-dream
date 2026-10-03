@@ -22,6 +22,7 @@ export function KeyboardShortcutsDialog({
   const shortcuts = {
     'Navigation': [
       { key: ['Cmd', 'I'], description: 'Go to Inbox' },
+      { key: ['Cmd', 'E'], description: 'Go to Explore' },
       { key: ['Cmd', 'L'], description: 'Go to Library' },
       { key: ['Cmd', 'C'], description: 'Go to Collections' },
       { key: ['Cmd', 'K'], description: 'Open Command Palette' },

@@ -66,6 +66,7 @@ const config = {
       fontFamily: {
         heading: ['var(--font-heading)', 'sans-serif'],
         body: ['var(--font-body)', 'sans-serif'],
+        editorial: ['var(--font-editorial)', 'Georgia', 'serif'],
       },
       borderRadius: {
         lg: '1rem',

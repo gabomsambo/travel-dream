@@ -11,9 +11,9 @@ jest.mock('framer-motion', () => {
     {},
     {
       get: (_t, prop: string) =>
-        React.forwardRef(({ children, ...props }: { children?: React.ReactNode }, ref: unknown) =>
-          React.createElement(prop === 'span' ? 'span' : 'div', { ...props, ref }, children)
-        ),
+        React.forwardRef(function MotionMock({ children, ...props }: { children?: React.ReactNode }, ref: unknown) {
+          return React.createElement(prop === 'span' ? 'span' : 'div', { ...props, ref }, children)
+        }),
     }
   )
   return {
@@ -88,4 +88,36 @@ describe('ShuffleDeck', () => {
     expect(screen.getByText(/1 dream out of 1/i)).toBeInTheDocument()
   })
 
+  it('keeps the end screen when the page refreshes with a reshuffled deck', async () => {
+    const places = ['a', 'b', 'c'].map((id, i) => place(id, `Place ${i + 1}`))
+    const view = (deck: string[]) => (
+      <ExploreProvider places={places} collections={[]}>
+        <ShuffleDeck title="Everything" backHref="/explore" deck={deck} />
+      </ExploreProvider>
+    )
+    const { rerender } = render(view(['a', 'b', 'c']))
+    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Finish shuffle early' }))
+    rerender(view(['c', 'a', 'b']))
+    expect(screen.getByText(/1 dream out of 1/i)).toBeInTheDocument()
+  })
+
+  it('Enter on a focused Done button finishes instead of opening details', async () => {
+    renderDeck(['a', 'b', 'c'])
+    screen.getByRole('button', { name: 'Finish shuffle early' }).focus()
+    await userEvent.keyboard('{Enter}')
+    expect(screen.getByText(/Nothing grabbed you/i)).toBeInTheDocument()
+  })
+
+  it('deck shortcuts stay quiet while a listbox is open', async () => {
+    renderDeck(['a', 'b', 'c'])
+    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Finish shuffle early' }))
+    const listbox = document.createElement('div')
+    listbox.setAttribute('role', 'listbox')
+    document.body.appendChild(listbox)
+    await userEvent.keyboard('z')
+    listbox.remove()
+    expect(screen.getByText(/1 dream out of 1/i)).toBeInTheDocument()
+  })
 })

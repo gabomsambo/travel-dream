@@ -11,6 +11,8 @@ const SHAPES: Record<RailShape, string> = {
   // Widths are chosen so the last card is always cut off: the peek is the scroll hint.
   landscape: "w-[72vw] sm:w-[340px] aspect-[4/3]",
   poster: "w-[44vw] sm:w-[210px] aspect-[3/4]",
+  // Used inside the magazine-spread grids on country/city pages, never in a rail.
+  hero: "aspect-[16/9]",
 }
 
 /**
@@ -82,7 +84,7 @@ export function PlaceTile({
             {location}
           </p>
         )}
-        <h3 className={cn("mt-0.5 font-editorial leading-[1.02] text-white", shape === "landscape" ? "text-2xl" : "text-[22px]")}>
+        <h3 className={cn("mt-0.5 font-editorial leading-[1.02] text-white", shape === "landscape" ? "text-2xl" : "text-[22px]", shape === "hero" && "text-3xl")}>
           {place.name}
         </h3>
         {caption && <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-white/80">{caption}</p>}

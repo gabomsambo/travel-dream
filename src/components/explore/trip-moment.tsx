@@ -5,7 +5,7 @@ import Link from "next/link"
 import { ArrowRight, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/adapters/button"
-import { flagFor } from "@/lib/explore/geo"
+import { flagFor, slugify } from "@/lib/explore/geo"
 import type { TripNudge } from "@/lib/explore/types"
 import { useExplore } from "./explore-provider"
 import { SaveCollectionDialog } from "./save-collection-dialog"
@@ -28,7 +28,7 @@ function readDismissed(): string[] {
  * the city, it offers to add the rest to that one instead.
  */
 export function TripMoment({ nudge, className }: { nudge: TripNudge; className?: string }) {
-  const { addToTrip, collections, openPlace, busy } = useExplore()
+  const { addToTrip, collections, busy } = useExplore()
   const key = `${nudge.country}/${nudge.city}`
   // localStorage can't be read during render, so the check lands in an effect:
   // render nothing until it has run for this key, or a nudge the user already
@@ -116,8 +116,10 @@ export function TripMoment({ nudge, className }: { nudge: TripNudge; className?:
                 <Sparkles className="mr-1.5 h-4 w-4" /> Plan {nudge.city}
               </SaveCollectionDialog>
             )}
-            <Button variant="ghost" className="rounded-full" onClick={() => openPlace(nudge.placeIds[0], nudge.placeIds)}>
-              Browse {nudge.city} first
+            <Button variant="ghost" className="rounded-full" asChild>
+              <Link href={`/explore/atlas/${slugify(nudge.country)}/${slugify(nudge.city)}`}>
+                Browse {nudge.city} first
+              </Link>
             </Button>
           </div>
         </div>

@@ -13,7 +13,7 @@ import { Button } from "@/components/adapters/button"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/adapters/dropdown-menu"
-import { flagFor } from "@/lib/explore/geo"
+import { flagFor, slugify } from "@/lib/explore/geo"
 import { savedAgoLabel } from "@/lib/explore/rails"
 import { useExplore } from "./explore-provider"
 import { editorialFont } from "./fonts"
@@ -142,7 +142,16 @@ export function PlaceSheet({
                   <div className="space-y-2">
                     <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                       <span className="text-base leading-none">{flagFor(place.country)}</span>
-                      {[place.city, place.country].filter(Boolean).join(" · ") || "Somewhere"}
+                      {place.city && place.country ? (
+                        <Link
+                          href={`/explore/atlas/${slugify(place.country)}/${slugify(place.city)}`}
+                          className="rounded underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        >
+                          {[place.city, place.country].join(" · ")}
+                        </Link>
+                      ) : (
+                        <span>Somewhere</span>
+                      )}
                     </p>
                     <Dialog.Title className="font-editorial text-4xl leading-[1.05] tracking-tight md:text-5xl">{place.name}</Dialog.Title>
                     <Dialog.Description className="sr-only">Saved place details</Dialog.Description>

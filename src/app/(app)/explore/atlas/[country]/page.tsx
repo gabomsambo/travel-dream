@@ -58,6 +58,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
         siblings={atlas.map((c) => ({ label: `${c.flag} ${c.country}`, href: `/explore/atlas/${c.slug}`, count: c.places.length }))}
         curve={seasonCurve(country.places)}
         currentMonth={now.getMonth() + 1}
+        shuffleHref={`/explore/shuffle?country=${encodeURIComponent(slug)}`}
       />
 
       {country.cities.length > 1 && <CityTiles country={country} />}

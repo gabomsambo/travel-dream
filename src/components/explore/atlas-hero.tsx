@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Shuffle } from 'lucide-react';
+import { Button } from '@/components/adapters/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/adapters/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { editorialFont } from './fonts';
@@ -34,6 +35,7 @@ export function AtlasHero({
   siblings,
   curve,
   currentMonth,
+  shuffleHref,
 }: {
   cover: string | null;
   eyebrow: string;
@@ -43,6 +45,7 @@ export function AtlasHero({
   siblings: Sibling[];
   curve: number[];
   currentMonth: number;
+  shuffleHref?: string;
 }) {
   const router = useRouter();
   return (
@@ -85,6 +88,19 @@ export function AtlasHero({
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/80">{eyebrow}</p>
             <h1 className="font-editorial text-6xl leading-[0.9] tracking-tight text-white sm:text-8xl lg:text-9xl">{title}</h1>
             <p className="text-sm text-white/80">{stats}</p>
+            {shuffleHref && (
+              <div className="pt-4">
+                <Button
+                  asChild
+                  variant="outline"
+                  className="gap-2 rounded-full border-white/40 bg-white/10 px-5 text-white backdrop-blur hover:bg-white/20 hover:text-white"
+                >
+                  <Link href={shuffleHref}>
+                    <Shuffle className="h-4 w-4" aria-hidden /> Shuffle
+                  </Link>
+                </Button>
+              </div>
+            )}
           </div>
           <div className="max-w-sm rounded-2xl bg-black/30 p-4 backdrop-blur-md">
             <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">When to go</p>

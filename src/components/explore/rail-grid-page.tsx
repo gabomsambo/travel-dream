@@ -75,7 +75,13 @@ export function RailGridPage({ rail }: { rail: RailRef }) {
               · {list.length} places in {countries.length} {countries.length === 1 ? "country" : "countries"}
             </span>
           </p>
-          <div className="pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Link
+              href={`/explore/shuffle?rail=${encodeURIComponent(rail.id)}`}
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/30 bg-black/30 px-4 text-sm font-medium text-white backdrop-blur hover:bg-black/45"
+            >
+              <Shuffle className="h-3.5 w-3.5" /> Shuffle this rail
+            </Link>
             <SaveCollectionDialog
               title={`Save “${collectionName}”?`}
               defaultName={collectionName}

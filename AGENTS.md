@@ -101,7 +101,7 @@ Do not run delivery steps that whoever is driving already owns.
 ## Key Paths
 
 ```
-src/app/(app)/          — authenticated routes (inbox, library, collections)
+src/app/(app)/          — authenticated routes (inbox, library, collections, explore)
 src/app/(marketing)/    — public routes (login, landing)
 src/app/api/            — backend API routes
 src/db/schema/          — Drizzle ORM schema definitions

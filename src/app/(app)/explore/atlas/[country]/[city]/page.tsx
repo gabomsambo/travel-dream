@@ -53,7 +53,6 @@ export default async function CityPage({ params }: { params: Promise<{ country: 
         }))}
         curve={seasonCurve(city.places)}
         currentMonth={now.getMonth() + 1}
-        shuffleHref={`/explore/shuffle?country=${country.slug}&city=${city.slug}`}
       />
 
       {nudge && <TripNudgeCard nudge={nudge} dismissible={false} />}

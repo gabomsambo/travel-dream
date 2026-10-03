@@ -70,4 +70,22 @@ describe('ShuffleDeck', () => {
     expect(screen.getByRole('button', { name: /Save 1 as a new collection/i })).toBeInTheDocument()
   })
 
+  it('undo of a dream keeps a Library favourite that predates the session', async () => {
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['a']))
+    renderDeck(['a', 'b'])
+    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Finish shuffle early' }))
+    await userEvent.click(screen.getByRole('button', { name: /Back one/i }))
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('a')
+  })
+
+  it('verdict keys are inert on the end screen after Done early', async () => {
+    renderDeck(['a', 'b', 'c'])
+    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Finish shuffle early' }))
+    expect(screen.getByText(/1 dream out of 1/i)).toBeInTheDocument()
+    await userEvent.keyboard('{ArrowRight}')
+    expect(screen.getByText(/1 dream out of 1/i)).toBeInTheDocument()
+  })
+
 })

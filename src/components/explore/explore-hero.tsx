@@ -34,7 +34,7 @@ export function ExploreHero({ picks, greeting, stats }: { picks: FeaturedPick[];
       <div key={place.id} className="absolute inset-0 animate-in fade-in zoom-in-[1.03] duration-700">
         {place.photos[0] ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={place.photos[0]} alt="" fetchPriority="high" className="h-full w-full object-cover opacity-90" />
+          <img src={place.photos[0].uri} alt="" fetchPriority="high" className="h-full w-full object-cover opacity-90" />
         ) : (
           <FallbackArt name={place.name} kind={place.kind} />
         )}

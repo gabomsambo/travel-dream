@@ -26,10 +26,10 @@ export function BrowseAll({ rails }: { rails: BrowseRail[] }) {
   const covers = new Map<string, string>()
   for (const rail of rails) {
     const withPhoto = rail.placeIds.map((id) => places.get(id)).filter((p) => p?.photos.length)
-    const pick = withPhoto.find((p) => !used.has(p!.photos[0])) ?? withPhoto[0]
+    const pick = withPhoto.find((p) => !used.has(p!.photos[0].thumb)) ?? withPhoto[0]
     if (!pick) continue
-    used.add(pick.photos[0])
-    covers.set(rail.id, pick.photos[0])
+    used.add(pick.photos[0].thumb)
+    covers.set(rail.id, pick.photos[0].thumb)
   }
 
   return (

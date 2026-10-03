@@ -21,7 +21,17 @@ export interface ExplorePlace {
   lat: number | null;
   lon: number | null;
   /** Primary photo first. Empty when the place has no photo yet. */
-  photos: string[];
+  photos: ExplorePhoto[];
+}
+
+/**
+ * One photo at the two sizes Explore renders it: `thumb` for rails, tiles and
+ * covers, `uri` for the hero billboard and the quick-look sheet. A photo with no
+ * thumbnail of its own is the full image at both sizes.
+ */
+export interface ExplorePhoto {
+  thumb: string;
+  uri: string;
 }
 
 export type RailShape = 'poster' | 'landscape';

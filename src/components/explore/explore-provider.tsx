@@ -19,7 +19,11 @@ interface ExploreContextValue {
   collections: ExploreCollection[]
   /** Opens the quick-look sheet. `siblings` lets the sheet page left/right through a rail. */
   openPlace: (id: string, siblings?: string[]) => void
-  /** Resolves false when nothing was created, so a dialog can stay open. */
+  /**
+   * Resolves false when the save did not finish, so a dialog can stay open. A
+   * retry after a failed add finishes the collection already created rather than
+   * making a second one.
+   */
   createCollection: (input: NewCollection) => Promise<boolean>
   addToTrip: (collectionId: string, placeIds: string[]) => Promise<void>
   busy: boolean
@@ -67,6 +71,11 @@ export function ExploreProvider({
   const byId = React.useMemo(() => new Map(places.map((p) => [p.id, p])), [places])
   const [open, setOpen] = React.useState<{ id: string; siblings: string[] } | null>(null)
   const [busy, setBusy] = React.useState(false)
+  // A collection is created before its places go in, so a failed add leaves a
+  // real — and empty — collection behind. Keyed by what the user asked for, the
+  // id lets a retry finish that same collection instead of creating a second
+  // copy under the same name. Cleared once the collection is complete.
+  const halfBuilt = React.useRef(new Map<string, string>())
 
   const openPlace = React.useCallback((id: string, siblings: string[] = []) => setOpen({ id, siblings }), [])
 
@@ -75,21 +84,32 @@ export function ExploreProvider({
   const createCollection = React.useCallback(
     async ({ name, placeIds, description, landing }: NewCollection) => {
       setBusy(true)
+      const key = `${name}\u0000${placeIds.join(",")}`
       try {
-        const { collection } = await postJson<{ collection: { id: string } }>("/api/collections", {
-          name,
-          description: description ?? "Saved from Explore",
-        })
-        const failed = await addPlaces(collection.id, placeIds)
+        let id = halfBuilt.current.get(key)
+        if (!id) {
+          const { collection } = await postJson<{ collection: { id: string } }>("/api/collections", {
+            name,
+            description: description ?? "Saved from Explore",
+          })
+          id = collection.id
+          halfBuilt.current.set(key, id)
+        }
+        const failed = await addPlaces(id, placeIds)
+        halfBuilt.current.delete(key)
         const added = placeIds.length - failed
         const detail = failed > 0 ? `${added} of ${placeIds.length} places added.` : `${added} places added.`
         if (failed > 0) notify.warning(`${name} is missing ${failed} places`, { description: detail })
         else notify.success(`${name} is ready`, { description: landing === "planner" ? `${detail} Drag them into days.` : detail })
         setOpen(null)
-        router.push(landing === "planner" ? `/collections/${collection.id}/planner` : `/collections/${collection.id}`)
+        router.push(landing === "planner" ? `/collections/${id}/planner` : `/collections/${id}`)
         return true
       } catch {
-        notify.error("Couldn't create that collection. Try again in a moment.")
+        const orphan = halfBuilt.current.get(key)
+        notify.error(
+          orphan ? `${name} was created, but its places didn't save.` : "Couldn't create that collection. Try again in a moment.",
+          orphan ? { description: "Save again to add them to it — you won't get a second copy." } : undefined
+        )
         return false
       } finally {
         setBusy(false)

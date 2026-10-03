@@ -2,6 +2,10 @@
 
 import * as React from "react"
 import Link from "next/link"
+// Raw Radix on purpose: the quick-look sheet is an edge-to-edge media sheet with
+// its own overlay and close button, which the ui/ and ui-v2/ DialogContent cannot
+// express — both hard-code a centred, padded, portal-and-overlay dialog that also
+// renders a second close button.
 import * as Dialog from "@radix-ui/react-dialog"
 import { ArrowUpRight, ChevronLeft, ChevronRight, Clock, Plus, Sparkles, UserRound, X, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -74,8 +78,8 @@ export function PlaceSheet({
                 {place.photos.length ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    key={place.photos[photo]}
-                    src={place.photos[photo]}
+                    key={place.photos[photo].uri}
+                    src={place.photos[photo].uri}
                     alt={place.name}
                     className="absolute inset-0 h-full w-full object-cover animate-in fade-in-0 duration-500"
                   />
@@ -198,7 +202,7 @@ export function PlaceSheet({
                           >
                             {p.photos[0] ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={p.photos[0]} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" />
+                              <img src={p.photos[0].thumb} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" />
                             ) : (
                               <FallbackArt name={p.name} kind={p.kind} />
                             )}

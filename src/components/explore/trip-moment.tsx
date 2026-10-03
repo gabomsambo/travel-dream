@@ -30,9 +30,12 @@ function readDismissed(): string[] {
 export function TripMoment({ nudge, className }: { nudge: TripNudge; className?: string }) {
   const { addToTrip, collections, openPlace, busy } = useExplore()
   const key = `${nudge.country}/${nudge.city}`
-  const [hidden, setHidden] = React.useState(false)
-  React.useEffect(() => setHidden(readDismissed().includes(key)), [key])
-  if (hidden) return null
+  // localStorage can't be read during render, so the check lands in an effect:
+  // render nothing until it has run for this key, or a nudge the user already
+  // dismissed flashes for one paint on every Explore load.
+  const [checked, setChecked] = React.useState<{ key: string; hidden: boolean } | null>(null)
+  React.useEffect(() => setChecked({ key, hidden: readDismissed().includes(key) }), [key])
+  if (checked?.key !== key || checked.hidden) return null
 
   const existing = nudge.existingCollection
   const already = existing ? (collections.find((c) => c.id === existing.id)?.placeIds ?? []) : []
@@ -45,7 +48,7 @@ export function TripMoment({ nudge, className }: { nudge: TripNudge; className?:
     } catch {
       /* private mode: dismissal just won't persist */
     }
-    setHidden(true)
+    setChecked({ key, hidden: true })
   }
 
   return (

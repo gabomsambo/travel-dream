@@ -53,7 +53,7 @@ export function PlaceTile({
         // Plain <img>: photos are user content on Blob URLs, matching library-v2.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={place.photos[0]}
+          src={place.photos[0].thumb}
           alt=""
           loading="lazy"
           decoding="async"

@@ -15,6 +15,8 @@ import { getExploreCollections, getExplorePlaces } from '@/lib/explore/queries';
 
 const BOB_PHOTO = 'https://store.public.blob.vercel-storage.com/bob-photo.jpg';
 const ALICE_PHOTO = 'https://store.public.blob.vercel-storage.com/alice-photo.jpg';
+const ALICE_THUMB = 'https://store.public.blob.vercel-storage.com/alice-photo-thumb.jpg';
+const ALICE_PHOTO_NO_THUMB = 'https://store.public.blob.vercel-storage.com/alice-photo-2.jpg';
 
 async function exec(sql: string, args: unknown[]): Promise<void> {
   const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<unknown> } };
@@ -34,6 +36,14 @@ beforeAll(async () => {
       [id, placeId, 'photo', uri, 'x.jpg', 1, now, 'upload']
     );
   }
+  // A photo with a thumbnail of its own, plus one without: Explore renders the
+  // small sizes from the thumbnail and the big ones from the full image.
+  await exec(`UPDATE attachments SET thumbnail_uri = ? WHERE id = ?`, [ALICE_THUMB, 'att_alice']);
+  await exec(
+    `INSERT INTO attachments (id, place_id, type, uri, filename, is_primary, created_at, source)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    ['att_alice_2', FIXTURE.alicePlace, 'photo', ALICE_PHOTO_NO_THUMB, 'y.jpg', 0, now, 'upload']
+  );
   // Archived places stay out of Explore even for their owner.
   await exec(`INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`, [
     'plc_alice_archived', ALICE.id, 'Alice Archived', 'cafe', 'archived', now, now,
@@ -46,12 +56,15 @@ describe('getExplorePlaces', () => {
     const ids = places.map((p) => p.id);
     expect(ids).toContain(FIXTURE.alicePlace);
     expect(ids).not.toContain(FIXTURE.bobPlace);
-    expect(places.flatMap((p) => p.photos)).not.toContain(BOB_PHOTO);
+    expect(places.flatMap((p) => p.photos.map((ph) => ph.uri))).not.toContain(BOB_PHOTO);
   });
 
-  it('attaches the caller\'s own photos (positive control)', async () => {
+  it("attaches the caller's own photos at both sizes (positive control)", async () => {
     const [alice] = (await getExplorePlaces(ALICE.id)).filter((p) => p.id === FIXTURE.alicePlace);
-    expect(alice.photos).toEqual([ALICE_PHOTO]);
+    expect(alice.photos).toEqual([
+      { uri: ALICE_PHOTO, thumb: ALICE_THUMB },
+      { uri: ALICE_PHOTO_NO_THUMB, thumb: ALICE_PHOTO_NO_THUMB },
+    ]);
   });
 
   it('leaves archived places out', async () => {

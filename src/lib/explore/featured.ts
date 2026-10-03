@@ -13,12 +13,15 @@ const open = (p: ExplorePlace) => p.visitStatus !== 'visited';
 
 export function pickFeatured(places: ExplorePlace[], now: Date, count = FEATURED_COUNT): FeaturedPick[] {
   const month = now.getMonth() + 1;
+  // One eligibility rule for every bucket: unvisited, with a photo. Explore is a
+  // daydream page, so a place already been to must never headline under a
+  // "must-do" or "recommended" label — and fewer qualifying picks simply means
+  // fewer hero slides rather than reaching for somewhere already visited.
   const pool = places.filter((p) => p.photos.length > 0 && open(p));
-  const source = pool.length >= count ? pool : places;
 
   const buckets: Array<{ match: (p: ExplorePlace) => boolean; reason: (p: ExplorePlace) => string }> = [
-    { match: (p) => open(p) && p.bestTime.months.includes(month), reason: (p) => `Best right now · ${p.bestTimeText}` },
-    { match: (p) => open(p) && monthsAgo(p.createdAt, now) >= 12, reason: (p) => `${savedAgoLabel(p.createdAt, now)} · never visited` },
+    { match: (p) => p.bestTime.months.includes(month), reason: (p) => `Best right now · ${p.bestTimeText}` },
+    { match: (p) => monthsAgo(p.createdAt, now) >= 12, reason: (p) => `${savedAgoLabel(p.createdAt, now)} · never visited` },
     { match: (p) => p.priority >= 5, reason: () => 'One of your must-dos' },
     { match: (p) => Boolean(p.recommendedBy?.trim()), reason: (p) => `Recommended by ${p.recommendedBy!.trim()}` },
     { match: () => true, reason: (p) => savedAgoLabel(p.createdAt, now) },
@@ -31,7 +34,7 @@ export function pickFeatured(places: ExplorePlace[], now: Date, count = FEATURED
     if (picks.length >= count) return;
     const rand = seededRandom(daySeed(now) * 31 + i);
     // A seeded shuffle, then places with a description first: the hero has room to tell the story.
-    const ranked = source
+    const ranked = pool
       .filter(bucket.match)
       .map((p) => ({ p, key: rand() }))
       .sort((a, b) => Number(Boolean(b.p.description)) - Number(Boolean(a.p.description)) || a.key - b.key)

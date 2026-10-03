@@ -56,7 +56,7 @@ export function RailGridPage({ rail }: { rail: RailRef }) {
         <div className="absolute inset-0 grid grid-cols-2 gap-0.5 sm:grid-cols-4" aria-hidden>
           {cover.map((p, i) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={p.id} src={p.photos[0]} alt="" className={cn("h-full w-full object-cover", i > 1 && "hidden sm:block")} />
+            <img key={p.id} src={p.photos[0].thumb} alt="" className={cn("h-full w-full object-cover", i > 1 && "hidden sm:block")} />
           ))}
         </div>
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/10" />

@@ -1,11 +1,12 @@
 import { buildRails, captionFor, countriesIn, findRail, HOME_RAILS, homeRails, MIN_RAIL, orderRail } from '@/lib/explore/rails';
-import { pickFeatured } from '@/lib/explore/featured';
+import { FEATURED_COUNT, pickFeatured } from '@/lib/explore/featured';
 import { flagFor, slugify } from '@/lib/explore/geo';
 import { buildTripNudges } from '@/lib/explore/trip-nudges';
 import { parseBestTime } from '@/lib/explore/best-time';
-import type { ExplorePlace } from '@/lib/explore/types';
+import type { ExplorePlace, ExplorePhoto } from '@/lib/explore/types';
 
 const NOW = new Date('2026-10-02T12:00:00Z');
+const PHOTO: ExplorePhoto = { thumb: 'https://example.com/p.jpg', uri: 'https://example.com/p.jpg' };
 let n = 0;
 
 function place(over: Partial<ExplorePlace> & { bestTimeText?: string | null } = {}): ExplorePlace {
@@ -14,7 +15,7 @@ function place(over: Partial<ExplorePlace> & { bestTimeText?: string | null } = 
     id: `plc_${++n}`, name: `Place ${n}`, kind: 'landmark', city: 'Lisbon', country: 'Portugal', description: null,
     notes: null, vibes: [], bestTimeText, bestTime: parseBestTime(bestTimeText, over.lat), recommendedBy: null,
     visitStatus: 'not_visited', priority: 0, ratingSelf: 0, priceLevel: null, createdAt: '2026-09-01 10:00:00',
-    lat: null, lon: null, photos: ['https://example.com/p.jpg'], ...over,
+    lat: null, lon: null, photos: [PHOTO], ...over,
   };
 }
 
@@ -169,6 +170,31 @@ describe('pickFeatured', () => {
     const picks = pickFeatured([visited, noPhoto, ...['A', 'B', 'C', 'D', 'E'].map((c) => place({ country: c }))], NOW);
     expect(picks.map((p) => p.placeId)).not.toContain(visited.id);
     expect(picks.map((p) => p.placeId)).not.toContain(noPhoto.id);
+  });
+
+  it('never headlines a visited place, and shows fewer slides when fewer qualify', () => {
+    // The shape that used to leak: three unvisited places with photos (fewer than
+    // the five the hero wants) plus one already-visited must-do, which the hero
+    // labelled "One of your must-dos" next to the tile's own "Been" chip.
+    const open = [
+      place({ country: 'Japan', bestTimeText: 'October' }),
+      place({ country: 'Greece', createdAt: '2023-01-01 00:00:00' }),
+      place({ country: 'Peru', priority: 5 }),
+    ];
+    const visited = place({
+      country: 'Spain', visitStatus: 'visited', priority: 5, recommendedBy: 'Sarah',
+      bestTimeText: 'October', createdAt: '2023-05-05 00:00:00',
+    });
+    const picks = pickFeatured([...open, visited], NOW);
+
+    expect(picks.map((p) => p.placeId).sort()).toEqual(open.map((p) => p.id).sort());
+    expect(picks.map((p) => p.placeId)).not.toContain(visited.id);
+    expect(picks.map((p) => p.reason)).toEqual([
+      'Best right now · October',
+      'Saved 4 years ago · never visited',
+      'One of your must-dos',
+    ]);
+    expect(picks).toHaveLength(FEATURED_COUNT - 2);
   });
 });
 

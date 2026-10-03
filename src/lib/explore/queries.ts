@@ -44,9 +44,11 @@ export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> 
     const coords = r.coords && typeof r.coords === 'object' ? r.coords : null;
     const pics = (byPlace.get(r.id) ?? [])
       .sort((a, b) => b.isPrimary - a.isPrimary || a.createdAt.localeCompare(b.createdAt))
-      .map((a) => a.uri)
+      // Both sizes travel together: rails and covers render the thumbnail, the
+      // hero and the sheet render the full image.
+      .map((a) => ({ uri: a.uri, thumb: a.thumb || a.uri }))
       // Pre-Blob /uploads/ rows never existed on Vercel; treat them as missing (AGENTS.md § File Storage).
-      .filter((u) => !u.startsWith('/uploads/'))
+      .filter((p) => !p.uri.startsWith('/uploads/'))
       .slice(0, PHOTOS_PER_PLACE);
     const visit = r.visitStatus === 'visited' || r.visitStatus === 'planned' ? r.visitStatus : 'not_visited';
     return {

@@ -29,37 +29,57 @@ export function coverOf(places: ExplorePlace[], avoid: Set<string> = new Set()):
   );
 }
 
+/**
+ * Groups by slug, not by the raw name, so "Japan" and "japan" (or "São Paulo"
+ * and "Sao Paulo") share one page; the group shows its most common spelling.
+ */
+export function groupBySlug(places: ExplorePlace[], nameOf: (p: ExplorePlace) => string) {
+  const groups = new Map<string, { places: ExplorePlace[]; names: Map<string, number> }>();
+  for (const p of places) {
+    const name = nameOf(p);
+    const slug = slugify(name);
+    const g = groups.get(slug) ?? { places: [], names: new Map<string, number>() };
+    g.places.push(p);
+    g.names.set(name, (g.names.get(name) ?? 0) + 1);
+    groups.set(slug, g);
+  }
+  return [...groups].map(([slug, g]) => ({
+    slug,
+    name: [...g.names].reduce((best, cur) => (cur[1] > best[1] ? cur : best))[0],
+    places: g.places,
+  }));
+}
+
+/**
+ * The one grouping rule every Explore surface shares: by country slug, then by
+ * city slug, with a place that has no city filed under its country's name.
+ * Places without a country are left out.
+ */
+export function groupByCity(places: ExplorePlace[]) {
+  const located = places.filter((p) => p.country?.trim());
+  return groupBySlug(located, (p) => p.country!.trim()).map((country) => ({
+    ...country,
+    cities: groupBySlug(country.places, (p) => p.city?.trim() || p.country!.trim()),
+  }));
+}
+
 /** Countries -> cities, both ordered by how much the user has saved there. */
 export function buildAtlas(places: ExplorePlace[]): CountryGroup[] {
-  const byCountry = new Map<string, ExplorePlace[]>();
-  for (const p of places) {
-    if (!p.country) continue; // old rows without a country live in "Somewhere" (see atlas page)
-    const list = byCountry.get(p.country) ?? [];
-    list.push(p);
-    byCountry.set(p.country, list);
-  }
-
+  // Rows without a country are left out; the atlas page points to them in the Library.
   const countries: CountryGroup[] = [];
-  for (const [country, list] of byCountry) {
-    const byCity = new Map<string, ExplorePlace[]>();
-    for (const p of list) {
-      const city = p.city?.trim() || country;
-      const cl = byCity.get(city) ?? [];
-      cl.push(p);
-      byCity.set(city, cl);
-    }
-    const cities: CityGroup[] = [...byCity].map(([city, cl]) => ({
-      city,
+  for (const { slug, name: country, places: list, cities: byCity } of groupByCity(places)) {
+    const cities: CityGroup[] = byCity.map((c) => ({
+      city: c.name,
       country,
-      slug: slugify(city),
-      places: cl,
-      cover: coverOf(cl),
+      slug: c.slug,
+      places: c.places,
+      cover: coverOf(c.places),
     }));
     cities.sort((a, b) => b.places.length - a.places.length || a.city.localeCompare(b.city));
     const cityCovers = new Set(cities.map((c) => c.cover).filter((c): c is string => !!c));
     countries.push({
       country,
-      slug: slugify(country),
+      slug,
       flag: flagFor(country),
       places: list,
       cities,

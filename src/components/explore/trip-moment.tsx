@@ -5,7 +5,7 @@ import Link from "next/link"
 import { ArrowRight, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/adapters/button"
-import { flagFor, slugify } from "@/lib/explore/geo"
+import { flagFor } from "@/lib/explore/geo"
 import type { TripNudge } from "@/lib/explore/types"
 import { useExplore } from "./explore-provider"
 import { SaveCollectionDialog } from "./save-collection-dialog"
@@ -29,7 +29,7 @@ function readDismissed(): string[] {
  */
 export function TripMoment({ nudge, className }: { nudge: TripNudge; className?: string }) {
   const { addToTrip, collections, busy } = useExplore()
-  const key = `${nudge.country}/${nudge.city}`
+  const key = `${nudge.countrySlug}/${nudge.citySlug}`
   // localStorage can't be read during render, so the check lands in an effect:
   // render nothing until it has run for this key, or a nudge the user already
   // dismissed flashes for one paint on every Explore load.
@@ -117,7 +117,7 @@ export function TripMoment({ nudge, className }: { nudge: TripNudge; className?:
               </SaveCollectionDialog>
             )}
             <Button variant="ghost" className="rounded-full" asChild>
-              <Link href={`/explore/atlas/${slugify(nudge.country)}/${slugify(nudge.city)}`}>
+              <Link href={`/explore/atlas/${nudge.countrySlug}/${nudge.citySlug}`}>
                 Browse {nudge.city} first
               </Link>
             </Button>

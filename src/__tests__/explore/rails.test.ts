@@ -2,6 +2,7 @@ import { buildRails, captionFor, countriesIn, findRail, HOME_RAILS, homeRails, M
 import { FEATURED_COUNT, pickFeatured } from '@/lib/explore/featured';
 import { flagFor, slugify } from '@/lib/explore/geo';
 import { buildTripNudges } from '@/lib/explore/trip-nudges';
+import { buildAtlas } from '@/lib/explore/atlas';
 import { parseBestTime } from '@/lib/explore/best-time';
 import type { ExplorePlace, ExplorePhoto } from '@/lib/explore/types';
 
@@ -205,6 +206,28 @@ describe('buildTripNudges', () => {
     expect(nudge.city).toBe('Tokyo');
     expect(nudge.placeIds).toHaveLength(5);
     expect(nudge.existingCollection).toBeNull();
+  });
+
+  it('counts every spelling of a city the atlas files under one page', () => {
+    const data = [
+      ...many(3, { country: 'Japan', city: 'Tokyo' }),
+      ...many(2, { country: 'japan', city: 'tokyo ' }),
+    ];
+    const nudges = buildTripNudges(data, []);
+    expect(nudges).toHaveLength(1);
+    expect(nudges[0]).toMatchObject({ city: 'Tokyo', country: 'Japan', citySlug: 'tokyo', countrySlug: 'japan' });
+    expect([...nudges[0].placeIds].sort()).toEqual(data.map((p) => p.id).sort());
+  });
+
+  it('files city-less places under the country, the same city page the atlas shows', () => {
+    const data = [
+      ...many(4, { country: 'Singapore', city: null }),
+      place({ country: 'Singapore', city: 'Singapore' }),
+    ];
+    const [nudge] = buildTripNudges(data, [], 2);
+    const page = buildAtlas(data)[0].cities[0];
+    expect([nudge.countrySlug, nudge.citySlug]).toEqual(['singapore', page.slug]);
+    expect([...nudge.placeIds].sort()).toEqual(page.places.map((p) => p.id).sort());
   });
 
   it('names the kinds of place saved there, most common first', () => {

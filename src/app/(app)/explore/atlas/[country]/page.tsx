@@ -13,8 +13,7 @@ import { TripNudgeCard } from '@/components/explore/trip-nudge-card';
 
 /**
  * Country page: full-bleed cover, the city's bento, a trip idea, and one
- * rail per section that has any places here. Shuffle is scoped to this
- * country via ?country=<slug>, the same selector Shuffle reads.
+ * rail per section that has any places here.
  */
 export default async function CountryPage({ params }: { params: Promise<{ country: string }> }) {
   const { country: slug } = await params;
@@ -59,7 +58,6 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
         siblings={atlas.map((c) => ({ label: `${c.flag} ${c.country}`, href: `/explore/atlas/${c.slug}`, count: c.places.length }))}
         curve={seasonCurve(country.places)}
         currentMonth={now.getMonth() + 1}
-        shuffleHref={`/explore/shuffle?country=${slug}`}
       />
 
       {country.cities.length > 1 && <CityTiles country={country} />}

@@ -1,3 +1,4 @@
+import { groupByCity } from './atlas';
 import { sectionOf } from './sections';
 import type { ExploreCollection, ExplorePlace, TripNudge } from './types';
 
@@ -9,15 +10,12 @@ export function buildTripNudges(
   collections: ExploreCollection[],
   threshold = TRIP_THRESHOLD
 ): TripNudge[] {
-  const byCity = new Map<string, ExplorePlace[]>();
-  for (const p of places) {
-    if (!p.city || !p.country || p.visitStatus === 'visited') continue;
-    const key = `${p.country}::${p.city}`;
-    byCity.set(key, [...(byCity.get(key) ?? []), p]);
-  }
+  const byCity = groupByCity(places.filter((p) => p.visitStatus !== 'visited')).flatMap((country) =>
+    country.cities.map((city) => ({ country, city, list: city.places }))
+  );
 
   const nudges: TripNudge[] = [];
-  for (const list of byCity.values()) {
+  for (const { country, city, list } of byCity) {
     if (list.length < threshold) continue;
     const ids = new Set(list.map((p) => p.id));
     // If a collection already holds half of this city, the nudge is "keep
@@ -33,8 +31,10 @@ export function buildTripNudges(
       kindCounts.set(title, (kindCounts.get(title) ?? 0) + 1);
     }
     nudges.push({
-      city: list[0].city!,
-      country: list[0].country!,
+      city: city.name,
+      country: country.name,
+      citySlug: city.slug,
+      countrySlug: country.slug,
       placeIds: sorted.map((p) => p.id),
       photos: sorted.filter((p) => p.photos.length).slice(0, 3).map((p) => p.photos[0].thumb),
       kinds: [...kindCounts].sort((a, b) => b[1] - a[1]).map(([title]) => title),

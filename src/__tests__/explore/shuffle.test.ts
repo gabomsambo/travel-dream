@@ -54,6 +54,16 @@ describe('shufflePool', () => {
     expect(scoped.title).toBe('Lisbon');
   });
 
+  it('scopes to a country slug only', () => {
+    const lisbon = place({ country: 'Portugal', city: 'Lisbon' });
+    const porto = place({ country: 'Portugal', city: 'Porto' });
+    const tokyo = place({ country: 'Japan', city: 'Tokyo' });
+    const scoped = shufflePool([lisbon, porto, tokyo], { country: 'portugal' }, NOW)!;
+    expect(scoped.pool.map((p) => p.id).sort()).toEqual([lisbon.id, porto.id].sort());
+    expect(scoped.title).toBe('Portugal');
+    expect(scoped.backHref).toBe('/explore/atlas/portugal');
+  });
+
   it('defaults to everything', () => {
     const pool = many(3);
     const scoped = shufflePool(pool, {}, NOW)!;

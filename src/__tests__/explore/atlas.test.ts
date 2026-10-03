@@ -3,7 +3,6 @@ import { flagFor, slugify } from '@/lib/explore/geo';
 import { parseBestTime } from '@/lib/explore/best-time';
 import type { ExplorePlace, ExplorePhoto } from '@/lib/explore/types';
 
-const NOW = new Date('2026-10-02T12:00:00Z');
 const PHOTO: ExplorePhoto = { thumb: 'https://example.com/p.jpg', uri: 'https://example.com/p.jpg' };
 const PHOTO_2: ExplorePhoto = { thumb: 'https://example.com/q.jpg', uri: 'https://example.com/q.jpg' };
 let n = 0;

@@ -1,5 +1,5 @@
 import { findRail, monthsAgo } from './rails';
-import { slugify } from './geo';
+import { groupByCity } from './atlas';
 import type { ExplorePlace } from './types';
 
 export interface ShuffleScope {
@@ -20,18 +20,20 @@ export function shufflePool(
     return { title: rail.title, backHref: `/explore/r/${rail.id}`, pool: rail.places };
   }
   if (scope.country) {
-    const countryPlaces = places.filter((p) => p.country && slugify(p.country) === scope.country);
-    const countryName = countryPlaces[0]?.country ?? scope.country;
+    const country = groupByCity(places).find((c) => c.slug === scope.country);
     if (scope.city) {
-      const cityPlaces = countryPlaces.filter((p) => p.city && slugify(p.city) === scope.city);
-      const cityName = cityPlaces[0]?.city ?? scope.city;
+      const city = country?.cities.find((c) => c.slug === scope.city);
       return {
-        title: cityName,
+        title: city?.name ?? scope.city,
         backHref: `/explore/atlas/${scope.country}/${scope.city}`,
-        pool: cityPlaces,
+        pool: city?.places ?? [],
       };
     }
-    return { title: countryName, backHref: `/explore/atlas/${scope.country}`, pool: countryPlaces };
+    return {
+      title: country?.name ?? scope.country,
+      backHref: `/explore/atlas/${scope.country}`,
+      pool: country?.places ?? [],
+    };
   }
   return { title: 'Everything', backHref: '/explore', pool: places };
 }

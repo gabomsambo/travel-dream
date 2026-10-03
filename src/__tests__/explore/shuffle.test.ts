@@ -54,6 +54,16 @@ describe('shufflePool', () => {
     expect(scoped.title).toBe('Lisbon');
   });
 
+  it('scopes a city slug to the same places the atlas files under it, including cityless saves', () => {
+    const kyoto = place({ country: 'Japan', city: 'Kyoto' });
+    const noCity = place({ country: 'Japan', city: null });
+    const blankCity = place({ country: ' Japan ', city: '   ' });
+    const scoped = shufflePool([kyoto, noCity, blankCity], { country: 'japan', city: 'japan' }, NOW)!;
+    expect(scoped.pool.map((p) => p.id).sort()).toEqual([noCity.id, blankCity.id].sort());
+    expect(scoped.title).toBe('Japan');
+    expect(scoped.backHref).toBe('/explore/atlas/japan/japan');
+  });
+
   it('scopes to a country slug only', () => {
     const lisbon = place({ country: 'Portugal', city: 'Lisbon' });
     const porto = place({ country: 'Portugal', city: 'Porto' });

@@ -55,7 +55,7 @@ export function SaveCollectionDialog({
         {children}
       </Button>
       <Dialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
-        <DialogContent className={cn(editorialFont.variable, "sm:max-w-md")}>
+        <DialogContent className={cn(editorialFont.variable, "sm:max-w-md z-[70]")}>
           <form onSubmit={submit} className="space-y-5">
             <DialogHeader>
               <DialogTitle className="font-editorial text-3xl font-normal leading-tight">{title}</DialogTitle>

@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { ArrowRight, ChevronLeft, ChevronRight, MapPin } from "lucide-react"
+import Link from "next/link"
+import { ArrowRight, ChevronLeft, ChevronRight, MapPin, Shuffle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/adapters/button"
 import { flagFor } from "@/lib/explore/geo"
@@ -78,6 +79,15 @@ export function ExploreHero({ picks, greeting, stats }: { picks: FeaturedPick[];
                 onClick={() => openPlace(place.id, featured.map((f) => f.place.id))}
               >
                 Take a look <ArrowRight className="h-4 w-4" aria-hidden />
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                className="gap-2 rounded-full border-white/40 bg-white/10 px-5 text-white backdrop-blur hover:bg-white/20 hover:text-white"
+              >
+                <Link href="/explore/shuffle">
+                  <Shuffle className="h-4 w-4" aria-hidden /> Shuffle
+                </Link>
               </Button>
             </div>
           </div>

@@ -26,9 +26,9 @@ created an 8-place collection and opened the existing Day Planner with all 8 uns
 the quick-look sheet and its next/previous stepping.
 
 **Covered by unit tests, not screenshotted:** home rail selection and cap, stable
-"Because you saved" links, country chips and ordering, the five billboard picks, trip
-moment kinds and the existing-collection branch, and cross-tenant isolation of the Explore
-queries against a real SQLite file.
+"Because you saved" links, country chips and ordering, the billboard picks (never a visited
+place, up to five — fewer when fewer qualify), trip moment kinds and the existing-collection
+branch, and cross-tenant isolation of the Explore queries against a real SQLite file.
 
 **Reasoned only:** behaviour with a production-sized library (the payload carries every
 browsable place to the client provider).

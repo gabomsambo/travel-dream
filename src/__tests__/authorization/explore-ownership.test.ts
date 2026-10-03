@@ -46,6 +46,10 @@ beforeAll(async () => {
      VALUES (?,?,?,?,?,?,?,?)`,
     ['att_alice_2', FIXTURE.alicePlace, 'photo', ALICE_PHOTO_NO_THUMB, 'y.jpg', 0, now, 'upload']
   );
+  // Both tenants saved in the same city, so an unscoped atlas would merge them.
+  await exec(`UPDATE places SET country = ?, city = ? WHERE id IN (?, ?)`, [
+    'Japan', 'Tokyo', FIXTURE.alicePlace, FIXTURE.bobPlace,
+  ]);
   // Archived places stay out of Explore even for their owner.
   await exec(`INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`, [
     'plc_alice_archived', ALICE.id, 'Alice Archived', 'cafe', 'archived', now, now,
@@ -101,8 +105,9 @@ describe('atlas drill-down authorization', () => {
     const bobIds = new Set(bobPlaces.map((p) => p.id));
 
     const aliceAtlas = buildAtlas(alicePlaces);
-    const aliceFlat = aliceAtlas.flatMap((c) => [c, ...c.cities.map((ci) => ({ ...ci, country: c.country }))]);
-    expect(aliceFlat.flatMap((g) => 'places' in g ? g.places : [])).not.toContain(FIXTURE.bobPlace);
+    const aliceAtlasIds = aliceAtlas.flatMap((c) => [...c.places, ...c.cities.flatMap((ci) => ci.places)]).map((p) => p.id);
+    expect(aliceAtlasIds).toContain(FIXTURE.alicePlace);
+    expect(aliceAtlasIds).not.toContain(FIXTURE.bobPlace);
 
     const bobAtlas = buildAtlas(bobPlaces);
     const bobAllPlaces = bobAtlas.flatMap((c) => c.cities.flatMap((ci) => ci.places));

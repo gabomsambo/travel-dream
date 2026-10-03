@@ -57,8 +57,7 @@ describe('buildAtlas', () => {
     const atlas = buildAtlas(data);
     expect(atlas).toHaveLength(1);
     expect(atlas[0].country).toBe('Japan');
-    const total = data.filter((p) => p.country).length;
-    expect(total).toBe(1);
+    expect(atlas.flatMap((c) => c.places).map((p) => p.id)).toEqual([data[1].id]);
   });
 
   it('orders countries by how many places the user saved there, then by name', () => {
@@ -89,6 +88,33 @@ describe('buildAtlas', () => {
     expect(atlas[0].cities[0].slug).toBe('italy');
   });
 
+  it('merges groups whose names share a slug, so every group is reachable by its URL', () => {
+    const atlas = buildAtlas([
+      place({ country: 'Japan', city: 'Tokyo' }),
+      place({ country: 'Japan', city: 'tokyo' }),
+      place({ country: 'japan', city: 'Tokyo' }),
+      place({ country: 'Brazil', city: 'São Paulo' }),
+      place({ country: 'Brazil', city: 'Sao Paulo' }),
+    ]);
+    expect(atlas.map((c) => c.slug)).toEqual(['japan', 'brazil']);
+    const japan = atlas[0];
+    expect(japan.country).toBe('Japan');
+    expect(japan.places).toHaveLength(3);
+    expect(japan.cities.map((c) => [c.slug, c.city, c.places.length])).toEqual([['tokyo', 'Tokyo', 3]]);
+    expect(atlas[1].cities.map((c) => [c.slug, c.places.length])).toEqual([['sao-paulo', 2]]);
+  });
+
+  it('gives non-Latin names their own non-empty slug', () => {
+    const atlas = buildAtlas([
+      place({ country: 'Japan', city: '東京' }),
+      place({ country: 'Japan', city: '京都' }),
+    ]);
+    const slugs = atlas[0].cities.map((c) => c.slug);
+    expect(slugs.every((s) => /^[a-z0-9-]+$/.test(s))).toBe(true);
+    expect(new Set(slugs).size).toBe(2);
+    expect(slugify('東京')).toBe(atlas[0].cities.find((c) => c.city === '東京')!.slug);
+  });
+
   it('produces URL-safe slugs for accented and multi-word names', () => {
     expect(slugify('São Paulo')).toBe('sao-paulo');
     expect(slugify('Mexico City')).toBe('mexico-city');
@@ -102,30 +128,40 @@ describe('buildAtlas', () => {
   });
 });
 
+const photo = (name: string): ExplorePhoto => ({ thumb: `https://example.com/${name}-t.jpg`, uri: `https://example.com/${name}.jpg` });
+
 describe('coverOf', () => {
-  it('picks the highest-scoring scenic place when there is no avoid set', () => {
+  it('picks the highest-scoring place when there is no avoid set', () => {
     const places = [
-      place({ id: 'a', priority: 2, kind: 'restaurant' }),
-      place({ id: 'b', priority: 1, kind: 'landmark' }),
+      place({ priority: 2, kind: 'restaurant', photos: [photo('a')] }),
+      place({ priority: 1, kind: 'landmark', photos: [photo('b')] }),
     ];
-    expect(coverOf(places)).toBe(PHOTO.uri);
+    expect(coverOf(places)).toBe(photo('b').uri);
   });
 
-  it('a landmark with priority 1 still beats a restaurant with priority 5 (scenic bonus)', () => {
+  it('a high-priority restaurant beats a low-priority landmark once priority outweighs the scenic bonus', () => {
     const places = [
-      place({ id: 'a', priority: 5, kind: 'restaurant' }),
-      place({ id: 'b', priority: 1, kind: 'landmark' }),
+      place({ priority: 1, kind: 'landmark', photos: [photo('a')] }),
+      place({ priority: 5, kind: 'restaurant', photos: [photo('b')] }),
     ];
-    expect(coverOf(places)).toBe(PHOTO.uri);
+    expect(coverOf(places)).toBe(photo('b').uri);
   });
 
-  it('does not return a photo from the avoid set, but falls back to it if there is nothing else', () => {
-    const a = place({ id: 'a', priority: 1, kind: 'landmark' });
-    const b = place({ id: 'b', priority: 5, kind: 'restaurant' });
-    const avoid = new Set([b.photos[0].uri]);
-    // Both share the same photo in this fixture; the second place is its only candidate,
-    // so coverOf returns it rather than returning null.
-    expect(coverOf([a, b], avoid)).toBe(PHOTO.uri);
+  it('skips a photo in the avoid set for the next best one', () => {
+    const places = [
+      place({ priority: 5, kind: 'landmark', photos: [photo('a')] }),
+      place({ priority: 1, kind: 'restaurant', photos: [photo('b')] }),
+    ];
+    expect(coverOf(places)).toBe(photo('a').uri);
+    expect(coverOf(places, new Set([photo('a').uri]))).toBe(photo('b').uri);
+  });
+
+  it('falls back to an avoided photo when nothing else has one', () => {
+    const places = [
+      place({ priority: 5, kind: 'landmark', photos: [photo('a')] }),
+      place({ priority: 9, kind: 'restaurant', photos: [] }),
+    ];
+    expect(coverOf(places, new Set([photo('a').uri]))).toBe(photo('a').uri);
   });
 
   it('returns null when nothing has a photo', () => {

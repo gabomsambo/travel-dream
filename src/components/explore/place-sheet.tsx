@@ -142,15 +142,15 @@ export function PlaceSheet({
                   <div className="space-y-2">
                     <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                       <span className="text-base leading-none">{flagFor(place.country)}</span>
-                      {place.city && place.country ? (
+                      {place.country ? (
                         <Link
-                          href={`/explore/atlas/${slugify(place.country)}/${slugify(place.city)}`}
+                          href={`/explore/atlas/${slugify(place.country)}${place.city ? `/${slugify(place.city)}` : ""}`}
                           className="rounded underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                         >
-                          {[place.city, place.country].join(" · ")}
+                          {[place.city, place.country].filter(Boolean).join(" · ")}
                         </Link>
                       ) : (
-                        <span>Somewhere</span>
+                        <span>{place.city || "Somewhere"}</span>
                       )}
                     </p>
                     <Dialog.Title className="font-editorial text-4xl leading-[1.05] tracking-tight md:text-5xl">{place.name}</Dialog.Title>

@@ -1,12 +1,24 @@
 /** Place-name helpers shared by every Explore surface. */
 
+/**
+ * URL-safe slug. A name with no Latin letters or digits ("東京") still gets a
+ * stable, non-empty slug from a hash of the name, so it keeps its own URL.
+ */
 export function slugify(s: string): string {
-  return s
+  const slug = s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+  const name = s.normalize('NFC').trim().toLowerCase();
+  if (slug || !name) return slug;
+  let h = 0x811c9dc5;
+  for (const ch of name) {
+    h ^= ch.codePointAt(0)!;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `x${h.toString(36)}`;
 }
 
 // Country *names* are what the extraction pipeline stores. ISO codes only feed

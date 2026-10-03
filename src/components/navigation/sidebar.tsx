@@ -15,7 +15,8 @@ import {
   Download,
   Map,
   Copy,
-  CloudUpload
+  CloudUpload,
+  Compass
 } from "lucide-react"
 
 const navigation = {
@@ -24,6 +25,7 @@ const navigation = {
     { name: 'Mass Upload', href: '/mass-upload', icon: CloudUpload, shortcut: 'U' },
     { name: 'Review', href: '/review', icon: GitPullRequest, shortcut: 'R' },
     { name: 'Duplicates', href: '/duplicates', icon: Copy, shortcut: 'D' },
+    { name: 'Explore', href: '/explore', icon: Compass, shortcut: 'E' },
     { name: 'Library', href: '/library', icon: Library, shortcut: 'L' },
     { name: 'Archive', href: '/archive', icon: Archive, shortcut: '⇧A' },
     { name: 'Collections', href: '/collections', icon: FolderOpen, shortcut: 'C' },
@@ -46,7 +48,7 @@ export function Sidebar() {
       
       <nav className="flex-1 space-y-1 px-3">
         {navigation.main.map((item) => {
-          const isActive = pathname === item.href
+          const isActive = pathname === item.href || (item.href === '/explore' && pathname.startsWith('/explore/'))
           return (
             <Link key={item.name} href={item.href}>
               <Button
@@ -67,7 +69,7 @@ export function Sidebar() {
         <Separator className="my-4" />
         
         {navigation.secondary.map((item) => {
-          const isActive = pathname === item.href
+          const isActive = pathname === item.href || (item.href === '/explore' && pathname.startsWith('/explore/'))
           return (
             <Link key={item.name} href={item.href}>
               <Button

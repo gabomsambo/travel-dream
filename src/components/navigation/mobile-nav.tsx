@@ -20,7 +20,8 @@ import {
   Settings,
   Download,
   Map,
-  CloudUpload
+  CloudUpload,
+  Compass
 } from "lucide-react"
 
 const navigation = {
@@ -28,6 +29,7 @@ const navigation = {
     { name: 'Inbox', href: '/inbox', icon: Inbox, shortcut: 'I' },
     { name: 'Mass Upload', href: '/mass-upload', icon: CloudUpload, shortcut: 'U' },
     { name: 'Review', href: '/review', icon: GitPullRequest, shortcut: 'R' },
+    { name: 'Explore', href: '/explore', icon: Compass, shortcut: 'E' },
     { name: 'Library', href: '/library', icon: Library, shortcut: 'L' },
     { name: 'Collections', href: '/collections', icon: FolderOpen, shortcut: 'C' },
     { name: 'Map', href: '/map', icon: Map, shortcut: 'M' },
@@ -60,7 +62,7 @@ export function MobileNav() {
         </SheetHeader>
         <nav className="flex flex-col space-y-1 mt-6">
           {navigation.main.map((item) => {
-            const isActive = pathname === item.href
+            const isActive = pathname === item.href || (item.href === '/explore' && pathname.startsWith('/explore/'))
             return (
               <Link key={item.name} href={item.href} onClick={handleNavClick}>
                 <Button
@@ -81,7 +83,7 @@ export function MobileNav() {
           <div className="my-4 border-t" />
 
           {navigation.secondary.map((item) => {
-            const isActive = pathname === item.href
+            const isActive = pathname === item.href || (item.href === '/explore' && pathname.startsWith('/explore/'))
             return (
               <Link key={item.name} href={item.href} onClick={handleNavClick}>
                 <Button

@@ -33,7 +33,7 @@ export function coverOf(places: ExplorePlace[], avoid: Set<string> = new Set()):
  * Groups by slug, not by the raw name, so "Japan" and "japan" (or "São Paulo"
  * and "Sao Paulo") share one page; the group shows its most common spelling.
  */
-function groupBySlug(places: ExplorePlace[], nameOf: (p: ExplorePlace) => string) {
+export function groupBySlug(places: ExplorePlace[], nameOf: (p: ExplorePlace) => string) {
   const groups = new Map<string, { places: ExplorePlace[]; names: Map<string, number> }>();
   for (const p of places) {
     const name = nameOf(p);

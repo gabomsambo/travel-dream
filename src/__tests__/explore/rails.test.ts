@@ -207,6 +207,17 @@ describe('buildTripNudges', () => {
     expect(nudge.existingCollection).toBeNull();
   });
 
+  it('counts every spelling of a city the atlas files under one page', () => {
+    const data = [
+      ...many(3, { country: 'Japan', city: 'Tokyo' }),
+      ...many(2, { country: 'japan', city: 'tokyo ' }),
+    ];
+    const nudges = buildTripNudges(data, []);
+    expect(nudges).toHaveLength(1);
+    expect(nudges[0]).toMatchObject({ city: 'Tokyo', country: 'Japan' });
+    expect([...nudges[0].placeIds].sort()).toEqual(data.map((p) => p.id).sort());
+  });
+
   it('names the kinds of place saved there, most common first', () => {
     const lisbon = [...many(3, { kind: 'restaurant' }), ...many(2, { kind: 'viewpoint' })];
     expect(buildTripNudges(lisbon, [])[0].kinds).toEqual(['Eat & drink', 'See']);

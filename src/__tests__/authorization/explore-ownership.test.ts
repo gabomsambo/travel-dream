@@ -91,7 +91,7 @@ describe('shuffle deck data', () => {
   it('only ever contains the caller own places when built from scoped queries', async () => {
     const now = new Date('2026-10-02T12:00:00Z');
     const alicePlaces = await getExplorePlaces(ALICE.id);
-    const { pool } = shufflePool(alicePlaces, {}, now);
+    const { pool } = shufflePool(alicePlaces, {}, now)!;
     const deck = weightedShuffle(pool, now).map((p) => p.id);
     expect(deck).not.toContain(FIXTURE.bobPlace);
     expect(deck.every((id) => alicePlaces.some((p) => p.id === id))).toBe(true);

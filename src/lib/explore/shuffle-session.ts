@@ -3,6 +3,7 @@ export type ShuffleVerdict = 'dream' | 'next';
 export interface ShuffleHistoryEntry {
   id: string;
   verdict: ShuffleVerdict;
+  dreamPreExisting?: boolean;
 }
 
 export interface ShuffleSession {
@@ -19,11 +20,12 @@ export function isDeckComplete(session: ShuffleSession, deckLength: number): boo
   return session.finishedEarly || session.index >= deckLength;
 }
 
-export function applyVerdict(session: ShuffleSession, id: string, verdict: ShuffleVerdict): ShuffleSession {
+export function applyVerdict(session: ShuffleSession, id: string, verdict: ShuffleVerdict, dreamPreExisting = false): ShuffleSession {
+  const entry: ShuffleHistoryEntry = verdict === 'dream' ? { id, verdict, dreamPreExisting } : { id, verdict };
   return {
     ...session,
     index: session.index + 1,
-    history: [...session.history, { id, verdict }],
+    history: [...session.history, entry],
   };
 }
 

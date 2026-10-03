@@ -44,4 +44,14 @@ describe('shuffle session', () => {
     expect(undone?.index).toBe(1);
     expect(dreamsFromHistory(undone!.history)).toEqual(['a']);
   });
+
+  it('records whether a dream verdict was already a favourite', () => {
+    let session = empty();
+    session = applyVerdict(session, 'a', 'dream', true);
+    session = applyVerdict(session, 'b', 'dream');
+    session = applyVerdict(session, 'c', 'next');
+    expect(session.history[0]).toEqual({ id: 'a', verdict: 'dream', dreamPreExisting: true });
+    expect(session.history[1]).toEqual({ id: 'b', verdict: 'dream', dreamPreExisting: false });
+    expect(session.history[2]).toEqual({ id: 'c', verdict: 'next' });
+  });
 });

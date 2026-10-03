@@ -22,6 +22,10 @@ function write(s: Set<string>): void {
   }
 }
 
+export function isDream(id: string): boolean {
+  return read().has(id);
+}
+
 export function setDream(id: string, on: boolean): void {
   const s = read();
   if (on) s.add(id);

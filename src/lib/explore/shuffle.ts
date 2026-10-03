@@ -1,4 +1,4 @@
-import { buildRails, monthsAgo } from './rails';
+import { findRail, monthsAgo } from './rails';
 import { slugify } from './geo';
 import type { ExplorePlace } from './types';
 
@@ -13,10 +13,11 @@ export function shufflePool(
   places: ExplorePlace[],
   scope: ShuffleScope,
   now: Date
-): { title: string; backHref: string; pool: ExplorePlace[] } {
+): { title: string; backHref: string; pool: ExplorePlace[] } | null {
   if (scope.rail) {
-    const rail = buildRails(places, now).find((r) => r.id === scope.rail);
-    if (rail) return { title: rail.title, backHref: `/explore/r/${rail.id}`, pool: rail.places };
+    const rail = findRail(places, scope.rail, now);
+    if (!rail) return null;
+    return { title: rail.title, backHref: `/explore/r/${rail.id}`, pool: rail.places };
   }
   if (scope.country) {
     const countryPlaces = places.filter((p) => p.country && slugify(p.country) === scope.country);

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { AnimatePresence, animate, motion, useMotionValue, useTransform, type PanInfo } from "framer-motion"
 import { ArrowUp, FolderPlus, Heart, Loader2, RotateCcw, Shuffle, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { setDream } from "@/lib/explore/dreams"
+import { isDream, setDream } from "@/lib/explore/dreams"
 import { flagFor } from "@/lib/explore/geo"
 import { savedAgoLabel } from "@/lib/explore/rails"
 import {
@@ -75,9 +75,14 @@ export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref
   const decide = React.useCallback(
     (verdict: ShuffleVerdict) => {
       if (!current) return
-      if (verdict === "dream") setDream(current.id, true)
+      if (verdict === "dream") {
+        const wasAlready = isDream(current.id)
+        setDream(current.id, true)
+        setSession((s) => applyVerdict(s, current.id, verdict, wasAlready))
+      } else {
+        setSession((s) => applyVerdict(s, current.id, verdict))
+      }
       setExitDir(verdict === "dream" ? 1 : -1)
-      setSession((s) => applyVerdict(s, current.id, verdict))
       setCoach(false)
     },
     [current]
@@ -88,7 +93,7 @@ export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref
       const next = undoVerdict(s)
       if (!next) return s
       const last = s.history[s.history.length - 1]
-      if (last?.verdict === "dream") setDream(last.id, false)
+      if (last?.verdict === "dream" && !last.dreamPreExisting) setDream(last.id, false)
       return next
     })
   }, [])
@@ -100,17 +105,22 @@ export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (document.querySelector("[role=dialog]")) return
-      if (e.key === "ArrowRight") decide("dream")
-      else if (e.key === "ArrowLeft") decide("next")
-      else if ((e.key === "ArrowUp" || e.key === "Enter") && current) openPlace(current.id)
-      else if (e.key === "Backspace" || e.key.toLowerCase() === "z") undo()
-      else if (e.key === "Escape") router.push(backHref)
-      else return
+      if (!done && (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "Enter")) {
+        if (e.key === "ArrowRight") decide("dream")
+        else if (e.key === "ArrowLeft") decide("next")
+        else if (current) openPlace(current.id)
+      } else if (e.key === "Backspace" || e.key.toLowerCase() === "z") {
+        undo()
+      } else if (e.key === "Escape") {
+        router.push(backHref)
+      } else {
+        return
+      }
       e.preventDefault()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [decide, undo, current, openPlace, router, backHref])
+  }, [decide, undo, current, openPlace, router, backHref, done])
 
   React.useEffect(() => {
     for (const p of cards.slice(session.index + 1, session.index + 3)) {

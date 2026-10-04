@@ -22,7 +22,8 @@
  *
  * Apply mode is resumable: finished places are appended (fsync'd) to
  * <out>/ledger.jsonl and skipped on the next run. Re-running after a crash is
- * the recovery procedure. Outputs, all in --out:
+ * the recovery procedure; a lock left by a crashed run is reclaimed when its
+ * recorded PID is no longer alive. Outputs, all in --out:
  *   plan.jsonl | applied.jsonl  one line per place processed this run
  *   summary.json, unmatched.csv, sample.md, preview.html (dry-run, --previews)
  */
@@ -120,6 +121,45 @@ function htmlEscape(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
 
+/** PID liveness probe: ESRCH means the process is gone; EPERM means it exists. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * O_EXCL apply lock, so two concurrent apply runs can never share one ledger
+ * (that would double the API calls). A lock whose recorded PID is no longer
+ * alive is a crashed run and is reclaimed; a live PID keeps refusing.
+ */
+function acquireApplyLock(lockFile: string): void {
+  const write = () => fs.writeFileSync(lockFile, `${process.pid}\n`, { flag: 'wx' });
+  try {
+    write();
+    return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+  const recorded = Number.parseInt((fs.readFileSync(lockFile, 'utf8') || '').trim(), 10);
+  if (!Number.isInteger(recorded) || recorded <= 0 || processAlive(recorded)) {
+    throw new Error(`another apply run (pid ${recorded}) holds ${lockFile}; refusing to share the ledger`);
+  }
+  console.log(`[backfill] reclaiming stale apply lock left by dead pid ${recorded}`);
+  fs.rmSync(lockFile, { force: true });
+  try {
+    write();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error('another apply run grabbed the lock during reclaim; refusing to share the ledger');
+    }
+    throw error;
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -136,10 +176,7 @@ async function main(): Promise<void> {
 
   fs.mkdirSync(args.out, { recursive: true });
   const lockFile = path.join(args.out, '.lock');
-  if (args.mode === 'apply') {
-    // O_EXCL: two concurrent apply runs on one ledger would double the API calls.
-    fs.writeFileSync(lockFile, `${process.pid}\n`, { flag: 'wx' });
-  }
+  if (args.mode === 'apply') acquireApplyLock(lockFile);
 
   try {
     const { client, db } = await import('@/db');

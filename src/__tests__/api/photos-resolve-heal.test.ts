@@ -86,6 +86,25 @@ describe('photo resolve self-heal', () => {
     expect((await row('att_alice')).source_id).toBe(OLD);
   });
 
+  it('does not overwrite stored dimensions when the fresh photo omits them', async () => {
+    await ex(
+      'UPDATE attachments SET width = ?, height = ? WHERE id = ?',
+      [1000, 800, 'att_alice'],
+    );
+    mockResolve.mockResolvedValueOnce({
+      photoUri: 'https://lh3/fresh',
+      refreshed: { name: FRESH.name, widthPx: null, heightPx: null, authorAttributions: FRESH.authorAttributions },
+    });
+
+    expect((await get('att_alice')).status).toBe(302);
+    const r = await row('att_alice');
+    expect(r.source_id).toBe(FRESH.name);
+    expect((await ex('SELECT width, height FROM attachments WHERE id = ?', ['att_alice'])).rows[0]).toEqual({
+      width: 1000,
+      height: 800,
+    });
+  });
+
   it('writes nothing when the heal fails', async () => {
     mockResolve.mockResolvedValueOnce(null);
     expect((await get('att_alice')).status).toBe(502);

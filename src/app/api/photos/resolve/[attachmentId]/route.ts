@@ -63,15 +63,23 @@ export async function GET(
     // the old name so a concurrent change to the attachment is not clobbered.
     if (resolved.refreshed) {
       const fresh = resolved.refreshed;
+      // Place Details `photos` can omit dimensions; never overwrite stored
+      // non-null ones with null.
+      const update: {
+        sourceId: string;
+        attribution: { kind: 'google_places'; authorAttributions: typeof fresh.authorAttributions };
+        width?: number;
+        height?: number;
+      } = {
+        sourceId: fresh.name,
+        attribution: { kind: 'google_places', authorAttributions: fresh.authorAttributions },
+      };
+      if (fresh.widthPx !== null) update.width = fresh.widthPx;
+      if (fresh.heightPx !== null) update.height = fresh.heightPx;
       try {
         await forUser(user.id).updateVia(
           attachments,
-          {
-            sourceId: fresh.name,
-            width: fresh.widthPx,
-            height: fresh.heightPx,
-            attribution: { kind: 'google_places', authorAttributions: fresh.authorAttributions },
-          },
+          update,
           and(eq(attachments.id, a.id), eq(attachments.sourceId, a.sourceId)),
         );
       } catch (error) {

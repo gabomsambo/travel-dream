@@ -22,7 +22,9 @@ const RATE_LIMIT_TIERS: Record<RateLimitTier, RateLimitConfig> = {
   standard: { requests: 30, window: '1 m', prefix: 'rl:std' },
   relaxed: { requests: 100, window: '1 m', prefix: 'rl:rel' },
   'photo-search': { requests: 10, window: '1 m', prefix: 'rl:photo-search' },
-  'photo-resolve': { requests: 60, window: '1 m', prefix: 'rl:photo-resolve' },
+  // One call per Google-backed photo on screen; a library page shows dozens, and
+  // the browser caches each redirect for 45 min, so this only clips bursts.
+  'photo-resolve': { requests: 600, window: '1 m', prefix: 'rl:photo-resolve' },
 };
 
 const ROUTE_TIERS: Record<string, RateLimitTier> = {
@@ -160,18 +162,25 @@ export function rateLimitResponse(result: RateLimitResult): NextResponse {
   );
 }
 
+/**
+ * Tiers that apply to beta testers too. Everything else is lifted to `relaxed`
+ * for them, which is one 100/min bucket shared across routes — far too small
+ * for photo resolves, where a single library page can ask for dozens at once.
+ */
+const TIERS_FOR_EVERYONE = new Set<RateLimitTier>(['photo-resolve']);
+
 export function getRouteTier(pathname: string, userId?: string): RateLimitTier {
+  const routeTier = Object.entries(ROUTE_TIERS).find(([route]) => pathname.startsWith(route))?.[1];
+
+  if (routeTier && TIERS_FOR_EVERYONE.has(routeTier)) {
+    return routeTier;
+  }
+
   if (userId && isBetaTester(userId)) {
     return 'relaxed';
   }
 
-  for (const [route, tier] of Object.entries(ROUTE_TIERS)) {
-    if (pathname.startsWith(route)) {
-      return tier;
-    }
-  }
-
-  return 'relaxed';
+  return routeTier ?? 'relaxed';
 }
 
 export function addRateLimitHeaders(

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { attachments } from '@/db/schema';
 import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import { resolveGooglePhotoUri } from '@/lib/photo-sources/google-resolver';
+import { resolveGooglePhoto } from '@/lib/photo-sources/google-resolver';
 
 export const runtime = 'nodejs';
 
@@ -32,6 +32,7 @@ export async function GET(
           id: attachments.id,
           source: attachments.source,
           sourceId: attachments.sourceId,
+          attribution: attachments.attribution,
         },
         eq(attachments.id, attachmentId)
       )
@@ -49,10 +50,37 @@ export async function GET(
       );
     }
 
-    const photoUri = await resolveGooglePhotoUri(a.sourceId, width);
-    if (!photoUri) {
+    const preferredAuthorUri =
+      a.attribution?.kind === 'google_places' ? a.attribution.authorAttributions[0]?.uri : undefined;
+    const resolved = await resolveGooglePhoto(a.sourceId, width, preferredAuthorUri);
+    if (!resolved) {
       return NextResponse.json({ error: 'Resolve failed' }, { status: 502 });
     }
+
+    // Google expired the stored photo name and the resolver found a fresh one
+    // for the same place: store it, so the next view does not pay for the
+    // refresh again. Scoped to the caller like the lookup above, and guarded on
+    // the old name so a concurrent change to the attachment is not clobbered.
+    if (resolved.refreshed) {
+      const fresh = resolved.refreshed;
+      try {
+        await forUser(user.id).updateVia(
+          attachments,
+          {
+            sourceId: fresh.name,
+            width: fresh.widthPx,
+            height: fresh.heightPx,
+            attribution: { kind: 'google_places', authorAttributions: fresh.authorAttributions },
+          },
+          and(eq(attachments.id, a.id), eq(attachments.sourceId, a.sourceId)),
+        );
+      } catch (error) {
+        // The photo still renders; the next view simply refreshes again.
+        console.error('[photos/resolve] could not store refreshed photo name:', error);
+      }
+    }
+
+    const photoUri = resolved.photoUri;
 
     return new NextResponse(null, {
       status: 302,

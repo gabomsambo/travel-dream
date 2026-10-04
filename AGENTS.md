@@ -267,6 +267,8 @@ Photos picked from Google Places / Wikimedia / Pexels are not uploads: `src/lib/
 attaches them and sets the primary photo for the Find-image route, the primary route and
 `scripts/backfill-place-photos.ts` alike. Google photos are stored as a photo-name reference that
 `/api/photos/resolve` turns into a URL on view (billed per view) — never persist Google image bytes or URLs.
+Google photo names expire (weeks, not years): the resolver refreshes an expired one from the place id with a
+free `photos`-only Place Details call and stores the new name, so don't treat a stored name as permanent.
 
 ## Mass-upload queue (reliability-critical)
 

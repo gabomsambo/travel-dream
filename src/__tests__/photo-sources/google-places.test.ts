@@ -4,7 +4,12 @@
 
 process.env.GOOGLE_PLACES_API_KEY = 'test-google-key';
 
-import googleAdapter from '@/lib/photo-sources/google-places';
+import googleAdapter, {
+  fetchPlacePhotos,
+  searchPlacesWithPhotos,
+  GooglePlacesApiError,
+} from '@/lib/photo-sources/google-places';
+import { RateLimitError } from '@/lib/photo-sources/types';
 
 function jsonResponse(body: unknown, init: { status?: number } = {}) {
   return {
@@ -91,5 +96,82 @@ describe('google-places adapter', () => {
       googlePlaceId: 'gpl_x',
     });
     expect(result.items).toEqual([]);
+  });
+});
+
+describe('google-places backfill lookups', () => {
+  const photo = {
+    name: 'places/gpl_a/photos/P1',
+    widthPx: 1000,
+    heightPx: 700,
+    authorAttributions: [{ displayName: 'Ann', uri: 'https://maps.google.com/contrib/9' }],
+  };
+
+  it('fetchPlacePhotos returns photo references without any Place Photos call', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce(
+      jsonResponse({
+        id: 'gpl_a',
+        displayName: { text: 'Plaza Mayor' },
+        location: { latitude: 40.4, longitude: -3.7 },
+        types: ['tourist_attraction'],
+        photos: [photo],
+      }),
+    );
+
+    const place = await fetchPlacePhotos('gpl_a');
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe('https://places.googleapis.com/v1/places/gpl_a?languageCode=en');
+    expect(init.headers['X-Goog-FieldMask']).toBe('id,displayName,location,types,photos');
+    expect(place).toMatchObject({
+      googlePlaceId: 'gpl_a',
+      displayName: 'Plaza Mayor',
+      location: { lat: 40.4, lon: -3.7 },
+      types: ['tourist_attraction'],
+    });
+    expect(place.photos[0]).toEqual({
+      source: 'google_places',
+      sourceId: 'places/gpl_a/photos/P1',
+      thumbnailUrl: null,
+      fullUrl: null,
+      width: 1000,
+      height: 700,
+      attribution: {
+        kind: 'google_places',
+        authorAttributions: [{ displayName: 'Ann', uri: 'https://maps.google.com/contrib/9' }],
+      },
+    });
+  });
+
+  it('searchPlacesWithPhotos posts a location-biased Text Search with a Pro-only field mask', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce(
+      jsonResponse({ places: [{ id: 'gpl_a', displayName: { text: 'Plaza Mayor' }, photos: [photo] }] }),
+    );
+
+    const results = await searchPlacesWithPhotos('Plaza Mayor, Madrid', { lat: 40.4, lon: -3.7 });
+
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe('https://places.googleapis.com/v1/places:searchText');
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-Goog-FieldMask']).toBe(
+      'places.id,places.displayName,places.location,places.formattedAddress,places.types,places.photos',
+    );
+    expect(JSON.parse(init.body)).toMatchObject({
+      textQuery: 'Plaza Mayor, Madrid',
+      locationBias: { circle: { center: { latitude: 40.4, longitude: -3.7 } } },
+    });
+    expect(results[0].photos[0].sourceId).toBe('places/gpl_a/photos/P1');
+  });
+
+  it('surfaces 429 as RateLimitError and other failures with their status', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ...jsonResponse({}, { status: 429 }), headers: { get: () => '7' } })
+      .mockResolvedValueOnce(jsonResponse({}, { status: 404 }));
+
+    await expect(fetchPlacePhotos('gpl_a')).rejects.toBeInstanceOf(RateLimitError);
+    const err = await fetchPlacePhotos('gpl_a').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GooglePlacesApiError);
+    expect((err as GooglePlacesApiError).status).toBe(404);
   });
 });

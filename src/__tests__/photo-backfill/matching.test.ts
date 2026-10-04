@@ -120,7 +120,7 @@ describe('judgeGoogleCandidate', () => {
     expect(v.reason).toBe('name differs');
   });
 
-  it('never lets a business stand in for a city', () => {
+  it('never lets a hotel stand in for a city', () => {
     const v = judgeGoogleCandidate(
       place({ name: 'Madrid', kind: 'city', coords: { lat: 40.4168, lon: -3.7038 } }),
       candidate({
@@ -130,7 +130,37 @@ describe('judgeGoogleCandidate', () => {
       }),
     );
     expect(v.accepted).toBe(false);
-    expect(v.reason).toMatch(/business/);
+    expect(v.reason).toMatch(/cannot be a lodging/);
+  });
+
+  it.each([
+    ['Uganda', 'city', 'The Industrial Court Of Uganda', ['courthouse', 'establishment']],
+    ['Dijon', 'city', 'Dijon railway station', ['train_station', 'transit_station']],
+    ['Cyprus', 'landmark', 'Cyprus International University', ['university', 'school']],
+    ['Canada', 'landmark', "Canada's Wonderland", ['amusement_park', 'tourist_attraction']],
+    ['Cala Granadella', 'beach', 'Parking Cala Granadella', ['parking', 'establishment']],
+    ['Flamingos', 'shop', 'Flamingos Bar', ['bar', 'food']],
+    ['luna', 'bar', 'Luna Beauty & co', ['beauty_salon']],
+    ['Masai', 'natural', 'MASAI K LTD', ['point_of_interest', 'establishment']],
+  ])('rejects %s (%s) -> %s: wrong sort of place', (name, kind, matched, types) => {
+    const v = judgeGoogleCandidate(
+      place({ name, kind, coords: { lat: 10, lon: 10 } }),
+      candidate({ displayName: matched, location: { lat: 10, lon: 10 }, types }),
+    );
+    expect(v.accepted).toBe(false);
+  });
+
+  it.each([
+    ['Ho Chi Minh', 'city', 'Ho Chi Minh City', ['locality', 'political']],
+    ['Sky 44', 'bar', 'Sky 44 Rooftop Terraza & Bar Madrid', ['bar', 'restaurant']],
+    ['Matterhorn', 'natural', 'Matterhorn Glacier', ['natural_feature']],
+    ['Paris', 'city', 'Paris', ['establishment']],
+  ])('accepts %s (%s) -> %s', (name, kind, matched, types) => {
+    const v = judgeGoogleCandidate(
+      place({ name, kind, coords: { lat: 10, lon: 10 } }),
+      candidate({ displayName: matched, location: { lat: 10, lon: 10 }, types }),
+    );
+    expect(v.accepted).toBe(true);
   });
 
   it('without coordinates, requires the address to name the place\'s area', () => {

@@ -10,6 +10,7 @@
  */
 import {
   applyDecision,
+  decideFromPlan,
   planPlace,
   type ApplyOutcome,
   type BackfillDeps,
@@ -46,6 +47,12 @@ export interface RunOptions {
   deps: BackfillDeps;
   /** Required in apply mode; ignored in dry-run. */
   ledger?: Ledger;
+  /**
+   * Decisions from a reviewed dry run, by place id. When given, only these
+   * places run, and each writes its planned decision (re-checked against the
+   * current rows) instead of searching again.
+   */
+  plan?: Map<string, Decision>;
   concurrency?: number;
   batchSize?: number;
   /** Stop after this many places have been processed (ledgered places are not counted). */
@@ -79,7 +86,7 @@ export async function runBackfill(
   const maxConsecutive = opts.maxConsecutiveErrors ?? 10;
 
   const summary: RunSummary = {
-    total: placesToRun.length,
+    total: opts.plan ? placesToRun.filter((p) => opts.plan!.has(p.id)).length : placesToRun.length,
     skippedFromLedger: 0,
     processed: 0,
     byAction: {},
@@ -89,9 +96,11 @@ export async function runBackfill(
   };
 
   let queue = placesToRun;
+  if (opts.plan) queue = queue.filter((p) => opts.plan!.has(p.id));
   if (opts.mode === 'apply') {
-    queue = placesToRun.filter((p) => !opts.ledger!.done(p.id));
-    summary.skippedFromLedger = placesToRun.length - queue.length;
+    const before = queue.length;
+    queue = queue.filter((p) => !opts.ledger!.done(p.id));
+    summary.skippedFromLedger = before - queue.length;
   }
   if (opts.maxPlaces !== undefined) queue = queue.slice(0, opts.maxPlaces);
 
@@ -110,7 +119,10 @@ export async function runBackfill(
       place: { id: place.id, name: place.name, kind: place.kind, city: place.city, country: place.country },
     };
     try {
-      const decision = await planPlace(place, opts.deps);
+      const planned = opts.plan?.get(place.id);
+      const decision = planned
+        ? await decideFromPlan(place, planned, opts.deps)
+        : await planPlace(place, opts.deps);
       report.decision = decision;
 
       if (opts.mode === 'apply' && decision.action !== 'retry-later') {

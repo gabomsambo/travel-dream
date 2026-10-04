@@ -4,13 +4,18 @@
  *
  *   npx tsx scripts/backfill-place-photos.ts --env <file> --email <email> \
  *     --out <dir> [--mode dry-run|apply] [--confirm-db-host <host>] \
- *     [--max-places N] [--batch-size 100] [--concurrency 4] [--previews 8] [--sample 25]
+ *     [--from-plan <plan.jsonl>] [--max-places N] [--batch-size 100] [--concurrency 4] \
+ *     [--previews 8] [--sample 25]
  *
  * --env is required and is the only env file read, so the target database is
  * always explicit. The database host is printed before anything runs; apply
  * mode refuses to start unless --confirm-db-host names that same host.
  * Dry-run blocks every non-SELECT statement at the client, on top of never
  * calling a write path.
+ *
+ * --from-plan writes the decisions of a reviewed dry run (its plan.jsonl)
+ * instead of searching again, re-checking each place against its current rows
+ * first, so what is written is what was reviewed and Google is not billed twice.
  *
  * Apply mode is resumable: finished places are appended (fsync'd) to
  * <out>/ledger.jsonl and skipped on the next run. Re-running after a crash is
@@ -28,6 +33,7 @@ interface Args {
   out: string;
   mode: 'dry-run' | 'apply';
   confirmDbHost?: string;
+  fromPlan?: string;
   maxPlaces?: number;
   batchSize: number;
   concurrency: number;
@@ -61,6 +67,7 @@ function parseArgs(argv: string[]): Args {
     out,
     mode,
     confirmDbHost: get('--confirm-db-host'),
+    fromPlan: get('--from-plan'),
     maxPlaces: num('--max-places'),
     batchSize: num('--batch-size', 100)!,
     concurrency: num('--concurrency', 4)!,
@@ -139,6 +146,7 @@ async function main(): Promise<void> {
     const { runBackfill } = await import('@/lib/photo-backfill/runner');
     type PlaceReport = import('@/lib/photo-backfill/runner').PlaceReport;
     type Liveness = import('@/lib/photo-backfill/backfill').Liveness;
+    type Decision = import('@/lib/photo-backfill/backfill').Decision;
 
     if (args.mode === 'dry-run') {
       const readOnly = (sql: string) => {
@@ -209,6 +217,17 @@ async function main(): Promise<void> {
     const allPlaces = await loadUserPlaces(user.id);
     console.log(`[backfill] ${allPlaces.length} places loaded`);
 
+    let plan: Map<string, Decision> | undefined;
+    if (args.fromPlan) {
+      plan = new Map();
+      for (const line of fs.readFileSync(args.fromPlan, 'utf8').split('\n')) {
+        if (!line.trim()) continue;
+        const r = JSON.parse(line) as PlaceReport;
+        if (r.decision) plan.set(r.place.id, r.decision);
+      }
+      console.log(`[backfill] plan ${args.fromPlan}: ${plan.size} decisions`);
+    }
+
     const ledger = args.mode === 'apply' ? openLedger(path.join(args.out, 'ledger.jsonl')) : undefined;
     if (ledger) console.log(`[backfill] ledger has ${ledger.size()} finished places`);
 
@@ -221,6 +240,7 @@ async function main(): Promise<void> {
       mode: args.mode,
       deps,
       ledger,
+      plan,
       concurrency: args.concurrency,
       batchSize: args.batchSize,
       maxPlaces: args.maxPlaces,

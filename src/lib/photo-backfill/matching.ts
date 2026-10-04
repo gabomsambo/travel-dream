@@ -45,14 +45,121 @@ const WIKIMEDIA_KINDS = new Set([
   'natural', 'thermal', 'transit', 'market', 'festival',
 ]);
 
-/** Google types that mark a business; such a candidate never stands in for a non-business kind. */
-const BUSINESS_TYPES = new Set([
-  'lodging', 'hotel', 'restaurant', 'food', 'cafe', 'bar', 'store', 'night_club',
-  'travel_agency', 'real_estate_agency', 'shopping_mall', 'meal_takeaway',
-]);
 const BUSINESS_KINDS = new Set([
   'restaurant', 'cafe', 'bar', 'club', 'hotel', 'hostel', 'stay', 'shop', 'tour', 'experience',
 ]);
+
+/** Broad families of Google place types, for checking a candidate is the right sort of thing. */
+type TypeGroup = 'area' | 'nature' | 'attraction' | 'food' | 'lodging' | 'shop' | 'transit' | 'route';
+
+const AREA_TYPES = new Set([
+  'locality', 'country', 'political', 'colloquial_area', 'postal_town', 'neighborhood',
+  'archipelago', 'continent', 'island',
+]);
+const NATURE_TYPES = new Set([
+  'natural_feature', 'park', 'national_park', 'state_park', 'hiking_area', 'beach', 'campground',
+  'garden', 'botanical_garden', 'nature_preserve', 'wildlife_park', 'wildlife_refuge',
+  'mountain_peak', 'lake', 'river', 'island', 'scenic_spot', 'woods',
+]);
+const ATTRACTION_TYPES = new Set([
+  'tourist_attraction', 'historical_landmark', 'historical_place', 'monument', 'museum',
+  'art_gallery', 'church', 'place_of_worship', 'hindu_temple', 'mosque', 'synagogue',
+  'buddhist_temple', 'cultural_landmark', 'plaza', 'observation_deck', 'amusement_park', 'zoo',
+  'aquarium', 'cultural_center', 'performing_arts_theater', 'opera_house', 'concert_hall',
+  'castle', 'bridge', 'sculpture', 'visitor_center', 'marina', 'garden', 'park', 'water_park',
+  'ski_resort', 'national_park', 'scenic_spot', 'art_studio', 'library', 'planetarium',
+]);
+const FOOD_TYPES = new Set([
+  'restaurant', 'cafe', 'bar', 'food', 'meal_takeaway', 'meal_delivery', 'bakery',
+  'coffee_shop', 'night_club', 'pub', 'wine_bar', 'food_court', 'ice_cream_shop',
+  'dessert_shop', 'brewery', 'winery', 'tea_house', 'confectionery', 'bar_and_grill',
+]);
+const LODGING_TYPES = new Set([
+  'lodging', 'hotel', 'hostel', 'resort_hotel', 'bed_and_breakfast', 'guest_house', 'motel',
+  'inn', 'campground', 'farmstay', 'cottage', 'private_guest_room', 'extended_stay_hotel',
+  'budget_japanese_inn', 'japanese_inn', 'camping_cabin', 'rv_park',
+]);
+const TRANSIT_TYPES = new Set([
+  'airport', 'international_airport', 'ferry_terminal', 'transit_depot', 'heliport',
+]);
+
+/** Types that are never a photo of the place, whatever the names say. */
+const NEVER_TYPES = new Set(['parking', 'parking_lot', 'parking_garage']);
+
+export function typeGroups(types: string[]): Set<TypeGroup> {
+  const groups = new Set<TypeGroup>();
+  for (const t of types) {
+    if (AREA_TYPES.has(t) || t.startsWith('administrative_area_level_') || t.startsWith('sublocality')) {
+      groups.add('area');
+    }
+    if (NATURE_TYPES.has(t)) groups.add('nature');
+    if (ATTRACTION_TYPES.has(t)) groups.add('attraction');
+    if (FOOD_TYPES.has(t) || t.endsWith('_restaurant') || t.endsWith('_bar') || t.endsWith('_cafe')) {
+      groups.add('food');
+    }
+    if (LODGING_TYPES.has(t)) groups.add('lodging');
+    if (t === 'store' || t.endsWith('_store') || t === 'shopping_mall' || t === 'market' ||
+        t === 'supermarket' || t === 'gift_shop' || t === 'flea_market') {
+      groups.add('shop');
+    }
+    if (TRANSIT_TYPES.has(t) || t.endsWith('_station')) groups.add('transit');
+    if (t === 'route') groups.add('route');
+  }
+  return groups;
+}
+
+/** What a candidate for each kind may be. Kinds not listed (experience, tour, ...) are not checked. */
+const KIND_GROUPS: Record<string, TypeGroup[]> = {
+  city: ['area'],
+  neighborhood: ['area', 'attraction', 'route'],
+  natural: ['nature', 'area', 'attraction'],
+  beach: ['nature', 'area', 'attraction'],
+  park: ['nature', 'attraction'],
+  viewpoint: ['attraction', 'nature', 'area'],
+  landmark: ['attraction', 'nature', 'area'],
+  museum: ['attraction'],
+  gallery: ['attraction', 'shop'],
+  thermal: ['attraction', 'nature', 'lodging'],
+  transit: ['transit', 'attraction'],
+  market: ['shop', 'food', 'attraction'],
+  restaurant: ['food', 'lodging'],
+  cafe: ['food', 'lodging', 'shop'],
+  bar: ['food', 'lodging'],
+  club: ['food', 'lodging'],
+  hotel: ['lodging'],
+  hostel: ['lodging'],
+  stay: ['lodging'],
+  shop: ['shop'],
+};
+
+/**
+ * For a name that is not an exact match: is the candidate the right sort of
+ * place? A stored Google id's location always agrees with the place (the
+ * place's coordinates came from that same lookup), so this is what stops
+ * "Uganda" taking the photo of "The Industrial Court Of Uganda".
+ */
+function kindMismatch(place: BackfillPlace, candidateName: string, types: string[]): string | null {
+  if (types.some((t) => NEVER_TYPES.has(t))) return `candidate is a ${types.find((t) => NEVER_TYPES.has(t))}`;
+  const allowed = KIND_GROUPS[place.kind];
+  if (!allowed) return null;
+  const groups = typeGroups(types);
+  if (!allowed.some((g) => groups.has(g))) {
+    return `a ${place.kind} cannot be a ${types.filter((t) => t !== 'point_of_interest' && t !== 'establishment').join('/') || 'generic establishment'}`;
+  }
+  // A one-word name ("Canada", "Uluru") widened into a longer name is usually a
+  // business or facility named after the place, not the place itself.
+  const placeTokens = tokens(place.name);
+  if (
+    !BUSINESS_KINDS.has(place.kind) &&
+    placeTokens.length === 1 &&
+    tokens(candidateName).length > 1 &&
+    !groups.has('area') &&
+    !groups.has('nature')
+  ) {
+    return `one-word ${place.kind} name widened to a ${[...groups].join('/')}`;
+  }
+  return null;
+}
 
 /** Wikimedia files that depict something other than the place itself. */
 const WIKIMEDIA_REJECT = /\b(map|maps|flag|logo|coat of arms|locator|diagram|plan|seal|emblem|sign)\b/;
@@ -216,12 +323,9 @@ export function judgeGoogleCandidate(
   if (!matchedName) return verdict(false, 'candidate has no name');
   if (similarity < MIN_NAME_SIMILARITY) return verdict(false, 'name differs');
 
-  if (
-    !BUSINESS_KINDS.has(place.kind) &&
-    similarity < 1 &&
-    candidate.types.some((t) => BUSINESS_TYPES.has(t))
-  ) {
-    return verdict(false, `business (${candidate.types.join(',')}) for a ${place.kind}`);
+  if (similarity < 1) {
+    const mismatch = kindMismatch(place, matchedName, candidate.types);
+    if (mismatch) return verdict(false, mismatch);
   }
 
   if (distanceKm !== null) {

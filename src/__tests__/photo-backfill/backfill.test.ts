@@ -24,7 +24,8 @@ import {
   type BackfillDeps,
   type Liveness,
 } from '@/lib/photo-backfill/backfill';
-import { runBackfill, type Ledger, type LedgerEntry } from '@/lib/photo-backfill/runner';
+import { runBackfill, type Ledger, type LedgerEntry, type PlaceReport } from '@/lib/photo-backfill/runner';
+import type { Decision } from '@/lib/photo-backfill/backfill';
 import { attachPhotoFromSource } from '@/lib/place-photos';
 
 type Client = { execute: (q: { sql: string; args: unknown[] }) => Promise<{ rows: Record<string, unknown>[] }> };
@@ -345,6 +346,114 @@ describe('place photo backfill', () => {
       },
     });
     expect(reports[P.dead]).toEqual({ action: 'attach', via: 'text-search' });
+  });
+});
+
+describe('place photo backfill from a reviewed plan', () => {
+  beforeAll(() => {
+    assertLocalDatabase();
+    useUniqueUuids();
+  });
+
+  beforeEach(async () => {
+    await resetTenantFixture();
+    await seedPlace(P.dead, ALICE.id, 'Plaza Mayor', { gpid: 'gp_plaza' });
+    await seedPhoto('att_dead', P.dead, 'upload', DEAD, 1);
+    await seedPlace(P.repoint, ALICE.id, 'Plaza Mayor');
+    await seedPhoto('att_repoint_dead', P.repoint, 'upload', DEAD, 1);
+    await seedPhoto('att_repoint_google', P.repoint, 'google_places', '/api/photos/resolve/att_repoint_google', 0);
+  });
+
+  async function dryRunPlan(): Promise<Map<string, Decision>> {
+    const plan = new Map<string, Decision>();
+    await runBackfill(await loadUserPlaces(ALICE.id), {
+      userId: ALICE.id,
+      mode: 'dry-run',
+      deps: makeDeps(),
+      onPlace: (r: PlaceReport) => {
+        if (r.decision) plan.set(r.place.id, r.decision);
+      },
+    });
+    return plan;
+  }
+
+  it('writes the planned photo without searching again', async () => {
+    const plan = await dryRunPlan();
+    const deps = makeDeps();
+    await runBackfill(await loadUserPlaces(ALICE.id), {
+      userId: ALICE.id,
+      mode: 'apply',
+      deps,
+      ledger: memoryLedger(),
+      plan,
+    });
+
+    expect(deps.fetchPlacePhotos).not.toHaveBeenCalled();
+    expect(deps.searchPlacesWithPhotos).not.toHaveBeenCalled();
+    const added = (await photosOf(P.dead)).find((r) => r.source === 'google_places')!;
+    expect(added.source_id).toBe('places/gp_plaza/photos/FIRST');
+    expect(added.is_primary).toBe(1);
+    expect((await photosOf(P.repoint)).find((r) => r.id === 'att_repoint_google')!.is_primary).toBe(1);
+  });
+
+  it('keeps a place that gained a working photo after the plan was made', async () => {
+    const plan = await dryRunPlan();
+    // The owner picked a photo by hand in the meantime.
+    await attachPhotoFromSource(ALICE.id, P.dead, googlePlace('Plaza Mayor', 'gp_hand').photos[1], 'always');
+    const before = await countAttachments();
+
+    const reports: Record<string, string> = {};
+    await runBackfill(await loadUserPlaces(ALICE.id), {
+      userId: ALICE.id,
+      mode: 'apply',
+      deps: makeDeps(),
+      ledger: memoryLedger(),
+      plan,
+      onPlace: (r) => {
+        reports[r.place.id] = r.decision!.action;
+      },
+    });
+
+    expect(reports[P.dead]).toBe('keep');
+    expect(await countAttachments()).toBe(before);
+  });
+
+  it('only runs places that are in the plan', async () => {
+    const summary = await runBackfill(await loadUserPlaces(ALICE.id), {
+      userId: ALICE.id,
+      mode: 'apply',
+      deps: makeDeps(),
+      ledger: memoryLedger(),
+      plan: new Map(),
+    });
+    expect(summary.processed).toBe(0);
+  });
+});
+
+describe('text search candidate choice', () => {
+  beforeAll(() => {
+    assertLocalDatabase();
+  });
+
+  beforeEach(async () => {
+    await resetTenantFixture();
+    await seedPlace(P.dead, ALICE.id, 'Plaza Mayor');
+    await seedPhoto('att_dead', P.dead, 'upload', DEAD, 1);
+  });
+
+  it('prefers the best-named acceptable candidate over the first acceptable one', async () => {
+    const near = { ...googlePlace('Plaza Mayor Madrid Centro', 'gp_near'), types: ['plaza'] };
+    const exact = googlePlace('Plaza Mayor', 'gp_exact');
+    let picked = '';
+    await runBackfill(await loadUserPlaces(ALICE.id), {
+      userId: ALICE.id,
+      mode: 'dry-run',
+      deps: makeDeps({ searchPlacesWithPhotos: jest.fn(async () => [near, exact]) }),
+      onPlace: (r) => {
+        if (r.decision?.action === 'attach') picked = r.decision.match.candidateId;
+      },
+    });
+    expect(picked).toBe('gp_exact');
   });
 });
 

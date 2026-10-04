@@ -53,6 +53,8 @@ export interface BackfillDeps {
 export interface MatchLogEntry extends MatchVerdict {
   via: 'stored-id' | 'text-search' | 'wikimedia';
   candidateId: string;
+  /** Google place types of the candidate, for the audit trail. */
+  types?: string[];
 }
 
 export type Decision =
@@ -129,7 +131,10 @@ export async function loadUserPlaces(userId: string): Promise<PlaceWithPhotos[]>
 // ─── Classification ───────────────────────────────────────────────────────────
 
 /** Whether a stored photo currently renders. */
-export async function photoLiveness(photo: PhotoRow, deps: BackfillDeps): Promise<Liveness> {
+export async function photoLiveness(
+  photo: PhotoRow,
+  deps: Pick<BackfillDeps, 'checkUrl'>,
+): Promise<Liveness> {
   // Rendered through the app's own resolver from a stored photo reference.
   if (photo.uri.startsWith('/api/photos/resolve/')) return 'live';
   if (/^https?:\/\//.test(photo.uri)) return deps.checkUrl(photo.uri);
@@ -142,7 +147,7 @@ export async function photoLiveness(photo: PhotoRow, deps: BackfillDeps): Promis
  */
 export async function classifyPlace(
   place: PlaceWithPhotos,
-  deps: BackfillDeps,
+  deps: Pick<BackfillDeps, 'checkUrl'>,
 ): Promise<Decision | null> {
   const states = await Promise.all(
     place.photos.map(async (photo) => ({ photo, state: await photoLiveness(photo, deps) })),
@@ -193,7 +198,8 @@ function asPhoto(item: PhotoSearchItem): PhotoFromSource {
 
 /**
  * Pick a photo for a place with none: the first photo of a confidently matched
- * Google place (its stored Google id first, then a text search), else a
+ * Google place (its stored Google id first, then the best-named text-search
+ * result), else a
  * confidently matched Wikimedia Commons file. Throws on upstream failure so the
  * caller can retry — an outage is never recorded as "no match".
  */
@@ -208,7 +214,12 @@ export async function findPhoto(place: BackfillPlace, deps: BackfillDeps): Promi
     if (seen.has(candidate.googlePlaceId)) return null;
     seen.add(candidate.googlePlaceId);
     const verdict = judgeGoogleCandidate(place, candidate);
-    const entry: MatchLogEntry = { ...verdict, via, candidateId: candidate.googlePlaceId };
+    const entry: MatchLogEntry = {
+      ...verdict,
+      via,
+      candidateId: candidate.googlePlaceId,
+      types: candidate.types,
+    };
     if (verdict.accepted && candidate.photos.length === 0) {
       entry.accepted = false;
       entry.reason = `${verdict.reason}; but Google has no photos`;
@@ -242,11 +253,17 @@ export async function findPhoto(place: BackfillPlace, deps: BackfillDeps): Promi
 
   if (place.coords || place.city || place.country) {
     const candidates = await deps.searchPlacesWithPhotos(googleQuery(place), place.coords);
-    // Google's own ranking decides among candidates that pass the bar.
+    // The best-named candidate that passes the bar wins; Google's ranking breaks
+    // ties. First-past-the-bar would let "Bohemian Switzerland National Park"
+    // beat an exact "Saxon Switzerland National Park" further down the list.
+    let best: Extract<Decision, { action: 'attach' }> | null = null;
     for (const candidate of candidates) {
       const found = tryGoogle(candidate, 'text-search');
-      if (found) return found;
+      if (found?.action === 'attach' && (!best || found.match.similarity > best.match.similarity)) {
+        best = found;
+      }
     }
+    if (best) return best;
   }
 
   if (wikimediaAllowedFor(place.kind)) {
@@ -270,6 +287,24 @@ export async function findPhoto(place: BackfillPlace, deps: BackfillDeps): Promi
 /** Full decision for one place: classification, then a search when it needs a photo. */
 export async function planPlace(place: PlaceWithPhotos, deps: BackfillDeps): Promise<Decision> {
   return (await classifyPlace(place, deps)) ?? findPhoto(place, deps);
+}
+
+/**
+ * The decision to write for a place that a reviewed dry run already planned.
+ * The place is re-classified from its current rows first, so a place that
+ * gained a working photo since the plan is kept, and a planned re-point always
+ * targets a photo that loads now. A planned photo is only attached if the place
+ * still has none that works. No search is made: what gets written is what was reviewed.
+ */
+export async function decideFromPlan(
+  place: PlaceWithPhotos,
+  planned: Decision,
+  deps: Pick<BackfillDeps, 'checkUrl'>,
+): Promise<Decision> {
+  const now = await classifyPlace(place, deps);
+  if (now) return now;
+  if (planned.action === 'attach' || planned.action === 'unmatched') return planned;
+  return { action: 'retry-later', reason: 'place changed since the plan; dry-run it again' };
 }
 
 // ─── Applying ─────────────────────────────────────────────────────────────────

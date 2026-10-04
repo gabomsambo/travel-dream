@@ -295,7 +295,7 @@ export async function POST(request: NextRequest) {
                   sourceType: 'screenshot',
                   language: sourceRecord.lang || 'en'
                 }
-              }], { maxConcurrent: 1 });
+              }], { userId: user.id, maxConcurrent: 1 });
 
               if (batchResult.success && batchResult.results.length > 0) {
                 const dbResults = await batchCreatePlacesFromExtractions(batchResult.results, user.id);

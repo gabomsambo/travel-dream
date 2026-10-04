@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
               const serviceStats = await llmExtractionService.getServiceStats();
 
               // Get processing queue status
-              const queueStatuses = llmExtractionService.getAllProcessingStatuses();
+              const queueStatuses = llmExtractionService.getAllProcessingStatuses(user.id);
               const activeProcessing = queueStatuses.filter(s => s.status === 'processing');
               const pendingProcessing = queueStatuses.filter(s => s.status === 'pending');
               const completedProcessing = queueStatuses.filter(s => s.status === 'completed');
@@ -153,7 +153,7 @@ export async function GET(request: NextRequest) {
       return await llmExtractionService.getServiceStats();
     }, 'getServiceStats');
 
-    const queueStatuses = llmExtractionService.getAllProcessingStatuses();
+    const queueStatuses = llmExtractionService.getAllProcessingStatuses(user.id);
 
     // Calculate queue metrics
     const queueMetrics = {

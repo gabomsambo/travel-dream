@@ -194,6 +194,7 @@ export async function POST(request: NextRequest) {
 
       // Process batch with LLM service
       const batchResult = await llmExtractionService.batchExtract(batchSources, {
+        userId: user.id,
         maxConcurrent: CONCURRENT_LIMIT,
         onProgress: (progress) => {
           console.log(`LLM Processing: ${progress.completed}/${progress.total} (${progress.progress.toFixed(1)}%)`);

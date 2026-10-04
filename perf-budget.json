@@ -22,7 +22,7 @@
       "/login": { "max": 200, "current": 157 },
       "/map": { "max": 650, "current": 632, "note": "Full mapbox-gl + clustering + filters" },
       "/mass-upload": { "max": 200, "current": 147 },
-      "/place/[id]": { "max": 240, "current": 202 },
+      "/place/[id]": { "max": 240, "current": 182 },
       "/review": { "max": 240, "current": 189 },
       "/settings": { "max": 200, "current": 162 },
       "/signup": { "max": 200, "current": 158 }

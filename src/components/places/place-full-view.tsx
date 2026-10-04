@@ -22,11 +22,13 @@ import { MetadataSection } from "./place-full-view-sections/metadata-section"
 
 interface PlaceFullViewProps {
   initialPlace: PlaceWithRelations
+  /** Shown as a Done button; called once any pending change has saved. */
+  onDone?: () => void
 }
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
-export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
+export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
@@ -82,6 +84,10 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const saveGenerationRef = useRef(0)
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // An edit not yet sent (still inside the debounce), and the latest save on the wire.
+  const pendingRef = useRef(false)
+  const inFlightRef = useRef<Promise<boolean> | null>(null)
+  const [finishing, setFinishing] = useState(false)
 
   useEffect(() => () => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
@@ -90,8 +96,9 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
   // Optimistic state for immediate UI feedback
   const [optimisticPlace, setOptimisticPlace] = useOptimistic(initialPlace)
 
-  // Auto-save function
-  const handleSave = async () => {
+  // Auto-save function. Resolves false only when this save (and no newer one) failed.
+  const handleSave = async (): Promise<boolean> => {
+    pendingRef.current = false
     const generation = ++saveGenerationRef.current
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current)
@@ -116,7 +123,7 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
         throw new Error(errorMessage)
       }
 
-      if (generation !== saveGenerationRef.current) return
+      if (generation !== saveGenerationRef.current) return true
 
       setSaveStatus('saved')
       idleTimerRef.current = setTimeout(() => {
@@ -126,19 +133,43 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
 
       // Refresh server data
       router.refresh()
+      return true
     } catch (error) {
       console.error('Save failed:', error)
       console.error('Form data being sent:', formData)
 
-      if (generation !== saveGenerationRef.current) return
+      if (generation !== saveGenerationRef.current) return true
 
       setSaveStatus('error')
       setSaveError(error instanceof Error ? error.message : 'Failed to save')
+      return false
     }
   }
 
+  const runSave = () => {
+    const save = handleSave()
+    inFlightRef.current = save
+    return save
+  }
+
   // Debounced save (800ms)
-  const debouncedSave = useDebouncedCallback(handleSave, 800)
+  const debouncedSave = useDebouncedCallback(runSave, 800)
+
+  // Done must not drop the last keystrokes: send a pending edit now, wait for the save
+  // on the wire, and stay in the editor (with its error showing) if it failed.
+  const handleDone = async () => {
+    if (!onDone || finishing) return
+    setFinishing(true)
+    let ok = true
+    if (pendingRef.current) {
+      debouncedSave.cancel()
+      ok = await runSave()
+    } else if (inFlightRef.current) {
+      ok = await inFlightRef.current
+    }
+    setFinishing(false)
+    if (ok) onDone()
+  }
 
   // Update form data and trigger debounced save
   const updateField = <K extends keyof typeof formData>(
@@ -146,6 +177,7 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
     value: typeof formData[K]
   ) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+    pendingRef.current = true
 
     // Optimistic update
     startTransition(() => {
@@ -192,6 +224,12 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
               <span role="alert" className="text-sm text-red-600">
                 {saveError ? `Save failed: ${saveError}` : 'Save failed'}
               </span>
+            )}
+            {onDone && (
+              <Button size="sm" className="rounded-full px-4" onClick={handleDone} disabled={finishing}>
+                <Check className="h-4 w-4 mr-1.5" />
+                Done
+              </Button>
             )}
           </div>
         </div>

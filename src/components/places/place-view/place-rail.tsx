@@ -3,8 +3,53 @@
 import * as React from "react"
 import { CalendarCheck, CalendarHeart, Check, ChevronDown, Clock, Copy, ExternalLink, Globe, Mail, MapPin, Navigation, Pencil, Phone, Sparkles, Star, Ticket, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { VISIT_STATUS_LABELS, displayUrl, formatDateOnly, formatTime, safeExternalUrl, summarizeHours } from "@/lib/place-view/format"
+import { displayUrl, formatDateOnly, formatTime, safeExternalUrl, summarizeHours } from "@/lib/place-view/format"
 import type { PlaceWithRelations, Reservation } from "@/types/database"
+
+type VisitStatus = "not_visited" | "planned" | "visited"
+
+const VISIT_STATUS_OPTIONS: Array<{ value: VisitStatus; label: string }> = [
+  { value: "not_visited", label: "Want to go" },
+  { value: "planned", label: "Planned" },
+  { value: "visited", label: "Been" },
+]
+
+function VisitStatusControl({ value, onChange }: { value: VisitStatus; onChange: (next: VisitStatus) => void }) {
+  const refs = React.useRef<Array<HTMLButtonElement | null>>([])
+  return (
+    <div role="radiogroup" aria-label="Visit status" className="mt-3 inline-flex w-full rounded-full bg-secondary p-1">
+      {VISIT_STATUS_OPTIONS.map((option, i) => {
+        const selected = value === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            ref={(el) => {
+              refs.current[i] = el
+            }}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+              event.preventDefault()
+              const next = (i + (event.key === "ArrowRight" ? 1 : -1) + VISIT_STATUS_OPTIONS.length) % VISIT_STATUS_OPTIONS.length
+              refs.current[next]?.focus()
+              onChange(VISIT_STATUS_OPTIONS[next].value)
+            }}
+            className={cn(
+              "inline-flex flex-1 items-center justify-center rounded-full px-2 py-1 text-xs font-semibold transition",
+              selected ? "bg-background text-foreground shadow" : "text-secondary-foreground hover:text-foreground"
+            )}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 const CARD = "rounded-3xl border bg-card p-5 text-card-foreground shadow-sm"
 const EYEBROW = "text-[11px] font-semibold uppercase tracking-[0.2em] text-primary"
@@ -96,8 +141,16 @@ export function ReservationTicket({ reservation }: { reservation: Reservation })
   )
 }
 
-export function YourPlan({ place, onEdit }: { place: PlaceWithRelations; onEdit: () => void }) {
-  const status = place.visitStatus ?? "not_visited"
+export function YourPlan({
+  place,
+  onEdit,
+  onStatusChange,
+}: {
+  place: PlaceWithRelations
+  onEdit: () => void
+  onStatusChange: (next: VisitStatus) => void
+}) {
+  const status: VisitStatus = (place.visitStatus as VisitStatus) || "not_visited"
   const planned = formatDateOnly(place.plannedVisit)
   const lastVisited = formatDateOnly(place.lastVisited)
   const companions = (place.companions ?? []).filter(Boolean)
@@ -108,10 +161,7 @@ export function YourPlan({ place, onEdit }: { place: PlaceWithRelations; onEdit:
   return (
     <section aria-labelledby="place-plan" className={CARD}>
       <h2 id="place-plan" className={EYEBROW}>Your plan</h2>
-      <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">
-        {status === "visited" ? <Check className="h-3.5 w-3.5" aria-hidden /> : status === "planned" ? <CalendarHeart className="h-3.5 w-3.5" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />}
-        {VISIT_STATUS_LABELS[status] ?? status}
-      </p>
+      <VisitStatusControl value={status} onChange={onStatusChange} />
       <dl className="mt-4 space-y-3 text-sm">
         {planned && (
           <div className="flex items-center gap-3">

@@ -37,7 +37,7 @@ There are two places:
 
 **Covered by unit tests:**
 - `src/__tests__/place-view/format.test.ts`: date-only formatting with no time-zone day shift, the hours summary (24h, grouped ranges, a closed-days list), link labels, http(s)-only hrefs, source descriptions, and the confidence thresholds.
-- `src/__tests__/place-view/place-page.test.tsx`: opens in view mode; every stored field of a rich place appears; reservation fields; link titles with no `javascript:` href; cover photo first and the lightbox; Atlas links; the sparse invitations; Edit → Done.
+- `src/__tests__/place-view/place-page.test.tsx`: opens in view mode; every stored field of a rich place appears; reservation fields; link titles with no `javascript:` href; cover photo first and the lightbox; Atlas links; the sparse invitations; Edit → Done; the one-tap visit-status control (a click sends exactly one PATCH and moves the rail + hero chips instantly, a failed PATCH rolls back and reports the error).
 - `src/__tests__/place-view/place-actions-menu.test.tsx`: archive and restore via `PATCH /api/places/[id]`, delete via `DELETE /api/places/[id]` only after confirmation, the failure path, and the back / Library fallback.
 - `src/components/places/__tests__/place-full-view-save-status.test.tsx`: Done flushes a pending edit exactly once, stays put on failure, and leaves at once when nothing is pending.
 
@@ -60,7 +60,7 @@ There are two places:
 | price_level · best_time · activities · cuisine · amenities | Inputs | View: Good to know cells + mobile quick facts. Edit |
 | website · phone · email | Inputs | View: *On the ground* (website link, `tel:`, `mailto:`). Edit |
 | hours | Hours editor | View: *On the ground* summary ("Open 24 hours, every day" / grouped days, expandable). Edit |
-| visitStatus · priority · plannedVisit · lastVisited | Planning card | View: *Your plan* + hero chips. Edit |
+| visitStatus · priority · plannedVisit · lastVisited | Planning card | View: *Your plan* — visitStatus is now a one-tap Want to go / Planned / Been control + hero chips. Edit |
 | recommendedBy · companions | Planning card | View: "Tip from …" under the note; "With … & …". Edit |
 | notes | Textarea | View: the "Why it's here" quote. Edit |
 | practicalInfo | Textarea | View: Good to know → Practical info. Edit |

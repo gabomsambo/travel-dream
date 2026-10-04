@@ -1,7 +1,8 @@
 import React from 'react'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { PlaceWithRelations } from '@/types/database'
+import { notify } from '@/lib/notify'
 import { PlacePage } from '@/components/places/place-view/place-page'
 
 const mockRefresh = jest.fn()
@@ -211,5 +212,51 @@ describe('PlacePage edit toggle', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(screen.getByRole('heading', { level: 1, name: 'Fushimi Inari-taisha' })).toBeInTheDocument()
     expect(mockRefresh).toHaveBeenCalled()
+  })
+})
+
+describe('PlacePage one-tap visit status', () => {
+  const fetchMock = jest.fn()
+
+  beforeEach(() => {
+    mockRefresh.mockClear()
+    fetchMock.mockReset()
+    global.fetch = fetchMock as unknown as typeof fetch
+  })
+
+  it('sends exactly one PATCH and updates the rail and hero chips immediately', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    render(<PlacePage place={rich} />)
+
+    expect(screen.getByRole('radio', { name: 'Planned' })).toBeChecked()
+    expect(screen.getByText('Planned · Nov 18')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
+
+    expect(screen.getByRole('radio', { name: 'Been' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Planned' })).not.toBeChecked()
+    expect(screen.getByText('Been there')).toBeInTheDocument()
+    expect(screen.queryByText('Planned · Nov 18')).not.toBeInTheDocument()
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(fetchMock).toHaveBeenCalledWith('/api/places/plc_fushimi', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ visitStatus: 'visited' }),
+    }))
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+  })
+
+  it('rolls back and reports the error when the PATCH fails', async () => {
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({ message: 'Server exploded' }) })
+    render(<PlacePage place={rich} />)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Server exploded'))
+    expect(screen.getByRole('radio', { name: 'Planned' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Been' })).not.toBeChecked()
+    expect(screen.getByText('Planned · Nov 18')).toBeInTheDocument()
+    expect(screen.queryByText('Been there')).not.toBeInTheDocument()
+    expect(mockRefresh).not.toHaveBeenCalled()
   })
 })

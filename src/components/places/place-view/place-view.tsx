@@ -2,8 +2,10 @@
 
 import * as React from "react"
 import dynamic from "next/dynamic"
+import { useRouter } from "next/navigation"
 import { CalendarHeart, Coins, ImagePlus, MapPin, PenLine, Plus, Quote, Sunrise, type LucideIcon } from "lucide-react"
 import { formatDateOnly } from "@/lib/place-view/format"
+import { notify } from "@/lib/notify"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
 import { PlaceHero } from "./place-hero"
 import { About, GoodToKnow, Links, Photos, RecordInfo, SectionHeader, Sources, WhyItsHere } from "./place-sections"
@@ -99,13 +101,41 @@ export function PlaceView({
   onPrefetchEdit?: () => void
   onPhotoAttached: () => void
 }) {
+  const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
   const [lightbox, setLightbox] = React.useState<number | null>(null)
 
+  const [statusOverride, setStatusOverride] = React.useState<"not_visited" | "planned" | "visited" | null>(null)
+  React.useEffect(() => {
+    setStatusOverride((current) => (current && current === place.visitStatus ? null : current))
+  }, [place.visitStatus])
+  const displayPlace = statusOverride ? { ...place, visitStatus: statusOverride } : place
+
+  const setVisitStatus = async (next: "not_visited" | "planned" | "visited") => {
+    const displayed = (displayPlace.visitStatus as "not_visited" | "planned" | "visited" | null) ?? "not_visited"
+    if (next === displayed) return
+    setStatusOverride(next)
+    try {
+      const response = await fetch(`/api/places/${place.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitStatus: next }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error((data && typeof data.message === "string" && data.message) || "Couldn't update your plan")
+      }
+      router.refresh()
+    } catch (error) {
+      setStatusOverride(null)
+      notify.error(error instanceof Error ? error.message : "Couldn't update your plan")
+    }
+  }
+
   return (
     <>
-      <PlaceHero place={place} photos={photos} onEdit={onEdit} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} />
-      <QuickFacts place={place} />
+      <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} />
+      <QuickFacts place={displayPlace} />
 
       {/* On small screens the rail sits right after the note; from lg it is a sticky column. */}
       <div className="grid gap-10 px-4 pt-6 sm:px-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-x-12 lg:pt-2 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -115,7 +145,7 @@ export function PlaceView({
         </div>
         <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1" aria-label="Plan and practical details">
           <div className="space-y-4 lg:sticky lg:top-6">
-            <YourPlan place={place} onEdit={onEdit} />
+            <YourPlan place={displayPlace} onEdit={onEdit} onStatusChange={setVisitStatus} />
             <OnTheGround place={place} onEdit={onEdit} />
           </div>
         </aside>

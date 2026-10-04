@@ -225,7 +225,8 @@ describe('PlacePage one-tap visit status', () => {
   })
 
   it('sends exactly one PATCH and updates the rail and hero chips immediately', async () => {
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
     render(<PlacePage place={rich} />)
 
     expect(screen.getByRole('radio', { name: 'Planned' })).toBeChecked()
@@ -243,6 +244,10 @@ describe('PlacePage one-tap visit status', () => {
       method: 'PATCH',
       body: JSON.stringify({ visitStatus: 'visited' }),
     }))
+
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({ status: 'success' }) })
+    })
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
   })
 
@@ -263,7 +268,7 @@ describe('PlacePage one-tap visit status', () => {
   it('makes the latest selection win when two quick taps resolve out of order', async () => {
     const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
     fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
-    render(<PlacePage place={rich} />)
+    const { rerender } = render(<PlacePage place={rich} />)
 
     await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
     await userEvent.click(screen.getByRole('radio', { name: 'Want to go' }))
@@ -293,6 +298,9 @@ describe('PlacePage one-tap visit status', () => {
     })
 
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+
+    // The server now reports the latest selection; the view shows that, not the first tap.
+    rerender(<PlacePage place={{ ...rich, visitStatus: 'not_visited' }} />)
     expect(screen.getByRole('radio', { name: 'Want to go' })).toBeChecked()
     expect(screen.getByRole('radio', { name: 'Been' })).not.toBeChecked()
     expect(screen.queryByText('Planned · Nov 18')).not.toBeInTheDocument()
@@ -302,7 +310,7 @@ describe('PlacePage one-tap visit status', () => {
   it('does not roll back a newer selection when an earlier write fails', async () => {
     const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
     fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
-    render(<PlacePage place={rich} />)
+    const { rerender } = render(<PlacePage place={rich} />)
 
     await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
     await userEvent.click(screen.getByRole('radio', { name: 'Want to go' }))
@@ -324,7 +332,33 @@ describe('PlacePage one-tap visit status', () => {
     })
 
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    rerender(<PlacePage place={{ ...rich, visitStatus: 'not_visited' }} />)
     expect(screen.getByRole('radio', { name: 'Want to go' })).toBeChecked()
     expect(screen.getByRole('radio', { name: 'Been' })).not.toBeChecked()
+  })
+
+  it('a later refresh does not resurrect an earlier selection after the write confirmed', async () => {
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    const { rerender } = render(<PlacePage place={rich} />)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+
+    // The refresh that confirms the write reports 'visited'.
+    rerender(<PlacePage place={{ ...rich, visitStatus: 'visited' }} />)
+    expect(screen.getByRole('radio', { name: 'Been' })).toBeChecked()
+
+    // A later refresh reports 'planned' again (the editor changed it server-side); the
+    // view must follow the server instead of re-applying the stale selection.
+    rerender(<PlacePage place={{ ...rich, visitStatus: 'planned' }} />)
+    expect(screen.getByRole('radio', { name: 'Planned' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Been' })).not.toBeChecked()
+    expect(screen.getByText('Planned · Nov 18')).toBeInTheDocument()
+    expect(screen.queryByText('Been there')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

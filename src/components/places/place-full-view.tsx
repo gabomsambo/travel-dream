@@ -149,6 +149,9 @@ export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
   const runSave = () => {
     const save = handleSave()
     inFlightRef.current = save
+    void save.then(() => {
+      if (inFlightRef.current === save) inFlightRef.current = null
+    })
     return save
   }
 
@@ -160,14 +163,15 @@ export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
   const handleDone = async () => {
     if (!onDone || finishing) return
     setFinishing(true)
+    debouncedSave.cancel()
     let ok = true
-    if (pendingRef.current) {
-      debouncedSave.cancel()
-      ok = await runSave()
-    } else if (saveStatus === 'error') {
-      ok = await runSave()
-    } else if (inFlightRef.current) {
+    if (inFlightRef.current) {
       ok = await inFlightRef.current
+    }
+    if (ok && pendingRef.current) {
+      ok = await runSave()
+    } else if (ok && saveStatus === 'error') {
+      ok = await runSave()
     }
     setFinishing(false)
     if (ok) onDone()

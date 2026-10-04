@@ -14,9 +14,11 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mockRefresh, push: jest.fn() }),
 }))
 
+let mockEditSeq = 0
+
 jest.mock('../place-full-view-sections/hero-section', () => ({
   HeroSection: ({ updateField }: { updateField: (field: string, value: string) => void }) => (
-    <button data-testid="edit-name" onClick={() => updateField('name', `Edited ${Math.random()}`)}>
+    <button data-testid="edit-name" onClick={() => updateField('name', `Edited ${++mockEditSeq}`)}>
       edit name
     </button>
   ),
@@ -177,6 +179,47 @@ describe('PlaceFullView Done', () => {
     })
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for the in-flight autosave before flushing a pending edit so the newest data lands last', async () => {
+    mockEditSeq = 0
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    const fetchMock: jest.Mock = jest.fn(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+
+    // The first edit fires the 800ms autosave and leaves it on the wire.
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      jest.advanceTimersByTime(SAVE_DEBOUNCE_MS)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ name: 'Edited 1' })
+
+    // A second edit lands while that save is in flight, then Done is clicked.
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+
+    // Done waits for the autosave on the wire instead of sending a concurrent PATCH.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({}) })
+    })
+
+    // Only after the autosave resolved does the flush go out, with the newest formData.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ name: 'Edited 2' })
+
+    await act(async () => {
+      resolvers[1]({ ok: true, json: async () => ({}) })
+    })
+
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 

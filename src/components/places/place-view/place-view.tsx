@@ -111,14 +111,7 @@ export function PlaceView({
   const latestSelectionRef = React.useRef<VisitStatus | null>(null)
   const desiredStatusRef = React.useRef<VisitStatus | null>(null)
   const persistingRef = React.useRef(false)
-
-  React.useEffect(() => {
-    setStatusOverride((current) => {
-      if (current && current === place.visitStatus) return null
-      if (!current && latestSelectionRef.current && latestSelectionRef.current !== place.visitStatus) return latestSelectionRef.current
-      return current
-    })
-  }, [place.visitStatus])
+  const statusGenerationRef = React.useRef(0)
   const displayPlace = statusOverride ? { ...place, visitStatus: statusOverride } : place
 
   const persistVisitStatus = async () => {
@@ -126,6 +119,7 @@ export function PlaceView({
       while (desiredStatusRef.current !== null) {
         const target = desiredStatusRef.current
         desiredStatusRef.current = null
+        const generation = statusGenerationRef.current
         try {
           const response = await fetch(`/api/places/${place.id}`, {
             method: "PATCH",
@@ -136,11 +130,13 @@ export function PlaceView({
             const data = await response.json().catch(() => null)
             throw new Error((data && typeof data.message === "string" && data.message) || "Couldn't update your plan")
           }
-          if (desiredStatusRef.current === null && latestSelectionRef.current === target) {
+          if (generation === statusGenerationRef.current && desiredStatusRef.current === null && latestSelectionRef.current === target) {
+            latestSelectionRef.current = null
+            setStatusOverride(null)
             router.refresh()
           }
         } catch (error) {
-          if (desiredStatusRef.current === null && latestSelectionRef.current === target) {
+          if (generation === statusGenerationRef.current && desiredStatusRef.current === null && latestSelectionRef.current === target) {
             latestSelectionRef.current = null
             setStatusOverride(null)
             notify.error(error instanceof Error ? error.message : "Couldn't update your plan")
@@ -157,6 +153,7 @@ export function PlaceView({
     if (next === displayed) return
     latestSelectionRef.current = next
     desiredStatusRef.current = next
+    statusGenerationRef.current += 1
     setStatusOverride(next)
     if (persistingRef.current) return
     persistingRef.current = true

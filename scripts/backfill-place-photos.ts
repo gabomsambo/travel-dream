@@ -186,12 +186,21 @@ async function main(): Promise<void> {
     const wikimedia = getAdapter('wikimedia');
     const liveness = new Map<string, Promise<Liveness>>();
 
+    // Billable upstream calls actually made this run, retries included.
+    const upstreamCalls = { placeDetails: 0, textSearch: 0, wikimedia: 0 };
     const deps = {
-      fetchPlacePhotos: (id: string) => withRetry(() => googleSlot(() => google.fetchPlacePhotos(id))),
+      fetchPlacePhotos: (id: string) =>
+        withRetry(() => googleSlot(() => (upstreamCalls.placeDetails++, google.fetchPlacePhotos(id)))),
       searchPlacesWithPhotos: (q: string, near: { lat: number; lon: number } | null) =>
-        withRetry(() => googleSlot(() => google.searchPlacesWithPhotos(q, near))),
+        withRetry(() =>
+          googleSlot(() => (upstreamCalls.textSearch++, google.searchPlacesWithPhotos(q, near))),
+        ),
       searchWikimedia: async (query: string) =>
-        (await withRetry(() => wikiSlot(() => wikimedia.search({ query, placeId: 'backfill' })))).items,
+        (
+          await withRetry(() =>
+            wikiSlot(() => (upstreamCalls.wikimedia++, wikimedia.search({ query, placeId: 'backfill' }))),
+          )
+        ).items,
       // Many places share one screenshot blob; check each URL once.
       checkUrl: (target: string): Promise<Liveness> => {
         let pending = liveness.get(target);
@@ -327,7 +336,14 @@ async function main(): Promise<void> {
       );
     }
 
-    const final = { ...summary, mode: args.mode, database: host, userId: user.id, at: new Date().toISOString() };
+    const final = {
+      ...summary,
+      upstreamCalls,
+      mode: args.mode,
+      database: host,
+      userId: user.id,
+      at: new Date().toISOString(),
+    };
     fs.writeFileSync(
       path.join(args.out, args.mode === 'apply' ? 'summary-applied.json' : 'summary.json'),
       JSON.stringify(final, null, 2),

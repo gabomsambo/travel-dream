@@ -223,7 +223,8 @@ to take bare place ids and was safe only because both call sites happened to pas
 - Session ownership check (404 then 403): `src/app/api/mass-upload/start/route.ts`
 - Transitively-owned rows: `src/app/api/export/all/route.ts`
 - Row-scoped follow-up on a caller-supplied id list: `src/app/api/mass-upload/cancel/route.ts`
-- Scoped transaction: `src/app/api/places/[id]/attachments/[attachmentId]/primary/route.ts`
+- Scoped transaction: `setPrimaryPhoto` in `src/lib/place-photos.ts` (the primary
+  route delegates to it)
 - Regression tests for these shapes: `src/__tests__/authorization/`, and
   `tenant-db-chokepoint.test.ts` there proves both the lint rule and the accessor
 
@@ -262,6 +263,13 @@ Pre-Blob rows whose `uri` is a `/uploads/...` path are deliberately not migrated
 existed on Vercel, so treat such rows as broken-image leftovers rather than something to clean up.
 
 `src/lib/ocr-service-server.ts` writes to `os.tmpdir()`, which is allowed — `/tmp` is writable.
+
+Photos picked from Google Places / Wikimedia / Pexels are not uploads: `src/lib/place-photos.ts`
+attaches them and sets the primary photo for the Find-image route, the primary route and
+`scripts/backfill-place-photos.ts` alike. Google photos are stored as a photo-name reference that
+`/api/photos/resolve` turns into a URL on view (billed per view) — never persist Google image bytes or URLs.
+Google photo names expire (weeks, not years): the resolver refreshes an expired one from the place id with a
+free `photos`-only Place Details call and stores the new name, so don't treat a stored name as permanent.
 
 ## Mass-upload queue (reliability-critical)
 

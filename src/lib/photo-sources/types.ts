@@ -13,6 +13,10 @@ export interface PhotoSearchItem {
   height: number | null;
   attribution: AttributionMeta;
   caption?: string;
+  /** Source-side title of the photo (Wikimedia file title), for match checks. */
+  title?: string;
+  /** Where the photo was taken, when the source records it. */
+  coords?: { lat: number; lon: number } | null;
 }
 
 export interface PhotoSearchInput {

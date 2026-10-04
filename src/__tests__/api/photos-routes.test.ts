@@ -34,7 +34,7 @@ jest.mock('@/lib/photo-sources', () => {
 });
 
 jest.mock('@/lib/photo-sources/google-resolver', () => ({
-  resolveGooglePhotoUri: jest.fn(),
+  resolveGooglePhoto: jest.fn(),
 }));
 
 // ── Imports (after mocks) ──────────────────────────────────────────────
@@ -43,7 +43,7 @@ import { GET as resolveGET } from '@/app/api/photos/resolve/[attachmentId]/route
 import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { getAdapter, ConfigError } from '@/lib/photo-sources';
-import { resolveGooglePhotoUri } from '@/lib/photo-sources/google-resolver';
+import { resolveGooglePhoto } from '@/lib/photo-sources/google-resolver';
 import type { NextRequest } from 'next/server';
 import { mockSelect, whereMentions } from '../helpers/authz-helpers';
 
@@ -55,7 +55,7 @@ const mockDb = db as unknown as {
 };
 const mockRequireAuth = requireAuthForApi as jest.MockedFunction<typeof requireAuthForApi>;
 const mockGetAdapter = getAdapter as jest.MockedFunction<typeof getAdapter>;
-const mockResolveUri = resolveGooglePhotoUri as jest.MockedFunction<typeof resolveGooglePhotoUri>;
+const mockResolveUri = resolveGooglePhoto as jest.MockedFunction<typeof resolveGooglePhoto>;
 
 const fakeUser = { id: 'user_1', email: 'u@x', name: 'U', image: null };
 
@@ -154,7 +154,7 @@ describe('GET /api/photos/resolve/[attachmentId]', () => {
   it('returns 302 redirect with cache header on happy path', async () => {
     const lookup = mockSelect([{ id: 'att_x', source: 'google_places', sourceId: 'places/p/photos/r' }]);
     mockDb.select.mockReturnValueOnce(lookup.chain);
-    mockResolveUri.mockResolvedValueOnce('https://lh3.googleusercontent.com/abc');
+    mockResolveUri.mockResolvedValueOnce({ photoUri: 'https://lh3.googleusercontent.com/abc' });
     const res = await resolveGET(makeResolveReq(), { params: Promise.resolve({ attachmentId: 'att_x' }) });
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('https://lh3.googleusercontent.com/abc');

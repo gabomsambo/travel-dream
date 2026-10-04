@@ -33,6 +33,12 @@ function classifyLicense(licenseShortName: string): LicenseFamily {
   return 'unknown';
 }
 
+function geoOf(md: Record<string, { value?: string }>): { lat: number; lon: number } | null {
+  const lat = Number.parseFloat(md.GPSLatitude?.value ?? '');
+  const lon = Number.parseFloat(md.GPSLongitude?.value ?? '');
+  return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+}
+
 function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -121,6 +127,8 @@ async function search(input: PhotoSearchInput): Promise<PhotoSearchResult> {
         descriptionUrl: ii.descriptionurl ?? '',
       },
       caption: stripHtml(md.ImageDescription?.value ?? '') || undefined,
+      title: p.title.replace(/^File:/, ''),
+      coords: geoOf(md),
     });
   }
 

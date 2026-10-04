@@ -87,11 +87,18 @@ export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
   // An edit not yet sent (still inside the debounce), and the latest save on the wire.
   const pendingRef = useRef(false)
   const inFlightRef = useRef<Promise<boolean> | null>(null)
+  // Every save (debounced or flushed) runs only after the previous one settled.
+  const saveChainRef = useRef<Promise<boolean>>(Promise.resolve(true))
   const [finishing, setFinishing] = useState(false)
+  const formDataRef = useRef(formData)
 
   useEffect(() => () => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
   }, [])
+
+  useEffect(() => {
+    formDataRef.current = formData
+  })
 
   // Optimistic state for immediate UI feedback
   const [optimisticPlace, setOptimisticPlace] = useOptimistic(initialPlace)
@@ -112,7 +119,7 @@ export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
       const response = await fetch(`/api/places/${initialPlace.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(formDataRef.current),
       })
 
       if (!response.ok) {
@@ -136,18 +143,20 @@ export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
       return true
     } catch (error) {
       console.error('Save failed:', error)
-      console.error('Form data being sent:', formData)
+      console.error('Form data being sent:', formDataRef.current)
 
       if (generation !== saveGenerationRef.current) return true
 
       setSaveStatus('error')
       setSaveError(error instanceof Error ? error.message : 'Failed to save')
+      pendingRef.current = true
       return false
     }
   }
 
   const runSave = () => {
-    const save = handleSave()
+    const save = saveChainRef.current.then(handleSave)
+    saveChainRef.current = save
     inFlightRef.current = save
     void save.then(() => {
       if (inFlightRef.current === save) inFlightRef.current = null
@@ -158,20 +167,23 @@ export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
   // Debounced save (800ms)
   const debouncedSave = useDebouncedCallback(runSave, 800)
 
-  // Done must not drop the last keystrokes: send a pending edit now, wait for the save
-  // on the wire, and stay in the editor (with its error showing) if it failed.
+  // Done must not drop the last keystrokes: wait for whatever is on the wire, flush a
+  // pending edit, and stay in the editor (with its error showing) if the save failed.
   const handleDone = async () => {
     if (!onDone || finishing) return
     setFinishing(true)
-    debouncedSave.cancel()
     let ok = true
-    if (inFlightRef.current) {
-      ok = await inFlightRef.current
-    }
-    if (ok && pendingRef.current) {
-      ok = await runSave()
-    } else if (ok && saveStatus === 'error') {
-      ok = await runSave()
+    while (ok) {
+      if (inFlightRef.current) {
+        ok = await inFlightRef.current
+        continue
+      }
+      if (pendingRef.current) {
+        debouncedSave.cancel()
+        ok = await runSave()
+        continue
+      }
+      break
     }
     setFinishing(false)
     if (ok) onDone()

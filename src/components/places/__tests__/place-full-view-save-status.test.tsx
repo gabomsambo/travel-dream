@@ -223,6 +223,50 @@ describe('PlaceFullView Done', () => {
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
+  it('serializes typing during a slow Done flush so the newest data lands last', async () => {
+    mockEditSeq = 0
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    const fetchMock: jest.Mock = jest.fn(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+
+    // The first edit fires the 800ms autosave and leaves it slow on the wire.
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      jest.advanceTimersByTime(SAVE_DEBOUNCE_MS)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Done is clicked while the autosave is still on the wire, and the user keeps typing.
+    fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    fireEvent.click(screen.getByTestId('edit-name'))
+    fireEvent.click(screen.getByTestId('edit-name'))
+
+    // The re-armed debounce fires during the slow flush, but the newer save must wait
+    // for the in-flight one instead of racing it.
+    await act(async () => {
+      jest.advanceTimersByTime(SAVE_DEBOUNCE_MS)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Only after the first save settles may the second PATCH go out, with the newest data.
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({}) })
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ name: 'Edited 3' })
+
+    // Done must not leave while the newest save is still on the wire.
+    expect(onDone).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolvers[1]({ ok: true, json: async () => ({}) })
+    })
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves straight away when nothing is pending', async () => {
     const fetchMock = jest.fn()
     global.fetch = fetchMock as unknown as typeof fetch

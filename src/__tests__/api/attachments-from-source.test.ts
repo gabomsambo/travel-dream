@@ -82,6 +82,23 @@ describe('POST /api/places/[id]/attachments/from-source', () => {
     ]);
   });
 
+  it('accepts a Wikimedia photo with a thumb.wikimedia.org thumbnail, as Commons now returns', async () => {
+    const res = await post(FIXTURE.alicePlace, {
+      source: 'wikimedia',
+      sourceId: '42',
+      thumbnailUrl: 'https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ee/X.jpg/330px-X.jpg',
+      fullUrl: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/X.jpg',
+      width: 800,
+      height: 600,
+      attribution: {
+        kind: 'wikimedia', authorText: 'A', licenseShortName: 'CC BY-SA 4.0', licenseUrl: '', descriptionUrl: '',
+      },
+    });
+    expect(res.status).toBe(200);
+    const rows = await photos(FIXTURE.alicePlace);
+    expect(rows[0].uri).toBe('https://upload.wikimedia.org/wikipedia/commons/e/ee/X.jpg');
+  });
+
   it('rejects a Wikimedia photo hosted elsewhere', async () => {
     const res = await post(FIXTURE.alicePlace, {
       source: 'wikimedia',

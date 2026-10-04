@@ -34,7 +34,12 @@ export type AttachResult =
   | { ok: true; attachment: Attachment; deduped: boolean }
   | { ok: false; status: 400 | 404 | 500; error: string };
 
-const WIKIMEDIA_HOSTS = new Set(['upload.wikimedia.org', 'commons.wikimedia.org']);
+// Commons serves originals from upload. and the imageinfo thumbnails from thumb.
+const WIKIMEDIA_HOSTS = new Set([
+  'upload.wikimedia.org',
+  'thumb.wikimedia.org',
+  'commons.wikimedia.org',
+]);
 const PEXELS_HOSTS = new Set(['images.pexels.com']);
 
 function hostOf(url: string): string | null {

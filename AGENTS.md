@@ -263,6 +263,11 @@ existed on Vercel, so treat such rows as broken-image leftovers rather than some
 
 `src/lib/ocr-service-server.ts` writes to `os.tmpdir()`, which is allowed — `/tmp` is writable.
 
+Photos picked from Google Places / Wikimedia / Pexels are not uploads: `src/lib/place-photos.ts`
+attaches them and sets the primary photo for the Find-image route, the primary route and
+`scripts/backfill-place-photos.ts` alike. Google photos are stored as a photo-name reference that
+`/api/photos/resolve` turns into a URL on view (billed per view) — never persist Google image bytes or URLs.
+
 ## Mass-upload queue (reliability-critical)
 
 The owner's bar is "drop 500 images and walk away": a screenshot that uploaded successfully must

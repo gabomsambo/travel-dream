@@ -15,6 +15,9 @@ type ProviderSummary = {
   healthy?: boolean;
 };
 
+// Allow-list of provider fields safe to show any signed-in user. Provider stats
+// also carry `cost_stats`, which are process-wide totals across every user's
+// extractions on this instance, so they must never reach the response.
 function describeProviders(providers: unknown): Record<string, ProviderSummary> {
   if (!providers || typeof providers !== 'object') return {};
 

@@ -35,7 +35,14 @@ describe('formatSavedDate / formatTime', () => {
     expect(formatTime('05:30')).toBe('5:30 AM')
     expect(formatTime('00:00')).toBe('12:00 AM')
     expect(formatTime('17:05')).toBe('5:05 PM')
+    expect(formatTime('19:30')).toBe('7:30 PM')
+    expect(formatTime('19:30:00')).toBe('7:30 PM')
     expect(formatTime('sunset')).toBe('sunset')
+  })
+
+  it('keeps 12h values as written instead of flipping their meridiem', () => {
+    expect(formatTime('7:30 PM')).toBe('7:30 PM')
+    expect(formatTime('12:00 AM')).toBe('12:00 AM')
   })
 })
 

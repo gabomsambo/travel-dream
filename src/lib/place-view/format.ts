@@ -48,10 +48,12 @@ export function formatDateTime(iso: string | null | undefined): string | null {
   return `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}, ${h12}:${minutes} ${suffix} UTC`
 }
 
-/** "17:30" -> "5:30 PM"; anything unparseable is returned as written. */
+/** "17:30" -> "5:30 PM"; a value already in 12h form, or anything unparseable, is returned as written. */
 export function formatTime(value: string | null | undefined): string | null {
   if (!value) return null
-  const m = /^(\d{1,2}):(\d{2})/.exec(value.trim())
+  const trimmed = value.trim()
+  if (/[ap]m$/i.test(trimmed)) return trimmed
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(trimmed)
   if (!m) return value
   const h = Number(m[1])
   if (h > 23) return value

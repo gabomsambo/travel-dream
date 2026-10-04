@@ -164,6 +164,8 @@ export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
     if (pendingRef.current) {
       debouncedSave.cancel()
       ok = await runSave()
+    } else if (saveStatus === 'error') {
+      ok = await runSave()
     } else if (inFlightRef.current) {
       ok = await inFlightRef.current
     }

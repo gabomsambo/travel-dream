@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { PlaceWithRelations } from '@/types/database'
 import { notify } from '@/lib/notify'
@@ -258,5 +258,73 @@ describe('PlacePage one-tap visit status', () => {
     expect(screen.getByText('Planned · Nov 18')).toBeInTheDocument()
     expect(screen.queryByText('Been there')).not.toBeInTheDocument()
     expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('makes the latest selection win when two quick taps resolve out of order', async () => {
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    render(<PlacePage place={rich} />)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
+    await userEvent.click(screen.getByRole('radio', { name: 'Want to go' }))
+
+    // The latest tap shows optimistically while the first write is still on the wire.
+    expect(screen.getByRole('radio', { name: 'Want to go' })).toBeChecked()
+
+    // Writes are serialized: only the first tap is in flight and carries its own value.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/places/plc_fushimi', expect.objectContaining({
+      body: JSON.stringify({ visitStatus: 'visited' }),
+    }))
+
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    // The first response must not clear the newer selection; it is now sent.
+    expect(screen.getByRole('radio', { name: 'Want to go' })).toBeChecked()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/places/plc_fushimi', expect.objectContaining({
+      body: JSON.stringify({ visitStatus: 'not_visited' }),
+    }))
+
+    await act(async () => {
+      resolvers[1]({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    expect(screen.getByRole('radio', { name: 'Want to go' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Been' })).not.toBeChecked()
+    expect(screen.queryByText('Planned · Nov 18')).not.toBeInTheDocument()
+    expect(screen.queryByText('Been there')).not.toBeInTheDocument()
+  })
+
+  it('does not roll back a newer selection when an earlier write fails', async () => {
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    render(<PlacePage place={rich} />)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
+    await userEvent.click(screen.getByRole('radio', { name: 'Want to go' }))
+
+    await act(async () => {
+      resolvers[0]({ ok: false, json: async () => ({ message: 'Server exploded' }) })
+    })
+
+    // The failing first write neither rolls back nor reports while a newer tap is queued.
+    expect(screen.getByRole('radio', { name: 'Want to go' })).toBeChecked()
+    expect(notify.error).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/places/plc_fushimi', expect.objectContaining({
+      body: JSON.stringify({ visitStatus: 'not_visited' }),
+    }))
+
+    await act(async () => {
+      resolvers[1]({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    expect(screen.getByRole('radio', { name: 'Want to go' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Been' })).not.toBeChecked()
   })
 })

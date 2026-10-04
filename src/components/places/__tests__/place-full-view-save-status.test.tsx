@@ -155,6 +155,31 @@ describe('PlaceFullView Done', () => {
     expect(screen.getByText('Save failed: Name is required')).toBeInTheDocument()
   })
 
+  it('retries the failed flush on the next Done click instead of silently doing nothing', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ message: 'Name is required' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+
+    expect(onDone).not.toHaveBeenCalled()
+    expect(screen.getByText('Save failed: Name is required')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves straight away when nothing is pending', async () => {
     const fetchMock = jest.fn()
     global.fetch = fetchMock as unknown as typeof fetch

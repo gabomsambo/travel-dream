@@ -16,6 +16,8 @@ const PhotoLightbox = dynamic(
   { ssr: false }
 )
 
+type VisitStatus = "not_visited" | "planned" | "visited"
+
 /** Cover first, then the rest in their stored order. */
 export function orderedPhotos(attachments: Attachment[]): Attachment[] {
   const photos = attachments.filter((a) => a.type === "photo")
@@ -105,31 +107,60 @@ export function PlaceView({
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
   const [lightbox, setLightbox] = React.useState<number | null>(null)
 
-  const [statusOverride, setStatusOverride] = React.useState<"not_visited" | "planned" | "visited" | null>(null)
+  const [statusOverride, setStatusOverride] = React.useState<VisitStatus | null>(null)
+  const latestSelectionRef = React.useRef<VisitStatus | null>(null)
+  const desiredStatusRef = React.useRef<VisitStatus | null>(null)
+  const persistingRef = React.useRef(false)
+
   React.useEffect(() => {
-    setStatusOverride((current) => (current && current === place.visitStatus ? null : current))
+    setStatusOverride((current) => {
+      if (current && current === place.visitStatus) return null
+      if (!current && latestSelectionRef.current && latestSelectionRef.current !== place.visitStatus) return latestSelectionRef.current
+      return current
+    })
   }, [place.visitStatus])
   const displayPlace = statusOverride ? { ...place, visitStatus: statusOverride } : place
 
-  const setVisitStatus = async (next: "not_visited" | "planned" | "visited") => {
-    const displayed = (displayPlace.visitStatus as "not_visited" | "planned" | "visited" | null) ?? "not_visited"
-    if (next === displayed) return
-    setStatusOverride(next)
+  const persistVisitStatus = async () => {
     try {
-      const response = await fetch(`/api/places/${place.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visitStatus: next }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => null)
-        throw new Error((data && typeof data.message === "string" && data.message) || "Couldn't update your plan")
+      while (desiredStatusRef.current !== null) {
+        const target = desiredStatusRef.current
+        desiredStatusRef.current = null
+        try {
+          const response = await fetch(`/api/places/${place.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ visitStatus: target }),
+          })
+          if (!response.ok) {
+            const data = await response.json().catch(() => null)
+            throw new Error((data && typeof data.message === "string" && data.message) || "Couldn't update your plan")
+          }
+          if (desiredStatusRef.current === null && latestSelectionRef.current === target) {
+            router.refresh()
+          }
+        } catch (error) {
+          if (desiredStatusRef.current === null && latestSelectionRef.current === target) {
+            latestSelectionRef.current = null
+            setStatusOverride(null)
+            notify.error(error instanceof Error ? error.message : "Couldn't update your plan")
+          }
+        }
       }
-      router.refresh()
-    } catch (error) {
-      setStatusOverride(null)
-      notify.error(error instanceof Error ? error.message : "Couldn't update your plan")
+    } finally {
+      persistingRef.current = false
     }
+  }
+
+  const setVisitStatus = (next: VisitStatus) => {
+    const displayed = (displayPlace.visitStatus as VisitStatus | null) ?? "not_visited"
+    if (next === displayed) return
+    latestSelectionRef.current = next
+    desiredStatusRef.current = next
+    setStatusOverride(next)
+    if (persistingRef.current) return
+    persistingRef.current = true
+    void persistVisitStatus()
   }
 
   return (

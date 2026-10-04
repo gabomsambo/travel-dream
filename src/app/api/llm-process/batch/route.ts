@@ -229,6 +229,7 @@ export async function POST(request: NextRequest) {
       try {
         // Process chunk with LLM service
         const chunkResult = await llmExtractionService.batchExtract(chunkSources, {
+          userId: user.id,
           maxConcurrent: CHUNK_SIZE,
           onProgress: (progress) => {
             console.log(`[${batchId}] Chunk progress: ${progress.completed}/${progress.total} (${progress.progress.toFixed(1)}%)`);

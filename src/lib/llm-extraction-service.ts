@@ -74,6 +74,10 @@ const DEFAULT_CONFIG: LLMExtractionConfig = {
 // Processing status for monitoring
 export interface ExtractionStatus {
   sourceId: string;
+  // Owner of the source. The queue is a process-global singleton shared by every
+  // user on a reused instance, so readers must filter on this; an entry without
+  // one is never returned to anyone.
+  userId?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number;
   provider?: string;
@@ -137,7 +141,8 @@ export class LLMExtractionService {
   async extractFromSource(
     sourceId: string,
     text: string,
-    context?: ExtractionContext
+    context?: ExtractionContext,
+    userId?: string
   ): Promise<ExtractionResult> {
     const startTime = Date.now();
 
@@ -147,6 +152,7 @@ export class LLMExtractionService {
       // Update processing status
       this.updateProcessingStatus(sourceId, {
         sourceId,
+        ...(userId ? { userId } : {}),
         status: 'processing',
         progress: 0,
         startTime
@@ -229,9 +235,11 @@ export class LLMExtractionService {
   async batchExtract(
     sources: Array<{ id: string; text: string; context?: ExtractionContext }>,
     options: {
+      // Owner of every source in the batch; tags their queue entries
+      userId: string;
       maxConcurrent?: number;
       onProgress?: (progress: ProcessingProgress) => void;
-    } = {}
+    }
   ): Promise<BatchExtractionResult> {
     await this.initialize();
 
@@ -246,6 +254,7 @@ export class LLMExtractionService {
     sources.forEach(source => {
       this.updateProcessingStatus(source.id, {
         sourceId: source.id,
+        userId: options.userId,
         status: 'pending',
         progress: 0
       });
@@ -255,7 +264,7 @@ export class LLMExtractionService {
     const promises = sources.map(source =>
       limit(async () => {
         try {
-          const result = await this.extractFromSource(source.id, source.text, source.context);
+          const result = await this.extractFromSource(source.id, source.text, source.context, options.userId);
           completed++;
 
           // Report progress
@@ -406,14 +415,15 @@ export class LLMExtractionService {
     return Math.round(remaining * avgTimePerItem);
   }
 
-  // Get processing status for a source
-  getProcessingStatus(sourceId: string): ExtractionStatus | undefined {
-    return this.processingQueue.get(sourceId);
+  // Get processing status for a source, only if it belongs to userId
+  getProcessingStatus(sourceId: string, userId: string): ExtractionStatus | undefined {
+    const status = this.processingQueue.get(sourceId);
+    return status?.userId === userId ? status : undefined;
   }
 
-  // Get all processing statuses
-  getAllProcessingStatuses(): ExtractionStatus[] {
-    return Array.from(this.processingQueue.values());
+  // Get all processing statuses belonging to userId
+  getAllProcessingStatuses(userId: string): ExtractionStatus[] {
+    return Array.from(this.processingQueue.values()).filter(s => s.userId === userId);
   }
 
   // Health check for all providers

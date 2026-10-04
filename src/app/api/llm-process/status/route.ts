@@ -7,6 +7,34 @@ import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for streaming
 
+type ProviderSummary = {
+  provider?: string;
+  model?: string;
+  prompt_version?: string;
+  available?: boolean;
+  healthy?: boolean;
+};
+
+// Allow-list of provider fields safe to show any signed-in user. Provider stats
+// also carry `cost_stats`, which are process-wide totals across every user's
+// extractions on this instance, so they must never reach the response.
+function describeProviders(providers: unknown): Record<string, ProviderSummary> {
+  if (!providers || typeof providers !== 'object') return {};
+
+  const summaries: Record<string, ProviderSummary> = {};
+  for (const [name, stats] of Object.entries(providers as Record<string, Record<string, unknown>>)) {
+    const health = stats?.health as { healthy?: unknown } | undefined;
+    summaries[name] = {
+      provider: typeof stats?.provider === 'string' ? stats.provider : undefined,
+      model: typeof stats?.model === 'string' ? stats.model : undefined,
+      prompt_version: typeof stats?.prompt_version === 'string' ? stats.prompt_version : undefined,
+      available: typeof stats?.available === 'boolean' ? stats.available : undefined,
+      healthy: typeof health?.healthy === 'boolean' ? health.healthy : undefined,
+    };
+  }
+  return summaries;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await requireAuthForApi();
@@ -39,7 +67,7 @@ export async function GET(request: NextRequest) {
               const serviceStats = await llmExtractionService.getServiceStats();
 
               // Get processing queue status
-              const queueStatuses = llmExtractionService.getAllProcessingStatuses();
+              const queueStatuses = llmExtractionService.getAllProcessingStatuses(user.id);
               const activeProcessing = queueStatuses.filter(s => s.status === 'processing');
               const pendingProcessing = queueStatuses.filter(s => s.status === 'pending');
               const completedProcessing = queueStatuses.filter(s => s.status === 'completed');
@@ -153,7 +181,7 @@ export async function GET(request: NextRequest) {
       return await llmExtractionService.getServiceStats();
     }, 'getServiceStats');
 
-    const queueStatuses = llmExtractionService.getAllProcessingStatuses();
+    const queueStatuses = llmExtractionService.getAllProcessingStatuses(user.id);
 
     // Calculate queue metrics
     const queueMetrics = {
@@ -226,7 +254,7 @@ export async function GET(request: NextRequest) {
         initialized: serviceStats?.initialized || false,
         health: serviceStats?.health || {},
         config: serviceStats?.config || {},
-        providers: serviceStats?.providers || {}
+        providers: describeProviders(serviceStats?.providers)
       },
       queue: queueMetrics,
       processing: {

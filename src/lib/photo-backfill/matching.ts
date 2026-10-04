@@ -162,7 +162,8 @@ function kindMismatch(place: BackfillPlace, candidateName: string, types: string
 }
 
 /** Wikimedia files that depict something other than the place itself. */
-const WIKIMEDIA_REJECT = /\b(map|maps|flag|logo|coat of arms|locator|diagram|plan|seal|emblem|sign)\b/;
+const WIKIMEDIA_REJECT =
+  /\b(map|maps|flag|logo|coat|arms|locator|diagram|plan|seal|emblem|sign|graph|chart|srtm|satellite|portrait|woman|women|man|men|inscription|station|airport|exit|stop|parada|visitor|centre|center)\b/;
 
 /** How far, in km, a match may sit from the place's coordinates, by kind. */
 export function radiusKmForKind(kind: string): number {
@@ -348,8 +349,26 @@ export function judgeWikimediaItem(place: BackfillPlace, item: PhotoSearchItem):
   const distanceKm =
     place.coords && item.coords ? round(haversineKm(place.coords, item.coords), 3) : null;
   const nameTokens = tokens(place.name);
-  const titleTokens = new Set(titleText.split(' '));
-  const similarity = nameTokens.length > 0 && nameTokens.every((t) => titleTokens.has(t)) ? 1 : 0;
+
+  // The file must be *about* the place: its title starts with the place's name,
+  // optionally after the area ("Verona-Juliet's balcony", "Xi'an Terracotta
+  // Army"). A name buried later in the title ("Wal-Mart Supercentre in Vaughan,
+  // Ontario, Canada") is incidental.
+  const areaTokens = new Set(
+    [place.city, place.admin, place.country].flatMap((a) => (a ? tokens(a) : [])),
+  );
+  const titleTokens = tokens(titleText);
+  let start = 0;
+  while (
+    start < titleTokens.length &&
+    !nameTokens.includes(titleTokens[start]) &&
+    (areaTokens.has(titleTokens[start]) || /^\d+$/.test(titleTokens[start]))
+  ) {
+    start++;
+  }
+  const lead = new Set(titleTokens.slice(start, start + nameTokens.length));
+  const similarity = nameTokens.length > 0 && nameTokens.every((t) => lead.has(t)) ? 1 : 0;
+
   const verdict = (accepted: boolean, reason: string): MatchVerdict => ({
     accepted,
     matchedName,
@@ -360,8 +379,13 @@ export function judgeWikimediaItem(place: BackfillPlace, item: PhotoSearchItem):
 
   if (!WIKIMEDIA_KINDS.has(place.kind)) return verdict(false, `no stock-free fallback for ${place.kind}`);
   if (nameTokens.join('').length < 4) return verdict(false, 'name too short to match safely');
-  if (similarity < 1) return verdict(false, 'file title does not name the place');
-  if (WIKIMEDIA_REJECT.test(titleText)) return verdict(false, 'map, flag, logo or sign');
+  if (place.country && normalizeName(place.country) === normalizeName(place.name)) {
+    return verdict(false, 'a whole country has no single right photo');
+  }
+  // Commons PNGs are overwhelmingly charts, maps and portraits, not photos.
+  if (!/\.jpe?g$/i.test(matchedName)) return verdict(false, 'not a photograph (jpeg)');
+  if (similarity < 1) return verdict(false, 'file title does not start with the place');
+  if (WIKIMEDIA_REJECT.test(titleText)) return verdict(false, 'map, chart, person, sign or facility');
 
   if (distanceKm !== null) {
     const radius = radiusKmForKind(place.kind);

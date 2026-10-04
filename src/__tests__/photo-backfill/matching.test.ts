@@ -202,6 +202,28 @@ describe('judgeWikimediaItem', () => {
     expect(v.accepted).toBe(false);
   });
 
+  it.each([
+    ['Canada', 'landmark', 'Canada', 'Wal-Mart Supercentre in Vaughan, Ontario, Canada, Jan 2008.jpg'],
+    ['Masai', 'neighborhood', 'Kenya', 'Masai woman in Nairobi.jpg'],
+    ['Austria', 'landmark', 'Austria', 'Austria wien Performance Graph.jpg'],
+    ['Córdoba', 'city', 'Spain', 'Francisco Hernandez de Cordoba (focus).png'],
+    ['Oceanogràfic', 'museum', 'Spain', 'Parada Oceanogràfic línea 10 Metro Valencia.jpg'],
+  ])('rejects %s (%s) -> %s', (name, kind, country, title) => {
+    const v = judgeWikimediaItem(
+      place({ name, kind, country, city: 'Valencia', coords: null }),
+      wikiItem({ title, caption: `${country} Valencia` }),
+    );
+    expect(v.accepted).toBe(false);
+  });
+
+  it('accepts a title that leads with the city, then the place', () => {
+    const v = judgeWikimediaItem(
+      place({ name: "Juliet's Balcony", kind: 'landmark', city: 'Verona', country: 'Italy', coords: null }),
+      wikiItem({ title: "Verona-Juliet's balcony.jpg", caption: "Juliet's balcony, Verona" }),
+    );
+    expect(v.accepted).toBe(true);
+  });
+
   it('never uses Wikimedia for a business', () => {
     const v = judgeWikimediaItem(
       place({ name: 'Bar Pinotxo', kind: 'bar' }),

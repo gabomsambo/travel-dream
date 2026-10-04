@@ -4,7 +4,7 @@
  *
  *   npx tsx scripts/backfill-place-photos.ts --env <file> --email <email> \
  *     --out <dir> [--mode dry-run|apply] [--confirm-db-host <host>] \
- *     [--from-plan <plan.jsonl>] [--max-places N] [--batch-size 100] [--concurrency 4] \
+ *     [--from-plan <plan.jsonl>[,<more.jsonl>]] [--places-file <ids.txt>] [--max-places N] [--batch-size 100] [--concurrency 4] \
  *     [--previews 8] [--sample 25]
  *
  * --env is required and is the only env file read, so the target database is
@@ -16,6 +16,9 @@
  * --from-plan writes the decisions of a reviewed dry run (its plan.jsonl)
  * instead of searching again, re-checking each place against its current rows
  * first, so what is written is what was reviewed and Google is not billed twice.
+ * Several plans may be given, comma-separated; a later plan's decision for a
+ * place replaces an earlier one (so a targeted re-plan can patch a full one).
+ * --places-file limits the run to the place ids listed in it, one per line.
  *
  * Apply mode is resumable: finished places are appended (fsync'd) to
  * <out>/ledger.jsonl and skipped on the next run. Re-running after a crash is
@@ -34,6 +37,7 @@ interface Args {
   mode: 'dry-run' | 'apply';
   confirmDbHost?: string;
   fromPlan?: string;
+  placesFile?: string;
   maxPlaces?: number;
   batchSize: number;
   concurrency: number;
@@ -68,6 +72,7 @@ function parseArgs(argv: string[]): Args {
     mode,
     confirmDbHost: get('--confirm-db-host'),
     fromPlan: get('--from-plan'),
+    placesFile: get('--places-file'),
     maxPlaces: num('--max-places'),
     batchSize: num('--batch-size', 100)!,
     concurrency: num('--concurrency', 4)!,
@@ -214,16 +219,25 @@ async function main(): Promise<void> {
       }
     }
 
-    const allPlaces = await loadUserPlaces(user.id);
+    let allPlaces = await loadUserPlaces(user.id);
     console.log(`[backfill] ${allPlaces.length} places loaded`);
+    if (args.placesFile) {
+      const only = new Set(
+        fs.readFileSync(args.placesFile, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean),
+      );
+      allPlaces = allPlaces.filter((p) => only.has(p.id));
+      console.log(`[backfill] limited to ${allPlaces.length} places from ${args.placesFile}`);
+    }
 
     let plan: Map<string, Decision> | undefined;
     if (args.fromPlan) {
       plan = new Map();
-      for (const line of fs.readFileSync(args.fromPlan, 'utf8').split('\n')) {
-        if (!line.trim()) continue;
-        const r = JSON.parse(line) as PlaceReport;
-        if (r.decision) plan.set(r.place.id, r.decision);
+      for (const file of args.fromPlan.split(',')) {
+        for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+          if (!line.trim()) continue;
+          const r = JSON.parse(line) as PlaceReport;
+          if (r.decision) plan.set(r.place.id, r.decision);
+        }
       }
       console.log(`[backfill] plan ${args.fromPlan}: ${plan.size} decisions`);
     }

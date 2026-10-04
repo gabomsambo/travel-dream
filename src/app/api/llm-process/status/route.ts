@@ -7,6 +7,31 @@ import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for streaming
 
+type ProviderSummary = {
+  provider?: string;
+  model?: string;
+  prompt_version?: string;
+  available?: boolean;
+  healthy?: boolean;
+};
+
+function describeProviders(providers: unknown): Record<string, ProviderSummary> {
+  if (!providers || typeof providers !== 'object') return {};
+
+  const summaries: Record<string, ProviderSummary> = {};
+  for (const [name, stats] of Object.entries(providers as Record<string, Record<string, unknown>>)) {
+    const health = stats?.health as { healthy?: unknown } | undefined;
+    summaries[name] = {
+      provider: typeof stats?.provider === 'string' ? stats.provider : undefined,
+      model: typeof stats?.model === 'string' ? stats.model : undefined,
+      prompt_version: typeof stats?.prompt_version === 'string' ? stats.prompt_version : undefined,
+      available: typeof stats?.available === 'boolean' ? stats.available : undefined,
+      healthy: typeof health?.healthy === 'boolean' ? health.healthy : undefined,
+    };
+  }
+  return summaries;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await requireAuthForApi();
@@ -226,7 +251,7 @@ export async function GET(request: NextRequest) {
         initialized: serviceStats?.initialized || false,
         health: serviceStats?.health || {},
         config: serviceStats?.config || {},
-        providers: serviceStats?.providers || {}
+        providers: describeProviders(serviceStats?.providers)
       },
       queue: queueMetrics,
       processing: {

@@ -27,6 +27,22 @@ jest.mock('@/lib/llm-providers/openai-provider', () => ({
     initialize: jest.fn().mockResolvedValue(undefined),
     extractFromSource: (...args: unknown[]) => mockProviderExtract(...args),
     isHealthy: jest.fn().mockResolvedValue(true),
+    // Mirrors the real provider: cost totals accumulate across every user's calls.
+    getProviderStats: jest.fn(async () => ({
+      provider: 'openai',
+      model: 'test-model',
+      prompt_version: '1.0.0',
+      cost_stats: [
+        {
+          provider: 'openai',
+          total_requests: mockProviderExtract.mock.calls.length,
+          total_input_tokens: 4242,
+          total_output_tokens: 1717,
+          total_cost_usd: 9.87,
+        },
+      ],
+      health: { healthy: true, lastCheck: new Date().toISOString(), errors: [] },
+    })),
     terminate: jest.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -196,6 +212,21 @@ describe('GET /api/llm-process/status', () => {
     expect(body.processing.recent_completions.map((c: { sourceId: string }) => c.sourceId)).toEqual([
       BOB_DONE,
     ]);
+  });
+
+  it("does not show user B process-wide cost or token totals from user A's extractions", async () => {
+    const { raw, body } = await getStatusAs(BOB);
+
+    expect(raw).not.toContain('cost_stats');
+    expect(raw).not.toContain('total_requests');
+    expect(raw).not.toContain('4242');
+    expect(raw).not.toContain('9.87');
+    expect(body.service.providers.openai).toEqual({
+      provider: 'openai',
+      model: 'test-model',
+      prompt_version: '1.0.0',
+      healthy: true,
+    });
   });
 
   it("still shows user A their own in-flight and completed entries", async () => {

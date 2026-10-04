@@ -174,6 +174,47 @@ describe('judgeGoogleCandidate', () => {
     ).toBe(false);
   });
 
+  it('does not confirm the area from a compound toponym that merely contains it', () => {
+    const v = judgeGoogleCandidate(
+      place({ name: 'York', kind: 'landmark', city: 'York', country: 'United Kingdom', coords: null }),
+      candidate({
+        displayName: 'New York',
+        formattedAddress: 'New York, NY, USA',
+        location: null,
+        types: ['locality', 'political'],
+      }),
+    );
+    expect(v.accepted).toBe(false);
+    expect(v.reason).toBe('location could not be confirmed');
+  });
+
+  it('still confirms the area when it appears as a standalone toponym', () => {
+    const v = judgeGoogleCandidate(
+      place({ name: 'York', kind: 'landmark', city: 'York', country: 'United Kingdom', coords: null }),
+      candidate({
+        displayName: 'York',
+        formattedAddress: 'York, England',
+        location: null,
+        types: ['locality', 'political'],
+      }),
+    );
+    expect(v.accepted).toBe(true);
+    expect(v.reason).toBe('address names the place\'s area');
+  });
+
+  it('confirms a multi-word area that is the address component itself', () => {
+    const v = judgeGoogleCandidate(
+      place({ name: 'New York', kind: 'city', city: 'New York', country: 'United States', coords: null }),
+      candidate({
+        displayName: 'New York',
+        formattedAddress: 'New York, NY, USA',
+        location: null,
+        types: ['locality', 'political'],
+      }),
+    );
+    expect(v.accepted).toBe(true);
+  });
+
   it('matches on an alternative name', () => {
     const v = judgeGoogleCandidate(
       place({ name: 'Lisbon', altNames: ['Lisboa'], kind: 'city', coords: { lat: 38.72, lon: -9.14 } }),

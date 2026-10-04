@@ -293,13 +293,26 @@ export function haversineKm(
 
 /** Does free text (an address, a caption) name the place's city, region or country? */
 function mentionsArea(place: BackfillPlace, text: string, skipName = true): boolean {
-  const hay = ` ${normalizeName(text)} `;
   const own = normalizeName(place.name);
+  // An address is a list of comma-separated components. A bare substring match
+  // would treat "York" as mentioned inside the compound toponym "New York";
+  // only a standalone toponym counts as independent confirmation.
+  const components = text
+    .split(',')
+    .map((part) => normalizeName(part).split(' ').filter(Boolean));
   return [place.city, place.admin, place.country].some((area) => {
     if (!area) return false;
     const n = normalizeName(area);
     if (!n || (skipName && n === own)) return false;
-    return hay.includes(` ${n} `);
+    const areaTokens = n.split(' ');
+    return components.some((tokens) => {
+      if (areaTokens.length > 1) return tokens.join(' ').includes(areaTokens.join(' '));
+      const at = tokens.indexOf(n);
+      if (at === -1) return false;
+      if (at === 0) return true;
+      const prev = tokens[at - 1];
+      return /^\d+$/.test(prev) || STOPWORDS.has(prev);
+    });
   });
 }
 

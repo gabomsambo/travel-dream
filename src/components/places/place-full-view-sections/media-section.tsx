@@ -134,7 +134,7 @@ export function MediaSection({ place }: MediaSectionProps) {
                       size="icon"
                       className={cn(
                         "absolute top-2 left-2 h-8 w-8 transition-opacity",
-                        isPrimary ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                        isPrimary ? "opacity-100" : "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
                       )}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -147,7 +147,7 @@ export function MediaSection({ place }: MediaSectionProps) {
                     <Button
                       variant="destructive"
                       size="icon"
-                      className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute top-2 right-2 h-8 w-8 opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-opacity"
                       onClick={(e) => {
                         e.stopPropagation()
                         handleDelete(photo.id)

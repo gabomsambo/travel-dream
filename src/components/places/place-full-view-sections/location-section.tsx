@@ -28,7 +28,7 @@ export function LocationSection({ formData, updateField }: LocationSectionProps)
               id="city"
               value={formData.city || ''}
               onChange={(e) => updateField('city', e.target.value || null)}
-              placeholder="San Francisco"
+              placeholder="Add a city"
             />
           </div>
 
@@ -39,7 +39,7 @@ export function LocationSection({ formData, updateField }: LocationSectionProps)
               id="country"
               value={formData.country || ''}
               onChange={(e) => updateField('country', e.target.value || null)}
-              placeholder="United States"
+              placeholder="Add a country"
             />
           </div>
 
@@ -50,7 +50,7 @@ export function LocationSection({ formData, updateField }: LocationSectionProps)
               id="admin"
               value={formData.admin || ''}
               onChange={(e) => updateField('admin', e.target.value || null)}
-              placeholder="California"
+              placeholder="Add a state or region"
             />
           </div>
         </div>
@@ -62,7 +62,7 @@ export function LocationSection({ formData, updateField }: LocationSectionProps)
             id="address"
             value={formData.address || ''}
             onChange={(e) => updateField('address', e.target.value || null)}
-            placeholder="123 Main St, San Francisco, CA 94102"
+            placeholder="Add the full address"
             rows={2}
           />
         </div>

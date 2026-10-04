@@ -156,7 +156,7 @@ export function PlaceFullView({ initialPlace }: PlaceFullViewProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background -m-6">
+    <div className="min-h-screen bg-background -m-3 [contain:inline-size] sm:-m-6">
       {/* Header */}
       <div className="sticky -top-6 z-50 bg-background border-b">
         <div className="container max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">

@@ -134,7 +134,7 @@ export function MediaSection({ place }: MediaSectionProps) {
                       size="icon"
                       className={cn(
                         "absolute top-2 left-2 h-8 w-8 transition-opacity",
-                        "opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                        isPrimary ? "opacity-100" : "opacity-100 md:opacity-0 md:group-hover:opacity-100"
                       )}
                       onClick={(e) => {
                         e.stopPropagation()

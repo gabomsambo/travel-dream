@@ -37,7 +37,7 @@ export async function generateMetadata({
   const place = await getPlaceWithRelations(id, user.id)
 
   return {
-    title: place ? `Edit ${place.name} - Travel Dreams` : 'Place Not Found',
+    title: place ? `${place.name} - Travel Dreams` : 'Place Not Found',
     description: place?.description || 'Edit place details',
   }
 }

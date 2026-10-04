@@ -26,7 +26,7 @@ export function ContactSection({ formData, updateField }: ContactSectionProps) {
               type="url"
               value={formData.website || ''}
               onChange={(e) => updateField('website', e.target.value || null)}
-              placeholder="https://example.com"
+              placeholder="Add a website"
             />
           </div>
 
@@ -38,7 +38,7 @@ export function ContactSection({ formData, updateField }: ContactSectionProps) {
               type="tel"
               value={formData.phone || ''}
               onChange={(e) => updateField('phone', e.target.value || null)}
-              placeholder="(555) 123-4567"
+              placeholder="Add a phone number"
             />
           </div>
 
@@ -50,7 +50,7 @@ export function ContactSection({ formData, updateField }: ContactSectionProps) {
               type="email"
               value={formData.email || ''}
               onChange={(e) => updateField('email', e.target.value || null)}
-              placeholder="info@example.com"
+              placeholder="Add an email"
             />
           </div>
         </div>

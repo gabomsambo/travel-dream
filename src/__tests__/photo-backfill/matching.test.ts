@@ -76,6 +76,13 @@ describe('nameSimilarity', () => {
     expect(nameSimilarity('Sagrada Familia', 'Casa Batlló')).toBeLessThan(0.5);
   });
 
+  it('does not let a short generic name match a long unrelated listing', () => {
+    expect(
+      nameSimilarity('W.MANAGEMENT', 'W Beauty Salon Dongling Agency Shen Cai Mian Rong Management Center'),
+    ).toBeLessThan(0.75);
+    expect(nameSimilarity('Sky 44', 'Sky 44 Rooftop Terraza & Bar Madrid')).toBeGreaterThanOrEqual(0.9);
+  });
+
   it('does not let a tiny shared word count as containment', () => {
     expect(nameSimilarity('Bo', 'Bo Restaurant Lisbon')).toBeLessThan(0.75);
   });

@@ -130,7 +130,8 @@ function dice(a: string, b: string): number {
 /**
  * 0-1 similarity between two place names. Exact (after normalising accents and
  * punctuation) is 1; one name's words all appearing in the other is 0.9 (so
- * "Torres del Paine" matches "Torres del Paine National Park"); otherwise the
+ * "Torres del Paine" matches "Torres del Paine National Park", as long as the
+ * shorter name is at least 30% of the longer one's words); otherwise the
  * character-bigram Dice coefficient.
  */
 export function nameSimilarity(a: string, b: string): number {
@@ -143,8 +144,13 @@ export function nameSimilarity(a: string, b: string): number {
   const tb = tokens(b);
   const setA = new Set(ta);
   const setB = new Set(tb);
+  // The shorter name must also be a fair share of the longer one, so a generic
+  // word or two ("W Management") does not match a long unrelated listing.
   const contained = (small: string[], big: Set<string>) =>
-    small.length > 0 && small.join('').length >= 4 && small.every((t) => big.has(t));
+    small.length > 0 &&
+    small.join('').length >= 4 &&
+    small.length / big.size >= 0.3 &&
+    small.every((t) => big.has(t));
   const score = dice(na, nb);
   if (contained(ta, setB) || contained(tb, setA)) return Math.max(score, 0.9);
   return score;

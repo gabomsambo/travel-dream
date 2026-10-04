@@ -142,6 +142,7 @@ describe('judgeGoogleCandidate', () => {
     ['Flamingos', 'shop', 'Flamingos Bar', ['bar', 'food']],
     ['luna', 'bar', 'Luna Beauty & co', ['beauty_salon']],
     ['Masai', 'natural', 'MASAI K LTD', ['point_of_interest', 'establishment']],
+    ['Oregon Coast', 'natural', 'Oregon Coast Military Museum', ['museum', 'tourist_attraction']],
   ])('rejects %s (%s) -> %s: wrong sort of place', (name, kind, matched, types) => {
     const v = judgeGoogleCandidate(
       place({ name, kind, coords: { lat: 10, lon: 10 } }),
@@ -188,9 +189,14 @@ describe('judgeWikimediaItem', () => {
     expect(v.accepted).toBe(true);
   });
 
-  it('accepts an untagged file whose caption names the area', () => {
-    const v = judgeWikimediaItem(place(), wikiItem({ caption: 'Sunrise over the massif, Chile' }));
+  it('accepts an untagged file whose caption names the city', () => {
+    const v = judgeWikimediaItem(place(), wikiItem({ caption: 'Sunrise over Última Esperanza' }));
     expect(v.accepted).toBe(true);
+  });
+
+  it('does not take a country mention alone as location evidence', () => {
+    const v = judgeWikimediaItem(place(), wikiItem({ caption: 'Sunrise over the massif, Chile' }));
+    expect(v.accepted).toBe(false);
   });
 
   it('rejects an untagged file with no location evidence', () => {
@@ -208,6 +214,7 @@ describe('judgeWikimediaItem', () => {
     ['Austria', 'landmark', 'Austria', 'Austria wien Performance Graph.jpg'],
     ['Córdoba', 'city', 'Spain', 'Francisco Hernandez de Cordoba (focus).png'],
     ['Oceanogràfic', 'museum', 'Spain', 'Parada Oceanogràfic línea 10 Metro Valencia.jpg'],
+    ['Córdoba', 'city', 'Spain', '20-Córdoba Banknote Nicaragua 1985 Rückseite.jpg'],
   ])('rejects %s (%s) -> %s', (name, kind, country, title) => {
     const v = judgeWikimediaItem(
       place({ name, kind, country, city: 'Valencia', coords: null }),

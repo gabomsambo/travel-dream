@@ -108,6 +108,8 @@ export function typeGroups(types: string[]): Set<TypeGroup> {
   return groups;
 }
 
+const NATURE_OR_AREA_KINDS = new Set(['natural', 'beach', 'park', 'city', 'neighborhood']);
+
 /** What a candidate for each kind may be. Kinds not listed (experience, tour, ...) are not checked. */
 const KIND_GROUPS: Record<string, TypeGroup[]> = {
   city: ['area'],
@@ -146,24 +148,28 @@ function kindMismatch(place: BackfillPlace, candidateName: string, types: string
   if (!allowed.some((g) => groups.has(g))) {
     return `a ${place.kind} cannot be a ${types.filter((t) => t !== 'point_of_interest' && t !== 'establishment').join('/') || 'generic establishment'}`;
   }
-  // A one-word name ("Canada", "Uluru") widened into a longer name is usually a
-  // business or facility named after the place, not the place itself.
+  // A name widened into a longer one ("Canada" -> "Canada's Wonderland",
+  // "Oregon Coast" -> "Oregon Coast Military Museum") is usually a business or
+  // facility named after the place. For a one-word name of any non-business
+  // kind, and for any name of a natural or area kind, the wider candidate must
+  // itself be a natural feature or an area.
   const placeTokens = tokens(place.name);
+  const widened = tokens(candidateName).length > placeTokens.length;
   if (
+    widened &&
     !BUSINESS_KINDS.has(place.kind) &&
-    placeTokens.length === 1 &&
-    tokens(candidateName).length > 1 &&
+    (placeTokens.length === 1 || NATURE_OR_AREA_KINDS.has(place.kind)) &&
     !groups.has('area') &&
     !groups.has('nature')
   ) {
-    return `one-word ${place.kind} name widened to a ${[...groups].join('/')}`;
+    return `${place.kind} name widened to a ${[...groups].join('/') || 'generic establishment'}`;
   }
   return null;
 }
 
 /** Wikimedia files that depict something other than the place itself. */
 const WIKIMEDIA_REJECT =
-  /\b(map|maps|flag|logo|coat|arms|locator|diagram|plan|seal|emblem|sign|graph|chart|srtm|satellite|portrait|woman|women|man|men|inscription|station|airport|exit|stop|parada|visitor|centre|center)\b/;
+  /\b(map|maps|flag|logo|coat|arms|locator|diagram|plan|seal|emblem|sign|graph|chart|srtm|satellite|portrait|woman|women|man|men|inscription|station|airport|exit|stop|parada|visitor|centre|center|banknote|coin|stamp|currency)\b/;
 
 /** How far, in km, a match may sit from the place's coordinates, by kind. */
 export function radiusKmForKind(kind: string): number {
@@ -393,8 +399,9 @@ export function judgeWikimediaItem(place: BackfillPlace, item: PhotoSearchItem):
       ? verdict(true, `geotagged within ${radius}km`)
       : verdict(false, `geotagged ${distanceKm}km away (limit ${radius}km)`);
   }
-  if (mentionsArea(place, `${matchedName} ${item.caption ?? ''}`)) {
-    return verdict(true, 'title/caption names the place\'s area');
+  // Without a geotag, a country alone is too coarse to place the photo.
+  if (place.city && mentionsArea({ ...place, country: null }, `${matchedName} ${item.caption ?? ''}`)) {
+    return verdict(true, 'title/caption names the place\'s city or region');
   }
   return verdict(false, 'location could not be confirmed');
 }

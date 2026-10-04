@@ -291,29 +291,47 @@ export function haversineKm(
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** Does free text (an address, a caption) name the place's city, region or country? */
+/** The comma-separated components of free text (an address, a caption), normalised. */
+function componentsOf(text: string): Set<string> {
+  return new Set(
+    text
+      .split(',')
+      .map((part) => normalizeName(part))
+      .filter(Boolean),
+  );
+}
+
+/**
+ * Does free text (a caption) name the place's city, region or country? Only a
+ * full comma-separated component that equals the area after normalisation
+ * counts; a component that merely contains the area (a compound toponym such
+ * as "New York" containing "York") is not independent confirmation.
+ */
 function mentionsArea(place: BackfillPlace, text: string, skipName = true): boolean {
   const own = normalizeName(place.name);
-  // An address is a list of comma-separated components. A bare substring match
-  // would treat "York" as mentioned inside the compound toponym "New York";
-  // only a standalone toponym counts as independent confirmation.
-  const components = text
-    .split(',')
-    .map((part) => normalizeName(part).split(' ').filter(Boolean));
+  const components = componentsOf(text);
   return [place.city, place.admin, place.country].some((area) => {
     if (!area) return false;
     const n = normalizeName(area);
     if (!n || (skipName && n === own)) return false;
-    const areaTokens = n.split(' ');
-    return components.some((tokens) => {
-      if (areaTokens.length > 1) return tokens.join(' ').includes(areaTokens.join(' '));
-      const at = tokens.indexOf(n);
-      if (at === -1) return false;
-      if (at === 0) return true;
-      const prev = tokens[at - 1];
-      return /^\d+$/.test(prev) || STOPWORDS.has(prev);
-    });
+    return components.has(n);
   });
+}
+
+/**
+ * Strict location confirmation from an address for a place with no
+ * coordinates: the country must be one full comma component and the city or
+ * region another. No substring, prefix or token containment of any kind counts.
+ */
+function addressConfirmsArea(place: BackfillPlace, address: string): boolean {
+  const components = componentsOf(address);
+  const country = place.country ? normalizeName(place.country) : '';
+  const region = [place.city, place.admin].some((area) => {
+    if (!area) return false;
+    const n = normalizeName(area);
+    return n.length > 0 && components.has(n);
+  });
+  return country.length > 0 && components.has(country) && region;
 }
 
 function round(n: number, places = 2): number {
@@ -355,7 +373,7 @@ export function judgeGoogleCandidate(
       : verdict(false, `${distanceKm}km away (limit ${radius}km)`);
   }
 
-  if (candidate.formattedAddress && mentionsArea(place, candidate.formattedAddress, false)) {
+  if (candidate.formattedAddress && addressConfirmsArea(place, candidate.formattedAddress)) {
     return verdict(true, 'address names the place\'s area');
   }
   return verdict(false, 'location could not be confirmed');

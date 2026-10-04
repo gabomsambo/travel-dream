@@ -164,11 +164,14 @@ describe('judgeGoogleCandidate', () => {
     expect(v.accepted).toBe(true);
   });
 
-  it('without coordinates, requires the address to name the place\'s area', () => {
+  it('without coordinates, requires the address to name the place\'s country and city as whole components', () => {
     const noCoords = place({ coords: null, name: 'Plaza Mayor', kind: 'landmark', city: 'Madrid', country: 'Spain' });
     expect(
-      judgeGoogleCandidate(noCoords, candidate({ displayName: 'Plaza Mayor', formattedAddress: 'Plaza Mayor, 28012 Madrid, Spain' })).accepted,
+      judgeGoogleCandidate(noCoords, candidate({ displayName: 'Plaza Mayor', formattedAddress: 'Plaza Mayor, Madrid, Spain' })).accepted,
     ).toBe(true);
+    expect(
+      judgeGoogleCandidate(noCoords, candidate({ displayName: 'Plaza Mayor', formattedAddress: 'Plaza Mayor, 28012 Madrid, Spain' })).accepted,
+    ).toBe(false);
     expect(
       judgeGoogleCandidate(noCoords, candidate({ displayName: 'Plaza Mayor', formattedAddress: 'Plaza Mayor, Salamanca' })).accepted,
     ).toBe(false);
@@ -193,7 +196,7 @@ describe('judgeGoogleCandidate', () => {
       place({ name: 'York', kind: 'landmark', city: 'York', country: 'United Kingdom', coords: null }),
       candidate({
         displayName: 'York',
-        formattedAddress: 'York, England',
+        formattedAddress: 'York, England, United Kingdom',
         location: null,
         types: ['locality', 'political'],
       }),
@@ -202,12 +205,40 @@ describe('judgeGoogleCandidate', () => {
     expect(v.reason).toBe('address names the place\'s area');
   });
 
+  it('does not confirm the area from a multi-word compound toponym', () => {
+    const v = judgeGoogleCandidate(
+      place({ name: 'Saint Martin', kind: 'natural', city: 'Saint Martin', country: 'Netherlands', coords: null }),
+      candidate({
+        displayName: "Saint Martin's Island",
+        formattedAddress: "Saint Martin's Island, Cox's Bazar, Bangladesh",
+        location: null,
+        types: ['island', 'locality', 'political'],
+      }),
+    );
+    expect(v.accepted).toBe(false);
+    expect(v.reason).toBe('location could not be confirmed');
+  });
+
+  it('does not confirm the area from a compound that starts with the area', () => {
+    const v = judgeGoogleCandidate(
+      place({ name: 'Washington', kind: 'city', city: 'Washington', country: 'United States', coords: null }),
+      candidate({
+        displayName: 'Washington Island',
+        formattedAddress: 'Washington Island, WI, USA',
+        location: null,
+        types: ['locality', 'political'],
+      }),
+    );
+    expect(v.accepted).toBe(false);
+    expect(v.reason).toBe('location could not be confirmed');
+  });
+
   it('confirms a multi-word area that is the address component itself', () => {
     const v = judgeGoogleCandidate(
       place({ name: 'New York', kind: 'city', city: 'New York', country: 'United States', coords: null }),
       candidate({
         displayName: 'New York',
-        formattedAddress: 'New York, NY, USA',
+        formattedAddress: 'New York, NY, United States',
         location: null,
         types: ['locality', 'political'],
       }),
@@ -231,7 +262,7 @@ describe('judgeWikimediaItem', () => {
   });
 
   it('accepts an untagged file whose caption names the city', () => {
-    const v = judgeWikimediaItem(place(), wikiItem({ caption: 'Sunrise over Última Esperanza' }));
+    const v = judgeWikimediaItem(place(), wikiItem({ caption: 'Sunrise over the massif, Última Esperanza, Chile' }));
     expect(v.accepted).toBe(true);
   });
 

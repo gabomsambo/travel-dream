@@ -3,6 +3,7 @@ import {
   describeSource,
   displayUrl,
   formatDateOnly,
+  formatDateTime,
   formatSavedDate,
   formatTime,
   linkLabel,
@@ -35,6 +36,16 @@ describe('formatSavedDate / formatTime', () => {
     expect(formatTime('00:00')).toBe('12:00 AM')
     expect(formatTime('17:05')).toBe('5:05 PM')
     expect(formatTime('sunset')).toBe('sunset')
+  })
+})
+
+describe('formatDateTime', () => {
+  it('renders a labelled UTC date-time that cannot shift across time zones', () => {
+    expect(formatDateTime('2026-09-30T10:00:00.000Z')).toBe('September 30, 2026, 10:00 AM UTC')
+    expect(formatDateTime('2026-09-30T23:30:00.000Z')).toBe('September 30, 2026, 11:30 PM UTC')
+    expect(formatDateTime('2026-01-01T00:05:00.000Z')).toBe('January 1, 2026, 12:05 AM UTC')
+    expect(formatDateTime('not a date')).toBeNull()
+    expect(formatDateTime(null)).toBeNull()
   })
 })
 

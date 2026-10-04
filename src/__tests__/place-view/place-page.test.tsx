@@ -27,9 +27,10 @@ jest.mock('@/components/ui-custom/photo-lightbox', () => ({
 }))
 // The editor itself is covered by its own tests; here it only has to be reachable and exit.
 jest.mock('@/components/places/place-full-view', () => ({
-  PlaceFullView: ({ initialPlace, onDone }: { initialPlace: { name: string }; onDone?: () => void }) => (
+  PlaceFullView: ({ initialPlace, onDone }: { initialPlace: { name: string; visitStatus?: string }; onDone?: () => void }) => (
     <div>
       <p>Editing: {initialPlace.name}</p>
+      <p data-testid="editor-status">{initialPlace.visitStatus ?? 'none'}</p>
       <button onClick={onDone}>Done</button>
     </div>
   ),
@@ -251,6 +252,30 @@ describe('PlacePage one-tap visit status', () => {
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
   })
 
+  it('keeps the confirmed status on screen between the PATCH success and the refresh landing', async () => {
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    const { rerender } = render(<PlacePage place={rich} />)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    // The write confirmed but the refreshed prop has not landed yet: the stale 'planned'
+    // prop must not flip the control back to Planned.
+    expect(mockRefresh).toHaveBeenCalled()
+    expect(screen.getByRole('radio', { name: 'Been' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Planned' })).not.toBeChecked()
+    expect(screen.getByText('Been there')).toBeInTheDocument()
+    expect(screen.queryByText('Planned · Nov 18')).not.toBeInTheDocument()
+
+    // When the refreshed prop confirms the write, the override is released but stays 'Been'.
+    rerender(<PlacePage place={{ ...rich, visitStatus: 'visited' }} />)
+    expect(screen.getByRole('radio', { name: 'Been' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Planned' })).not.toBeChecked()
+  })
+
   it('rolls back and reports the error when the PATCH fails', async () => {
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ message: 'Server exploded' }) })
     render(<PlacePage place={rich} />)
@@ -360,5 +385,33 @@ describe('PlacePage one-tap visit status', () => {
     expect(screen.getByText('Planned · Nov 18')).toBeInTheDocument()
     expect(screen.queryByText('Been there')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for an in-flight status write before the editor mounts and seeds it with the confirmed status', async () => {
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    render(<PlacePage place={rich} />)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    // The editor must not mount while the status PATCH is still on the wire, or its
+    // full-record save could revert the tapped status.
+    expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    // Only after the write settled does the editor mount, seeded with the confirmed status.
+    expect(await screen.findByText('Editing: Fushimi Inari-taisha')).toBeInTheDocument()
+    expect(screen.getByTestId('editor-status')).toHaveTextContent('visited')
+  })
+
+  it('opens the editor directly with the current status when no write is pending', async () => {
+    render(<PlacePage place={rich} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(await screen.findByText('Editing: Fushimi Inari-taisha')).toBeInTheDocument()
+    expect(screen.getByTestId('editor-status')).toHaveTextContent('planned')
   })
 })

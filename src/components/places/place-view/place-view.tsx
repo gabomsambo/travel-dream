@@ -18,6 +18,14 @@ const PhotoLightbox = dynamic(
 
 type VisitStatus = "not_visited" | "planned" | "visited"
 
+/** Imperative access for the page shell: drain a pending status write, read what's shown. */
+export interface PlaceViewHandles {
+  /** Resolves once no one-tap visit-status write is in flight or queued. */
+  flushStatus: () => Promise<void>
+  /** The place as currently displayed, including a confirmed status override. */
+  displayPlace: () => PlaceWithRelations
+}
+
 /** Cover first, then the rest in their stored order. */
 export function orderedPhotos(attachments: Attachment[]): Attachment[] {
   const photos = attachments.filter((a) => a.type === "photo")
@@ -97,11 +105,13 @@ export function PlaceView({
   onEdit,
   onPrefetchEdit,
   onPhotoAttached,
+  handlesRef,
 }: {
   place: PlaceWithRelations
   onEdit: () => void
   onPrefetchEdit?: () => void
   onPhotoAttached: () => void
+  handlesRef?: React.MutableRefObject<PlaceViewHandles | null>
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -112,6 +122,7 @@ export function PlaceView({
   const desiredStatusRef = React.useRef<VisitStatus | null>(null)
   const persistingRef = React.useRef(false)
   const statusGenerationRef = React.useRef(0)
+  const persistPromiseRef = React.useRef<Promise<void> | null>(null)
   const displayPlace = statusOverride ? { ...place, visitStatus: statusOverride } : place
 
   const persistVisitStatus = async () => {
@@ -132,7 +143,6 @@ export function PlaceView({
           }
           if (generation === statusGenerationRef.current && desiredStatusRef.current === null && latestSelectionRef.current === target) {
             latestSelectionRef.current = null
-            setStatusOverride(null)
             router.refresh()
           }
         } catch (error) {
@@ -145,8 +155,30 @@ export function PlaceView({
       }
     } finally {
       persistingRef.current = false
+      persistPromiseRef.current = null
     }
   }
+
+  const flushStatus = React.useCallback(async () => {
+    while (persistPromiseRef.current) {
+      await persistPromiseRef.current
+    }
+  }, [])
+
+  // Release the optimistic override once the server data confirms it, so the display never
+  // flips back to the old status during the refresh round-trip. This only ever clears the
+  // override; it never re-applies a selection.
+  React.useEffect(() => {
+    if (statusOverride && place.visitStatus === statusOverride) {
+      setStatusOverride(null)
+    }
+  }, [place.visitStatus, statusOverride])
+
+  React.useEffect(() => {
+    if (handlesRef) {
+      handlesRef.current = { flushStatus, displayPlace: () => displayPlace }
+    }
+  }, [handlesRef, flushStatus, displayPlace])
 
   const setVisitStatus = (next: VisitStatus) => {
     const displayed = (displayPlace.visitStatus as VisitStatus | null) ?? "not_visited"
@@ -157,7 +189,8 @@ export function PlaceView({
     setStatusOverride(next)
     if (persistingRef.current) return
     persistingRef.current = true
-    void persistVisitStatus()
+    persistPromiseRef.current = persistVisitStatus()
+    void persistPromiseRef.current
   }
 
   return (

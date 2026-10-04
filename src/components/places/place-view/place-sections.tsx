@@ -5,7 +5,7 @@ import {
   UserRound, UtensilsCrossed, Youtube, type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { confidenceLabel, describeSource, formatSavedDate, linkLabel, safeExternalUrl } from "@/lib/place-view/format"
+import { confidenceLabel, describeSource, formatDateTime, formatSavedDate, linkLabel, safeExternalUrl } from "@/lib/place-view/format"
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
@@ -275,10 +275,7 @@ const TONES = {
 } as const
 
 function formatTimestamp(iso: string | null | undefined) {
-  if (!iso) return "N/A"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString("en-US", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })
+  return formatDateTime(iso) ?? iso ?? "N/A"
 }
 
 /** Bookkeeping the owner rarely needs: kept, but folded away at the bottom. */
@@ -295,8 +292,8 @@ export function RecordInfo({ place }: { place: PlaceWithRelations }) {
         </span>
       </summary>
       <dl className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
-        <div><dt className="inline">Created · </dt><dd className="inline" suppressHydrationWarning>{formatTimestamp(place.createdAt)}</dd></div>
-        <div><dt className="inline">Last updated · </dt><dd className="inline" suppressHydrationWarning>{formatTimestamp(place.updatedAt)}</dd></div>
+        <div><dt className="inline">Created · </dt><dd className="inline">{formatTimestamp(place.createdAt)}</dd></div>
+        <div><dt className="inline">Last updated · </dt><dd className="inline">{formatTimestamp(place.updatedAt)}</dd></div>
         <div>
           <dt className="inline">Confidence · </dt>
           <dd className="inline"><span className={cn("rounded-full px-2 py-0.5 font-semibold", TONES[confidence.tone])}>{confidence.label}</span></dd>

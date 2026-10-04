@@ -6,6 +6,7 @@ import type { PlaceLink, Source } from '@/types/database'
  */
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function parseDateOnly(value: string): Date | null {
@@ -34,6 +35,17 @@ export function formatSavedDate(iso: string | null | undefined): string | null {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return null
   return `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
+}
+
+/** An ISO timestamp as a labelled UTC date-time ("Sep 30, 2026, 10:00 AM UTC"). */
+export function formatDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const suffix = d.getUTCHours() < 12 ? 'AM' : 'PM'
+  const h12 = d.getUTCHours() % 12 === 0 ? 12 : d.getUTCHours() % 12
+  const minutes = String(d.getUTCMinutes()).padStart(2, '0')
+  return `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}, ${h12}:${minutes} ${suffix} UTC`
 }
 
 /** "17:30" -> "5:30 PM"; anything unparseable is returned as written. */

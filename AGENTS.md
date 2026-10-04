@@ -223,7 +223,8 @@ to take bare place ids and was safe only because both call sites happened to pas
 - Session ownership check (404 then 403): `src/app/api/mass-upload/start/route.ts`
 - Transitively-owned rows: `src/app/api/export/all/route.ts`
 - Row-scoped follow-up on a caller-supplied id list: `src/app/api/mass-upload/cancel/route.ts`
-- Scoped transaction: `src/app/api/places/[id]/attachments/[attachmentId]/primary/route.ts`
+- Scoped transaction: `setPrimaryPhoto` in `src/lib/place-photos.ts` (the primary
+  route delegates to it)
 - Regression tests for these shapes: `src/__tests__/authorization/`, and
   `tenant-db-chokepoint.test.ts` there proves both the lint rule and the accessor
 

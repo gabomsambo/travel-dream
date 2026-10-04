@@ -149,6 +149,7 @@ export function PlaceView({
           if (generation === statusGenerationRef.current && desiredStatusRef.current === null && latestSelectionRef.current === target) {
             latestSelectionRef.current = null
             setStatusOverride(null)
+            router.refresh()
             notify.error(error instanceof Error ? error.message : "Couldn't update your plan")
           }
         }

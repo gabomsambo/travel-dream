@@ -167,7 +167,16 @@ export function YourPlan({
           <div className="flex items-center gap-3">
             <CalendarHeart className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
             <dt className="sr-only">Planned visit</dt>
-            <dd><span className="text-muted-foreground">Planned for </span><span className="font-medium">{planned}</span></dd>
+            <dd>
+              {status === "planned" ? (
+                <>
+                  <span className="text-muted-foreground">Planned for </span>
+                  <span className="font-medium">{planned}</span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">Planned visit · {planned}</span>
+              )}
+            </dd>
           </div>
         )}
         {lastVisited && (

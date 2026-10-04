@@ -178,6 +178,12 @@ describe('PlacePage view mode', () => {
     expect(screen.getByRole('link', { name: 'Kyoto' })).toHaveAttribute('href', '/explore/atlas/japan/kyoto')
     expect(screen.getByRole('link', { name: 'Japan' })).toHaveAttribute('href', '/explore/atlas/japan')
   })
+
+  it('shows a stored planned date with a neutral label when the status is not planned', () => {
+    render(<PlacePage place={{ ...rich, visitStatus: 'visited' }} />)
+    expect(screen.getByText('Planned visit · Wed, Nov 18, 2026')).toBeInTheDocument()
+    expect(screen.queryByText(/Planned for/)).not.toBeInTheDocument()
+  })
 })
 
 describe('PlacePage sparse place', () => {
@@ -287,7 +293,31 @@ describe('PlacePage one-tap visit status', () => {
     expect(screen.getByRole('radio', { name: 'Been' })).not.toBeChecked()
     expect(screen.getByText('Planned · Nov 18')).toBeInTheDocument()
     expect(screen.queryByText('Been there')).not.toBeInTheDocument()
+    expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('re-syncs to the server after a failed latest write that follows an earlier success', async () => {
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    fetchMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    render(<PlacePage place={rich} />)
+
+    // Tap 'Been' (gen1), then 'Planned' (gen2) before gen1 resolves.
+    await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
+    await userEvent.click(screen.getByRole('radio', { name: 'Planned' }))
+
+    // gen1's PATCH succeeds but is superseded by gen2, so no refresh fires for it.
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({ status: 'success' }) })
+    })
     expect(mockRefresh).not.toHaveBeenCalled()
+
+    // gen2's PATCH fails: the rollback must refresh so the view re-syncs to what the
+    // server actually holds (the earlier success), instead of showing stale prop data.
+    await act(async () => {
+      resolvers[1]({ ok: false, json: async () => ({ message: 'Server exploded' }) })
+    })
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Server exploded'))
+    expect(mockRefresh).toHaveBeenCalled()
   })
 
   it('makes the latest selection win when two quick taps resolve out of order', async () => {

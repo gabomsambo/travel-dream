@@ -244,10 +244,20 @@ describe('useVirtualGrid', () => {
 describe('useScrollPerformance', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    // Fake only the timer APIs the hook's stop-detection depends on. The
+    // module defines requestAnimationFrame/cancelAnimationFrame/performance
+    // as non-writable properties, so leave them out of the fake set.
+    jest.useFakeTimers({
+      doNotFake: ['performance', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    })
     mockRequestAnimationFrame.mockImplementation((callback) => {
       setTimeout(callback, 16) // Simulate 60fps
       return 1
     })
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
   })
 
   it('initializes with default metrics', () => {
@@ -271,7 +281,7 @@ describe('useScrollPerformance', () => {
     expect(result.current.isScrolling).toBe(true)
   })
 
-  it('detects when scrolling stops', (done) => {
+  it('detects when scrolling stops', () => {
     const { result } = renderHook(() => useScrollPerformance(true))
 
     act(() => {
@@ -281,11 +291,12 @@ describe('useScrollPerformance', () => {
 
     expect(result.current.isScrolling).toBe(true)
 
-    // Wait for scrolling to stop
-    setTimeout(() => {
-      expect(result.current.isScrolling).toBe(false)
-      done()
-    }, 200)
+    // Advance past the 150ms stop-detection debounce deterministically
+    act(() => {
+      jest.advanceTimersByTime(150)
+    })
+
+    expect(result.current.isScrolling).toBe(false)
   })
 
   it('does not track when disabled', () => {

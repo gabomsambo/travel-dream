@@ -22,6 +22,7 @@ There are two places:
 | Capture | What it shows |
 |---|---|
 | ![](after-edit-desktop.jpg) | **Edit** opens today's editor unchanged, with a new **Done** button. Done first sends any edit still inside the 800 ms autosave debounce, and stays in the editor if that save fails. |
+| ![](after-status-control.jpg) | One-tap visit status in *Your plan*: **Want to go / Planned / Been**. Tapping **Planned** on Bar Leone sent one `PATCH /api/places/[id]` with `{ visitStatus }`, the hero gained its *Planned* chip immediately, and the row updated. A failed save rolls back and shows an error. |
 | ![](after-actions-menu.jpg) | The hero ⋯ menu: **Archive** and **Delete…** (on an archived place it shows **Restore to library**). |
 | ![](after-actions-menu-mobile.jpg) | The same menu on mobile. |
 | ![](after-delete-confirm.jpg) | Delete is behind a confirmation dialog that names the place and suggests archiving instead. |

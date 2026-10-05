@@ -105,6 +105,53 @@ function draftFrom(place: PlaceWithRelations): PlaceDraft {
   }
 }
 
+/** The place with the section draft laid over it, so a seed taken mid-edit carries what was typed. */
+function placeWithDraft(place: PlaceWithRelations, draft: PlaceDraft): PlaceWithRelations {
+  let coords = place.coords
+  if (draft.lat.trim() === "" && draft.lon.trim() === "") {
+    coords = null
+  } else if (Number.isFinite(Number(draft.lat)) && Number.isFinite(Number(draft.lon))) {
+    coords = { lat: Number(draft.lat), lon: Number(draft.lon) }
+  }
+  return {
+    ...place,
+    notes: draft.notes,
+    recommendedBy: draft.recommendedBy || null,
+    description: draft.description,
+    altNames: draft.altNames,
+    best_time: draft.best_time || null,
+    price_level: draft.price_level || null,
+    activities: draft.activities,
+    cuisine: draft.cuisine,
+    amenities: draft.amenities,
+    tags: draft.tags,
+    vibes: draft.vibes,
+    practicalInfo: draft.practicalInfo,
+    address: draft.address || null,
+    city: draft.city || null,
+    admin: draft.admin || null,
+    country: draft.country || null,
+    coords,
+    hours: draft.hours,
+    website: draft.website || null,
+    phone: draft.phone || null,
+    email: draft.email || null,
+    priority: draft.priority,
+    plannedVisit: draft.plannedVisit || null,
+    lastVisited: draft.lastVisited || null,
+    companions: draft.companions,
+    ratingSelf: draft.ratingSelf,
+  }
+}
+
+/** Imperative access for the page shell before it swaps the view for the full editor. */
+export interface SectionEditHandles {
+  /** Resolves true once every section edit is saved; false if a save failed. */
+  flush: () => Promise<boolean>
+  /** `place` with the section edits applied. */
+  withDraft: (place: PlaceWithRelations) => PlaceWithRelations
+}
+
 function patchFor(draft: PlaceDraft, key: keyof PlaceDraft): Record<string, unknown> {
   if (key === "lat" || key === "lon") {
     if (draft.lat.trim() === "" && draft.lon.trim() === "") return { coords: null }
@@ -326,10 +373,12 @@ function MobileSheet({ api }: { api: SectionEditApi }) {
 export function SectionEditProvider({
   place,
   onRefresh,
+  handlesRef,
   children,
 }: {
   place: PlaceWithRelations
   onRefresh: () => void
+  handlesRef?: React.MutableRefObject<SectionEditHandles | null>
   children: React.ReactNode
 }) {
   const mobile = useMobileSheet()
@@ -337,14 +386,34 @@ export function SectionEditProvider({
   const [draft, setDraft] = React.useState<PlaceDraft>(() => draftFrom(place))
   const save = usePlaceAutosave(place.id, onRefresh)
   const placeIdRef = React.useRef(place.id)
+  const activeRef = React.useRef(active)
+  const draftRef = React.useRef(draft)
+
+  React.useEffect(() => {
+    activeRef.current = active
+    draftRef.current = draft
+  })
 
   React.useEffect(() => {
     if (placeIdRef.current !== place.id) {
       placeIdRef.current = place.id
       setDraft(draftFrom(place))
       setActive(null)
+    } else if (activeRef.current === null) {
+      setDraft(draftFrom(place))
     }
   }, [place])
+
+  React.useEffect(() => {
+    if (!handlesRef) return
+    handlesRef.current = {
+      flush: save.flush,
+      withDraft: (target) => placeWithDraft(target, draftRef.current),
+    }
+    return () => {
+      handlesRef.current = null
+    }
+  }, [handlesRef, save.flush])
 
   const setField = React.useCallback(<K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => {
     setDraft((prev) => {

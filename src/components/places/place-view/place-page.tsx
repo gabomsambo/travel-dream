@@ -46,10 +46,11 @@ export function PlacePage({ place, startInEdit = false }: { place: PlaceWithRela
   const viewHandlesRef = React.useRef<PlaceViewHandles | null>(null)
   const [editSeed, setEditSeed] = React.useState<PlaceWithRelations | null>(null)
 
-  // A one-tap status write left in flight when Edit is pressed must settle before the editor
-  // mounts, or the editor's full-record save would silently revert the tapped status.
+  // A one-tap status write or a section-pencil edit left in flight when Edit is pressed must
+  // settle before the editor mounts, or the editor's full-record save would silently revert it.
   const enterEdit = React.useCallback(async () => {
     await viewHandlesRef.current?.flushStatus()
+    if (viewHandlesRef.current && !(await viewHandlesRef.current.flushSections())) return
     setEditSeed(viewHandlesRef.current?.displayPlace() ?? null)
     setMode("edit")
   }, [])
@@ -62,8 +63,12 @@ export function PlacePage({ place, startInEdit = false }: { place: PlaceWithRela
     document.querySelector("main")?.scrollTo({ top: 0 })
   }, [mode])
 
+  const editPlace = editSeed
+    ? { ...editSeed, reservations: place.reservations, links: place.links, attachments: place.attachments }
+    : place
+
   if (mode === "edit") {
-    return <PlaceFullView initialPlace={editSeed ?? place} onDone={exitEdit} />
+    return <PlaceFullView initialPlace={editPlace} onDone={exitEdit} />
   }
 
   return (

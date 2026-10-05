@@ -10,7 +10,7 @@ import type { Attachment, PlaceWithRelations } from "@/types/database"
 import { PlaceHero } from "./place-hero"
 import { About, GoodToKnow, Links, Photos, RecordInfo, SectionHeader, Sources, WhyItsHere } from "./place-sections"
 import { OnTheGround, YourPlan } from "./place-rail"
-import { EditableSection, SectionEditProvider } from "./section-edit"
+import { EditableSection, SectionEditProvider, useSectionEdit, type SectionEditHandles, type SectionId } from "./section-edit"
 
 const PhotoLightbox = dynamic(
   () => import("@/components/ui-custom/photo-lightbox").then((mod) => ({ default: mod.PhotoLightbox })),
@@ -23,7 +23,9 @@ type VisitStatus = "not_visited" | "planned" | "visited"
 export interface PlaceViewHandles {
   /** Resolves once no one-tap visit-status write is in flight or queued. */
   flushStatus: () => Promise<void>
-  /** The place as currently displayed, including a confirmed status override. */
+  /** Resolves true once every section-pencil edit is saved; false if a save failed. */
+  flushSections: () => Promise<boolean>
+  /** The place as currently displayed, including a confirmed status override and section edits. */
   displayPlace: () => PlaceWithRelations
 }
 
@@ -58,11 +60,12 @@ function Invitation({ icon: Icon, title, detail, onClick }: { icon: LucideIcon; 
  * missing becomes a few invitations instead of a page of blank inputs.
  */
 function MakeItYours({ place, hasPhotos, onEdit }: { place: PlaceWithRelations; hasPhotos: boolean; onEdit: () => void }) {
-  const missing: Array<[LucideIcon, string, string]> = []
-  if (!place.notes) missing.push([Quote, "Why did you save it?", "Your note becomes the quote at the top"])
-  if (!hasPhotos) missing.push([ImagePlus, "Add a photo", "Upload one or find one for this place"])
-  if (!place.address && !place.hours) missing.push([MapPin, "Address & hours", "So it's useful when you're there"])
-  if (!place.description) missing.push([PenLine, "Describe it", "A line or two about the place"])
+  const sections = useSectionEdit()
+  const missing: Array<[LucideIcon, string, string, SectionId]> = []
+  if (!place.notes) missing.push([Quote, "Why did you save it?", "Your note becomes the quote at the top", "why"])
+  if (!hasPhotos) missing.push([ImagePlus, "Add a photo", "Upload one or find one for this place", "photos"])
+  if (!place.address && !place.hours) missing.push([MapPin, "Address & hours", "So it's useful when you're there", "ground"])
+  if (!place.description) missing.push([PenLine, "Describe it", "A line or two about the place", "about"])
   if (missing.length < 2) return null
 
   return (
@@ -70,8 +73,8 @@ function MakeItYours({ place, hasPhotos, onEdit }: { place: PlaceWithRelations; 
       <SectionHeader eyebrow="Make it yours" title="Only the basics so far" id="place-make-it-yours" />
       <p className="mt-1 text-sm text-muted-foreground">Add what you remember. Each one fills in a part of this page.</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {missing.map(([icon, title, detail]) => (
-          <Invitation key={title} icon={icon} title={title} detail={detail} onClick={onEdit} />
+        {missing.map(([icon, title, detail, section]) => (
+          <Invitation key={title} icon={icon} title={title} detail={detail} onClick={sections ? () => sections.open(section) : onEdit} />
         ))}
       </div>
     </section>
@@ -125,6 +128,7 @@ export function PlaceView({
   const statusGenerationRef = React.useRef(0)
   const persistPromiseRef = React.useRef<Promise<void> | null>(null)
   const displayPlace = statusOverride ? { ...place, visitStatus: statusOverride } : place
+  const sectionHandlesRef = React.useRef<SectionEditHandles | null>(null)
 
   const persistVisitStatus = async () => {
     try {
@@ -178,7 +182,11 @@ export function PlaceView({
 
   React.useEffect(() => {
     if (handlesRef) {
-      handlesRef.current = { flushStatus, displayPlace: () => displayPlace }
+      handlesRef.current = {
+        flushStatus,
+        flushSections: () => sectionHandlesRef.current?.flush() ?? Promise.resolve(true),
+        displayPlace: () => sectionHandlesRef.current?.withDraft(displayPlace) ?? displayPlace,
+      }
     }
   }, [handlesRef, flushStatus, displayPlace])
 
@@ -196,7 +204,7 @@ export function PlaceView({
   }
 
   return (
-    <SectionEditProvider place={place} onRefresh={() => router.refresh()}>
+    <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef}>
       <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} />
       <QuickFacts place={displayPlace} />
 

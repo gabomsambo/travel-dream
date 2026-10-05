@@ -25,9 +25,11 @@ jest.mock('@/components/ui-custom/photo-lightbox', () => ({
   PhotoLightbox: () => null,
 }))
 jest.mock('@/components/places/place-full-view', () => ({
-  PlaceFullView: ({ initialPlace, onDone }: { initialPlace: { name: string }; onDone?: () => void }) => (
+  PlaceFullView: ({ initialPlace, onDone }: { initialPlace: { name: string; description: string | null; reservations: unknown[] }; onDone?: () => void }) => (
     <div>
       <p>Editing: {initialPlace.name}</p>
+      <p>Seeded description: {initialPlace.description}</p>
+      <p>Reservations in editor: {initialPlace.reservations.length}</p>
       <button onClick={onDone}>Done</button>
     </div>
   ),
@@ -141,6 +143,45 @@ describe('section pencils', () => {
     expect(screen.queryByLabelText('Description')).not.toBeInTheDocument()
   })
 
+  it('saves a pencil edit still inside the debounce before global Edit seeds the editor', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    render(<PlacePage place={place} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit About' }))
+    const description = screen.getByLabelText('Description')
+    await userEvent.clear(description)
+    await userEvent.type(description, 'A mountain of gates.')
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[0])
+
+    expect(await screen.findByText('Seeded description: A mountain of gates.')).toBeInTheDocument()
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)))
+    expect(bodies.at(-1)).toEqual({ description: 'A mountain of gates.' })
+  })
+
+  it('shows a refreshed value in the pencil editor after the place changes underneath it', async () => {
+    const { rerender } = render(<PlacePage place={place} />)
+    rerender(<PlacePage place={{ ...place, practicalInfo: 'Bring water.' }} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Good to know' }))
+    expect(screen.getByDisplayValue('Bring water.')).toBeInTheDocument()
+  })
+
+  it('opens the matching section editor from a Make it yours invitation', async () => {
+    const sparse = { ...place, notes: null, description: null, altNames: [], attachments: [] } as PlaceWithRelations
+    render(<PlacePage place={sparse} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /Describe it/ }))
+    expect(screen.getByLabelText('Description')).toHaveValue('')
+    expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await userEvent.click(screen.getByRole('button', { name: /Why did you save it/ }))
+    expect(screen.getByLabelText('Your note')).toHaveValue('')
+  })
+
   it('opens the existing editor when the page is asked to start in edit mode', async () => {
     render(<PlacePage place={place} startInEdit />)
     expect(await screen.findByText('Editing: Fushimi Inari-taisha')).toBeInTheDocument()
@@ -215,6 +256,36 @@ describe('reservation editing', () => {
     expect(body.totalCost).toBe('$210.00')
     expect(body.bookingUrl).toBe('https://example.com/new')
     expect(body.specialRequests).toBe('Window seat')
+  })
+})
+
+describe('full-view reservation saves', () => {
+  it('closes and clears the form after adding, so a second Save cannot post a duplicate', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    mockRefresh.mockClear()
+
+    render(<ReservationsSection place={place} />)
+    await userEvent.click(screen.getByRole('button', { name: /Add Reservation/ }))
+    await userEvent.type(screen.getByLabelText('Date'), '2026-12-01')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument())
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST')
+    expect(mockRefresh).toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /Add Reservation/ }))
+    expect(screen.getByLabelText('Date')).toHaveValue('')
+  })
+
+  it('passes refreshed reservations to the open global editor', async () => {
+    const { rerender } = render(<PlacePage place={place} />)
+    await userEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[0])
+    expect(await screen.findByText('Reservations in editor: 1')).toBeInTheDocument()
+
+    rerender(<PlacePage place={{ ...place, reservations: [] }} />)
+    expect(screen.getByText('Reservations in editor: 0')).toBeInTheDocument()
   })
 })
 

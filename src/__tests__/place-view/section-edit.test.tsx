@@ -169,6 +169,36 @@ describe('section pencils', () => {
     expect(screen.getByDisplayValue('Bring water.')).toBeInTheDocument()
   })
 
+  it('takes a refreshed value while another section is open and seeds global Edit with it', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { rerender } = render(<PlacePage place={place} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Your plan' }))
+    rerender(<PlacePage place={{ ...place, description: 'Saved in the full editor.' }} />)
+
+    await userEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[0])
+    expect(await screen.findByText('Seeded description: Saved in the full editor.')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps typed pencil text over a refresh that has not caught up yet', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { rerender } = render(<PlacePage place={place} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit About' }))
+    const description = screen.getByLabelText('Description')
+    await userEvent.clear(description)
+    await userEvent.type(description, 'Typed here.')
+    rerender(<PlacePage place={{ ...place, practicalInfo: 'Bring water.' }} />)
+    expect(screen.getByLabelText('Description')).toHaveValue('Typed here.')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Good to know' }))
+    expect(screen.getByDisplayValue('Bring water.')).toBeInTheDocument()
+  })
+
   it('opens the matching section editor from a Make it yours invitation', async () => {
     const sparse = { ...place, notes: null, description: null, altNames: [], attachments: [] } as PlaceWithRelations
     render(<PlacePage place={sparse} />)

@@ -27,6 +27,7 @@ export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> 
         description: places.description, notes: places.notes, vibes: places.vibes, bestTime: places.best_time,
         recommendedBy: places.recommendedBy, visitStatus: places.visitStatus, priority: places.priority,
         ratingSelf: places.ratingSelf, priceLevel: places.price_level, createdAt: places.createdAt, coords: places.coords,
+        lastVisited: places.lastVisited, plannedVisit: places.plannedVisit,
       },
       inArray(places.status, BROWSABLE)
     ),
@@ -55,7 +56,8 @@ export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> 
       id: r.id, name: r.name, kind: r.kind, city: r.city, country: r.country, description: r.description, notes: r.notes,
       vibes: asArray(r.vibes), bestTimeText: r.bestTime, bestTime: parseBestTime(r.bestTime, coords?.lat),
       recommendedBy: r.recommendedBy, visitStatus: visit, priority: r.priority ?? 0, ratingSelf: r.ratingSelf ?? 0,
-      priceLevel: r.priceLevel, createdAt: r.createdAt, lat: coords?.lat ?? null, lon: coords?.lon ?? null, photos: pics,
+      priceLevel: r.priceLevel, createdAt: r.createdAt,
+      lastVisited: r.lastVisited, plannedVisit: r.plannedVisit, lat: coords?.lat ?? null, lon: coords?.lon ?? null, photos: pics,
     };
   });
 }
@@ -63,10 +65,10 @@ export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> 
 export async function getExploreCollections(userId: string): Promise<ExploreCollection[]> {
   const scoped = forUser(userId);
   const [cols, links] = await Promise.all([
-    scoped.selectFields(collections, { id: collections.id, name: collections.name }),
+    scoped.selectFields(collections, { id: collections.id, name: collections.name, description: collections.description }),
     scoped.selectFieldsVia(placesToCollections, { placeId: placesToCollections.placeId, collectionId: placesToCollections.collectionId }),
   ]);
-  return cols.map((c) => ({ id: c.id, name: c.name, placeIds: links.filter((l) => l.collectionId === c.id).map((l) => l.placeId) }));
+  return cols.map((c) => ({ id: c.id, name: c.name, description: c.description, placeIds: links.filter((l) => l.collectionId === c.id).map((l) => l.placeId) }));
 }
 
 /** Everything an Explore page needs, in one call. */

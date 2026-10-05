@@ -21,6 +21,11 @@ function write(s: Set<string>): void {
   }
 }
 
+/** Every hearted id on this device. */
+export function readDreams(): Set<string> {
+  return read();
+}
+
 export function isDream(id: string): boolean {
   return read().has(id);
 }

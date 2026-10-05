@@ -11,9 +11,9 @@ import type { Place, Source, Collection, PlaceWithSources } from '@/types/databa
  * Narrowed row shape for the /library route.
  *
  * Drops 13 columns vs Place that are not used by:
- *   - PlaceCardV2 (cover card)
- *   - PlaceListView (list row)
- *   - LibraryClient filter/sort/selection logic
+ *   - PlaceCardV2 (cover card) and PlaceListView (list row) on /archive
+ *   - loadLibrary (src/lib/library/load.ts), which joins these rows with
+ *     Explore's projection for /library's tags, search and export fields
  *   - search-service.ts Fuse index keys
  *
  * Saves ~470B/row × N rows off the RSC payload + Fuse index memory.

@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useIsMobile } from "@/components/ui-v2/use-mobile"
+import { cn } from "@/lib/utils"
 
 export interface LibraryFilters {
   kinds: Set<string>
@@ -33,6 +34,12 @@ interface PlaceFiltersSidebarProps {
   filterOptions: FilterOptions
   onChange: (updates: Partial<LibraryFilters>) => void
   onClear: () => void
+  /**
+   * `auto` (default): a sticky panel on desktop, a bottom sheet on mobile.
+   * `sheet`: always behind a trigger button — a side sheet on desktop.
+   */
+  mode?: "auto" | "sheet"
+  triggerClassName?: string
 }
 
 const visitStatusOptions = [
@@ -46,6 +53,8 @@ export function PlaceFiltersSidebar({
   filterOptions,
   onChange,
   onClear,
+  mode = "auto",
+  triggerClassName,
 }: PlaceFiltersSidebarProps) {
   const isMobile = useIsMobile()
   const [open, setOpen] = React.useState(false)
@@ -103,9 +112,9 @@ export function PlaceFiltersSidebar({
         {/* Place Types */}
         <div className="space-y-3">
           <h4 className="font-semibold text-sm">Place Type</h4>
-          <div className="grid grid-cols-2 gap-3">
-            {filterOptions.kinds.slice(0, 12).map((kind) => (
-              <div key={kind} className="flex items-center space-x-2">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            {filterOptions.kinds.map((kind) => (
+              <div key={kind} className="flex min-w-0 items-center space-x-2">
                 <Checkbox
                   id={`kind-${kind}`}
                   checked={filters.kinds instanceof Set && filters.kinds.has(kind)}
@@ -113,7 +122,7 @@ export function PlaceFiltersSidebar({
                 />
                 <Label
                   htmlFor={`kind-${kind}`}
-                  className="text-sm font-normal cursor-pointer capitalize"
+                  className="min-w-0 truncate text-sm font-normal cursor-pointer capitalize"
                 >
                   {kind}
                 </Label>
@@ -206,11 +215,11 @@ export function PlaceFiltersSidebar({
     </ScrollArea>
   )
 
-  if (isMobile) {
+  if (isMobile || mode === "sheet") {
     return (
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
-          <Button variant="outline" className="gap-2 bg-transparent">
+          <Button variant="outline" className={cn("gap-2 bg-transparent", triggerClassName)}>
             <Filter className="h-4 w-4" />
             Filters
             {activeFilterCount > 0 && (
@@ -220,11 +229,14 @@ export function PlaceFiltersSidebar({
             )}
           </Button>
         </SheetTrigger>
-        <SheetContent side="bottom" className="h-[85vh]">
+        <SheetContent
+          side={isMobile ? "bottom" : "right"}
+          className={isMobile ? "flex h-[85vh] flex-col" : "flex w-[380px] flex-col sm:max-w-[380px]"}
+        >
           <SheetHeader>
             <SheetTitle>Filters</SheetTitle>
           </SheetHeader>
-          {filterContent}
+          <div className="min-h-0 flex-1">{filterContent}</div>
         </SheetContent>
       </Sheet>
     )

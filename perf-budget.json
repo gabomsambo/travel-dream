@@ -12,7 +12,7 @@
     "routes": {
       "/": { "max": 200, "current": 171, "note": "Marketing landing" },
       "/inbox": { "max": 200, "current": 186 },
-      "/library": { "max": 260, "current": 256, "note": "Heavy: place grid + filters + cover images. Tier-3 attempted virtualization + lazy-loading and reverted (visual regression); kept server-side wins instead — see perf-baseline.json tier3FixesApplied" },
+      "/library": { "max": 260, "current": 219, "note": "Chapters redesign (2026-10): Explore tiles + quick-look sheet; the Map view's mapbox-gl chunk loads only when that view opens. Chapters render a peek per group, so DOM stays bounded as the library grows" },
       "/archive": { "max": 260, "current": 255, "note": "Same shape as library" },
       "/collections": { "max": 200, "current": 156 },
       "/collections/[id]": { "max": 600, "current": 587, "note": "Includes mapbox-gl chunk for collection map view" },

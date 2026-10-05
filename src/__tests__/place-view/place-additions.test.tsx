@@ -266,6 +266,30 @@ describe('PlacePage additions — trips', () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ status: 'success' }) })
     global.fetch = fetchMock as unknown as typeof fetch
 
+    const { rerender } = render(<PlacePage place={place} trips={trips} />)
+    const newTrip = async () => {
+      await userEvent.click(screen.getAllByRole('button', { name: 'Add to trip' })[0])
+      await userEvent.click(await screen.findByRole('menuitem', { name: /New trip with this place/ }))
+    }
+
+    await newTrip()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    rerender(<PlacePage place={place} trips={[...trips, { id: 'col_gone', name: 'Kyoto trip', placeIds: [] }]} />)
+    rerender(<PlacePage place={place} trips={[...trips]} />)
+
+    await newTrip()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/collections')
+    expect(fetchMock.mock.calls[3][0]).toBe('/api/collections/col_replacement/places')
+  })
+
+  it('reuses the half-built trip when retrying before the refresh shows it', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ collection: { id: 'col_pending' } }) })
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+
     render(<PlacePage place={place} trips={trips} />)
     const newTrip = async () => {
       await userEvent.click(screen.getAllByRole('button', { name: 'Add to trip' })[0])
@@ -276,9 +300,9 @@ describe('PlacePage additions — trips', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
 
     await newTrip()
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
-    expect(fetchMock.mock.calls[2][0]).toBe('/api/collections')
-    expect(fetchMock.mock.calls[3][0]).toBe('/api/collections/col_replacement/places')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/collections')).toHaveLength(1)
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/collections/col_pending/places')
   })
 })
 

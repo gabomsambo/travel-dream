@@ -14,7 +14,7 @@ import type { ExploreCollection } from "@/lib/explore/types"
 // empty trip behind. Remember it per place, shared by every menu on the page and
 // across view/edit remounts, so a retry fills that trip instead of creating a
 // second one under the same name (as Explore's provider does).
-const halfBuiltTrips = new Map<string, string>()
+const halfBuiltTrips = new Map<string, { id: string; seen: boolean }>()
 
 export function resetHalfBuiltTripsForTests() {
   halfBuiltTrips.clear()
@@ -47,10 +47,11 @@ export function AddToTripMenu({
   const [busy, setBusy] = React.useState(false)
 
   React.useEffect(() => {
-    const halfBuiltId = halfBuiltTrips.get(placeId)
-    if (halfBuiltId && trips.some((t) => t.id === halfBuiltId && t.placeIds.includes(placeId))) {
-      halfBuiltTrips.delete(placeId)
-    }
+    const halfBuilt = halfBuiltTrips.get(placeId)
+    const trip = halfBuilt && trips.find((t) => t.id === halfBuilt.id)
+    if (!halfBuilt || !trip) return
+    if (trip.placeIds.includes(placeId)) halfBuiltTrips.delete(placeId)
+    else halfBuilt.seen = true
   }, [placeId, trips])
 
   const inTrips = trips.filter((t) => t.placeIds.includes(placeId))
@@ -79,7 +80,7 @@ export function AddToTripMenu({
     setBusy(true)
     try {
       await postPlace(collectionId)
-      if (halfBuiltTrips.get(placeId) === collectionId) halfBuiltTrips.delete(placeId)
+      if (halfBuiltTrips.get(placeId)?.id === collectionId) halfBuiltTrips.delete(placeId)
       added(collectionId, name)
     } catch {
       notify.error("Couldn't add to that trip.")
@@ -92,8 +93,9 @@ export function AddToTripMenu({
     setBusy(true)
     const name = placeCity ? `${placeCity} trip` : `${placeName} trip`
     try {
-      let id = halfBuiltTrips.get(placeId)
-      if (id && !trips.some((t) => t.id === id)) {
+      const halfBuilt = halfBuiltTrips.get(placeId)
+      let id = halfBuilt?.id
+      if (halfBuilt?.seen && !trips.some((t) => t.id === halfBuilt.id)) {
         halfBuiltTrips.delete(placeId)
         id = undefined
       }
@@ -106,7 +108,7 @@ export function AddToTripMenu({
         if (!res.ok) throw new Error("Couldn't create that trip")
         const { collection } = (await res.json()) as { collection: { id: string } }
         id = collection.id
-        halfBuiltTrips.set(placeId, id)
+        halfBuiltTrips.set(placeId, { id, seen: false })
       }
       await postPlace(id)
       halfBuiltTrips.delete(placeId)

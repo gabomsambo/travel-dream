@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
+const emptyToNull = (val: unknown) => (val === '' ? null : val)
+
 const ReservationUpdateSchema = z.object({
   reservationDate: z.string().optional(),
   reservationTime: z.string().nullable().optional(),
   confirmationNumber: z.string().max(200).nullable().optional(),
   bookingPlatform: z.string().max(100).nullable().optional(),
-  status: z.string().max(50).optional(),
+  status: z.enum(['confirmed', 'pending', 'cancelled', 'completed']).optional(),
   notes: z.string().max(1000).nullable().optional(),
+  partySize: z.number().int().positive().nullable().optional(),
+  bookingUrl: z.preprocess(emptyToNull, z.string().url().max(500).nullable().optional()),
+  specialRequests: z.string().max(1000).nullable().optional(),
+  totalCost: z.string().max(50).nullable().optional(),
 });
 
 export async function PATCH(

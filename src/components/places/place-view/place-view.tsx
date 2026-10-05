@@ -10,6 +10,7 @@ import type { Attachment, PlaceWithRelations } from "@/types/database"
 import { PlaceHero } from "./place-hero"
 import { About, GoodToKnow, Links, Photos, RecordInfo, SectionHeader, Sources, WhyItsHere } from "./place-sections"
 import { OnTheGround, YourPlan } from "./place-rail"
+import { EditableSection, SectionEditProvider } from "./section-edit"
 
 const PhotoLightbox = dynamic(
   () => import("@/components/ui-custom/photo-lightbox").then((mod) => ({ default: mod.PhotoLightbox })),
@@ -195,27 +196,27 @@ export function PlaceView({
   }
 
   return (
-    <>
+    <SectionEditProvider place={place} onRefresh={() => router.refresh()}>
       <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} />
       <QuickFacts place={displayPlace} />
 
       {/* On small screens the rail sits right after the note; from lg it is a sticky column. */}
       <div className="grid gap-10 px-4 pt-6 sm:px-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-x-12 lg:pt-2 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-10 empty:hidden lg:col-start-1 lg:row-start-1">
-          <WhyItsHere place={place} />
+          <EditableSection id="why" read={<WhyItsHere place={place} />} />
           <MakeItYours place={place} hasPhotos={photos.length > 0} onEdit={onEdit} />
         </div>
         <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1" aria-label="Plan and practical details">
           <div className="space-y-4 lg:sticky lg:top-6">
-            <YourPlan place={displayPlace} onEdit={onEdit} onStatusChange={setVisitStatus} />
-            <OnTheGround place={place} onEdit={onEdit} />
+            <EditableSection id="plan" read={<YourPlan place={displayPlace} onEdit={onEdit} onStatusChange={setVisitStatus} />} />
+            <EditableSection id="ground" read={<OnTheGround place={place} onEdit={onEdit} />} />
           </div>
         </aside>
         <div className="min-w-0 space-y-12 lg:col-start-1 lg:row-start-2">
-          <About place={place} />
-          <GoodToKnow place={place} />
-          <Photos photos={photos} onOpen={setLightbox} />
-          <Links place={place} />
+          <EditableSection id="about" read={<About place={place} />} />
+          <EditableSection id="know" read={<GoodToKnow place={place} />} />
+          <EditableSection id="photos" read={<Photos photos={photos} onOpen={setLightbox} />} />
+          <EditableSection id="links" read={<Links place={place} />} />
           <Sources place={place} />
           <RecordInfo place={place} />
         </div>
@@ -224,6 +225,6 @@ export function PlaceView({
       {photos.length > 0 && (
         <PhotoLightbox photos={photos} open={lightbox !== null} index={lightbox ?? 0} onClose={() => setLightbox(null)} />
       )}
-    </>
+    </SectionEditProvider>
   )
 }

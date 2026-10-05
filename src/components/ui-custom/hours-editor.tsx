@@ -25,6 +25,8 @@ interface TimeRange {
   startTime: string
   endTime: string
   isClosed: boolean
+  /** Stored as 00:00–23:59, which the 30-minute list cannot show as an end time. */
+  open24: boolean
 }
 
 interface HoursEditorProps {
@@ -47,7 +49,13 @@ function generateTimeOptions(): { value: string; label: string }[] {
       options.push({ value, label })
     }
   }
+  // 23:59 is not on the half-hour grid. Without it, a 24-hour range renders a blank end.
+  options.push({ value: '23:59', label: '11:59 PM' })
   return options
+}
+
+function isOpen24Range(start: string, end: string): boolean {
+  return start === '00:00' && (end === '23:59' || end === '24:00')
 }
 
 const TIME_OPTIONS = generateTimeOptions()
@@ -60,6 +68,7 @@ function parseHoursToRanges(hours: Record<string, string> | null): TimeRange[] {
       startTime: '09:00',
       endTime: '17:00',
       isClosed: false,
+      open24: false,
     }]
   }
 
@@ -70,8 +79,13 @@ function parseHoursToRanges(hours: Record<string, string> | null): TimeRange[] {
     const dayKey = day.toLowerCase() as DayKey
     if (!DAYS.some(d => d.key === dayKey)) continue
 
-    if (time.toLowerCase() === 'closed') {
+    const compact = time.replace(/\s+/g, '').toLowerCase()
+    if (compact === 'closed') {
       closedDays.push(dayKey)
+    } else if (compact === '24h' || compact === '24hours' || compact === 'open24hours') {
+      const key = '00:00-23:59'
+      if (!timeGroups.has(key)) timeGroups.set(key, [])
+      timeGroups.get(key)!.push(dayKey)
     } else {
       const normalizedTime = normalizeTimeString(time)
       if (!timeGroups.has(normalizedTime)) {
@@ -85,12 +99,15 @@ function parseHoursToRanges(hours: Record<string, string> | null): TimeRange[] {
 
   for (const [timeStr, days] of timeGroups) {
     const [start, end] = timeStr.split('-')
+    const startTime = start || '09:00'
+    const endTime = end || '17:00'
     ranges.push({
       id: crypto.randomUUID(),
       days: sortDays(days),
-      startTime: start || '09:00',
-      endTime: end || '17:00',
+      startTime,
+      endTime,
       isClosed: false,
+      open24: isOpen24Range(startTime, endTime),
     })
   }
 
@@ -101,6 +118,7 @@ function parseHoursToRanges(hours: Record<string, string> | null): TimeRange[] {
       startTime: '09:00',
       endTime: '17:00',
       isClosed: true,
+      open24: false,
     })
   }
 
@@ -110,6 +128,7 @@ function parseHoursToRanges(hours: Record<string, string> | null): TimeRange[] {
     startTime: '09:00',
     endTime: '17:00',
     isClosed: false,
+    open24: false,
   }]
 }
 
@@ -137,6 +156,8 @@ function rangesToHours(ranges: TimeRange[]): Record<string, string> | null {
     for (const day of range.days) {
       if (range.isClosed) {
         hours[day] = 'closed'
+      } else if (range.open24) {
+        hours[day] = '00:00-23:59'
       } else {
         hours[day] = `${range.startTime}-${range.endTime}`
       }
@@ -211,6 +232,7 @@ export function HoursEditor({ value, onChange }: HoursEditorProps) {
       startTime: '09:00',
       endTime: '17:00',
       isClosed: false,
+      open24: false,
     }
     updateOutput([...ranges, newRange])
   }
@@ -223,7 +245,19 @@ export function HoursEditor({ value, onChange }: HoursEditorProps) {
       startTime: '09:00',
       endTime: '17:00',
       isClosed: false,
+      open24: false,
     }])
+  }
+
+  const setOpen24 = (rangeId: string, open24: boolean) => {
+    const newRanges = ranges.map(range => {
+      if (range.id !== rangeId) return range
+      if (open24) {
+        return { ...range, open24: true, isClosed: false, startTime: '00:00', endTime: '23:59' }
+      }
+      return { ...range, open24: false, startTime: '09:00', endTime: '17:00' }
+    })
+    updateOutput(newRanges)
   }
 
   const usedDays = new Set(ranges.flatMap(r => r.days))
@@ -274,7 +308,21 @@ export function HoursEditor({ value, onChange }: HoursEditorProps) {
           </div>
 
           {!range.isClosed && (
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                aria-pressed={range.open24}
+                onClick={() => setOpen24(range.id, !range.open24)}
+                className={cn(
+                  "rounded-full px-2 py-1 text-xs font-semibold transition-colors",
+                  range.open24 ? "bg-primary/10 text-primary" : "border bg-background text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Open 24 hours
+              </button>
+              {!range.open24 && (
+              <>
+              <span className="text-xs text-muted-foreground">or</span>
               <Select
                 value={range.startTime}
                 onValueChange={(v) => updateTime(range.id, 'startTime', v)}
@@ -308,6 +356,8 @@ export function HoursEditor({ value, onChange }: HoursEditorProps) {
                   ))}
                 </SelectContent>
               </Select>
+              </>
+              )}
             </div>
           )}
 

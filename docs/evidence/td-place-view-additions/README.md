@@ -41,4 +41,4 @@ Both themes render: every new element uses only the semantic tokens (`text-prima
 ## Covered by tests
 
 - `src/__tests__/authorization/place-collections-ownership.test.ts`: `getCollectionsForPlace` and `getExplorePlacesInCity` run against a real SQLite fixture — a place's trips never leak across tenants, and a same-named city in another country never merges.
-- `src/__tests__/place-view/place-additions.test.tsx`: the trips pill, Add-to-trip (add + new-trip) against the collection endpoints, the map / Directions / Call targets, the mobile bar, the *Also in {city}* rail, and the sparse fallback.
+- `src/__tests__/place-view/place-additions.test.tsx`: the trips pill, Add-to-trip (add + new-trip) against the collection endpoints — including a `207` partial failure counted as a failure, and a half-built new trip retried into the same trip from either menu, forgotten once the place lands in it or the trip is deleted — the map / Directions / Call targets, the mobile bar, the *Also in {city}* rail, and the sparse fallback.

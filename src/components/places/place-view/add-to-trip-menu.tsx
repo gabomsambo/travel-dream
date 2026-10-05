@@ -13,7 +13,9 @@ import type { ExploreCollection } from "@/lib/explore/types"
 // The trip is created before the place goes in, so a failed add leaves a real,
 // empty trip behind. Remember it per place, shared by every menu on the page and
 // across view/edit remounts, so a retry fills that trip instead of creating a
-// second one under the same name (as Explore's provider does).
+// second one under the same name (as Explore's provider does). An entry is only
+// dropped as deleted once the trip list has shown it and then lost it — before
+// the refresh lands, a missing trip just means "not shown yet".
 const halfBuiltTrips = new Map<string, { id: string; seen: boolean }>()
 
 export function resetHalfBuiltTripsForTests() {

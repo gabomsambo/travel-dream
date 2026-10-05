@@ -235,6 +235,10 @@ from `src/db/migrations/`, needs no credentials and no network, and pins `TURSO_
 file. Import it **first** in a suite — `jest.setup.js` runs `dotenv.config()`, so without the pin
 `@/db` resolves the production Turso URL at import time.
 
+`cross-tenant-sweep.test.ts` in that directory drives every API route handler through that fixture
+with the other tenant's ids. Its completeness guard fails on any handler without an entry, so **a new
+route (or new method on one) needs an entry there** — the file header says what each entry asserts.
+
 Client-supplied URLs the server will fetch or persist must pass `isAllowedBlobUrl()`
 (`src/lib/blob-url.ts`) first — `sources.uri` is re-fetched later by the privileged cron.
 

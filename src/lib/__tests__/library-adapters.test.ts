@@ -23,7 +23,8 @@ jest.mock('drizzle-orm', () => ({
   getTableName: jest.fn(),
 }));
 
-import { parsePriceLevel, formatPriceSymbols, adaptPlaceForCard, FavoriteManager } from '../library-adapters';
+import { adaptPlaceForCard } from '../library-adapters';
+import { parsePriceLevel, formatPriceSymbols, FavoriteManager } from '../place-card-helpers';
 import type { Place } from '@/types/database';
 
 const mockPlace: Place = {

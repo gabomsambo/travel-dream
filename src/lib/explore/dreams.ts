@@ -1,8 +1,7 @@
 /**
  * Client-side "dreams" (hearts) from Shuffle. Shares the storage key with the
- * Library's FavoriteManager (`src/lib/library-adapters.ts`) so a heart in one is
- * a heart in the other — but lives in its own module because library-adapters
- * also imports the tenant-scoped DB accessor, which must never reach a client bundle.
+ * Library's FavoriteManager (`src/lib/place-card-helpers.ts`) so a heart in one
+ * is a heart in the other.
  */
 const KEY = 'travel-dreams-favorites';
 

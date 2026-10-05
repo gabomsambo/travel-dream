@@ -15,11 +15,7 @@ interface ReservationsSectionProps {
   place: PlaceWithRelations
 }
 
-export function ReservationsSection({ place }: ReservationsSectionProps) {
-  const router = useRouter()
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [formData, setFormData] = useState({
+const EMPTY_FORM = {
     reservationDate: "",
     reservationTime: "",
     confirmationNumber: "",
@@ -30,7 +26,13 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
     bookingUrl: "",
     specialRequests: "",
     totalCost: "",
-  })
+  }
+
+export function ReservationsSection({ place }: ReservationsSectionProps) {
+  const router = useRouter()
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [formData, setFormData] = useState(EMPTY_FORM)
   const [formError, setFormError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -40,6 +42,13 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
       month: "long",
       day: "numeric",
     })
+  }
+
+  const resetForm = () => {
+    setShowAddForm(false)
+    setEditingId(null)
+    setFormError(null)
+    setFormData(EMPTY_FORM)
   }
 
   const startEdit = (reservation: PlaceWithRelations["reservations"][number]) => {
@@ -94,6 +103,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
 
       if (!response.ok) throw new Error("Failed to save")
 
+      resetForm()
       router.refresh()
     } catch (error) {
       setFormError("Failed to save reservation")
@@ -111,6 +121,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
 
       if (!response.ok) throw new Error("Failed to delete")
 
+      if (editingId === id) resetForm()
       router.refresh()
     } catch (error) {
       setDeleteError("Failed to delete reservation")
@@ -239,23 +250,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
               <Button onClick={handleSave}>Save</Button>
               <Button
                 variant="outline"
-                onClick={() => {
-                  setShowAddForm(false)
-                  setEditingId(null)
-                  setFormError(null)
-                  setFormData({
-                    reservationDate: "",
-                    reservationTime: "",
-                    confirmationNumber: "",
-                    bookingPlatform: "",
-                    status: "confirmed",
-                    notes: "",
-                    partySize: "",
-                    bookingUrl: "",
-                    specialRequests: "",
-                    totalCost: "",
-                  })
-                }}
+                onClick={resetForm}
               >
                 Cancel
               </Button>

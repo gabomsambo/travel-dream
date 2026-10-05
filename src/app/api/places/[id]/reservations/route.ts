@@ -5,7 +5,12 @@ import { z } from 'zod';
 
 export const runtime = 'nodejs';
 
-const ReservationSchema = z.object({
+const dropEmpty = (val: unknown) =>
+  val && typeof val === 'object' && !Array.isArray(val)
+    ? Object.fromEntries(Object.entries(val).filter(([, v]) => v !== null && v !== ''))
+    : val
+
+const ReservationSchema = z.preprocess(dropEmpty, z.object({
   reservationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
   reservationTime: z.string().optional(),
   confirmationNumber: z.string().optional(),
@@ -16,7 +21,7 @@ const ReservationSchema = z.object({
   specialRequests: z.string().optional(),
   totalCost: z.string().optional(),
   notes: z.string().optional(),
-});
+}));
 
 export async function POST(
   request: NextRequest,

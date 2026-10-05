@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Calendar, Plus, Edit, Trash2 } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import { Input } from "@/components/adapters/input"
@@ -15,6 +16,7 @@ interface ReservationsSectionProps {
 }
 
 export function ReservationsSection({ place }: ReservationsSectionProps) {
+  const router = useRouter()
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
@@ -36,6 +38,20 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
     })
   }
 
+  const startEdit = (reservation: PlaceWithRelations["reservations"][number]) => {
+    setEditingId(reservation.id)
+    setShowAddForm(true)
+    setFormError(null)
+    setFormData({
+      reservationDate: reservation.reservationDate?.slice(0, 10) ?? "",
+      reservationTime: reservation.reservationTime ?? "",
+      confirmationNumber: reservation.confirmationNumber ?? "",
+      bookingPlatform: reservation.bookingPlatform ?? "",
+      status: reservation.status || "confirmed",
+      notes: reservation.notes ?? "",
+    })
+  }
+
   const handleSave = async () => {
     setFormError(null)
     try {
@@ -51,7 +67,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
 
       if (!response.ok) throw new Error("Failed to save")
 
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       setFormError("Failed to save reservation")
     }
@@ -68,7 +84,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
 
       if (!response.ok) throw new Error("Failed to delete")
 
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       setDeleteError("Failed to delete reservation")
     }
@@ -215,6 +231,14 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
                   </div>
 
                   <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Edit reservation on ${formatDate(reservation.reservationDate)}`}
+                      onClick={() => startEdit(reservation)}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
                     <Button
                       size="sm"
                       variant="ghost"

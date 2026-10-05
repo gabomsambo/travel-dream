@@ -1361,6 +1361,10 @@ export async function updateReservation(
     bookingPlatform?: string | null;
     status?: string;
     notes?: string | null;
+    partySize?: number | null;
+    bookingUrl?: string | null;
+    specialRequests?: string | null;
+    totalCost?: string | null;
   },
   userId: string
 ) {

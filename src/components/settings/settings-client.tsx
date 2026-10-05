@@ -248,6 +248,24 @@ export function SettingsClient() {
 
           <Separator />
 
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <Label htmlFor="open-places-in-edit" className="cursor-pointer">Open places in edit mode</Label>
+              <p className="text-sm text-muted-foreground">
+                Places open in the editor. Leave this off to land on the postcard, and use the pencil when you want to change a section.
+              </p>
+            </div>
+            <Switch
+              id="open-places-in-edit"
+              checked={preferences.openPlacesInEditMode === true}
+              onCheckedChange={(checked) =>
+                setPreferences({ ...preferences, openPlacesInEditMode: checked })
+              }
+            />
+          </div>
+
+          <Separator />
+
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 flex-1">
               <div className="flex items-center gap-2">

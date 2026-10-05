@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import {
   ArrowUpRight, Armchair, Coins, FileText, Footprints, Globe, Hash, ImageIcon, Images, Info, Link2, Quote, Sunrise,
   UserRound, UtensilsCrossed, Youtube, type LucideIcon,
@@ -9,17 +10,21 @@ import { confidenceLabel, describeSource, formatDateTime, formatSavedDate, linkL
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
+import { SectionPencilSlot } from "./section-edit"
 
 /** Explore's rail header: a primary eyebrow that says why, a title that says what. */
-export function SectionHeader({ eyebrow, title, id }: { eyebrow: string; title?: string; id?: string }) {
+export function SectionHeader({ eyebrow, title, id, action }: { eyebrow: string; title?: string; id?: string; action?: ReactNode }) {
   return (
-    <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">{eyebrow}</p>
-      {title && (
-        <h2 id={id} className="font-heading text-xl font-semibold tracking-tight sm:text-2xl">
-          {title}
-        </h2>
-      )}
+    <div className="flex items-end gap-3">
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">{eyebrow}</p>
+        {title && (
+          <h2 id={id} className="font-heading text-xl font-semibold tracking-tight sm:text-2xl">
+            {title}
+          </h2>
+        )}
+      </div>
+      {action}
     </div>
   )
 }
@@ -34,8 +39,8 @@ export function WhyItsHere({ place }: { place: PlaceWithRelations }) {
   if (!place.notes && !place.recommendedBy) return null
 
   return (
-    <section aria-label="Why it's here">
-      <SectionHeader eyebrow="Why it's here" />
+    <section aria-label="Why it's here" className="group">
+      <SectionHeader eyebrow="Why it's here" action={<SectionPencilSlot id="why" />} />
       {place.notes && (
         <blockquote className="mt-3 whitespace-pre-line border-l-2 border-primary/40 pl-5 font-editorial text-[22px] italic leading-snug text-foreground/90 sm:text-[28px]">
           {place.notes}
@@ -65,8 +70,8 @@ export function About({ place }: { place: PlaceWithRelations }) {
   const altNames = (place.altNames ?? []).filter(Boolean)
   if (!place.description && altNames.length === 0) return null
   return (
-    <section aria-labelledby="place-about">
-      <SectionHeader eyebrow="About" title="The place" id="place-about" />
+    <section aria-labelledby="place-about" className="group">
+      <SectionHeader eyebrow="About" title="The place" id="place-about" action={<SectionPencilSlot id="about" />} />
       {place.description && (
         <p className="mt-3 max-w-2xl whitespace-pre-line text-[15px] leading-7 text-foreground/85 sm:text-[17px] sm:leading-8">{place.description}</p>
       )}
@@ -99,8 +104,8 @@ export function GoodToKnow({ place }: { place: PlaceWithRelations }) {
   if (facts.length === 0 && !place.practicalInfo) return null
 
   return (
-    <section aria-labelledby="place-good-to-know">
-      <SectionHeader eyebrow="Good to know" title="Before you go" id="place-good-to-know" />
+    <section aria-labelledby="place-good-to-know" className="group">
+      <SectionHeader eyebrow="Good to know" title="Before you go" id="place-good-to-know" action={<SectionPencilSlot id="know" />} />
       {facts.length > 0 && (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {facts.map(([icon, label, value]) => (
@@ -143,8 +148,8 @@ export function Photos({ photos, onOpen }: { photos: Attachment[]; onOpen: (inde
   )
 
   return (
-    <section aria-labelledby="place-photos">
-      <SectionHeader eyebrow="Photos" title={photos.length === 1 ? "1 photo" : `${photos.length} photos`} id="place-photos" />
+    <section aria-labelledby="place-photos" className="group">
+      <SectionHeader eyebrow="Photos" title={photos.length === 1 ? "1 photo" : `${photos.length} photos`} id="place-photos" action={<SectionPencilSlot id="photos" />} />
       <div
         className={cn(
           "relative mt-4 grid gap-2 overflow-hidden rounded-3xl",
@@ -198,8 +203,8 @@ function linkIcon(url: string): LucideIcon {
 export function Links({ place }: { place: PlaceWithRelations }) {
   if (place.links.length === 0) return null
   return (
-    <section aria-labelledby="place-links">
-      <SectionHeader eyebrow="Links & reading" title="Saved for later" id="place-links" />
+    <section aria-labelledby="place-links" className="group">
+      <SectionHeader eyebrow="Links & reading" title="Saved for later" id="place-links" action={<SectionPencilSlot id="links" />} />
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {place.links.map((link) => {
           const { title, domain } = linkLabel(link)

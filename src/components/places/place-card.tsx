@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { MoreVertical, Check, X, Edit, MapPin, Calendar, Eye, Trash2 } from "lucide-react"
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/adapters/card"
 import { Badge } from "@/components/adapters/badge"
@@ -21,6 +22,8 @@ interface PlaceCardProps {
   onArchive?: (placeId: string) => void
   onEdit?: (placeId: string) => void
   onView?: (placeId: string) => void
+  /** When set, the card links to the place page (Inbox uses ?edit=1). */
+  openPlaceHref?: string
 }
 
 export function PlaceCard({
@@ -36,7 +39,8 @@ export function PlaceCard({
   onConfirm,
   onArchive,
   onEdit,
-  onView
+  onView,
+  openPlaceHref,
 }: PlaceCardProps) {
   const handleCardClick = (e: React.MouseEvent) => {
     if (selectable && onItemClick) {
@@ -104,7 +108,13 @@ export function PlaceCard({
       )}>
         <div className="space-y-1 flex-1">
           <h3 className="font-semibold leading-none tracking-tight">
-            {place.name}
+            {openPlaceHref ? (
+              <Link href={openPlaceHref} className="hover:underline" onClick={(event) => event.stopPropagation()}>
+                {place.name}
+              </Link>
+            ) : (
+              place.name
+            )}
           </h3>
           <div className="flex items-center gap-1 text-sm text-muted-foreground">
             <MapPin className="h-3 w-3" />

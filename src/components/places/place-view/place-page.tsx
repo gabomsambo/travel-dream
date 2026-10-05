@@ -29,13 +29,31 @@ export function PlacePage({
   place,
   trips = [],
   alsoIn = [],
+  startInEdit = false,
 }: {
   place: PlaceWithRelations
   trips?: ExploreCollection[]
   alsoIn?: ExplorePlace[]
+  startInEdit?: boolean
 }) {
   const router = useRouter()
-  const [mode, setMode] = React.useState<"view" | "edit">("view")
+  const [mode, setMode] = React.useState<"view" | "edit">(startInEdit ? "edit" : "view")
+  const preferenceApplied = React.useRef(startInEdit)
+
+  // The setting lives in localStorage, so it can only be read after mount. ?edit=1 is
+  // already decided on the server and does not flash.
+  React.useEffect(() => {
+    if (preferenceApplied.current) return
+    preferenceApplied.current = true
+    try {
+      const raw = window.localStorage.getItem("user-preferences")
+      if (!raw) return
+      const prefs = JSON.parse(raw) as { openPlacesInEditMode?: boolean }
+      if (prefs.openPlacesInEditMode) setMode("edit")
+    } catch {
+      // A broken preferences blob should not trap the page in the editor.
+    }
+  }, [])
   const viewHandlesRef = React.useRef<PlaceViewHandles | null>(null)
   const [editSeed, setEditSeed] = React.useState<PlaceWithRelations | null>(null)
 

@@ -8,7 +8,9 @@ import { Badge } from "@/components/adapters/badge"
 import { Separator } from "@/components/adapters/separator"
 import { X, Image as ImageIcon } from "lucide-react"
 import { notify } from '@/lib/notify'
+import Link from 'next/link'
 import { PlaceEditForm } from '@/components/places/place-edit-form'
+import { placeEditHref } from '@/lib/place-view/edit-link'
 import { ConfidenceIndicator } from '@/components/inbox/confidence-indicator'
 import type { Place, Source } from '@/types/database'
 
@@ -160,6 +162,9 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
             <p className="text-sm text-muted-foreground">
               Edit any fields below and save changes
             </p>
+            <Link href={placeEditHref(initialPlace.id)} className="text-sm font-medium text-primary hover:underline">
+              Open place
+            </Link>
           </CardHeader>
           <CardContent>
             {formError && (
@@ -213,12 +218,19 @@ export function ReviewClient({ initialPlace, initialSources = [], initialPlaces 
               </p>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <Badge variant="secondary">{place.kind}</Badge>
                 <ConfidenceIndicator
                   confidence={place.confidence || 0}
                   variant="badge"
                 />
+                <Link
+                  href={placeEditHref(place.id)}
+                  className="text-sm font-medium text-primary hover:underline"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  Open place
+                </Link>
               </div>
             </CardContent>
           </Card>

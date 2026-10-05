@@ -4,6 +4,8 @@ export interface UserPreferences {
   cardDensity: 'compact' | 'comfortable'
   autoProcessUploads: boolean
   confidenceThreshold: number
+  /** When true, /place/[id] opens in the editor. Off by default. */
+  openPlacesInEditMode: boolean
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -12,4 +14,5 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   cardDensity: 'comfortable',
   autoProcessUploads: true,
   confidenceThreshold: 70,
+  openPlacesInEditMode: false,
 }

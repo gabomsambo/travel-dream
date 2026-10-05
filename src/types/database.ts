@@ -109,6 +109,7 @@ export type PlaceWithRelations = Place & {
   links: PlaceLink[];
   reservations: Reservation[];
   sources: Source[];
+  collections: Collection[];
 };
 
 export const DayBucketSchema = z.object({

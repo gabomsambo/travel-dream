@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { editorialFont } from "@/components/explore/fonts"
+import type { ExploreCollection, ExplorePlace } from "@/lib/explore/types"
 import type { PlaceWithRelations } from "@/types/database"
 import { PlaceView, type PlaceViewHandles } from "./place-view"
 
@@ -24,7 +25,15 @@ const PlaceFullView = dynamic(() => loadEditor().then((mod) => ({ default: mod.P
  * /place/[id]: opens in the read view; the existing editor is one Edit away and returns
  * with Done. Saves refresh the server data, so the view always shows what was saved.
  */
-export function PlacePage({ place }: { place: PlaceWithRelations }) {
+export function PlacePage({
+  place,
+  trips = [],
+  alsoIn = [],
+}: {
+  place: PlaceWithRelations
+  trips?: ExploreCollection[]
+  alsoIn?: ExplorePlace[]
+}) {
   const router = useRouter()
   const [mode, setMode] = React.useState<"view" | "edit">("view")
   const viewHandlesRef = React.useRef<PlaceViewHandles | null>(null)
@@ -54,7 +63,7 @@ export function PlacePage({ place }: { place: PlaceWithRelations }) {
     // Edge to edge like Explore: inline-size containment keeps the full-bleed hero from
     // widening the (app) shell's flex column, and -m-3 matches the shell's mobile padding.
     <div className={`${editorialFont.variable} -m-3 min-h-full pb-24 [contain:inline-size] sm:-m-6`}>
-      <PlaceView place={place} onEdit={() => void enterEdit()} onPrefetchEdit={loadEditor} onPhotoAttached={() => router.refresh()} handlesRef={viewHandlesRef} />
+      <PlaceView place={place} trips={trips} alsoIn={alsoIn} onEdit={() => void enterEdit()} onPrefetchEdit={loadEditor} onPhotoAttached={() => router.refresh()} handlesRef={viewHandlesRef} />
     </div>
   )
 }

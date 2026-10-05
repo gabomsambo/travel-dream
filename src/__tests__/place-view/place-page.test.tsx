@@ -202,10 +202,11 @@ describe('PlacePage sparse place', () => {
     expect(screen.getByText('Low (62%)')).toBeInTheDocument()
   })
 
-  it('an invitation opens the editor', async () => {
+  it('an invitation opens its section editor in place, not the global editor', async () => {
     render(<PlacePage place={sparse} />)
     await userEvent.click(screen.getByRole('button', { name: /Describe it/ }))
-    expect(await screen.findByText('Editing: Bar Leone')).toBeInTheDocument()
+    expect(screen.getByLabelText('Description')).toHaveValue('')
+    expect(screen.queryByText('Editing: Bar Leone')).not.toBeInTheDocument()
   })
 })
 

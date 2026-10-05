@@ -21,19 +21,36 @@ const PlaceFullView = dynamic(() => loadEditor().then((mod) => ({ default: mod.P
 })
 
 /**
- * /place/[id]: opens in the read view; the existing editor is one Edit away and returns
- * with Done. Saves refresh the server data, so the view always shows what was saved.
+ * /place/[id]: opens in the read view (or the editor, with ?edit=1 or the "Open places in
+ * edit mode" setting); the existing editor is one Edit away and returns with Done. Saves refresh the server data, so the view always shows what was saved.
  */
-export function PlacePage({ place }: { place: PlaceWithRelations }) {
+export function PlacePage({ place, startInEdit = false }: { place: PlaceWithRelations; startInEdit?: boolean }) {
   const router = useRouter()
-  const [mode, setMode] = React.useState<"view" | "edit">("view")
+  const [mode, setMode] = React.useState<"view" | "edit">(startInEdit ? "edit" : "view")
+  const preferenceApplied = React.useRef(startInEdit)
+
+  // The setting lives in localStorage, so it can only be read after mount. ?edit=1 is
+  // already decided on the server and does not flash.
+  React.useEffect(() => {
+    if (preferenceApplied.current) return
+    preferenceApplied.current = true
+    try {
+      const raw = window.localStorage.getItem("user-preferences")
+      if (!raw) return
+      const prefs = JSON.parse(raw) as { openPlacesInEditMode?: boolean }
+      if (prefs.openPlacesInEditMode) setMode("edit")
+    } catch {
+      // A broken preferences blob should not trap the page in the editor.
+    }
+  }, [])
   const viewHandlesRef = React.useRef<PlaceViewHandles | null>(null)
   const [editSeed, setEditSeed] = React.useState<PlaceWithRelations | null>(null)
 
-  // A one-tap status write left in flight when Edit is pressed must settle before the editor
-  // mounts, or the editor's full-record save would silently revert the tapped status.
+  // A one-tap status write or a section-pencil edit left in flight when Edit is pressed must
+  // settle before the editor mounts, or the editor's full-record save would silently revert it.
   const enterEdit = React.useCallback(async () => {
     await viewHandlesRef.current?.flushStatus()
+    if (viewHandlesRef.current && !(await viewHandlesRef.current.flushSections())) return
     setEditSeed(viewHandlesRef.current?.displayPlace() ?? null)
     setMode("edit")
   }, [])
@@ -46,8 +63,12 @@ export function PlacePage({ place }: { place: PlaceWithRelations }) {
     document.querySelector("main")?.scrollTo({ top: 0 })
   }, [mode])
 
+  const editPlace = editSeed
+    ? { ...editSeed, reservations: place.reservations, links: place.links, attachments: place.attachments }
+    : place
+
   if (mode === "edit") {
-    return <PlaceFullView initialPlace={editSeed ?? place} onDone={exitEdit} />
+    return <PlaceFullView initialPlace={editPlace} onDone={exitEdit} />
   }
 
   return (

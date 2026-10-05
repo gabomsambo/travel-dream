@@ -19,6 +19,7 @@ interface PlaceGridProps {
   onEdit?: (placeId: string) => void
   onMerge?: (placeId: string) => void
   onView?: (placeId: string) => void
+  openPlaceHref?: (placeId: string) => string
   emptyMessage?: string
   virtualizeThreshold?: number
   containerHeight?: number
@@ -39,6 +40,7 @@ export function PlaceGrid({
   onEdit,
   onMerge,
   onView,
+  openPlaceHref,
   emptyMessage = "No places found",
   virtualizeThreshold = 500,
   containerHeight = 600,
@@ -115,6 +117,7 @@ export function PlaceGrid({
           onArchive={onArchive}
           onEdit={onEdit}
           onView={onView}
+          openPlaceHref={openPlaceHref}
           emptyMessage={emptyMessage}
         />
       </div>
@@ -140,6 +143,7 @@ export function PlaceGrid({
           onArchive={onArchive}
           onEdit={onEdit}
           onView={onView}
+          openPlaceHref={openPlaceHref?.(place.id)}
         />
       ))}
     </div>

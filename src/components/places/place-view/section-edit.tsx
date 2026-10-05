@@ -105,16 +105,15 @@ function draftFrom(place: PlaceWithRelations): PlaceDraft {
   }
 }
 
-/** The place with the section draft laid over it, so a seed taken mid-edit carries what was typed. */
-function placeWithDraft(place: PlaceWithRelations, draft: PlaceDraft): PlaceWithRelations {
+/** The place with the section fields the user changed laid over it, so a seed taken mid-edit carries what was typed. */
+function placeWithDraft(place: PlaceWithRelations, draft: PlaceDraft, dirty: ReadonlySet<keyof PlaceDraft>): PlaceWithRelations {
   let coords = place.coords
   if (draft.lat.trim() === "" && draft.lon.trim() === "") {
     coords = null
   } else if (Number.isFinite(Number(draft.lat)) && Number.isFinite(Number(draft.lon))) {
     coords = { lat: Number(draft.lat), lon: Number(draft.lon) }
   }
-  return {
-    ...place,
+  const overlay: Partial<PlaceWithRelations> = {
     notes: draft.notes,
     recommendedBy: draft.recommendedBy || null,
     description: draft.description,
@@ -142,6 +141,16 @@ function placeWithDraft(place: PlaceWithRelations, draft: PlaceDraft): PlaceWith
     companions: draft.companions,
     ratingSelf: draft.ratingSelf,
   }
+  const picked: Record<string, unknown> = {}
+  dirty.forEach((key) => {
+    const field = key === "lat" || key === "lon" ? "coords" : key
+    picked[field] = overlay[field]
+  })
+  return { ...place, ...picked }
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 /** Imperative access for the page shell before it swaps the view for the full editor. */
@@ -386,29 +395,40 @@ export function SectionEditProvider({
   const [draft, setDraft] = React.useState<PlaceDraft>(() => draftFrom(place))
   const save = usePlaceAutosave(place.id, onRefresh)
   const placeIdRef = React.useRef(place.id)
-  const activeRef = React.useRef(active)
   const draftRef = React.useRef(draft)
+  const dirtyRef = React.useRef(new Set<keyof PlaceDraft>())
 
   React.useEffect(() => {
-    activeRef.current = active
     draftRef.current = draft
   })
 
   React.useEffect(() => {
+    const fresh = draftFrom(place)
+    const dirty = dirtyRef.current
     if (placeIdRef.current !== place.id) {
       placeIdRef.current = place.id
-      setDraft(draftFrom(place))
+      dirty.clear()
+      setDraft(fresh)
       setActive(null)
-    } else if (activeRef.current === null) {
-      setDraft(draftFrom(place))
+      return
     }
+    const current = draftRef.current
+    const next: PlaceDraft = { ...fresh }
+    dirty.forEach((key) => {
+      if (sameValue(fresh[key], current[key])) {
+        dirty.delete(key)
+      } else {
+        Object.assign(next, { [key]: current[key] })
+      }
+    })
+    setDraft(next)
   }, [place])
 
   React.useEffect(() => {
     if (!handlesRef) return
     handlesRef.current = {
       flush: save.flush,
-      withDraft: (target) => placeWithDraft(target, draftRef.current),
+      withDraft: (target) => placeWithDraft(target, draftRef.current, dirtyRef.current),
     }
     return () => {
       handlesRef.current = null
@@ -416,6 +436,12 @@ export function SectionEditProvider({
   }, [handlesRef, save.flush])
 
   const setField = React.useCallback(<K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => {
+    if (key === "lat" || key === "lon") {
+      dirtyRef.current.add("lat")
+      dirtyRef.current.add("lon")
+    } else {
+      dirtyRef.current.add(key)
+    }
     setDraft((prev) => {
       const next = { ...prev, [key]: value }
       save.update(patchFor(next, key))

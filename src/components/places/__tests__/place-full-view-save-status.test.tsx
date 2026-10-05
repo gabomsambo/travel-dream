@@ -14,9 +14,11 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mockRefresh, push: jest.fn() }),
 }))
 
+let mockEditSeq = 0
+
 jest.mock('../place-full-view-sections/hero-section', () => ({
   HeroSection: ({ updateField }: { updateField: (field: string, value: string) => void }) => (
-    <button data-testid="edit-name" onClick={() => updateField('name', `Edited ${Math.random()}`)}>
+    <button data-testid="edit-name" onClick={() => updateField('name', `Edited ${++mockEditSeq}`)}>
       edit name
     </button>
   ),
@@ -103,5 +105,184 @@ describe('PlaceFullView save status', () => {
     })
 
     expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+  })
+})
+
+describe('PlaceFullView Done', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
+  it('sends an edit still inside the debounce before leaving, exactly once', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('edit-name'))
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(onDone).toHaveBeenCalledTimes(1)
+
+    // The cancelled debounce must not send the same edit a second time.
+    await act(async () => {
+      jest.advanceTimersByTime(SAVE_DEBOUNCE_MS)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays in the editor with the error showing when that save fails', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ message: 'Name is required' }),
+    }) as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+
+    expect(onDone).not.toHaveBeenCalled()
+    expect(screen.getByText('Save failed: Name is required')).toBeInTheDocument()
+  })
+
+  it('retries the failed flush on the next Done click instead of silently doing nothing', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ message: 'Name is required' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+
+    expect(onDone).not.toHaveBeenCalled()
+    expect(screen.getByText('Save failed: Name is required')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for the in-flight autosave before flushing a pending edit so the newest data lands last', async () => {
+    mockEditSeq = 0
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    const fetchMock: jest.Mock = jest.fn(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+
+    // The first edit fires the 800ms autosave and leaves it on the wire.
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      jest.advanceTimersByTime(SAVE_DEBOUNCE_MS)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ name: 'Edited 1' })
+
+    // A second edit lands while that save is in flight, then Done is clicked.
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+
+    // Done waits for the autosave on the wire instead of sending a concurrent PATCH.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({}) })
+    })
+
+    // Only after the autosave resolved does the flush go out, with the newest formData.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ name: 'Edited 2' })
+
+    await act(async () => {
+      resolvers[1]({ ok: true, json: async () => ({}) })
+    })
+
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('serializes typing during a slow Done flush so the newest data lands last', async () => {
+    mockEditSeq = 0
+    const resolvers: Array<(value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void> = []
+    const fetchMock: jest.Mock = jest.fn(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+
+    // The first edit fires the 800ms autosave and leaves it slow on the wire.
+    fireEvent.click(screen.getByTestId('edit-name'))
+    await act(async () => {
+      jest.advanceTimersByTime(SAVE_DEBOUNCE_MS)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Done is clicked while the autosave is still on the wire, and the user keeps typing.
+    fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    fireEvent.click(screen.getByTestId('edit-name'))
+    fireEvent.click(screen.getByTestId('edit-name'))
+
+    // The re-armed debounce fires during the slow flush, but the newer save must wait
+    // for the in-flight one instead of racing it.
+    await act(async () => {
+      jest.advanceTimersByTime(SAVE_DEBOUNCE_MS)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Only after the first save settles may the second PATCH go out, with the newest data.
+    await act(async () => {
+      resolvers[0]({ ok: true, json: async () => ({}) })
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ name: 'Edited 3' })
+
+    // Done must not leave while the newest save is still on the wire.
+    expect(onDone).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolvers[1]({ ok: true, json: async () => ({}) })
+    })
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves straight away when nothing is pending', async () => {
+    const fetchMock = jest.fn()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onDone = jest.fn()
+
+    render(<PlaceFullView initialPlace={place} onDone={onDone} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no Done button when it is not given onDone', () => {
+    render(<PlaceFullView initialPlace={place} />)
+    expect(screen.queryByRole('button', { name: /Done/ })).not.toBeInTheDocument()
   })
 })

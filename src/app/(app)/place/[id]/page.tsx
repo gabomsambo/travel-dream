@@ -1,9 +1,9 @@
 import { notFound } from 'next/navigation'
 import { getPlaceWithRelations } from '@/lib/db-queries'
-import { PlaceFullView } from '@/components/places/place-full-view'
+import { PlacePage } from '@/components/places/place-view/place-page'
 import { getCurrentUser } from '@/lib/auth-helpers'
 
-export default async function PlaceEditPage({
+export default async function PlaceRoute({
   params,
 }: {
   params: Promise<{ id: string }>
@@ -20,7 +20,7 @@ export default async function PlaceEditPage({
     notFound()
   }
 
-  return <PlaceFullView initialPlace={place} />
+  return <PlacePage place={place} />
 }
 
 export async function generateMetadata({

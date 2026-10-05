@@ -1,10 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { CalendarCheck, CalendarHeart, Check, ChevronDown, Clock, Copy, ExternalLink, Globe, Mail, MapPin, Navigation, Pencil, Phone, Sparkles, Star, Ticket, Users } from "lucide-react"
+import { CalendarCheck, CalendarHeart, Check, ChevronDown, Clock, Copy, ExternalLink, Folder, Globe, Mail, MapPin, Navigation, Pencil, Phone, Sparkles, Star, Ticket, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { displayUrl, formatDateOnly, formatTime, safeExternalUrl, summarizeHours } from "@/lib/place-view/format"
+import type { ExploreCollection } from "@/lib/explore/types"
 import type { PlaceWithRelations, Reservation } from "@/types/database"
+import { AddToTripMenu } from "./add-to-trip-menu"
+import { PlaceMap } from "./place-map"
+import { callUrl, directionsUrl } from "./mobile-action-bar"
 
 type VisitStatus = "not_visited" | "planned" | "visited"
 
@@ -145,10 +149,14 @@ export function YourPlan({
   place,
   onEdit,
   onStatusChange,
+  trips,
+  onTripsChanged,
 }: {
   place: PlaceWithRelations
   onEdit: () => void
   onStatusChange: (next: VisitStatus) => void
+  trips: ExploreCollection[]
+  onTripsChanged: () => void
 }) {
   const status: VisitStatus = (place.visitStatus as VisitStatus) || "not_visited"
   const planned = formatDateOnly(place.plannedVisit)
@@ -156,6 +164,7 @@ export function YourPlan({
   const companions = (place.companions ?? []).filter(Boolean)
   const priority = place.priority ?? 0
   const rating = place.ratingSelf ?? 0
+  const collections = place.collections ?? []
   const hasDetails = Boolean(planned || lastVisited || companions.length || priority || rating || place.reservations.length)
 
   return (
@@ -215,6 +224,30 @@ export function YourPlan({
           ))}
         </div>
       )}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {collections.length > 0 && (
+          <>
+            <span className="text-xs text-muted-foreground">In</span>
+            {collections.map((c) => (
+              <a
+                key={c.id}
+                href={`/collections/${c.id}/planner`}
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary/15"
+              >
+                <Folder className="h-3.5 w-3.5" aria-hidden />
+                {c.name}
+              </a>
+            ))}
+          </>
+        )}
+        <AddToTripMenu
+          placeId={place.id}
+          placeName={place.name}
+          placeCity={place.city}
+          trips={trips}
+          onChanged={onTripsChanged}
+        />
+      </div>
       {!hasDetails && (
         <button type="button" onClick={onEdit} className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
           <Pencil className="h-3.5 w-3.5" aria-hidden /> Add a date, companions or a booking
@@ -228,6 +261,8 @@ export function OnTheGround({ place, onEdit }: { place: PlaceWithRelations; onEd
   const hours = summarizeHours(place.hours)
   const coords = place.coords && Number.isFinite(place.coords.lat) && Number.isFinite(place.coords.lon) ? place.coords : null
   const hasAny = Boolean(hours || place.address || coords || place.website || place.phone || place.email)
+  const dirUrl = directionsUrl(coords)
+  const call = callUrl(place.phone)
 
   return (
     <section aria-labelledby="place-ground" className={CARD}>
@@ -240,80 +275,105 @@ export function OnTheGround({ place, onEdit }: { place: PlaceWithRelations; onEd
           </button>
         </div>
       ) : (
-        <dl className="mt-4 space-y-3 text-sm">
-          {hours && (
-            <div className="flex gap-3">
-              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <dt className="sr-only">Hours</dt>
-              <dd className="min-w-0 flex-1">
-                {hours.days.length > 1 && hours.summary.includes("·") ? (
-                  <details className="group">
-                    <summary className="flex cursor-pointer list-none items-start gap-1 [&::-webkit-details-marker]:hidden">
-                      <span>{hours.summary}</span>
-                      <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground transition group-open:rotate-180" aria-hidden />
-                    </summary>
-                    <table className="mt-2 text-xs">
-                      <tbody>
-                        {hours.days.map((d) => (
-                          <tr key={d.day}>
-                            <th scope="row" className="pr-4 text-left font-medium text-muted-foreground">{d.label}</th>
-                            <td>{d.value}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </details>
-                ) : (
-                  <span>{hours.summary}</span>
-                )}
-              </dd>
+        <>
+          {coords && <PlaceMap coords={coords} kind={place.kind} name={place.name} className="mt-3" />}
+          {(dirUrl || call) && (
+            <div className={cn("mt-3 grid gap-2", dirUrl && call ? "grid-cols-2" : "grid-cols-1")}>
+              {dirUrl && (
+                <a
+                  href={dirUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 rounded-full bg-foreground py-2 text-sm font-medium text-background transition hover:bg-foreground/90"
+                >
+                  <Navigation className="h-4 w-4" aria-hidden /> Directions
+                </a>
+              )}
+              {call && (
+                <a
+                  href={call}
+                  className="flex items-center justify-center gap-1.5 rounded-full border py-2 text-sm font-medium transition hover:bg-secondary"
+                >
+                  <Phone className="h-4 w-4" aria-hidden /> Call
+                </a>
+              )}
             </div>
           )}
-          {place.address && (
-            <div className="flex gap-3">
-              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <dt className="sr-only">Address</dt>
-              <dd className="flex min-w-0 flex-1 items-start gap-1">
-                <span className="min-w-0 whitespace-pre-line break-words">{place.address}</span>
-                <CopyButton value={place.address} label="Copy address" />
-              </dd>
-            </div>
-          )}
-          {coords && (
-            <div className="flex gap-3">
-              <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <dt className="sr-only">Coordinates</dt>
-              <dd className="font-mono text-xs text-muted-foreground">{coords.lat.toFixed(4)}, {coords.lon.toFixed(4)}</dd>
-            </div>
-          )}
-          {place.website && (
-            <div className="flex gap-3">
-              <Globe className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <dt className="sr-only">Website</dt>
-              <dd className="min-w-0">
-                {safeExternalUrl(place.website) ? (
-                  <a href={safeExternalUrl(place.website)!} target="_blank" rel="noopener noreferrer" className="break-all text-primary hover:underline">{displayUrl(place.website)}</a>
-                ) : (
-                  <span className="break-all">{place.website}</span>
-                )}
-              </dd>
-            </div>
-          )}
-          {place.phone && (
-            <div className="flex gap-3">
-              <Phone className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <dt className="sr-only">Phone</dt>
-              <dd><a href={`tel:${place.phone.replace(/[^+\d]/g, "")}`} className="hover:underline">{place.phone}</a></dd>
-            </div>
-          )}
-          {place.email && (
-            <div className="flex gap-3">
-              <Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <dt className="sr-only">Email</dt>
-              <dd className="min-w-0"><a href={`mailto:${place.email}`} className="break-all hover:underline">{place.email}</a></dd>
-            </div>
-          )}
-        </dl>
+          <dl className="mt-4 space-y-3 text-sm">
+            {hours && (
+              <div className="flex gap-3">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <dt className="sr-only">Hours</dt>
+                <dd className="min-w-0 flex-1">
+                  {hours.days.length > 1 && hours.summary.includes("·") ? (
+                    <details className="group">
+                      <summary className="flex cursor-pointer list-none items-start gap-1 [&::-webkit-details-marker]:hidden">
+                        <span>{hours.summary}</span>
+                        <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground transition group-open:rotate-180" aria-hidden />
+                      </summary>
+                      <table className="mt-2 text-xs">
+                        <tbody>
+                          {hours.days.map((d) => (
+                            <tr key={d.day}>
+                              <th scope="row" className="pr-4 text-left font-medium text-muted-foreground">{d.label}</th>
+                              <td>{d.value}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  ) : (
+                    <span>{hours.summary}</span>
+                  )}
+                </dd>
+              </div>
+            )}
+            {place.address && (
+              <div className="flex gap-3">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <dt className="sr-only">Address</dt>
+                <dd className="flex min-w-0 flex-1 items-start gap-1">
+                  <span className="min-w-0 whitespace-pre-line break-words">{place.address}</span>
+                  <CopyButton value={place.address} label="Copy address" />
+                </dd>
+              </div>
+            )}
+            {coords && (
+              <div className="flex gap-3">
+                <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <dt className="sr-only">Coordinates</dt>
+                <dd className="font-mono text-xs text-muted-foreground">{coords.lat.toFixed(4)}, {coords.lon.toFixed(4)}</dd>
+              </div>
+            )}
+            {place.website && (
+              <div className="flex gap-3">
+                <Globe className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <dt className="sr-only">Website</dt>
+                <dd className="min-w-0">
+                  {safeExternalUrl(place.website) ? (
+                    <a href={safeExternalUrl(place.website)!} target="_blank" rel="noopener noreferrer" className="break-all text-primary hover:underline">{displayUrl(place.website)}</a>
+                  ) : (
+                    <span className="break-all">{place.website}</span>
+                  )}
+                </dd>
+              </div>
+            )}
+            {place.phone && (
+              <div className="flex gap-3">
+                <Phone className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <dt className="sr-only">Phone</dt>
+                <dd><a href={`tel:${place.phone.replace(/[^+\d]/g, "")}`} className="hover:underline">{place.phone}</a></dd>
+              </div>
+            )}
+            {place.email && (
+              <div className="flex gap-3">
+                <Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <dt className="sr-only">Email</dt>
+                <dd className="min-w-0"><a href={`mailto:${place.email}`} className="break-all hover:underline">{place.email}</a></dd>
+              </div>
+            )}
+          </dl>
+        </>
       )}
     </section>
   )

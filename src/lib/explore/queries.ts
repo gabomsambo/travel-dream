@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, ne, type SQL } from 'drizzle-orm';
 import { attachments, collections, places, placesToCollections } from '@/db/schema';
 import { forUser } from '@/lib/tenant-db';
 import { parseBestTime } from './best-time';
@@ -13,38 +13,60 @@ function asArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
-/**
- * Every browsable place for one user, with photos (primary first).
- * Both queries go through `forUser`, so neither can return another tenant's rows.
- */
-export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> {
-  const scoped = forUser(userId);
-  const [rows, photos] = await Promise.all([
-    scoped.selectFields(
-      places,
-      {
-        id: places.id, name: places.name, kind: places.kind, city: places.city, country: places.country,
-        description: places.description, notes: places.notes, vibes: places.vibes, bestTime: places.best_time,
-        recommendedBy: places.recommendedBy, visitStatus: places.visitStatus, priority: places.priority,
-        ratingSelf: places.ratingSelf, priceLevel: places.price_level, createdAt: places.createdAt, coords: places.coords,
-        lastVisited: places.lastVisited, plannedVisit: places.plannedVisit,
-      },
-      inArray(places.status, BROWSABLE)
-    ),
-    scoped.selectFieldsVia(
-      attachments,
-      { placeId: attachments.placeId, uri: attachments.uri, thumb: attachments.thumbnailUri, isPrimary: attachments.isPrimary, createdAt: attachments.createdAt },
-      eq(attachments.type, 'photo')
-    ),
-  ]);
+const PLACE_FIELDS = {
+  id: places.id, name: places.name, kind: places.kind, city: places.city, country: places.country,
+  description: places.description, notes: places.notes, vibes: places.vibes, bestTime: places.best_time,
+  recommendedBy: places.recommendedBy, visitStatus: places.visitStatus, priority: places.priority,
+  ratingSelf: places.ratingSelf, priceLevel: places.price_level, createdAt: places.createdAt, coords: places.coords,
+  lastVisited: places.lastVisited, plannedVisit: places.plannedVisit,
+};
 
-  const byPlace = new Map<string, typeof photos>();
+const PHOTO_FIELDS = {
+  placeId: attachments.placeId, uri: attachments.uri, thumb: attachments.thumbnailUri, isPrimary: attachments.isPrimary, createdAt: attachments.createdAt,
+};
+
+interface PlaceRow {
+  id: string;
+  name: string;
+  kind: string;
+  city: string | null;
+  country: string | null;
+  description: string | null;
+  notes: string | null;
+  vibes: string[] | null;
+  bestTime: string | null;
+  recommendedBy: string | null;
+  visitStatus: string | null;
+  priority: number | null;
+  ratingSelf: number | null;
+  priceLevel: string | null;
+  createdAt: string;
+  coords: { lat: number; lon: number } | null;
+  lastVisited: string | null;
+  plannedVisit: string | null;
+}
+
+interface PhotoRow {
+  placeId: string;
+  uri: string;
+  thumb: string | null;
+  isPrimary: number | null;
+  createdAt: string;
+}
+
+/**
+ * The shared projection from place + photo rows to `ExplorePlace`. Both queries
+ * below feed it, so the photo ordering, `/uploads/` filtering and status
+ * normalization stay in one place.
+ */
+function mapExplorePlaces(rows: PlaceRow[], photos: PhotoRow[]): ExplorePlace[] {
+  const byPlace = new Map<string, PhotoRow[]>();
   for (const ph of photos) byPlace.set(ph.placeId, [...(byPlace.get(ph.placeId) ?? []), ph]);
 
   return rows.map((r) => {
     const coords = r.coords && typeof r.coords === 'object' ? r.coords : null;
     const pics = (byPlace.get(r.id) ?? [])
-      .sort((a, b) => b.isPrimary - a.isPrimary || a.createdAt.localeCompare(b.createdAt))
+      .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.createdAt.localeCompare(b.createdAt))
       // Both sizes travel together: rails and covers render the thumbnail, the
       // hero and the sheet render the full image.
       .map((a) => ({ uri: a.uri, thumb: a.thumb || a.uri }))
@@ -60,6 +82,56 @@ export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> 
       lastVisited: r.lastVisited, plannedVisit: r.plannedVisit, lat: coords?.lat ?? null, lon: coords?.lon ?? null, photos: pics,
     };
   });
+}
+
+/** Both queries go through `forUser`, so neither can return another tenant's rows. */
+async function queryExplorePlaces(
+  scoped: ReturnType<typeof forUser>,
+  placeFilter: SQL | undefined,
+  photoFilter: SQL | undefined
+): Promise<ExplorePlace[]> {
+  const [rows, photos] = await Promise.all([
+    scoped.selectFields(places, PLACE_FIELDS, placeFilter),
+    scoped.selectFieldsVia(attachments, PHOTO_FIELDS, photoFilter),
+  ]);
+  return mapExplorePlaces(rows, photos);
+}
+
+/**
+ * Every browsable place for one user, with photos (primary first).
+ */
+export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> {
+  const scoped = forUser(userId);
+  return queryExplorePlaces(scoped, inArray(places.status, BROWSABLE), eq(attachments.type, 'photo'));
+}
+
+/**
+ * The user's other browsable places in one city, for the "Also in {city}" rail
+ * on the place page. Scoped to the caller and filtered to the city, so it can
+ * neither leak another tenant's rows nor pull in a same-named city elsewhere.
+ */
+export async function getExplorePlacesInCity(
+  userId: string,
+  city: string,
+  country: string | null,
+  excludeId: string
+): Promise<ExplorePlace[]> {
+  const scoped = forUser(userId);
+  const conditions: SQL[] = [
+    eq(places.city, city),
+    ne(places.id, excludeId),
+    inArray(places.status, BROWSABLE),
+  ];
+  if (country) conditions.push(eq(places.country, country));
+  const inCity = and(...conditions);
+  const ids = await scoped.selectFields(places, { id: places.id }, inCity);
+  if (ids.length === 0) return [];
+  const idList = ids.map((r) => r.id);
+  return queryExplorePlaces(
+    scoped,
+    inArray(places.id, idList),
+    and(inArray(attachments.placeId, idList), eq(attachments.type, 'photo'))
+  );
 }
 
 export async function getExploreCollections(userId: string): Promise<ExploreCollection[]> {

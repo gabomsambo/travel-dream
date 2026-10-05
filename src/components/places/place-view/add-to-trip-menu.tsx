@@ -16,6 +16,10 @@ import type { ExploreCollection } from "@/lib/explore/types"
 // second one under the same name (as Explore's provider does).
 const halfBuiltTrips = new Map<string, string>()
 
+export function resetHalfBuiltTripsForTests() {
+  halfBuiltTrips.clear()
+}
+
 /**
  * "Add to trip", reusing the same collection endpoints Explore's sheet uses.
  * The list is the caller's full trip set (with `placeIds`), so membership can be
@@ -89,6 +93,10 @@ export function AddToTripMenu({
     const name = placeCity ? `${placeCity} trip` : `${placeName} trip`
     try {
       let id = halfBuiltTrips.get(placeId)
+      if (id && !trips.some((t) => t.id === id)) {
+        halfBuiltTrips.delete(placeId)
+        id = undefined
+      }
       if (!id) {
         const res = await fetch("/api/collections", {
           method: "POST",

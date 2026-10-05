@@ -38,6 +38,13 @@ beforeAll(async () => {
     `INSERT INTO places (id,user_id,name,kind,status,city,country,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
     ['plc_bob_paris_us', BOB.id, 'Bob Paris Texas', 'cafe', 'library', 'Paris', 'United States', now, now]
   );
+  // Two of Alice's Paris saves with no country recorded.
+  for (const id of ['plc_alice_nocountry_a', 'plc_alice_nocountry_b']) {
+    await exec(
+      `INSERT INTO places (id,user_id,name,kind,status,city,country,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      [id, ALICE.id, id, 'cafe', 'library', 'Paris', null, now, now]
+    );
+  }
 });
 
 describe('getCollectionsForPlace', () => {
@@ -70,5 +77,14 @@ describe('getExplorePlacesInCity', () => {
     expect(bob).toEqual([]);
     const bobOther = await getExplorePlacesInCity(BOB.id, 'Paris', 'United States', 'plc_bob_secret');
     expect(bobOther.map((p) => p.id)).toEqual(['plc_bob_paris_us']);
+  });
+
+  it('with no country, only matches other places with no country', async () => {
+    const alice = await getExplorePlacesInCity(ALICE.id, 'Paris', null, 'plc_alice_nocountry_a');
+    expect(alice.map((p) => p.id)).toEqual(['plc_alice_nocountry_b']);
+
+    // And a place that has a country never picks up the country-less ones.
+    const french = await getExplorePlacesInCity(ALICE.id, 'Paris', 'France', 'plc_alice_louvre');
+    expect(french.map((p) => p.id)).toEqual(['plc_alice_eiffel']);
   });
 });

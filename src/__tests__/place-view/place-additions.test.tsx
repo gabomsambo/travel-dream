@@ -172,6 +172,29 @@ describe('PlacePage additions — trips', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/collections/col_new/places', expect.anything()))
     expect(mockRefresh).toHaveBeenCalled()
   })
+
+  it('retries a half-built new trip instead of creating a second one', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ collection: { id: 'col_new' } }) })
+      .mockResolvedValueOnce({ ok: false, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    render(<PlacePage place={place} trips={trips} />)
+    const newTrip = async () => {
+      await userEvent.click(screen.getAllByRole('button', { name: 'Add to trip' })[0])
+      await userEvent.click(await screen.findByRole('menuitem', { name: /New trip with this place/ }))
+    }
+
+    await newTrip()
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Kyoto trip was created, but this place didn\'t save to it.', expect.anything()))
+
+    await newTrip()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/collections')).toHaveLength(1)
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/collections/col_new/places')
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Added to Kyoto trip', expect.anything()))
+  })
 })
 
 describe('PlacePage additions — on the ground + bar', () => {

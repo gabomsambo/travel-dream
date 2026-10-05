@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, type SQL } from 'drizzle-orm';
 import { attachments, collections, places, placesToCollections } from '@/db/schema';
 import { forUser } from '@/lib/tenant-db';
 import { parseBestTime } from './best-time';
@@ -122,7 +122,9 @@ export async function getExplorePlacesInCity(
     ne(places.id, excludeId),
     inArray(places.status, BROWSABLE),
   ];
-  if (country) conditions.push(eq(places.country, country));
+  // A place with no country only matches others with no country, so a null
+  // never widens the rail to every same-named city.
+  conditions.push(country ? eq(places.country, country) : isNull(places.country));
   const inCity = and(...conditions);
   const ids = await scoped.selectFields(places, { id: places.id }, inCity);
   if (ids.length === 0) return [];

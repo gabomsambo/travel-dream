@@ -29,7 +29,7 @@
 #      review round rather than keeping a durable session.
 #
 # To revert to the previous behaviour, delete `opencode,` from the list.
-agent: [opencode, codex, claude]
+agent: [claude, cursor, codex, opencode]
 
 # no-mistakes gate configuration for travel-dream.
 #

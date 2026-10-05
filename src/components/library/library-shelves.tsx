@@ -101,7 +101,10 @@ export function TripsShelf({
 }) {
   const headingId = React.useId()
   if (!collections.length) return null
-  const shown = [...collections].sort((a, b) => b.placeIds.length - a.placeIds.length).slice(0, 5)
+  const shown = collections
+    .map((c) => ({ c, members: c.placeIds.map((id) => byId.get(id)).filter((p): p is LibraryItem => !!p) }))
+    .sort((a, b) => b.members.length - a.members.length)
+    .slice(0, 5)
   return (
     <section aria-labelledby={headingId} className="space-y-3">
       <div className="flex items-end gap-3">
@@ -116,8 +119,7 @@ export function TripsShelf({
         </Link>
       </div>
       <div className="-mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 hide-scrollbar sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-3.5 sm:overflow-visible sm:px-0 lg:grid-cols-6">
-        {shown.map((c) => {
-          const members = c.placeIds.map((id) => byId.get(id)).filter((p): p is LibraryItem => !!p)
+        {shown.map(({ c, members }) => {
           const photos = members.filter((p) => p.photos.length).slice(0, 3).map((p) => p.photos[0].thumb)
           const sub = c.description?.trim() || collectionEyebrow(members, now)
           return (
@@ -129,7 +131,7 @@ export function TripsShelf({
               <Collage photos={photos} />
               <p className="mt-1.5 truncate text-[13px] font-semibold sm:mt-2">{c.name}</p>
               <p className="line-clamp-1 text-xs text-muted-foreground sm:line-clamp-2">
-                {c.placeIds.length} {c.placeIds.length === 1 ? "place" : "places"}
+                {members.length} {members.length === 1 ? "place" : "places"}
                 {sub ? ` · ${sub}` : ""}
               </p>
             </Link>

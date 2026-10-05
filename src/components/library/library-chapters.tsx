@@ -345,13 +345,16 @@ function ChapterSection({
 }) {
   const [city, setCity] = React.useState<string | null>(null)
   const [expanded, setExpanded] = React.useState(false)
-  const items = city ? chapter.items.filter((p) => p.city?.trim() === city) : chapter.items
+  const showCities = group === "country" && view !== "list"
+  const cities = showCities ? citiesOf(chapter.items) : []
+  const activeCity = city && cities.length > 1 && cities.some((c) => c.city === city) ? city : null
+  const items = activeCity ? chapter.items.filter((p) => p.city?.trim() === activeCity) : chapter.items
   const single = chapter.key === "all"
 
   return (
     <section id={`chapter-${chapter.key}`} data-chapter={chapter.key} className="mb-10 scroll-mt-20 sm:mb-12" aria-label={single ? "Your places" : chapter.title}>
       {!single && <ChapterHeader chapter={chapter} group={group} items={chapter.items} collage={group === "collection" && view === "journal"} />}
-      {group === "country" && view !== "list" && <CityChips items={chapter.items} city={city} onCity={setCity} />}
+      {showCities && <CityChips items={chapter.items} city={activeCity} onCity={setCity} />}
       {view === "journal" ? (
         <JournalChapter items={items} siblings={siblings} single={single} />
       ) : view === "list" ? (

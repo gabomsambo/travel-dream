@@ -91,4 +91,26 @@ describe('LibraryClient', () => {
     await user.click(screen.getByRole('radio', { name: 'Journal' }))
     expect(screen.getAllByRole('article').length).toBeGreaterThan(0)
   })
+
+  it('counts a trip by the Library places it shows, not its Inbox or Archived members', () => {
+    render(<LibraryClient data={{ ...data, collections: [{ id: 'col_1', name: 'Kyoto in autumn', placeIds: ['plc_1', 'plc_4', 'plc_inbox'] }] }} />)
+    for (const link of screen.getAllByRole('link', { name: /Kyoto in autumn/ })) {
+      expect(link).toHaveTextContent('2 places')
+      expect(link).not.toHaveTextContent('3 places')
+    }
+  })
+
+  it('drops a city chip that a shelf change leaves empty, instead of an empty chapter', async () => {
+    const user = userEvent.setup()
+    const japan = [
+      item({ id: 'k1', name: 'Kinkaku', country: 'Japan', city: 'Kyoto', photos: [photo], visitStatus: 'not_visited' }),
+      item({ id: 'k2', name: 'Fushimi', country: 'Japan', city: 'Kyoto', photos: [photo], visitStatus: 'not_visited' }),
+      item({ id: 't1', name: 'Senso-ji', country: 'Japan', city: 'Tokyo', photos: [photo], visitStatus: 'visited', lastVisited: '2024-04-12' }),
+    ]
+    render(<LibraryClient data={{ items: [...items, ...japan], collections: [], inboxCount: 0 }} />)
+    await user.click(screen.getByRole('button', { name: /^Kyoto\s*2$/ }))
+    expect(screen.queryByRole('button', { name: /^Senso-ji,/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Been\s*5/ }))
+    expect(screen.getAllByRole('button', { name: /^Senso-ji,/ }).length).toBeGreaterThan(0)
+  })
 })

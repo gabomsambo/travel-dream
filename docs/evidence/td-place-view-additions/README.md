@@ -26,6 +26,12 @@ Desktop captures are the full page (1440 wide, tall viewport); mobile captures a
 - **Trips**: `getPlaceWithRelations` now loads the place's collections via `forUser` (`getCollectionsForPlace`), and the page loads the full trip list via `getExploreCollections` so **Add to trip** can mark the trips it's already in and offer the rest plus *New trip with this place*. All writes reuse the existing `POST /api/collections/[id]/places` and `POST /api/collections` endpoints.
 - ***Also in {city}***: `getExplorePlacesInCity` (also via `forUser`) returns the user's other browsable places in the same city and country, primary photo first, reusing Explore's `PlaceTile` poster shape. Hidden when empty.
 
+Both themes render: every new element uses only the semantic tokens (`text-primary`, `bg-primary/10`, `bg-foreground`, `bg-muted`, …), so classic and tropical both show the additions without change.
+
+| Capture | What it shows |
+|---|---|
+| ![](after-rich-desktop-tropical.jpg) | The rich place in the **tropical** theme — the trips pill, Directions / Call and *Also in Kyoto* rail pick up the theme's tokens. |
+
 ## Exercised live in the browser
 
 - Rich place (1440 and 390): trips pill and **Add to trip** in *Your plan*; map, **Directions** and **Call** in *On the ground*; the *Also in Kyoto* rail; the mobile bar with all three actions.

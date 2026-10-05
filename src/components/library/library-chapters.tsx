@@ -415,12 +415,20 @@ const GROUP_NOUN: Record<GroupMode, [string, string]> = {
 
 /** The serif index where the filter wall used to be: jump to a chapter, see where you are. */
 function IndexRail({ chapters, group, active }: { chapters: Chapter[]; group: GroupMode; active: string | null }) {
+  const { selecting } = useLibraryActions()
   const [all, setAll] = React.useState(false)
   const LIMIT = 14
   const shown = all ? chapters : chapters.slice(0, LIMIT)
   const [one, many] = GROUP_NOUN[group]
   return (
-    <nav aria-label="Index" className="sticky top-[56px] hidden max-h-[calc(100vh-150px)] overflow-y-auto pb-6 hide-scrollbar lg:block">
+    // While selecting, the selection toolbar makes the sticky bar taller.
+    <nav
+      aria-label="Index"
+      className={cn(
+        "sticky hidden max-h-[calc(100vh-150px)] overflow-y-auto pb-6 hide-scrollbar lg:block",
+        selecting ? "top-[104px]" : "top-[56px]"
+      )}
+    >
       <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
         Index · {chapters.length} {chapters.length === 1 ? one : many}
       </p>
@@ -494,12 +502,15 @@ export function LibraryChapters({
   view,
   siblings,
   collectionNames,
+  interlude,
 }: {
   chapters: Chapter[]
   group: GroupMode
   view: LibraryView
   siblings: string[]
   collectionNames: Map<string, string[]>
+  /** Phones only: shown after the first chapter, so the first places come right under the tools. */
+  interlude?: React.ReactNode
 }) {
   const keys = React.useMemo(() => chapters.map((c) => c.key), [chapters])
   const active = useScrollSpy(keys)
@@ -509,8 +520,11 @@ export function LibraryChapters({
     <div className={cn("px-4 py-6 sm:px-8", indexed && "lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-7")}>
       {indexed && <IndexRail chapters={chapters} group={group} active={active} />}
       <div className="min-w-0">
-        {chapters.map((c) => (
-          <ChapterSection key={`${group}:${view}:${c.key}`} chapter={c} group={group} view={view} siblings={siblings} collectionNames={collectionNames} />
+        {chapters.map((c, i) => (
+          <React.Fragment key={`${group}:${view}:${c.key}`}>
+            <ChapterSection chapter={c} group={group} view={view} siblings={siblings} collectionNames={collectionNames} />
+            {i === 0 && interlude && <div className="mb-10 sm:hidden">{interlude}</div>}
+          </React.Fragment>
         ))}
       </div>
       {indexed && <MobileIndex chapters={chapters} group={group} active={active} />}

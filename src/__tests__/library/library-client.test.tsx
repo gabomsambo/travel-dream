@@ -36,7 +36,8 @@ describe('LibraryClient', () => {
     expect(screen.getByRole('button', { name: /Been\s*4/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Needs review/ })).toHaveAttribute('href', '/inbox')
     expect(screen.getByRole('heading', { level: 2, name: 'Japan' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Kyoto in autumn/ })).toHaveAttribute('href', '/collections/col_1')
+    // The trips shelf renders twice — under the shelves, and after the first chapter on phones — with CSS showing one.
+    for (const link of screen.getAllByRole('link', { name: /Kyoto in autumn/ })) expect(link).toHaveAttribute('href', '/collections/col_1')
   })
 
   it('opens the quick-look sheet on click, which leads to the Postcard — not the old tabbed dialog', async () => {

@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import Link from "next/link"
 import { ArrowRight, Inbox, Plus, Shuffle } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -98,14 +99,15 @@ export function TripsShelf({
   byId: Map<string, LibraryItem>
   now: Date
 }) {
+  const headingId = React.useId()
   if (!collections.length) return null
   const shown = [...collections].sort((a, b) => b.placeIds.length - a.placeIds.length).slice(0, 5)
   return (
-    <section aria-labelledby="trips-shelf" className="space-y-3">
+    <section aria-labelledby={headingId} className="space-y-3">
       <div className="flex items-end gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">Your collections</p>
-          <h2 id="trips-shelf" className="mt-0.5 font-heading text-lg font-semibold tracking-tight sm:text-[22px]">
+          <h2 id={headingId} className="mt-0.5 font-heading text-lg font-semibold tracking-tight sm:text-[22px]">
             Trips &amp; lists
           </h2>
         </div>

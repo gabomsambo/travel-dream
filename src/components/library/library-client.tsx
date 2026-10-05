@@ -397,8 +397,9 @@ function LibraryPage({ data }: { data: LibraryData }) {
         </div>
       )}
 
+      {/* Phones get the trips shelf after the first chapter instead (see LibraryChapters' interlude). */}
       {showTrips && (
-        <div className="px-4 pt-6 sm:px-8 sm:pt-7">
+        <div className="hidden px-8 pt-7 sm:block">
           <TripsShelf collections={collections} byId={byId} now={now} />
         </div>
       )}
@@ -435,7 +436,14 @@ function LibraryPage({ data }: { data: LibraryData }) {
           ) : sparse && view === "grid" ? (
             <SparseGrid items={sorted} siblings={siblings} inboxCount={inboxCount} onAddPlace={() => setAddPlaceOpen(true)} />
           ) : (
-            <LibraryChapters chapters={chapters} group={sparse ? "none" : group} view={view} siblings={siblings} collectionNames={collectionNames} />
+            <LibraryChapters
+              chapters={chapters}
+              group={sparse ? "none" : group}
+              view={view}
+              siblings={siblings}
+              collectionNames={collectionNames}
+              interlude={showTrips ? <TripsShelf collections={collections} byId={byId} now={now} /> : null}
+            />
           )}
         </div>
       )}

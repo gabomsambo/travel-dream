@@ -65,6 +65,14 @@ jest.mock('@/lib/auth-helpers', () => ({
   getCurrentUser: jest.fn(),
   isAuthError: jest.fn((e: unknown) => e instanceof Error && e.message === 'Unauthorized'),
 }));
+// next-auth ships ESM that jest does not transform; the completeness guard
+// only needs the route module to load and re-export NextAuth's handlers.
+jest.mock('@/lib/auth', () => ({
+  handlers: { GET: jest.fn(), POST: jest.fn() },
+  auth: jest.fn(),
+  signIn: jest.fn(),
+  signOut: jest.fn(),
+}));
 jest.mock('@/lib/llm-extraction-service', () => ({
   llmExtractionService: {
     initialize: jest.fn().mockResolvedValue(undefined),
@@ -234,13 +242,51 @@ async function resetWorld(): Promise<void> {
 
 /**
  * Change every value Bob owns that a response could be built from — names,
- * statuses, counts, notes, OCR text — without changing which ids exist. Alice's
- * response must not move: if it does, Bob's data shaped it, even when no "bob"
- * string came back (a count, a status total, an ordering).
+ * statuses, counts, notes, OCR text — and give Bob more rows of every kind.
+ * The ids the requests carry all still exist. Alice's response must not move:
+ * if it does, Bob's data shaped it, even when no "bob" string came back (a
+ * count, a status total, an ordering).
  */
 async function perturbBob(): Promise<void> {
   const ex = dbExec();
-  const run = (sql: string) => ex({ sql, args: [] });
+  const run = (sql: string, args: unknown[] = []) => ex({ sql, args });
+  const now = new Date().toISOString();
+  await run(
+    `INSERT INTO places (id,user_id,name,kind,status,notes,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    ['plc_bob_extra', 'user_bob', 'bob extra place', 'hotel', 'inbox', 'bob extra note', now, now]
+  );
+  await run(
+    `INSERT INTO collections (id,user_id,name,created_at,updated_at) VALUES (?,?,?,?,?)`,
+    ['col_bob_extra', 'user_bob', 'bob extra collection', now, now]
+  );
+  await run(
+    `INSERT INTO places_to_collections (place_id,collection_id,order_index,is_pinned,note) VALUES (?,?,?,?,?)`,
+    ['plc_bob_extra', BOB_IDS.collection, 1, 0, 'bob extra membership note']
+  );
+  await run(
+    `INSERT INTO places_to_collections (place_id,collection_id,order_index,is_pinned,note) VALUES (?,?,?,?,?)`,
+    ['plc_bob_extra', 'col_bob_extra', 0, 0, 'bob extra collection note']
+  );
+  await run(
+    `INSERT INTO upload_sessions (id,user_id,started_at,file_count,completed_count,failed_count,status,meta)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    ['session_bob_extra', 'user_bob', now, 1, 1, 0, 'active',
+     JSON.stringify({ uploadedFiles: ['src_bob_extra'], errors: [] })]
+  );
+  await run(
+    `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    ['src_bob_extra', 'user_bob', 'screenshot', 'https://store.public.blob.vercel-storage.com/bob-extra.jpg',
+     'bob extra OCR text', 'completed',
+     JSON.stringify({ uploadInfo: { sessionId: 'session_bob_extra', originalName: 'bob-extra.png' } }), now, now]
+  );
+  await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_bob_extra', 'plc_bob_extra']);
+  await run(
+    `INSERT INTO dismissed_duplicates (id,user_id,place_id_1,place_id_2,reason) VALUES (?,?,?,?,?)`,
+    ['dd_bob_extra', 'user_bob', BOB_IDS.place2, 'plc_bob_extra', 'bob extra dismissed reason']
+  );
+
   await run(`UPDATE places SET name = name || ' (bob perturbed)', status = 'archived', city = 'Bobville',
              notes = 'bob perturbed note', rating_self = 1 WHERE user_id = 'user_bob'`);
   await run(`UPDATE collections SET name = name || ' (bob perturbed)', description = 'bob perturbed'
@@ -1291,19 +1337,10 @@ function routeFiles(dir: string): string[] {
   });
 }
 
-/** The HTTP methods a route file exports, read from its source. */
+/** The HTTP methods a route module exports as functions — what Next.js serves. */
 function exportedMethods(file: string): Method[] {
-  const src = fs.readFileSync(file, 'utf8');
-  const found = new Set<string>();
-  for (const m of src.matchAll(/export\s+(?:async\s+)?function\s+([A-Z]+)\b/g)) found.add(m[1]);
-  for (const m of src.matchAll(/export\s+const\s+([A-Z]+)\b/g)) found.add(m[1]);
-  for (const m of src.matchAll(/export\s+const\s+\{([^}]+)\}\s*=/g)) {
-    for (const name of m[1].split(',')) found.add(name.trim().split(/\s*:\s*/).pop() ?? '');
-  }
-  for (const m of src.matchAll(/export\s+\{([^}]+)\}/g)) {
-    for (const name of m[1].split(',')) found.add(name.trim().split(/\s+as\s+/).pop() ?? '');
-  }
-  return HTTP_METHODS.filter((method) => found.has(method));
+  const mod = require(file) as Record<string, unknown>;
+  return HTTP_METHODS.filter((method) => typeof mod[method] === 'function');
 }
 
 describe('completeness guard', () => {

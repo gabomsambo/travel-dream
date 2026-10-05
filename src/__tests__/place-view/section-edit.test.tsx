@@ -181,6 +181,41 @@ describe('reservation editing', () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body))
     expect(body.confirmationNumber).toBe('NEW-1')
   })
+
+  it('seeds and patches party size, booking URL, special requests and total cost through the full-view form', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    render(<ReservationsSection place={place} />)
+    await userEvent.click(screen.getByRole('button', { name: /Edit reservation/ }))
+
+    expect(screen.getByLabelText('Party Size')).toHaveValue(3)
+    expect(screen.getByLabelText('Booking URL')).toHaveValue('https://www.getyourguide.com/booking/1')
+    expect(screen.getByLabelText('Special Requests')).toHaveValue('Vegetarian')
+    expect(screen.getByLabelText('Total Cost')).toHaveValue('¥18,000')
+
+    await userEvent.clear(screen.getByLabelText('Party Size'))
+    await userEvent.type(screen.getByLabelText('Party Size'), '5')
+    await userEvent.clear(screen.getByLabelText('Total Cost'))
+    await userEvent.type(screen.getByLabelText('Total Cost'), '$210.00')
+    await userEvent.clear(screen.getByLabelText('Booking URL'))
+    await userEvent.type(screen.getByLabelText('Booking URL'), 'https://example.com/new')
+    await userEvent.clear(screen.getByLabelText('Special Requests'))
+    await userEvent.type(screen.getByLabelText('Special Requests'), 'Window seat')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/places/plc_fushimi/reservations/res_1',
+      expect.objectContaining({ method: 'PATCH' }),
+    )
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body))
+    expect(body.partySize).toBe(5)
+    expect(body.totalCost).toBe('$210.00')
+    expect(body.bookingUrl).toBe('https://example.com/new')
+    expect(body.specialRequests).toBe('Window seat')
+  })
 })
 
 describe('placeEditHref', () => {

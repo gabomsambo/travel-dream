@@ -102,7 +102,8 @@ function QuickFacts({ place }: { place: PlaceWithRelations }) {
 
 /**
  * The read view of a place ("Postcard"): Explore's hero, a reading column, and a sticky
- * rail with the plan and the practical details. Editing lives behind `onEdit`.
+ * rail with the plan and the practical details. Section pencils edit in place; the global
+ * editor lives behind `onEdit`.
  */
 export function PlaceView({
   place,

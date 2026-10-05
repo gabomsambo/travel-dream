@@ -21,8 +21,8 @@ const PlaceFullView = dynamic(() => loadEditor().then((mod) => ({ default: mod.P
 })
 
 /**
- * /place/[id]: opens in the read view; the existing editor is one Edit away and returns
- * with Done. Saves refresh the server data, so the view always shows what was saved.
+ * /place/[id]: opens in the read view (or the editor, with ?edit=1 or the "Open places in
+ * edit mode" setting); the existing editor is one Edit away and returns with Done. Saves refresh the server data, so the view always shows what was saved.
  */
 export function PlacePage({ place, startInEdit = false }: { place: PlaceWithRelations; startInEdit?: boolean }) {
   const router = useRouter()

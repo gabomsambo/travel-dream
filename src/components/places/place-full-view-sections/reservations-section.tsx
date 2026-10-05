@@ -26,6 +26,10 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
     bookingPlatform: "",
     status: "confirmed",
     notes: "",
+    partySize: "",
+    bookingUrl: "",
+    specialRequests: "",
+    totalCost: "",
   })
   const [formError, setFormError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -49,11 +53,34 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
       bookingPlatform: reservation.bookingPlatform ?? "",
       status: reservation.status || "confirmed",
       notes: reservation.notes ?? "",
+      partySize: reservation.partySize != null ? String(reservation.partySize) : "",
+      bookingUrl: reservation.bookingUrl ?? "",
+      specialRequests: reservation.specialRequests ?? "",
+      totalCost: reservation.totalCost ?? "",
     })
   }
 
   const handleSave = async () => {
     setFormError(null)
+    const trimmedParty = formData.partySize.trim()
+    const partySize =
+      trimmedParty === ""
+        ? null
+        : Number.isFinite(Number(trimmedParty)) && Number(trimmedParty) > 0
+          ? Number(trimmedParty)
+          : null
+    const payload = {
+      reservationDate: formData.reservationDate,
+      reservationTime: formData.reservationTime || null,
+      confirmationNumber: formData.confirmationNumber || null,
+      bookingPlatform: formData.bookingPlatform || null,
+      status: formData.status,
+      notes: formData.notes || null,
+      partySize,
+      bookingUrl: formData.bookingUrl.trim() || null,
+      specialRequests: formData.specialRequests || null,
+      totalCost: formData.totalCost || null,
+    }
     try {
       const url = editingId
         ? `/api/places/${place.id}/reservations/${editingId}`
@@ -62,7 +89,7 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
       const response = await fetch(url, {
         method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) throw new Error("Failed to save")
@@ -152,6 +179,52 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
                   placeholder="OpenTable, Resy, Airbnb, etc."
                 />
               </div>
+              <div>
+                <Label htmlFor="partySize">Party Size</Label>
+                <Input
+                  id="partySize"
+                  type="number"
+                  min="1"
+                  value={formData.partySize}
+                  onChange={(e) =>
+                    setFormData({ ...formData, partySize: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="totalCost">Total Cost</Label>
+                <Input
+                  id="totalCost"
+                  value={formData.totalCost}
+                  onChange={(e) =>
+                    setFormData({ ...formData, totalCost: e.target.value })
+                  }
+                  placeholder="$125.00"
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="bookingUrl">Booking URL</Label>
+              <Input
+                id="bookingUrl"
+                type="url"
+                value={formData.bookingUrl}
+                onChange={(e) =>
+                  setFormData({ ...formData, bookingUrl: e.target.value })
+                }
+                placeholder="https://..."
+              />
+            </div>
+            <div>
+              <Label htmlFor="specialRequests">Special Requests</Label>
+              <Textarea
+                id="specialRequests"
+                value={formData.specialRequests}
+                onChange={(e) =>
+                  setFormData({ ...formData, specialRequests: e.target.value })
+                }
+                rows={2}
+              />
             </div>
             <div>
               <Label htmlFor="notes">Notes</Label>
@@ -177,6 +250,10 @@ export function ReservationsSection({ place }: ReservationsSectionProps) {
                     bookingPlatform: "",
                     status: "confirmed",
                     notes: "",
+                    partySize: "",
+                    bookingUrl: "",
+                    specialRequests: "",
+                    totalCost: "",
                   })
                 }}
               >

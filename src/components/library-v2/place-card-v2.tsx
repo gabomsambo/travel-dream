@@ -145,7 +145,7 @@ export function PlaceCardV2({ place, onClick, className }: PlaceCardV2Props) {
         {/* Footer Meta */}
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-3 text-sm">
-            {place.ratingSelf && place.ratingSelf > 0 && (
+            {(place.ratingSelf ?? 0) > 0 && (
               <div className="flex items-center gap-1">
                 <Star className="h-3.5 w-3.5 fill-accent text-accent" />
                 <span className="font-medium">{place.ratingSelf}</span>

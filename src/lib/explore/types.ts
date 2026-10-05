@@ -40,6 +40,9 @@ export interface ExplorePlace {
   ratingSelf: number;
   priceLevel: string | null;
   createdAt: string;
+  /** When the owner went (visited) or plans to go (planned). Optional: older fixtures omit them. */
+  lastVisited?: string | null;
+  plannedVisit?: string | null;
   lat: number | null;
   lon: number | null;
   /** Primary photo first. Empty when the place has no photo yet. */
@@ -91,6 +94,8 @@ export interface TripNudge {
 export interface ExploreCollection {
   id: string;
   name: string;
+  /** The collection's own one-liner, when the owner wrote one. */
+  description?: string | null;
   placeIds: string[];
 }
 

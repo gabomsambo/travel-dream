@@ -175,11 +175,13 @@ export function LibraryToolbar({
               <div className="space-y-1">
                 <div className="font-medium">Keyboard Shortcuts</div>
                 <div className="text-xs space-y-0.5">
-                  <div>j/k - Navigate up/down</div>
+                  <div>/ - Search your library</div>
+                  <div>j/k - Next/previous place</div>
+                  <div>Space - Toggle selection of the focused place</div>
+                  <div>Cmd/Ctrl+A - Select all shown</div>
                   <div>a - Archive selected</div>
                   <div>d - Delete selected</div>
-                  <div>Space - Toggle selection</div>
-                  <div>Cmd/Ctrl+A - Select all</div>
+                  <div>Esc - Clear selection</div>
                 </div>
               </div>
             </TooltipContent>

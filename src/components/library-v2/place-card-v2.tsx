@@ -3,7 +3,7 @@
 import * as React from "react"
 import { MapPin, Star, Heart, MoreVertical } from "lucide-react"
 import type { PlaceWithCover, LibraryPlaceWithCover } from "@/lib/library-adapters"
-import { FavoriteManager, parsePriceLevel, formatPriceSymbols } from "@/lib/library-adapters"
+import { FavoriteManager, parsePriceLevel, formatPriceSymbols } from "@/lib/place-card-helpers"
 import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"

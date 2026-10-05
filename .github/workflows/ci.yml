@@ -43,6 +43,16 @@ jobs:
           AUTH_GOOGLE_SECRET: "fake-google-secret"
           NEXTAUTH_URL: "http://localhost:3000"
 
+      # The build's fake secret values must not appear in the public bundle.
+      # Same values as the Build step — the check looks for these exact strings.
+      - name: No server secrets in client bundle
+        run: npm run check:client-secrets
+        env:
+          TURSO_DATABASE_URL: "file:ci-test.db"
+          TURSO_AUTH_TOKEN: "fake-token-for-build"
+          AUTH_SECRET: "ci-test-secret-32-chars-minimum!!"
+          AUTH_GOOGLE_SECRET: "fake-google-secret"
+
   # Migration drift guard. Replays the migration journal into a throwaway local
   # SQLite file and compares it against docs/db/prod-schema-reference.sql — the
   # only check here that can notice a migration landed without the database

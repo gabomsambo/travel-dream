@@ -35,6 +35,7 @@
  * it claimed. `auth/register` runs before the user exists. Both keep the raw
  * client, and both live outside the linted directories.
  */
+import 'server-only';
 import { and, eq, getTableName, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteUpdateSetSource } from 'drizzle-orm/sqlite-core';
 // eslint-disable-next-line no-restricted-imports -- this module IS the scoped wrapper

@@ -2,10 +2,14 @@
  * One-off: give one user's places that show no working photo a real photo as
  * their primary. Logic lives in src/lib/photo-backfill/; this file is the CLI.
  *
- *   npx tsx scripts/backfill-place-photos.ts --env <file> --email <email> \
+ *   npx tsx --conditions=react-server scripts/backfill-place-photos.ts --env <file> --email <email> \
  *     --out <dir> [--mode dry-run|apply] [--confirm-db-host <host>] \
  *     [--from-plan <plan.jsonl>[,<more.jsonl>]] [--places-file <ids.txt>] [--max-places N] [--batch-size 100] [--concurrency 4] \
  *     [--previews 8] [--sample 25]
+ *
+ * `--conditions=react-server` is required: `@/db` is marked `server-only`, which
+ * throws when loaded outside a server environment, and this condition is what
+ * tells it a CLI process is one.
  *
  * --env is required and is the only env file read, so the target database is
  * always explicit. The database host is printed before anything runs; apply

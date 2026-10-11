@@ -305,4 +305,62 @@ describe('Postcard edit mode', () => {
     expect(document.activeElement).not.toHaveTextContent('+ Add')
     expect(document.activeElement).toHaveAttribute('data-edit-section', 'about')
   })
+
+  it('does not restore a cleared hero name when the in-flight save fails', async () => {
+    const resolvers: Array<(value: ReturnType<typeof jsonResponse>) => void> = []
+    const fetchMock = jest.fn().mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    render(<PlacePage place={place} startInEdit />)
+
+    const name = screen.getByRole('textbox', { name: 'Place name' })
+    await userEvent.clear(name)
+    await userEvent.type(name, 'B')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 2000 })
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ name: 'B' })
+
+    await userEvent.clear(name)
+    expect(name).toHaveValue('')
+    await act(async () => {
+      resolvers[0](jsonResponse(false, 'Server exploded'))
+    })
+    await waitFor(() => expect(screen.getAllByText('Server exploded').length).toBeGreaterThan(0))
+
+    let settledRetry = false
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(() => {
+      if (!settledRetry && resolvers.length > 1) {
+        settledRetry = true
+        resolvers[1](jsonResponse(true))
+      }
+      expect(screen.getAllByText('Place name is required').length).toBeGreaterThan(0)
+    })
+
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)) as Record<string, unknown>)
+    expect(bodies.filter((body) => 'name' in body)).toEqual([{ name: 'B' }])
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+  })
+
+  it('moves focus to the section row when a focused add row unmounts', async () => {
+    setMobile(true)
+    const fetchMock = jest.fn().mockResolvedValue(jsonResponse(true))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { rerender } = render(<PlacePage place={sparse} startInEdit />)
+
+    const add = await screen.findByRole('button', { name: /\+ Add a link/ })
+    add.focus()
+    await userEvent.click(add)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Edit Links & reading' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Done with Links & reading' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(add).toHaveFocus()
+
+    rerender(<PlacePage place={{ ...sparse, links: [{ id: 'lnk_1' } as PlaceWithRelations['links'][number]] }} startInEdit />)
+
+    expect(screen.queryByRole('button', { name: /\+ Add a link/ })).not.toBeInTheDocument()
+    expect(document.activeElement).toHaveAttribute('data-edit-section', 'links')
+    expect(document.activeElement).toHaveAttribute('data-edit-section-row', '')
+    expect(document.activeElement).not.toHaveTextContent('+ Add')
+  })
 })

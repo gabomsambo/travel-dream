@@ -196,15 +196,33 @@ function patchFor(draft: PlaceDraft, key: keyof PlaceDraft): FieldPatch {
   return { set: { [key]: draft[key] }, drop: [] }
 }
 
+function keysDraftWouldDrop(draft: PlaceDraft): string[] {
+  const dropped: string[] = []
+  for (const key of Object.keys(draft) as Array<keyof PlaceDraft>) {
+    dropped.push(...patchFor(draft, key).drop)
+  }
+  return dropped
+}
+
+function focusSectionRow(returnTo: HTMLElement) {
+  const section = returnTo.getAttribute("data-edit-section")
+  if (!section || !Object.hasOwn(SECTION_LABELS, section)) return
+  document.querySelector<HTMLElement>(`[data-edit-section="${section}"][data-edit-section-row]`)?.focus()
+}
+
+function focusAbandoned(returnTo: HTMLElement): boolean {
+  const active = document.activeElement
+  if (!active || active === document.body || active === document.documentElement) return true
+  return active === returnTo || (active instanceof HTMLElement && !active.isConnected)
+}
+
 function focusOpener(returnTo: HTMLElement | null) {
   if (!returnTo) return
   if (returnTo.isConnected) {
     returnTo.focus()
     return
   }
-  const section = returnTo.getAttribute("data-edit-section")
-  if (!section || !Object.hasOwn(SECTION_LABELS, section)) return
-  document.querySelector<HTMLElement>(`[data-edit-section="${section}"][data-edit-section-row]`)?.focus()
+  focusSectionRow(returnTo)
 }
 
 function useMobileSheet(): boolean {
@@ -220,7 +238,7 @@ function useMobileSheet(): boolean {
   return mobile
 }
 
-function usePlaceAutosave(placeId: string, onSaved: () => void) {
+function usePlaceAutosave(placeId: string, onSaved: () => void, draftRef: React.RefObject<PlaceDraft>) {
   const [status, setStatus] = React.useState<SaveStatus>("idle")
   const [error, setError] = React.useState<string | null>(null)
   const pendingRef = React.useRef<Record<string, unknown>>({})
@@ -267,14 +285,19 @@ function usePlaceAutosave(placeId: string, onSaved: () => void) {
       }, 2000)
       return true
     } catch (err) {
-      pendingRef.current = { ...body, ...pendingRef.current }
+      const restored = { ...body }
+      const draft = draftRef.current
+      if (draft) {
+        for (const field of keysDraftWouldDrop(draft)) delete restored[field]
+      }
+      pendingRef.current = { ...restored, ...pendingRef.current }
       if (generation === generationRef.current) {
         setStatus("error")
         setError(err instanceof Error ? err.message : "Couldn't save")
       }
       return false
     }
-  }, [placeId])
+  }, [placeId, draftRef])
 
   const runSave = React.useCallback(() => {
     const save = chainRef.current.then(() => handleSave())
@@ -486,11 +509,13 @@ export function SectionEditProvider({
   const mobile = useMobileSheet()
   const [active, setActive] = React.useState<SectionId | null>(null)
   const [draft, setDraft] = React.useState<PlaceDraft>(() => draftFrom(place))
-  const save = usePlaceAutosave(place.id, onRefresh)
-  const placeIdRef = React.useRef(place.id)
   const draftRef = React.useRef(draft)
+  const save = usePlaceAutosave(place.id, onRefresh, draftRef)
+  const placeIdRef = React.useRef(place.id)
   const dirtyRef = React.useRef(new Set<keyof PlaceDraft>())
   const openerRef = React.useRef<HTMLElement | null>(null)
+  const watchedOpenerRef = React.useRef<HTMLElement | null>(null)
+  const openerConnectedRef = React.useRef(false)
   const onExitRef = React.useRef(onExitEditing)
   React.useEffect(() => {
     onExitRef.current = onExitEditing
@@ -506,6 +531,7 @@ export function SectionEditProvider({
     if (placeIdRef.current !== place.id) {
       placeIdRef.current = place.id
       dirty.clear()
+      draftRef.current = fresh
       setDraft(fresh)
       setActive(null)
       return
@@ -519,6 +545,7 @@ export function SectionEditProvider({
         Object.assign(next, { [key]: current[key] })
       }
     })
+    draftRef.current = next
     setDraft(next)
   }, [place])
 
@@ -545,6 +572,7 @@ export function SectionEditProvider({
     }
     setDraft((prev) => {
       const next = { ...prev, [key]: value }
+      draftRef.current = next
       save.update(patchFor(next, key))
       return next
     })
@@ -554,6 +582,20 @@ export function SectionEditProvider({
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setActive(id)
   }, [])
+
+  React.useLayoutEffect(() => {
+    const returnTo = openerRef.current
+    if (returnTo !== watchedOpenerRef.current) {
+      watchedOpenerRef.current = returnTo
+      openerConnectedRef.current = Boolean(returnTo?.isConnected)
+      return
+    }
+    const connected = Boolean(returnTo?.isConnected)
+    const disconnected = openerConnectedRef.current && !connected
+    openerConnectedRef.current = connected
+    if (!disconnected || !returnTo || !focusAbandoned(returnTo)) return
+    focusOpener(returnTo)
+  })
 
   const flushSave = save.flush
   const reportError = save.noteError

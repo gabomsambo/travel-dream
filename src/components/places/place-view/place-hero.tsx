@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { Archive, ArrowLeft, CalendarHeart, Check, Images, Inbox, MapPin, Pencil, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { cityGroupLabel } from "@/lib/city-names"
 import { flagFor, slugify } from "@/lib/explore/geo"
 import { formatDateOnly } from "@/lib/place-view/format"
 import { FallbackArt } from "@/components/explore/fallback-art"
@@ -128,7 +129,7 @@ export function PlaceHero({
                 {flag ? <span aria-hidden>{flag}</span> : <MapPin className="h-4 w-4" aria-hidden />}
                 {place.city &&
                   (countrySlug ? (
-                    <Link href={`/explore/atlas/${countrySlug}/${slugify(place.city)}`} className="underline decoration-white/30 underline-offset-4 hover:decoration-white">
+                    <Link href={`/explore/atlas/${countrySlug}/${slugify(cityGroupLabel(place.city))}`} className="underline decoration-white/30 underline-offset-4 hover:decoration-white">
                       {place.city}
                     </Link>
                   ) : (

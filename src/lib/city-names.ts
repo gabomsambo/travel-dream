@@ -110,6 +110,20 @@ export function citiesMatch(a: string | null | undefined, b: string | null | und
 }
 
 /**
+ * Alias match scoped to one country. A missing country matches only a missing
+ * country, the same scope as the "Also in {city}" query, so Rome, Georgia
+ * stays apart from Roma, Italy.
+ */
+export function citiesMatchInCountry(
+  a: { city?: string | null; country?: string | null },
+  b: { city?: string | null; country?: string | null },
+): boolean {
+  const countryA = a.country ? a.country : null;
+  const countryB = b.country ? b.country : null;
+  return citiesMatch(a.city, b.city) && countryA === countryB;
+}
+
+/**
  * Raw stored spellings that match `query`. Values are returned unchanged so a
  * SQL `IN` can use them without writing anything back.
  */

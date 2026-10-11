@@ -1,4 +1,5 @@
 import { requireAuth } from "@/lib/auth-helpers"
+import { tallyCities } from "@/lib/city-names"
 import { loadExploreCached } from "@/lib/explore/load"
 import { buildRails, homeRails, toRailRef } from "@/lib/explore/rails"
 import { pickFeatured } from "@/lib/explore/featured"
@@ -22,7 +23,7 @@ export default async function ExplorePage() {
   const rails = homeRails(all).map((r) => toRailRef(r, now))
   const nudges = buildTripNudges(places, collections)
   const countries = new Set(places.map((p) => p.country).filter(Boolean)).size
-  const cities = new Set(places.filter((p) => p.city).map((p) => `${p.country}/${p.city}`)).size
+  const cities = tallyCities(places).length
   const firstName = user.name?.split(" ")[0]
   const atlas = buildAtlas(places)
   // The top-10 rail sorts every city across the atlas, deduped.

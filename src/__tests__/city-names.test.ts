@@ -3,6 +3,7 @@ import {
   GOOGLE_PLACES_LANGUAGE,
   canonicalCityName,
   citiesMatch,
+  citiesMatchInCountry,
   cityFilterLabels,
   cityGroupLabel,
   cityMatchKey,
@@ -34,6 +35,11 @@ describe('city aliases', () => {
     expect(citiesMatch('Paris', 'París')).toBe(true);
     expect(citiesMatch(null, 'Lisbon')).toBe(false);
     expect(citiesMatch('  ', 'Lisbon')).toBe(false);
+    expect(citiesMatchInCountry({ city: 'Lisboa', country: 'Portugal' }, { city: 'Lisbon', country: 'Portugal' })).toBe(true);
+    expect(citiesMatchInCountry({ city: 'Roma', country: 'Italy' }, { city: 'Rome', country: 'Georgia' })).toBe(false);
+    expect(citiesMatchInCountry({ city: 'Lisboa', country: null }, { city: 'Lisbon', country: null })).toBe(true);
+    expect(citiesMatchInCountry({ city: 'Lisboa', country: null }, { city: 'Lisbon', country: 'Portugal' })).toBe(false);
+    expect(citiesMatchInCountry({ city: 'Lisboa', country: '' }, { city: 'Lisbon', country: null })).toBe(true);
   });
 
   it('folds diacritics without requiring an alias entry', () => {

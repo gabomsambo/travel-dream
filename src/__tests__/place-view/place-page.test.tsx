@@ -179,6 +179,15 @@ describe('PlacePage view mode', () => {
     expect(screen.getByRole('link', { name: 'Japan' })).toHaveAttribute('href', '/explore/atlas/japan')
   })
 
+  it('links a stored exonym to the English atlas city page', () => {
+    const { rerender } = render(<PlacePage place={{ ...sparse, city: 'Lisboa', country: 'Portugal' }} />)
+    expect(screen.getByRole('link', { name: 'Lisboa' })).toHaveAttribute('href', '/explore/atlas/portugal/lisbon')
+    rerender(<PlacePage place={{ ...sparse, city: 'München', country: 'Germany' }} />)
+    expect(screen.getByRole('link', { name: 'München' })).toHaveAttribute('href', '/explore/atlas/germany/munich')
+    rerender(<PlacePage place={{ ...sparse, city: 'Den Haag', country: 'Netherlands' }} />)
+    expect(screen.getByRole('link', { name: 'Den Haag' })).toHaveAttribute('href', '/explore/atlas/netherlands/the-hague')
+  })
+
   it('shows a stored planned date with a neutral label when the status is not planned', () => {
     render(<PlacePage place={{ ...rich, visitStatus: 'visited' }} />)
     expect(screen.getByText('Planned visit · Wed, Nov 18, 2026')).toBeInTheDocument()

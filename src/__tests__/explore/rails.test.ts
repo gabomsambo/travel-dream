@@ -117,6 +117,37 @@ describe('homeRails', () => {
 });
 
 describe('findRail', () => {
+  it('does not recommend a same-country exonym as somewhere else', () => {
+    const seed = place({ name: 'Praça', priority: 5, kind: 'landmark', vibes: ['historic'], city: 'Lisbon', country: 'Portugal' });
+    const local = place({ name: 'Miradouro', kind: 'landmark', vibes: ['historic'], city: 'Lisboa', country: 'Portugal' });
+    const elsewhere = many(4, { kind: 'landmark', vibes: ['historic'], city: 'Porto', country: 'Portugal' });
+    const rail = findRail([seed, local, ...elsewhere], `like-${seed.id}`, NOW);
+    expect(rail?.places[0].id).toBe(seed.id);
+    expect(rail?.places.map((p) => p.id)).not.toContain(local.id);
+    expect(rail?.places).toHaveLength(5);
+  });
+
+  it('keeps the same exonym in another country on the somewhere-else rail', () => {
+    const seed = place({ name: 'Colosseo', kind: 'landmark', vibes: ['historic'], city: 'Roma', country: 'Italy' });
+    const georgia = place({ name: 'Clocktower', kind: 'landmark', vibes: ['historic'], city: 'Rome', country: 'Georgia' });
+    const parisUs = place({ name: 'Cafe', kind: 'landmark', vibes: ['historic'], city: 'Paris', country: 'United States' });
+    const parisFr = place({ name: 'Louvre', kind: 'landmark', vibes: ['historic'], city: 'Paris', country: 'France' });
+    const unnamed = place({ name: 'Viewpoint', kind: 'landmark', vibes: ['historic'], city: 'Lisboa', country: null });
+    const twin = place({ name: 'Square', kind: 'landmark', vibes: ['historic'], city: 'Lisbon', country: null });
+    const named = place({ name: 'Miradouro', kind: 'landmark', vibes: ['historic'], city: 'Lisbon', country: 'Portugal' });
+    const filler = many(3, { kind: 'landmark', vibes: ['historic'], city: 'Porto', country: 'Portugal' });
+
+    const romeRail = findRail([seed, georgia, ...filler], `like-${seed.id}`, NOW);
+    expect(romeRail?.places.map((p) => p.id)).toContain(georgia.id);
+
+    const parisRail = findRail([parisFr, parisUs, ...filler], `like-${parisFr.id}`, NOW);
+    expect(parisRail?.places.map((p) => p.id)).toContain(parisUs.id);
+
+    const nullCountry = findRail([unnamed, twin, named, ...filler], `like-${unnamed.id}`, NOW);
+    expect(nullCountry?.places.map((p) => p.id)).not.toContain(twin.id);
+    expect(nullCountry?.places.map((p) => p.id)).toContain(named.id);
+  });
+
   it('still resolves a "Because you saved" rail after the daily seed moves on', () => {
     const seed = place({ priority: 5, vibes: ['views', 'sunset', 'romantic'], city: 'Lisbon' });
     const alike = many(4, { vibes: ['views', 'sunset'], city: 'Porto' });

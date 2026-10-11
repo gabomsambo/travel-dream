@@ -26,7 +26,6 @@ export interface SavedViewRow {
 }
 
 export interface LibraryData {
-  /** The signed-in user, for per-user device keys (the one-time hearts sync). */
   userId: string;
   items: LibraryItem[];
   collections: ExploreCollection[];

@@ -29,8 +29,8 @@ export async function getHeartIds(userId: string): Promise<string[]> {
 
 /**
  * Hearts (`on`) or un-hearts the given places. Ids that are not the caller's
- * places are ignored, not errors: a device's old hearts can name places that
- * were deleted since. Idempotent both ways. Returns the caller's places among
+ * places are ignored, not errors: a listed id may name a place that was
+ * deleted. Idempotent both ways. Returns the caller's places among
  * `placeIds`, i.e. the ids whose heart now reads `on`.
  */
 export async function setHearts(userId: string, placeIds: string[], on: boolean): Promise<string[]> {

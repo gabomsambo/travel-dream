@@ -176,8 +176,7 @@ describe('foreign ids answer 404 unless a batch is genuinely mixed', () => {
     const res = await bulkMerge(
       apiRequest('http://localhost/api/places/bulk-merge', 'POST', {
         clusters: [{ targetId: FIXTURE.bobPlace, sourceIds: [BOB_OTHER], confidence: 0.9 }],
-      }) as never,
-      { params: Promise.resolve({}) }
+      }) as never
     );
 
     expect(res.status).toBe(404);
@@ -196,8 +195,7 @@ describe('foreign ids answer 404 unless a batch is genuinely mixed', () => {
           { targetId: FIXTURE.alicePlace, sourceIds: [ALICE_OTHER], confidence: 0.9 },
           { targetId: FIXTURE.bobPlace, sourceIds: [BOB_OTHER], confidence: 0.8 },
         ],
-      }) as never,
-      { params: Promise.resolve({}) }
+      }) as never
     );
     const body = (await res.json()) as { status: string; success: number; failed: number };
 

@@ -19,6 +19,12 @@
     --muted-foreground: 215.4 16.3% 46.9%;
     --accent: 210 40% 96%;
     --accent-foreground: 222.2 47.4% 11.2%;
+    /* Planned pins, legend dot, and Planned pill. The fill must contrast with
+       the Mapbox basemap, so it cannot reuse --accent (a hover-surface token
+       in this theme). --map-planned-foreground stays dark in every theme so
+       the pill label clears 4.5:1 against that bright fill. */
+    --map-planned: 24 95% 50%;
+    --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 214.3 31.8% 91.4%;
@@ -43,6 +49,9 @@
     --muted-foreground: 215 20.2% 65.1%;
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
+    /* Bright against Mapbox dark-v11. */
+    --map-planned: 32 95% 55%;
+    --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 58%;
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
@@ -72,6 +81,8 @@
     --muted-foreground: 220 10% 38%;
     --accent: 14 85% 62%;
     --accent-foreground: 0 0% 100%;
+    --map-planned: 14 85% 62%;
+    --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 35 18% 86%;
@@ -103,6 +114,8 @@
     --muted-foreground: 35 10% 65%;
     --accent: 14 85% 62%;
     --accent-foreground: 220 20% 8%;
+    --map-planned: 14 85% 62%;
+    --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 58%;
     --destructive-foreground: 35 15% 92%;
     --border: 220 15% 18%;

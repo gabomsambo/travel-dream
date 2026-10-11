@@ -49,10 +49,11 @@ function Row({ p, siblings }: { p: LibraryItem; siblings: string[] }) {
             {p.lat === null && " · not on the map"}
           </span>
         </span>
+        {/* Badge colours mirror the map pins and the legend under Passport. */}
         {p.visitStatus === "visited" ? (
-          <span className="rounded-full bg-foreground px-2 py-0.5 text-[11px] font-semibold text-background">Been</span>
+          <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">Been</span>
         ) : p.visitStatus === "planned" ? (
-          <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">Planned</span>
+          <span className="rounded-full bg-[hsl(var(--map-planned))] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--map-planned-foreground))]">Planned</span>
         ) : null}
       </button>
       <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
@@ -94,7 +95,7 @@ export function LibraryMapView({
   }, [items])
 
   return (
-    <div className="lg:grid lg:min-h-[calc(100vh-140px)] lg:grid-cols-[minmax(340px,440px)_minmax(0,1fr)]">
+    <div className="flex flex-col lg:grid lg:min-h-[calc(100vh-140px)] lg:grid-cols-[minmax(340px,440px)_minmax(0,1fr)]">
       <div className="order-2 px-4 pb-10 pt-2 sm:px-8 lg:order-1 lg:max-h-[calc(100vh-130px)] lg:overflow-y-auto lg:border-r lg:pt-4">
         {chapters.map((c) => (
           <section key={c.key} aria-label={c.title} className="mb-4">
@@ -123,7 +124,8 @@ export function LibraryMapView({
               <p className="max-w-xs">No Mapbox token is configured for this deployment. The list beside it still opens every place.</p>
             </div>
           )}
-          <span className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium backdrop-blur">
+          {/* Top-left: the bottom-left corner is reserved for the Mapbox wordmark. */}
+          <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium backdrop-blur">
             {pinned} of {items.length} on the map
           </span>
         </div>
@@ -140,7 +142,7 @@ export function LibraryMapView({
             </p>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
               <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-primary" />Been · {beenCountries} {beenCountries === 1 ? "country" : "countries"}</span>
-              <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-accent" />Planned</span>
+              <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[hsl(var(--map-planned))]" />Planned</span>
               <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-foreground" />Dreaming · cluster</span>
             </div>
             <p className="mt-3.5 font-editorial text-2xl leading-[1.1]">

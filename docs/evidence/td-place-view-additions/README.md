@@ -20,7 +20,7 @@ Desktop captures are the full page (1440 wide, tall viewport); mobile captures a
 
 ## Details
 
-- **Map**: a static Mapbox image (`light-v11`) built from the app's existing `NEXT_PUBLIC_MAPBOX_TOKEN`, with the place's kind icon as the pin. No token → a muted placeholder with the pin, so the card keeps its shape and never loads a broken tile. There are no coordinates at all → the map is absent.
+- **Map**: a static Mapbox image built from the app's existing `NEXT_PUBLIC_MAPBOX_TOKEN`, with the place's kind icon as the pin. Basemap style and attribution are owned by `PlaceMap` in `src/components/places/place-view/place-map.tsx`. No token → a muted placeholder with the pin, so the card keeps its shape and never loads a broken tile. There are no coordinates at all → the map is absent.
 - **Directions**: `https://www.google.com/maps/dir/?api=1&destination=<lat>,<lon>` in a new tab, so mobile hands off to the maps app.
 - **Call**: `tel:<phone>`, digits normalised the same way the existing phone row does.
 - **Trips**: `getPlaceWithRelations` now loads the place's collections via `forUser` (`getCollectionsForPlace`), and the page loads the full trip list via `getExploreCollections` so **Add to trip** can mark the trips it's already in and offer the rest plus *New trip with this place*. All writes reuse the existing `POST /api/collections/[id]/places` and `POST /api/collections` endpoints.

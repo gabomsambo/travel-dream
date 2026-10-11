@@ -365,8 +365,7 @@ describe('hearts, saved to the account', () => {
   it('offers Undo for hearts that landed when another heart in that save fails', async () => {
     const first = heldResponse()
     let heartsPosts = 0
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    fetchMock.mockImplementation((url: string) => {
       if (url === '/api/library/hearts') {
         heartsPosts += 1
         if (heartsPosts === 1) return first.gate

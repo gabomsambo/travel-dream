@@ -36,21 +36,22 @@ export async function getHeartIds(userId: string): Promise<string[]> {
 export async function setHearts(userId: string, placeIds: string[], on: boolean): Promise<string[]> {
   const ids = [...new Set(placeIds)];
   if (!ids.length) return [];
-  const tdb = forUser(userId);
-  const owned: string[] = [];
-  for (const part of chunks(ids)) {
-    const rows = await tdb.selectFields(places, { id: places.id }, inArray(places.id, part));
-    owned.push(...rows.map((r) => r.id));
-  }
-  if (!owned.length) return [];
-  for (const part of chunks(owned)) {
-    if (on) {
-      await tdb.insertMany(placeHearts, part.map((placeId) => ({ placeId }))).onConflictDoNothing();
-    } else {
-      await tdb.deleteFrom(placeHearts, inArray(placeHearts.placeId, part));
+  return forUser(userId).transaction(async (tdb) => {
+    const owned: string[] = [];
+    for (const part of chunks(ids)) {
+      const rows = await tdb.selectFields(places, { id: places.id }, inArray(places.id, part));
+      owned.push(...rows.map((r) => r.id));
     }
-  }
-  return owned;
+    if (!owned.length) return [];
+    for (const part of chunks(owned)) {
+      if (on) {
+        await tdb.insertMany(placeHearts, part.map((placeId) => ({ placeId }))).onConflictDoNothing();
+      } else {
+        await tdb.deleteFrom(placeHearts, inArray(placeHearts.placeId, part));
+      }
+    }
+    return owned;
+  });
 }
 
 function toRow(r: typeof savedViews.$inferSelect): SavedViewRow {

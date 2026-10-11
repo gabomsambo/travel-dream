@@ -292,6 +292,30 @@ describe('hearts, saved to the account', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true'))
   })
 
+  it('keeps a heart the server already reported when the save in flight fails', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string) => {
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        return first.gate
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    const { rerender } = render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    rerender(<LibraryClient data={{ ...data, heartIds: ['plc_2'] }} />)
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    await act(async () => {
+      first.release({ status: 'error' }, 503)
+    })
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment."))
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(notify.success).not.toHaveBeenCalled()
+  })
+
   it('keeps the hearts the server confirmed when a bulk save is only partial', async () => {
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(String(init.body)) : undefined
@@ -532,6 +556,56 @@ describe('Add to collection', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Create' }))
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Added 1 to City 2 trip', expect.anything()))
     expect(callsTo('/api/collections').filter((c) => c.url === '/api/collections').length).toBe(1)
+  })
+
+  it('keeps places an earlier batch added when a later batch fails, and Undo takes those back', async () => {
+    const refresh = jest.fn()
+    const navigation = require('next/navigation') as {
+      useRouter: () => { refresh: jest.Mock }
+    }
+    const routerSpy = jest.spyOn(navigation, 'useRouter').mockReturnValue({
+      push: jest.fn(),
+      replace: jest.fn(),
+      prefetch: jest.fn(),
+      back: jest.fn(),
+      forward: jest.fn(),
+      refresh,
+    } as ReturnType<typeof navigation.useRouter>)
+    const many = Array.from({ length: 101 }, (_, i) =>
+      item({ id: `bulk_${i}`, name: `Bulk ${i}`, country: 'Japan', city: 'Kyoto', photos: [photo] })
+    )
+    const batches: string[][] = []
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/collections/col_1/places' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { placeIds: string[] }
+        batches.push(body.placeIds)
+        if (batches.length === 1) return json({ results: { successful: body.placeIds, failed: [] } })
+        return json({ status: 'error' }, 503)
+      }
+      return json({ status: 'success' })
+    })
+    try {
+      const user = userEvent.setup()
+      render(<LibraryClient data={{ ...data, items: many }} />)
+      await user.keyboard('{Control>}a{/Control}')
+      await user.click(screen.getByRole('button', { name: 'Add to collection' }))
+      const dialog = await screen.findByRole('dialog', { name: /Add 101 places to a collection/ })
+      await user.click(within(dialog).getByRole('button', { name: /Kyoto in autumn/ }))
+      await waitFor(() => expect(batches).toHaveLength(2))
+      const [message, opts] = (notify.warning as jest.Mock).mock.calls.find(([m]) => String(m).startsWith('Added'))!
+      expect(message).toBe(`Added ${batches[0].length} to Kyoto in autumn`)
+      expect(opts.description).toBe(`${batches[0].length} added · ${batches[1].length} couldn't be added`)
+      expect(opts.cancel.label).toBe('Undo')
+      expect(refresh).toHaveBeenCalled()
+      await act(async () => opts.cancel.onClick())
+      await waitFor(() => expect(calls().filter((c) => c.method === 'DELETE')).toHaveLength(batches[0].length))
+      const deleted = calls().filter((c) => c.method === 'DELETE').map((c) => c.url)
+      for (const id of batches[0]) expect(deleted).toContain(`/api/collections/col_1/places/${encodeURIComponent(id)}`)
+      for (const id of batches[1]) expect(deleted).not.toContain(`/api/collections/col_1/places/${encodeURIComponent(id)}`)
+      expect(notify.error).not.toHaveBeenCalled()
+    } finally {
+      routerSpy.mockRestore()
+    }
   })
 })
 

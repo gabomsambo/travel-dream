@@ -128,6 +128,79 @@ describe('the Library store', () => {
     expect(await getHeartIds(BOB.id)).toEqual([FIXTURE.bobPlace]);
   });
 
+  it('writes every heart in one call or none, when a later chunk fails', async () => {
+    const ids = Array.from({ length: 401 }, (_, i) => `plc_atomic_${i}`);
+    const now = new Date().toISOString();
+    for (let i = 0; i < ids.length; i += 40) {
+      const part = ids.slice(i, i + 40);
+      const values = part.map(() => '(?,?,?,?,?,?,?)').join(',');
+      const args = part.flatMap((id) => [id, ALICE.id, id, 'cafe', 'library', now, now]);
+      await exec(`INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES ${values}`, args);
+    }
+    const before = new Set(await getHeartIds(ALICE.id));
+    // The suite stubs one uuid for every row. A real second chunk has to be able to
+    // insert, so this call gets distinct heart ids — otherwise the first chunk
+    // conflicts with itself and a later failure proves nothing.
+    const uuid = crypto.randomUUID as jest.Mock;
+    const uuidImpl = uuid.getMockImplementation();
+    let n = 0;
+    uuid.mockImplementation(() => `00000000-0000-4000-8000-${String(n++).padStart(12, '0')}`);
+    const { client } = require('@/db') as {
+      execute: (...args: unknown[]) => Promise<unknown>;
+      transaction: (...args: unknown[]) => Promise<{ execute: (...args: unknown[]) => Promise<unknown> }>;
+    };
+    const originalExecute = client.execute.bind(client);
+    const originalTransaction = client.transaction.bind(client);
+    let heartInserts = 0;
+    const failSecondHeartWrite = (stmt: unknown) => {
+      const sql = typeof stmt === 'string' ? stmt : stmt && typeof stmt === 'object' && 'sql' in stmt ? String((stmt as { sql: unknown }).sql) : '';
+      if (!/insert\s+into\s+["'`]?place_hearts/i.test(sql)) return;
+      heartInserts += 1;
+      if (heartInserts === 2) throw new Error('heart write failed');
+    };
+    client.execute = ((...args: unknown[]) => {
+      failSecondHeartWrite(args[0]);
+      return originalExecute(...args);
+    }) as typeof client.execute;
+    client.transaction = (async (...args: unknown[]) => {
+      const tx = await originalTransaction(...args);
+      const originalTxExecute = tx.execute.bind(tx);
+      tx.execute = ((...txArgs: unknown[]) => {
+        failSecondHeartWrite(txArgs[0]);
+        return originalTxExecute(...txArgs);
+      }) as typeof tx.execute;
+      return tx;
+    }) as typeof client.transaction;
+    const textOf = (err: unknown): string => {
+      const parts: string[] = [];
+      const seen = new Set<unknown>();
+      let current = err;
+      while (current && typeof current === 'object' && !seen.has(current)) {
+        seen.add(current);
+        if (current instanceof Error) parts.push(current.message);
+        current = (current as { cause?: unknown }).cause;
+      }
+      return parts.join('\n');
+    };
+    let thrown: unknown;
+    try {
+      await setHearts(ALICE.id, ids, true);
+    } catch (err) {
+      thrown = err;
+    } finally {
+      client.execute = originalExecute;
+      client.transaction = originalTransaction;
+      if (uuidImpl) uuid.mockImplementation(uuidImpl);
+      else uuid.mockImplementation(() => 'test-uuid-1234');
+    }
+    try {
+      expect(textOf(thrown)).toContain('heart write failed');
+      expect(new Set(await getHeartIds(ALICE.id))).toEqual(before);
+    } finally {
+      await exec(`DELETE FROM places WHERE id LIKE 'plc_atomic_%'`);
+    }
+  });
+
   it("can't rename or delete another tenant's saved view", async () => {
     expect(await updateSavedView(ALICE.id, 'svw_bob', { name: 'stolen' })).toBeNull();
     expect(await deleteSavedView(ALICE.id, 'svw_bob')).toBe(false);

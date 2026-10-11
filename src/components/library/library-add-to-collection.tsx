@@ -32,19 +32,27 @@ async function postJson<T>(url: string, body: unknown): Promise<{ status: number
   return { status: res.status, body: (await res.json().catch(() => null)) as T | null }
 }
 
-/** Adds in batches; returns the ids the server reported as added. */
-async function addPlaces(collectionId: string, placeIds: string[]): Promise<string[]> {
+/** Adds in batches. Returns the ids that landed and how many did not. */
+async function addPlaces(
+  collectionId: string,
+  placeIds: string[]
+): Promise<{ added: string[]; failed: number }> {
   const added: string[] = []
   for (let i = 0; i < placeIds.length; i += ADD_BATCH) {
     const part = placeIds.slice(i, i + ADD_BATCH)
-    const { body } = await postJson<{ results?: { successful?: string[]; failed?: Array<{ placeId: string }> } }>(
-      `/api/collections/${collectionId}/places`,
-      { placeIds: part }
-    )
-    const failed = new Set((body?.results?.failed ?? []).map((f) => f.placeId))
-    added.push(...(body?.results?.successful ?? part.filter((id) => !failed.has(id))))
+    try {
+      const { body } = await postJson<{ results?: { successful?: string[]; failed?: Array<{ placeId: string }> } }>(
+        `/api/collections/${collectionId}/places`,
+        { placeIds: part }
+      )
+      const failedIds = new Set((body?.results?.failed ?? []).map((f) => f.placeId))
+      added.push(...(body?.results?.successful ?? part.filter((id) => !failedIds.has(id))))
+    } catch (err) {
+      if (!added.length) throw err
+      return { added, failed: placeIds.length - added.length }
+    }
   }
-  return added
+  return { added, failed: placeIds.length - added.length }
 }
 
 async function removePlaces(collectionId: string, placeIds: string[]): Promise<number> {
@@ -174,10 +182,11 @@ export function AddToCollectionDialog({
     }
     setBusy(c.id)
     try {
-      const added = await addPlaces(c.id, fresh)
-      finish(c.id, c.name, added, ids.length - fresh.length, fresh.length - added.length)
+      const { added, failed } = await addPlaces(c.id, fresh)
+      finish(c.id, c.name, added, ids.length - fresh.length, failed)
     } catch {
       notify.error(`Couldn't add to ${c.name}. Try again in a moment.`)
+      router.refresh()
     } finally {
       setBusy(null)
     }
@@ -202,9 +211,9 @@ export function AddToCollectionDialog({
         id = body.collection.id
         halfBuilt.set(key, { id, seen: false })
       }
-      const added = await addPlaces(id, ids)
+      const { added, failed } = await addPlaces(id, ids)
       halfBuilt.delete(key)
-      finish(id, name, added, 0, ids.length - added.length)
+      finish(id, name, added, 0, failed)
     } catch {
       const orphan = halfBuilt.get(key)
       notify.error(

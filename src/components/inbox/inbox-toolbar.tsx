@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Check, X, Archive, Filter, Keyboard, ChevronDown, Download, FileText, FileSpreadsheet, Loader2, MoreHorizontal } from "lucide-react"
+import { Check, Archive, Filter, Keyboard, Download, FileText, FileSpreadsheet, Loader2, MoreHorizontal } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import {
   DropdownMenu,
@@ -67,10 +67,6 @@ const confidenceFilterOptions = [
   { value: "very-low", label: "Very Low (<60%)", description: "Careful review required" },
 ] as const
 
-function getConfidenceFilterInfo(filter: ConfidenceFilter) {
-  return confidenceFilterOptions.find(option => option.value === filter) || confidenceFilterOptions[0]
-}
-
 export function InboxToolbar({
   selectedCount,
   totalCount,
@@ -93,7 +89,6 @@ export function InboxToolbar({
   className
 }: InboxToolbarProps) {
   const hasSelection = selectedCount > 0
-  const filterInfo = getConfidenceFilterInfo(confidenceFilter)
 
   return (
     <div className={cn("flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border-b bg-background/95 backdrop-blur", className)}>

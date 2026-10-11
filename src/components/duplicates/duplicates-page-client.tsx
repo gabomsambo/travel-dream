@@ -9,7 +9,7 @@ import { DuplicateReviewToolbar } from './duplicate-review-toolbar';
 import { Accordion } from '@/components/ui-v2/accordion';
 import { Button } from '@/components/ui-v2/button';
 import { notify } from '@/lib/notify';
-import { recommendMergeTarget, computeMergedPlace } from '@/lib/duplicate-target-selector';
+import { recommendMergeTarget } from '@/lib/duplicate-target-selector';
 import type { Place } from '@/types/database';
 
 interface DuplicateCluster {

@@ -77,7 +77,7 @@ function getCandidatesForPlace(
   place: Place,
   spatialIndex: SpatialIndex,
   nameIndex: NameIndex,
-  config: DuplicateDetectionConfig
+  _config: DuplicateDetectionConfig
 ): Place[] {
   const candidates = new Set<Place>();
 

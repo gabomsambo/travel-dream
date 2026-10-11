@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useTransition, useMemo, useCallback, useRef } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { DndContext, type DragEndEvent, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core"
 import { arrayMove } from "@dnd-kit/sortable"
 import { Button } from "@/components/ui/button"
@@ -57,7 +57,6 @@ export function DayPlannerClient({ initialCollection }: DayPlannerClientProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const saveGenerationRef = useRef(0)
-  const [isPending, startTransition] = useTransition()
   const [isAltKeyPressed, setIsAltKeyPressed] = useState(false)
 
   const hoveredPlaceId = mapContext?.hoveredPlaceId ?? null

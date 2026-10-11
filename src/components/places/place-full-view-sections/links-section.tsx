@@ -6,7 +6,6 @@ import { Button } from "@/components/adapters/button"
 import { Input } from "@/components/adapters/input"
 import { Label } from "@/components/adapters/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
-import { Badge } from "@/components/adapters/badge"
 import type { PlaceWithRelations } from "@/types/database"
 
 interface LinksSectionProps {

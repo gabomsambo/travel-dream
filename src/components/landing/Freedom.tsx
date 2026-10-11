@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { FileText, Map, Table, Database, Youtube, Instagram, FileSpreadsheet, Globe } from "lucide-react";
+import { FileText, Map, Table, Database, Instagram, FileSpreadsheet, Globe } from "lucide-react";
 
 // Input Sources (Left side)
 const inputs = [
@@ -66,7 +66,7 @@ export default function Freedom() {
 
                     {/* LEFT: Inputs Flowing In */}
                     <div className="absolute left-0 top-0 bottom-0 w-1/2 overflow-hidden pointer-events-none fade-mask-left">
-                        {inputs.map((item, i) => (
+                        {inputs.map((item) => (
                             <motion.div
                                 key={item.label}
                                 className={`absolute left-0 p-3 pr-6 rounded-r-full shadow-lg flex items-center gap-3 border border-black/5 ${item.color} bg-white`}
@@ -116,7 +116,7 @@ export default function Freedom() {
 
                     {/* RIGHT: Outputs Flowing Out */}
                     <div className="absolute right-0 top-0 bottom-0 w-1/2 overflow-hidden pointer-events-none fade-mask-right">
-                        {outputs.map((item, i) => (
+                        {outputs.map((item) => (
                             <motion.div
                                 key={item.label}
                                 className={`absolute left-0 p-3 pl-6 rounded-l-full shadow-lg flex flex-row-reverse items-center gap-3 border border-black/5 ${item.color} bg-white`}

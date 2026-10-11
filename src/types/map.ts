@@ -1,4 +1,4 @@
-import type { Place, Collection, DayBucket } from './database'
+import type { Place, Collection } from './database'
 
 export interface MapPlace extends Place {
   isSelected?: boolean

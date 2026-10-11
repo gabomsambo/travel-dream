@@ -1,6 +1,5 @@
 "use client"
 
-import { useState, useMemo } from 'react'
 import { CheckCircle, Inbox, Check, X } from 'lucide-react'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"

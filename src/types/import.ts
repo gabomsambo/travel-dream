@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { PLACE_KINDS, PLACE_STATUSES } from './database';
-import type { NewPlace, Place } from './database';
+import type { NewPlace } from './database';
 
 export type ImportFormat = 'csv' | 'xlsx';
 
@@ -99,15 +99,6 @@ const NullableArrayFieldSchema = z.preprocess(
     return null;
   },
   z.array(z.string()).nullable()
-);
-
-const NullableNumberSchema = z.preprocess(
-  (val) => {
-    if (val === '' || val === null || val === undefined) return null;
-    const num = Number(val);
-    return isNaN(num) ? null : num;
-  },
-  z.number().nullable()
 );
 
 const RatingSchema = z.preprocess(

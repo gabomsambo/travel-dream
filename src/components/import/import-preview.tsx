@@ -1,6 +1,5 @@
 "use client"
 
-import { useMemo } from 'react'
 import { CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
 import { Badge } from "@/components/adapters/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -14,8 +13,7 @@ interface ImportPreviewProps {
 
 export function ImportPreview({
   validRows,
-  invalidRows,
-  headers
+  invalidRows
 }: ImportPreviewProps) {
   const visibleValidRows = validRows.slice(0, 100)
   const visibleInvalidRows = invalidRows.slice(0, 100)

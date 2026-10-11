@@ -1,5 +1,5 @@
 import { InferSelectModel, InferInsertModel } from 'drizzle-orm';
-import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, dismissedDuplicates, attachments, placeLinks, reservations } from '@/db/schema';
+import { places, collections, sourcesToPlaces, placesToCollections, mergeLogs, dismissedDuplicates, attachments, placeLinks, reservations } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { z } from 'zod';
 

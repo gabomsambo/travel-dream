@@ -7,12 +7,10 @@ import {
   ExtractionContext,
   ExtractionResult,
   BatchExtractionResult,
-  LLMProvider,
   LLMProviderConfig,
   LLMError,
   LLMErrorType
 } from '@/types/llm-extraction';
-import { Source } from '@/types/database';
 
 // Progress tracking for batch operations
 export interface ProcessingProgress {

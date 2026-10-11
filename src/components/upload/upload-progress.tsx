@@ -10,7 +10,6 @@ import {
   AlertCircle,
   RefreshCw,
   Eye,
-  Image as ImageIcon,
   FileText
 } from 'lucide-react'
 

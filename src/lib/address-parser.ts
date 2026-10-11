@@ -20,11 +20,6 @@ const CITY_TYPES = [
   'administrative_area_level_1',
 ] as const;
 
-const ADMIN_TYPES = [
-  'administrative_area_level_1',
-  'administrative_area_level_2',
-] as const;
-
 export function parseAddressComponents(
   components: AddressComponent[],
   formattedAddress?: string

@@ -32,13 +32,6 @@ interface VirtualizedPlaceGridProps {
   }
 }
 
-interface GridItem {
-  place: Place
-  columnIndex: number
-  rowIndex: number
-  isVisible: boolean
-}
-
 // Default responsive column configuration
 const DEFAULT_COLUMNS = {
   sm: 1,
@@ -168,30 +161,7 @@ export function VirtualizedPlaceGrid({
 }: VirtualizedPlaceGridProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const columns = useResponsiveColumns(columnsConfig)
-  const { visibleItems, observeElement, unobserveElement } = useIntersectionObserver(0.1)
-
-  // Calculate grid items organized by rows
-  const gridItems = useMemo(() => {
-    const items: GridItem[] = []
-    const rowCount = Math.ceil(places.length / columns)
-
-    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
-      for (let columnIndex = 0; columnIndex < columns; columnIndex++) {
-        const placeIndex = rowIndex * columns + columnIndex
-        if (placeIndex < places.length) {
-          const place = places[placeIndex]
-          items.push({
-            place,
-            columnIndex,
-            rowIndex,
-            isVisible: visibleItems.has(place.id)
-          })
-        }
-      }
-    }
-
-    return items
-  }, [places, columns, visibleItems])
+  const { observeElement, unobserveElement } = useIntersectionObserver(0.1)
 
   // Calculate dynamic row heights
   const getRowHeight = useMemo(() => {

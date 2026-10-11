@@ -30,7 +30,7 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 export function PlaceFullView({ initialPlace, onDone }: PlaceFullViewProps) {
   const router = useRouter()
-  const [isPending, startTransition] = useTransition()
+  const [, startTransition] = useTransition()
 
   // Form state for all 34 fields
   const [formData, setFormData] = useState({

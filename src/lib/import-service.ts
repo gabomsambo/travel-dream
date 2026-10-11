@@ -1,7 +1,7 @@
-import { parseCSV, parseCSVFromBuffer } from './import-parsers/csv-parser';
+import { parseCSVFromBuffer } from './import-parsers/csv-parser';
 import { parseXLSX } from './import-parsers/xlsx-parser';
-import { autoMapColumns, detectTemplate, getReverseTransform, HEADER_ALIASES } from './import-field-metadata';
-import { ImportPlaceSchema, splitArrayField } from '@/types/import';
+import { autoMapColumns, detectTemplate, getReverseTransform } from './import-field-metadata';
+import { ImportPlaceSchema } from '@/types/import';
 import type {
   ImportFormat,
   ColumnMapping,
@@ -9,9 +9,8 @@ import type {
   ValidationError,
   ImportPreviewResponse,
   ImportOptions,
-  ImportResult,
 } from '@/types/import';
-import type { NewPlace, Place } from '@/types/database';
+import type { NewPlace } from '@/types/database';
 
 export interface ParseFileResult {
   success: boolean;
@@ -253,7 +252,6 @@ export function getMappingStats(mappings: ColumnMapping[]): {
   const lowConfidence = mapped.filter(m => m.confidence > 0 && m.confidence < 0.8);
 
   const hasName = mappings.some(m => m.targetField === 'name');
-  const hasKind = mappings.some(m => m.targetField === 'kind');
 
   return {
     total: mappings.length,

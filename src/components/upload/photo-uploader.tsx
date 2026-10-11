@@ -1,10 +1,9 @@
 "use client"
 
 import { useState, useRef, useCallback } from 'react'
-import { Upload, X, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Upload, CheckCircle2, AlertCircle } from 'lucide-react'
 import { upload } from '@vercel/blob/client'
 import { Button } from "@/components/adapters/button"
-import { Badge } from "@/components/adapters/badge"
 import { notify } from '@/lib/notify'
 
 interface UploadingFile {

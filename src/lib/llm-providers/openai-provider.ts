@@ -178,7 +178,7 @@ export class OpenAIProvider extends BaseLLMProvider {
   }
 
   // Core LLM call with structured outputs (100% JSON compliance)
-  protected async callLLM(prompt: string, context?: ExtractionContext): Promise<ExtractedPlacesResponse> {
+  protected async callLLM(prompt: string, _context?: ExtractionContext): Promise<ExtractedPlacesResponse> {
     try {
       // Use OpenAI's structured outputs for guaranteed JSON schema compliance
       const completion = await this.client.beta.chat.completions.parse({
@@ -434,7 +434,7 @@ export class OpenAIProvider extends BaseLLMProvider {
   }
 
   // Fine-tuning support (future enhancement)
-  async createFineTuningJob(trainingData: any[]): Promise<string> {
+  async createFineTuningJob(_trainingData: any[]): Promise<string> {
     throw new Error('Fine-tuning not yet implemented for travel extraction');
   }
 }

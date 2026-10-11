@@ -50,7 +50,7 @@ export async function generatePDF(
   let startY = 30;
 
   if (groupByDay && dayBuckets.length > 0) {
-    dayBuckets.forEach((bucket, index) => {
+    dayBuckets.forEach((bucket) => {
       const dayPlaces = places.filter(p => bucket.placeIds.includes(p.id));
 
       if (dayPlaces.length > 0) {

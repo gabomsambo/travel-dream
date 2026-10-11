@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback } from 'react'
-import { Upload, FileSpreadsheet, AlertCircle, Loader2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, Loader2 } from 'lucide-react'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import type { ImportPreviewResponse } from '@/types/import'

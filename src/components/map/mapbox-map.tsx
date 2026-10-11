@@ -247,7 +247,6 @@ export function MapboxMap() {
 
     const selectedPlace = filteredPlaces.find(p => p.id === selectedPlaceId)
     if (selectedPlace?.coords && typeof selectedPlace.coords === 'object' && 'lat' in selectedPlace.coords) {
-      const coords = selectedPlace.coords as { lat: number; lon: number }
 
       geojsonData.features.forEach(feature => {
         if (feature.id) {

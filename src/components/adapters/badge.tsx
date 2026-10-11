@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Badge as BadgeV1, badgeVariants as badgeVariantsV1 } from "@/components/ui/badge"
+import { Badge as BadgeV1 } from "@/components/ui/badge"
 import { Badge as BadgeV2, badgeVariants as badgeVariantsV2 } from "@/components/ui-v2/badge"
 import type { VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"

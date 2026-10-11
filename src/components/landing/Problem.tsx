@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Copy, MapPin, MessageCircle, StickyNote, Image as ImageIcon } from "lucide-react";
+import { MapPin, MessageCircle, StickyNote, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [

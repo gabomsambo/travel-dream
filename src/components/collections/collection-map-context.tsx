@@ -2,8 +2,8 @@
 
 import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
 import type { MapRef } from 'react-map-gl/mapbox'
-import type { Place, Collection, DayBucket } from '@/types/database'
-import { calculateBounds, getDefaultCenter } from '@/lib/map-utils'
+import type { Place, Collection } from '@/types/database'
+import { calculateBounds } from '@/lib/map-utils'
 import type { LngLatBounds } from 'mapbox-gl'
 
 export type CollectionMapMode = 'itinerary' | 'day'

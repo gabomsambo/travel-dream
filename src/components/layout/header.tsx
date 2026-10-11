@@ -3,7 +3,7 @@
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import { useSession, signOut } from "next-auth/react"
-import { Upload, Plus, LogOut, User } from "lucide-react"
+import { Upload, Plus, LogOut } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { ThemeToggle } from "@/components/theme-toggle"

@@ -5,7 +5,6 @@ import {
   useReactTable,
   getCoreRowModel,
   flexRender,
-  createColumnHelper,
   type ColumnDef
 } from '@tanstack/react-table'
 import { useDebounce } from '@/hooks/use-debounce'

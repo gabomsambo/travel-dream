@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { MoreVertical, Check, X, Edit, MapPin, Calendar, Eye, Trash2 } from "lucide-react"
+import { MoreVertical, X, Edit, MapPin, Calendar, Eye, Trash2 } from "lucide-react"
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/adapters/card"
 import { Badge } from "@/components/adapters/badge"
 import { Button } from "@/components/adapters/button"
@@ -36,7 +36,6 @@ export function PlaceCard({
   onItemClick,
   index = 0,
   showKeyboardHints = false,
-  onConfirm,
   onArchive,
   onEdit,
   onView,

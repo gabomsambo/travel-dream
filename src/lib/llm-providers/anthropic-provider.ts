@@ -231,7 +231,7 @@ export class AnthropicProvider extends BaseLLMProvider {
   }
 
   // Core LLM call with function calling and circuit breaker
-  protected async callLLM(prompt: string, context?: ExtractionContext): Promise<any> {
+  protected async callLLM(prompt: string, _context?: ExtractionContext): Promise<any> {
     return this.circuitBreaker.call(async () => {
       try {
         // Create a tool for structured output

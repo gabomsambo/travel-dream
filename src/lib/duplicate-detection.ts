@@ -1,5 +1,5 @@
 import type { Place } from '@/types/database';
-import { citiesMatch } from '@/lib/city-names';
+import { citiesMatchInCountry } from '@/lib/city-names';
 
 // Configuration for duplicate detection
 export interface DuplicateDetectionConfig {
@@ -35,6 +35,34 @@ export const DEFAULT_DETECTION_CONFIG: DuplicateDetectionConfig = {
   }
 };
 
+/** Page queue: score at or above this is a main-queue pair. */
+export const DUPLICATE_MAIN_SCORE = 0.7;
+/** Detector floor. Between this and the main score is the Possible band. */
+export const DUPLICATE_POSSIBLE_SCORE = 0.6;
+
+/**
+ * Applied only when both places have coordinates, and never on top of a
+ * same-Google-place match. Past 2 km the pair should leave the page;
+ * 500 m–2 km only leaves the main queue.
+ */
+export const DUPLICATE_DISTANCE_PENALTIES = {
+  farKm: 2,
+  farPenalty: 0.12,
+  midKm: 0.5,
+  midPenalty: 0.05,
+} as const;
+
+/** Same pin, different name: Possible only, and only with both guards. */
+export const SAME_SPOT_MAX_KM = 0.05;
+export const SAME_SPOT_NAME_BELOW = 0.5;
+
+export type DuplicateFlag =
+  | 'same Google place'
+  | 'same spot, different name'
+  | 'far apart';
+
+export type DuplicatePageBand = 'Main' | 'Possible' | 'No';
+
 export interface DuplicateMatch {
   place: Place;
   confidence: number;
@@ -46,6 +74,7 @@ export interface DuplicateMatch {
     countryMatch: boolean;
   };
   reasoning: string[];
+  flags?: DuplicateFlag[];
 }
 
 export interface DuplicateDetectionResult {
@@ -270,61 +299,145 @@ export function calculateLocationSimilarity(
 }
 
 function placesShareCity(place1: Place, place2: Place): boolean {
-  return citiesMatch(place1.city, place2.city);
+  return citiesMatchInCountry(
+    { city: place1.city, country: place1.country },
+    { city: place2.city, country: place2.country }
+  );
+}
+
+function hasText(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/** A country factor counts only when both sides name a country. */
+function countriesMatch(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  if (!hasText(a) || !hasText(b)) return false;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function sameGooglePlace(place1: Place, place2: Place): boolean {
+  const id1 = place1.googlePlaceId?.trim();
+  const id2 = place2.googlePlaceId?.trim();
+  return !!id1 && id1 === id2;
 }
 
 /**
- * Calculate overall duplicate confidence score
- * Uses adaptive weighting when location data is missing to prevent unfair penalization
+ * Where a pair sits on the duplicates page.
+ * The same-spot flag keeps a pair in Possible when the score would otherwise
+ * fall off the page. It never lifts that pair into the main queue.
+ */
+export function duplicatePageBand(
+  score: number,
+  flags: readonly DuplicateFlag[] = []
+): DuplicatePageBand {
+  if (score >= DUPLICATE_MAIN_SCORE) return 'Main';
+  if (score >= DUPLICATE_POSSIBLE_SCORE || flags.includes('same spot, different name')) {
+    return 'Possible';
+  }
+  return 'No';
+}
+
+/**
+ * Calculate overall duplicate confidence score.
+ *
+ * Missing coordinates share the location weight only across factors that can
+ * fire. A blank city or country is not a match and does not receive that
+ * weight. When both cities are present and they are not the same city, the
+ * location weight is not redistributed at all.
+ *
+ * City equality is country-scoped (`citiesMatchInCountry`): Lisbon matches
+ * Lisboa in Portugal, and Rome, Georgia does not match Roma, Italy.
+ * The name rule is unchanged, including one-letter word matches.
  */
 export function calculateDuplicateScore(
   place1: Place,
   place2: Place,
   config: DuplicateDetectionConfig = DEFAULT_DETECTION_CONFIG
-): { score: number; factors: DuplicateMatch['factors'] } {
-  // Check if both places have valid coordinates
-  const hasLocation = place1.coords && place2.coords &&
+): { score: number; factors: DuplicateMatch['factors']; flags: DuplicateFlag[] } {
+  const hasLocation = !!(place1.coords && place2.coords &&
     typeof place1.coords.lat === 'number' && typeof place1.coords.lon === 'number' &&
-    typeof place2.coords.lat === 'number' && typeof place2.coords.lon === 'number';
+    typeof place2.coords.lat === 'number' && typeof place2.coords.lon === 'number');
+
+  const primaryNameScore = calculateNameSimilarity(place1.name, place2.name);
+  const nameScore = Math.max(primaryNameScore, checkAlternativeNames(place1, place2));
 
   const factors = {
-    nameScore: calculateNameSimilarity(place1.name, place2.name),
+    nameScore,
     locationScore: hasLocation
       ? calculateLocationSimilarity(place1.coords, place2.coords, config.locationThresholdKm)
       : 0,
     kindMatch: place1.kind === place2.kind,
-    cityMatch: placesShareCity(place1, place2),
-    // A missing country matches a missing country.
-    countryMatch: place1.country?.toLowerCase() === place2.country?.toLowerCase()
+    cityMatch: citiesMatchInCountry(
+      { city: place1.city, country: place1.country },
+      { city: place2.city, country: place2.country }
+    ),
+    countryMatch: countriesMatch(place1.country, place2.country)
   };
 
-  // Adaptive weighting: redistribute location weight when coords are missing
+  const cityCanFire = hasText(place1.city) && hasText(place2.city);
+  const countryCanFire = hasText(place1.country) && hasText(place2.country);
+  const citiesKnownAndDifferent = cityCanFire && !factors.cityMatch;
+
   let effectiveWeights = config.weights;
-  
+
   if (!hasLocation) {
-    // Redistribute location weight proportionally to other factors
-    const locationWeight = config.weights.location;
-    const otherWeightsSum = config.weights.name + config.weights.kind + 
-                           config.weights.city + config.weights.country;
-    
-    effectiveWeights = {
-      name: config.weights.name + (locationWeight * config.weights.name / otherWeightsSum),
-      location: 0,
-      kind: config.weights.kind + (locationWeight * config.weights.kind / otherWeightsSum),
-      city: config.weights.city + (locationWeight * config.weights.city / otherWeightsSum),
-      country: config.weights.country + (locationWeight * config.weights.country / otherWeightsSum)
-    };
+    if (citiesKnownAndDifferent) {
+      effectiveWeights = { ...config.weights, location: 0 };
+    } else {
+      const participants: Array<'name' | 'kind' | 'city' | 'country'> = ['name', 'kind'];
+      if (cityCanFire) participants.push('city');
+      if (countryCanFire) participants.push('country');
+
+      const baseSum = participants.reduce((sum, key) => sum + config.weights[key], 0);
+      effectiveWeights = { name: 0, location: 0, kind: 0, city: 0, country: 0 };
+      if (baseSum > 0) {
+        for (const key of participants) {
+          effectiveWeights[key] =
+            config.weights[key] + config.weights.location * (config.weights[key] / baseSum);
+        }
+      }
+    }
   }
 
-  // Calculate weighted score with effective weights
-  const score =
-    factors.nameScore * effectiveWeights.name +
+  // Alt-name credit uses the base name weight, matching the previous boost in
+  // detectDuplicates, so a stored alternate name moves the score the same way.
+  let score =
+    primaryNameScore * effectiveWeights.name +
     factors.locationScore * effectiveWeights.location +
     (factors.kindMatch ? 1 : 0) * effectiveWeights.kind +
     (factors.cityMatch ? 1 : 0) * effectiveWeights.city +
-    (factors.countryMatch ? 1 : 0) * effectiveWeights.country;
+    (factors.countryMatch ? 1 : 0) * effectiveWeights.country +
+    (nameScore - primaryNameScore) * config.weights.name;
 
-  return { score, factors };
+  const flags: DuplicateFlag[] = [];
+
+  if (sameGooglePlace(place1, place2)) {
+    flags.push('same Google place');
+    return { score: 1, factors, flags };
+  }
+
+  if (hasLocation) {
+    const distanceKm = calculateLocationDistance(place1.coords!, place2.coords!);
+    if (distanceKm > DUPLICATE_DISTANCE_PENALTIES.farKm) {
+      score -= DUPLICATE_DISTANCE_PENALTIES.farPenalty;
+      flags.push('far apart');
+    } else if (distanceKm > DUPLICATE_DISTANCE_PENALTIES.midKm) {
+      score -= DUPLICATE_DISTANCE_PENALTIES.midPenalty;
+    }
+
+    if (
+      distanceKm <= SAME_SPOT_MAX_KM &&
+      nameScore < SAME_SPOT_NAME_BELOW &&
+      factors.kindMatch
+    ) {
+      flags.push('same spot, different name');
+    }
+  }
+
+  return { score: Math.min(1, Math.max(0, score)), factors, flags };
 }
 
 /**
@@ -432,15 +545,25 @@ export function detectDuplicates(
     // Skip self-comparison
     if (candidate.id === targetPlace.id) continue;
 
-    const scored = scoreDuplicatePair(targetPlace, candidate, config);
+    const { score, factors, flags } = calculateDuplicateScore(targetPlace, candidate, config);
 
-    // Only include if above minimum confidence
-    if (scored.score >= config.minConfidenceScore) {
+    // Same-spot pairs stay visible in Possible even under the detector floor.
+    // The score itself is not raised, so they do not enter the main queue.
+    const keep =
+      score >= config.minConfidenceScore || flags.includes('same spot, different name');
+
+    if (keep) {
       potentialDuplicates.push({
         place: candidate,
-        confidence: scored.score,
-        factors: scored.factors,
-        reasoning: scored.reasoning,
+        confidence: score,
+        factors,
+        flags,
+        reasoning: generateDuplicateReasoning(
+          targetPlace,
+          candidate,
+          factors,
+          score
+        )
       });
     }
   }

@@ -629,7 +629,7 @@ export async function getPlacesByConfidenceRange(userId: string, options: {
 }
 
 // Temporary replacement function
-export async function getLLMProcessingStats(userId: string) {
+export async function getLLMProcessingStats(_userId: string) {
   return {
     sources: { total: 0, processed: 0, pending: 0, failed: 0 },
     places: { total_llm_generated: 0, by_confidence: { high: 0, medium: 0, low: 0 }, avg_confidence: 0 },

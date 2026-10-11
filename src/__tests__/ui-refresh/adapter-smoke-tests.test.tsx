@@ -84,7 +84,7 @@ describe('Adapter Smoke Tests', () => {
     })
 
     it('maintains rounded-full appearance', () => {
-      const { container } = render(<Badge>Rounded</Badge>)
+      render(<Badge>Rounded</Badge>)
       const badge = screen.getByText('Rounded')
       expect(badge).toHaveClass('rounded-full')
     })

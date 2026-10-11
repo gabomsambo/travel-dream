@@ -171,7 +171,7 @@ describe('Feature Flag System', () => {
   describe('Cross-component Synchronization', () => {
     it('synchronizes state across multiple hook instances', () => {
       const { result: result1 } = renderHook(() => useUIRefresh())
-      const { result: result2 } = renderHook(() => useUIRefresh())
+      renderHook(() => useUIRefresh())
 
       act(() => {
         const [, toggle] = result1.current

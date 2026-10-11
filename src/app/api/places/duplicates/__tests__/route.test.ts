@@ -26,13 +26,10 @@ jest.mock('@/db', () => ({
 }))
 
 import { withErrorHandling } from '@/lib/db-utils'
-import { getPlacesByStatus } from '@/lib/db-queries'
 import { detectDuplicates, batchDetectDuplicates, findDuplicateClusters } from '@/lib/duplicate-detection'
 import { db } from '@/db'
-import { places } from '@/db/schema'
 
 const mockWithErrorHandling = withErrorHandling as jest.MockedFunction<typeof withErrorHandling>
-const mockGetPlacesByStatus = getPlacesByStatus as jest.MockedFunction<typeof getPlacesByStatus>
 const mockDetectDuplicates = detectDuplicates as jest.MockedFunction<typeof detectDuplicates>
 const mockBatchDetectDuplicates = batchDetectDuplicates as jest.MockedFunction<typeof batchDetectDuplicates>
 const mockFindDuplicateClusters = findDuplicateClusters as jest.MockedFunction<typeof findDuplicateClusters>

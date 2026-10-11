@@ -10,7 +10,7 @@ import { uploadSessions, sources } from '@/db/schema';
 // See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
 // eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
-import { eq, inArray, and, or, isNull, sql, desc } from 'drizzle-orm';
+import { eq, inArray, and, desc } from 'drizzle-orm';
 import type { ExtractionContext } from '@/types/llm-extraction';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 

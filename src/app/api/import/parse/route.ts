@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireAuthForApi();
+    await requireAuthForApi();
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
 

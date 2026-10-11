@@ -3,7 +3,7 @@ import { withErrorHandling } from '@/lib/db-utils';
 import { getSourcesForLLMProcessing } from '@/lib/db-queries';
 import { batchCreatePlacesFromExtractions } from '@/lib/db-mutations';
 import { llmExtractionService } from '@/lib/llm-extraction-service';
-import { uploadSessions, sources } from '@/db/schema';
+import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 // TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
 // Not migrated in the change that introduced the accessor: seven queries,
@@ -12,7 +12,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 // See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
 // eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
-import { eq, inArray, and, or, isNull, sql } from 'drizzle-orm';
+import { eq, inArray, and, sql } from 'drizzle-orm';
 import type { ExtractionContext } from '@/types/llm-extraction';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
@@ -304,7 +304,6 @@ export async function GET(request: NextRequest) {
     // Get sources available for LLM processing
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
-    const includeProcessed = searchParams.get('includeProcessed') === 'true';
 
     const sources = await getSourcesForLLMProcessing(user.id, {
       limit,

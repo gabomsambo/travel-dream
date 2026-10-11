@@ -3,7 +3,6 @@ import { ArchiveClient } from "@/components/archive/archive-client"
 import { searchPlaces } from "@/lib/db-queries"
 import { cityFilterLabels } from "@/lib/city-names"
 import { getCoverImagesForPlaces, type PlaceWithCover } from "@/lib/library-adapters"
-import type { Place } from "@/types/database"
 import { auth } from "@/lib/auth"
 
 interface PageProps {

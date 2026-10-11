@@ -621,6 +621,11 @@ function LibraryPage({ data }: { data: LibraryData }) {
 
   const empty = items.length === 0
   const showTrips = !sparse && !filtering && view !== "map" && collections.length > 0
+  // Built once per change, so the memoized chapters below don't re-render on every keystroke.
+  const tripsInterlude = React.useMemo(
+    () => (showTrips ? <TripsShelf collections={collections} byId={byId} now={now} /> : null),
+    [showTrips, collections, byId, now]
+  )
   const allShownSelected = siblings.length > 0 && siblings.every((id) => sel.selected.has(id))
   // One pill per facet once the row can hold them all beside the tools (about 1400 px);
   // narrower screens get the same controls in one "Filters" sheet.
@@ -742,7 +747,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
               view={view}
               siblings={siblings}
               collectionNames={collectionNames}
-              interlude={showTrips ? <TripsShelf collections={collections} byId={byId} now={now} /> : null}
+              interlude={tripsInterlude}
             />
           )}
         </div>

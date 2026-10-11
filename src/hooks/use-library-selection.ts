@@ -70,5 +70,9 @@ export function useLibrarySelection(known: string[], order: string[]) {
 
   const visibleSelected = React.useMemo(() => order.filter((id) => selected.has(id)).length, [order, selected])
 
-  return { selected, selecting, mode, setMode, toggle, selectAll, clear, remove, visibleSelected }
+  // Stable while nothing changes, so the page's actions (and every tile) don't re-render per keystroke.
+  return React.useMemo(
+    () => ({ selected, selecting, mode, setMode, toggle, selectAll, clear, remove, visibleSelected }),
+    [selected, selecting, mode, toggle, selectAll, clear, remove, visibleSelected]
+  )
 }

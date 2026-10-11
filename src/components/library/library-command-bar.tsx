@@ -8,7 +8,7 @@ import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { flagFor } from "@/lib/explore/geo"
 import { locationOf } from "@/lib/library/chapters"
-import { FIELD_HINT, matchesValue, type SearchHit } from "@/lib/library/search"
+import { FIELD_HINT, matchesWords, normalize, tokenize, type SearchHit } from "@/lib/library/search"
 import type { LibraryItem } from "@/lib/library/types"
 import { LibrarySheet } from "./library-sheet"
 
@@ -81,7 +81,22 @@ type Option =
   | { type: "suggestion"; id: string; facet: SuggestionFacet; value: string; count: number }
   | { type: "recent"; id: string; query: string }
 
+const FACET_ORDER: SuggestionFacet[] = ["countries", "cities", "kinds", "tags", "vibes"]
+
 function useOptions(query: string, hits: SearchHit[] | null, byId: Map<string, LibraryItem>, facets: FacetOptions, recent: string[]): Option[] {
+  // Normalized once per library, not once per keystroke.
+  const values = React.useMemo(
+    () =>
+      FACET_ORDER.flatMap((facet) =>
+        facets[facet].map(([value, count]) => ({
+          facet,
+          value,
+          count,
+          words: [...new Set(normalize(`${facet === "kinds" ? kindLabel(value) : ""} ${value}`).split(" ").filter(Boolean))],
+        }))
+      ),
+    [facets]
+  )
   return React.useMemo(() => {
     const q = query.trim()
     if (!q) return recent.map((r, i) => ({ type: "recent" as const, id: `recent-${i}`, query: r }))
@@ -92,18 +107,15 @@ function useOptions(query: string, hits: SearchHit[] | null, byId: Map<string, L
       const hint = FIELD_HINT[h.field] ?? null
       return [{ type: "place" as const, id: `place-${h.id}`, item, hint }]
     })
+    const tokens = tokenize(q)
     const suggestions: Option[] = []
-    for (const facet of ["countries", "cities", "kinds", "tags", "vibes"] as SuggestionFacet[]) {
-      for (const [value, count] of facets[facet]) {
-        const label = facet === "kinds" ? kindLabel(value) : value
-        if (!matchesValue(q, label) && !matchesValue(q, value)) continue
-        suggestions.push({ type: "suggestion", id: `s-${facet}-${value}`, facet, value, count })
-        if (suggestions.length >= SUGGESTION_MAX) break
-      }
+    for (const v of values) {
+      if (!matchesWords(tokens, v.words)) continue
+      suggestions.push({ type: "suggestion", id: `s-${v.facet}-${v.value}`, facet: v.facet, value: v.value, count: v.count })
       if (suggestions.length >= SUGGESTION_MAX) break
     }
     return [...places, ...suggestions]
-  }, [query, hits, byId, facets, recent])
+  }, [query, hits, byId, values, recent])
 }
 
 function Thumb({ item }: { item: LibraryItem }) {

@@ -250,10 +250,12 @@ export function searchLibrary(index: SearchIndex, query: string): SearchHit[] {
   return hits.sort((a, b) => b.score - a.score);
 }
 
+/** Does every query word match one of these (already normalized) words? */
+export function matchesWords(tokens: string[], words: string[]): boolean {
+  return tokens.length > 0 && tokens.every((t) => words.some((w) => wordScore(t, w) > 0));
+}
+
 /** Does a facet value (a country, a tag…) answer the query? Used for "Filter to …" suggestions. */
 export function matchesValue(query: string, value: string): boolean {
-  const tokens = tokenize(query);
-  if (!tokens.length) return false;
-  const words = normalize(value).split(' ');
-  return tokens.every((t) => words.some((w) => wordScore(t, w) > 0));
+  return matchesWords(tokenize(query), normalize(value).split(' '));
 }

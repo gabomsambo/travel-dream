@@ -38,17 +38,26 @@ export function LibrarySheet({
   initialFocus?: React.RefObject<HTMLElement | null>
   className?: string
 }) {
+  const contentRef = React.useRef<HTMLDivElement>(null)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/50 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <Dialog.Content
+          ref={contentRef}
           onOpenAutoFocus={(e) => {
+            // On a touch screen a focused field opens the keyboard over the sheet; only search wants that.
+            if (!full && window.matchMedia?.("(pointer: coarse)").matches) {
+              e.preventDefault()
+              contentRef.current?.focus()
+              return
+            }
             if (initialFocus?.current) {
               e.preventDefault()
               initialFocus.current.focus()
             }
           }}
+          tabIndex={-1}
           className={cn(
             editorialFont.variable,
             "fixed z-[60] flex flex-col bg-background text-foreground shadow-2xl outline-none",

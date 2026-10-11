@@ -503,8 +503,12 @@ function MobileIndex({ chapters, group, active }: { chapters: Chapter[]; group: 
   )
 }
 
-/** Gallery, Journal and Compact list: the chapters, with the index beside them. */
-export function LibraryChapters({
+/**
+ * Gallery, Journal and Compact list: the chapters, with the index beside them.
+ * Memoized: typing in the search re-renders the page above it every keystroke,
+ * and the chapters only need to follow when their own props change.
+ */
+export const LibraryChapters = React.memo(function LibraryChapters({
   chapters,
   group,
   view,
@@ -538,4 +542,4 @@ export function LibraryChapters({
       {indexed && <MobileIndex chapters={chapters} group={group} active={active} />}
     </div>
   )
-}
+})

@@ -78,16 +78,41 @@ export async function POST(request: NextRequest) {
 
     if (sessionIds && sessionIds.length > 0) {
       // Process specific sessions
-      sourcesToProcess = await withErrorHandling(async () => {
+      const sessions = await withErrorHandling(async () => {
         // Only the caller's own sessions — an unscoped `inArray` would let a
         // caller process (and re-file) another user's uploads.
-        const sessions = await db.select()
+        return await db.select()
           .from(uploadSessions)
           .where(and(
             inArray(uploadSessions.id, sessionIds),
             eq(uploadSessions.userId, user.id)
           ));
+      }, 'getSessionsForBatch');
 
+      if (sessions.length === 0) {
+        return NextResponse.json(
+          {
+            batch_id: batchId,
+            status: 'failed' as const,
+            message: 'Sessions not found',
+            summary: {
+              sources_processed: 0,
+              sources_successful: 0,
+              sources_failed: 0,
+              total_places_extracted: 0,
+              total_cost_usd: 0,
+              avg_processing_time_ms: 0,
+              processing_duration_ms: Date.now() - startTime
+            },
+            sources: [],
+            errors: ['Sessions not found'],
+            timestamp: new Date().toISOString()
+          },
+          { status: 404 }
+        );
+      }
+
+      sourcesToProcess = await withErrorHandling(async () => {
         const allUploadedFiles = sessions.flatMap(session =>
           session.meta?.uploadedFiles || []
         );

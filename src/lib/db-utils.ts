@@ -13,6 +13,16 @@ export function generateCollectionId(): string {
   return `col_${crypto.randomUUID()}`;
 }
 
+// Thrown when a caller-scoped mutation or lookup matches no row for this
+// user: the id does not exist, or it belongs to someone else. Routes map it
+// to 404 (which reveals nothing about which), never to 500.
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
+
 // Keeps the driver's own error (its class and `code`) reachable through the
 // friendlier message, so callers can still tell a locked database or a dropped
 // connection apart from a constraint violation.
@@ -29,6 +39,12 @@ export async function withErrorHandling<T>(
     return await operation();
   } catch (error) {
     console.error(`Database error in ${context}:`, error);
+
+    // A caller-scoped "not found or unauthorized" is a refusal, not a
+    // failure: let it reach the route untouched so it can answer 404.
+    if (error instanceof NotFoundError) {
+      throw error;
+    }
 
     if (error instanceof Error) {
       // Handle specific SQLite errors

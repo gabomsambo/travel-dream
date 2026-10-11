@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getCollectionById } from '@/lib/db-queries';
+import { getCollectionById, getOwnedPlaceIds } from '@/lib/db-queries';
 import { saveDayBuckets, saveUnscheduledPlaces } from '@/lib/db-mutations';
+import { NotFoundError } from '@/lib/db-utils';
 import { DayBucketSchema } from '@/types/database';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
@@ -60,6 +61,20 @@ export async function PATCH(
     console.log('[API PATCH /days] Parsed day buckets count:', dayBuckets.length);
     console.log('[API PATCH /days] Parsed unscheduled IDs count:', unscheduledPlaceIds.length);
 
+    // The buckets are stored as JSON on the caller's own row, so a foreign
+    // place id would otherwise be recorded without ever failing.
+    const namedPlaceIds = [
+      ...dayBuckets.flatMap((b) => b.placeIds),
+      ...unscheduledPlaceIds,
+    ];
+    const owned = await getOwnedPlaceIds(namedPlaceIds, user.id);
+    if (owned.size !== new Set(namedPlaceIds).size) {
+      return NextResponse.json(
+        { status: 'error', message: 'Place not found' },
+        { status: 404 }
+      );
+    }
+
     await saveDayBuckets(id, dayBuckets, user.id);
     await saveUnscheduledPlaces(id, unscheduledPlaceIds, user.id);
 
@@ -78,6 +93,12 @@ export async function PATCH(
       return NextResponse.json(
         { status: 'error', errors: error.errors },
         { status: 400 }
+      );
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Collection not found' },
+        { status: 404 }
       );
     }
     console.error('[API PATCH /days] Error updating day buckets:', error);

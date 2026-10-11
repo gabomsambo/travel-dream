@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { updateCollectionTransportMode } from '@/lib/db-mutations';
+import { NotFoundError } from '@/lib/db-utils';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 const UpdateSettingsSchema = z.object({
@@ -31,6 +32,12 @@ export async function PATCH(
       return NextResponse.json(
         { status: 'error', errors: error.errors },
         { status: 400 }
+      );
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Collection not found' },
+        { status: 404 }
       );
     }
     return NextResponse.json(

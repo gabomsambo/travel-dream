@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withErrorHandling } from '@/lib/db-utils';
+import { withErrorHandling, NotFoundError } from '@/lib/db-utils';
 // TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
 // Not migrated in the change that introduced the accessor: ten queries across
 // four handlers, including the source dereference that leaked in the first
@@ -327,11 +327,11 @@ export async function DELETE(request: NextRequest) {
         .get();
 
       if (!session) {
-        throw new Error('Session not found');
+        throw new NotFoundError('Session not found');
       }
 
       if (session.userId !== user.id) {
-        throw new Error('Session not found');
+        throw new NotFoundError('Session not found');
       }
 
       // Optional cleanup of associated files
@@ -399,6 +399,16 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'Session not found',
+          timestamp: new Date().toISOString(),
+        },
+        { status: 404 }
+      );
     }
     console.error('Delete session API error:', error);
 

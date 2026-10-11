@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { deleteSource } from '@/lib/db-mutations'
+import { NotFoundError } from '@/lib/db-utils'
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers'
 import { z } from 'zod'
 
@@ -32,6 +33,12 @@ export async function DELETE(
   } catch (error: any) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Source not found' },
+        { status: 404 }
+      )
     }
     console.error('Error deleting source:', error)
     return NextResponse.json(

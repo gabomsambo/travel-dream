@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { dismissedDuplicates } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
+import { getOwnedPlaceIds } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
@@ -46,6 +47,21 @@ export async function POST(request: NextRequest) {
     }
 
     const { pairs, reason } = validation.data;
+
+    // The pair is stored on the caller's own row, so a foreign place id
+    // would otherwise be recorded without ever failing.
+    const namedPlaceIds = pairs.flatMap(({ placeId1, placeId2 }) => [placeId1, placeId2]);
+    const ownedPlaceIds = await getOwnedPlaceIds(namedPlaceIds, user.id);
+    if (ownedPlaceIds.size !== new Set(namedPlaceIds).size) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'One or more places were not found',
+          timestamp: new Date().toISOString(),
+        },
+        { status: 404 }
+      );
+    }
 
     // Create bidirectional dismiss entries (scoped to current user)
     const inserts = pairs.flatMap(({ placeId1, placeId2 }) => [
@@ -112,8 +128,9 @@ export async function DELETE(request: NextRequest) {
     const { pairs } = validation.data;
 
     // Delete both directions for each pair (scoped to current user)
+    let undismissed = 0;
     for (const { placeId1, placeId2 } of pairs) {
-      await db.delete(dismissedDuplicates)
+      const deleted = await db.delete(dismissedDuplicates)
         .where(
           and(
             eq(dismissedDuplicates.userId, user.id),
@@ -128,7 +145,21 @@ export async function DELETE(request: NextRequest) {
               )
             )
           )
-        );
+        )
+        .returning();
+      undismissed += deleted.length;
+    }
+
+    // A pair naming a foreign place matches no row of the caller's.
+    if (undismissed === 0) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'Dismissed pair not found',
+          timestamp: new Date().toISOString(),
+        },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json({

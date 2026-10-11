@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCollectionWithPlaces } from '@/lib/db-queries';
 import { updateCollection, deleteCollection } from '@/lib/db-mutations';
+import { NotFoundError } from '@/lib/db-utils';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 const UpdateCollectionSchema = z.object({
@@ -101,6 +102,15 @@ export async function PATCH(
         { status: 400 }
       );
     }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'Collection not found',
+        },
+        { status: 404 }
+      );
+    }
 
     console.error('Error updating collection:', error);
     return NextResponse.json(
@@ -131,6 +141,15 @@ export async function DELETE(
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'Collection not found',
+        },
+        { status: 404 }
+      );
     }
     console.error('Error deleting collection:', error);
     return NextResponse.json(

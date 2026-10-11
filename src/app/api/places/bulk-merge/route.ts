@@ -38,17 +38,35 @@ export async function POST(request: NextRequest) {
     const { clusters } = validation.data;
 
     const result = await bulkMergePlaces(clusters, user.id);
+    const reportedResults = result.results.map(
+      ({ notFound: _notFound, ...entry }: { notFound?: boolean }) => entry
+    );
+    const everyClusterMissing =
+      result.success === 0 &&
+      result.failed > 0 &&
+      result.results.every((entry: { notFound?: boolean }) => entry.notFound === true);
 
     // Invalidate cached library stats — bulk merge reduces total count.
     if (result.success > 0) {
       revalidateTag(`library-stats:${user.id}`);
     }
 
+    if (everyClusterMissing) {
+      return NextResponse.json({
+        status: 'error',
+        message: 'Place not found',
+        success: result.success,
+        failed: result.failed,
+        results: reportedResults,
+        timestamp: new Date().toISOString(),
+      }, { status: 404 });
+    }
+
     return NextResponse.json({
       status: 'success',
       success: result.success,
       failed: result.failed,
-      results: result.results,
+      results: reportedResults,
       timestamp: new Date().toISOString(),
     });
 

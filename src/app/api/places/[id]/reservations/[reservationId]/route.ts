@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { getPlaceById } from '@/lib/db-queries';
+import { NotFoundError } from '@/lib/db-utils';
 import { z } from 'zod';
 
 const emptyToNull = (val: unknown) => (val === '' ? null : val)
@@ -23,7 +25,7 @@ export async function PATCH(
 ) {
   try {
     const user = await requireAuthForApi();
-    const { reservationId } = await params;
+    const { id: placeId, reservationId } = await params;
     const body = await request.json();
 
     const validation = ReservationUpdateSchema.safeParse(body);
@@ -34,8 +36,18 @@ export async function PATCH(
       );
     }
 
+    // The update is scoped through the reservation's own place, so the
+    // [id] segment would otherwise be ignored entirely.
+    const place = await getPlaceById(placeId, user.id);
+    if (!place) {
+      return NextResponse.json(
+        { status: 'error', message: 'Place not found' },
+        { status: 404 }
+      );
+    }
+
     const { updateReservation } = await import('@/lib/db-mutations');
-    const updated = await updateReservation(reservationId, validation.data, user.id);
+    const updated = await updateReservation(reservationId, validation.data, user.id, placeId);
 
     return NextResponse.json({
       status: 'success',
@@ -44,6 +56,12 @@ export async function PATCH(
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Reservation not found' },
+        { status: 404 }
+      );
     }
     return NextResponse.json(
       { status: 'error', message: 'Failed to update reservation' },
@@ -58,9 +76,19 @@ export async function DELETE(
 ) {
   try {
     const user = await requireAuthForApi();
-    const { reservationId } = await params;
+    const { id: placeId, reservationId } = await params;
     const { deleteReservation } = await import('@/lib/db-mutations');
-    await deleteReservation(reservationId, user.id);
+
+    // The delete is scoped through the reservation's own place, so the
+    // [id] segment would otherwise be ignored entirely.
+    const place = await getPlaceById(placeId, user.id);
+    if (!place) {
+      return NextResponse.json(
+        { status: 'error', message: 'Place not found' },
+        { status: 404 }
+      );
+    }
+    await deleteReservation(reservationId, user.id, placeId);
 
     return NextResponse.json({
       status: 'success',
@@ -69,6 +97,12 @@ export async function DELETE(
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Reservation not found' },
+        { status: 404 }
+      );
     }
     return NextResponse.json(
       { status: 'error', message: 'Failed to delete reservation' },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getPlacesInCollection, getPlacesByStatus, searchPlaces } from '@/lib/db-queries';
+import { getCollectionById, getPlacesInCollection, getPlacesByStatus, searchPlaces } from '@/lib/db-queries';
 import { getFieldsForPreset } from '@/lib/export-field-metadata';
 import type { PreviewResponse } from '@/types/export';
 import type { Place } from '@/types/database';
@@ -107,9 +107,19 @@ export async function GET(request: NextRequest) {
     let allPlaces: Place[] = [];
 
     switch (scope.type) {
-      case 'collection':
+      case 'collection': {
+        // The scoped places query matches nothing for a foreign collection,
+        // so check the collection itself instead of previewing emptiness.
+        const collection = await getCollectionById(scope.collectionId, user.id);
+        if (!collection) {
+          return NextResponse.json({
+            success: false,
+            error: 'Collection not found'
+          }, { status: 404 });
+        }
         allPlaces = await getPlacesInCollection(scope.collectionId, user.id);
         break;
+      }
 
       case 'library':
         if (scope.filters) {
@@ -150,6 +160,12 @@ export async function GET(request: NextRequest) {
             inArray(places.id, scope.placeIds),
             eq(places.userId, user.id)
           ));
+        if (scope.placeIds.length > 0 && allPlaces.length === 0) {
+          return NextResponse.json({
+            success: false,
+            error: 'No places found'
+          }, { status: 404 });
+        }
         break;
     }
 

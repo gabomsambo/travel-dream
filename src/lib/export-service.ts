@@ -10,6 +10,7 @@ import { generateXLSX } from './export-generators/xlsx-generator';
 import { generatePDF } from './export-generators/pdf-generator';
 import { generateKML } from './export-generators/kml-generator';
 import { generateFilename, getMimeType } from './export-utils';
+import { NotFoundError } from './db-utils';
 
 export async function exportData(request: ExportRequest, userId: string): Promise<ExportResult> {
   let results: Place[] = [];
@@ -23,7 +24,7 @@ export async function exportData(request: ExportRequest, userId: string): Promis
 
       collection = await getCollectionById(collectionId, userId);
       if (!collection) {
-        throw new Error('Collection not found');
+        throw new NotFoundError('Collection not found');
       }
 
       results = await getPlacesInCollection(collectionId, userId);
@@ -95,7 +96,7 @@ export async function exportData(request: ExportRequest, userId: string): Promis
   }
 
   if (results.length === 0) {
-    throw new Error('No places found to export');
+    throw new NotFoundError('No places found to export');
   }
 
   const fieldDefs = getFieldsForPreset(

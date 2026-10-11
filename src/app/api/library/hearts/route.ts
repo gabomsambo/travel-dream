@@ -4,9 +4,8 @@ import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { setHearts } from '@/lib/library/store';
 
 /**
- * Hearts or un-hearts places on the caller's account. The same call carries a
- * device's one-time sync of its old localStorage hearts, which is why ids that
- * are not (or no longer) the caller's places are skipped rather than refused.
+ * Hearts or un-hearts places on the caller's account. Ids that are not the
+ * caller's places are skipped rather than refused.
  */
 const HeartsSchema = z.object({
   placeIds: z.array(z.string().min(1).max(200)).min(1).max(1000),

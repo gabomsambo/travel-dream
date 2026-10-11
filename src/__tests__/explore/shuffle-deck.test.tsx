@@ -4,7 +4,7 @@ import { parseBestTime } from '@/lib/explore/best-time'
 import type { ExplorePlace } from '@/lib/explore/types'
 import { ExploreProvider } from '@/components/explore/explore-provider'
 import { ShuffleDeck } from '@/components/explore/shuffle-deck'
-import { resetHeartWriterForTests } from '@/lib/explore/dreams'
+import { isDream, resetHeartWriterForTests } from '@/lib/explore/dreams'
 import { notify } from '@/lib/notify'
 
 jest.mock('framer-motion', () => {
@@ -49,11 +49,15 @@ const place = (id: string, name: string): ExplorePlace => ({
   photos: [{ uri: `https://example.com/${id}.jpg`, thumb: `https://example.com/${id}-t.jpg` }],
 })
 
-function renderDeck(deck: string[], collections: { id: string; name: string; placeIds: string[] }[] = []) {
+function renderDeck(
+  deck: string[],
+  collections: { id: string; name: string; placeIds: string[] }[] = [],
+  heartIds: string[] = []
+) {
   const places = deck.map((id, i) => place(id, `Place ${i + 1}`))
   return render(
     <ExploreProvider places={places} collections={collections}>
-      <ShuffleDeck title="Everything" backHref="/explore" deck={deck} />
+      <ShuffleDeck title="Everything" backHref="/explore" deck={deck} heartIds={heartIds} />
     </ExploreProvider>
   )
 }
@@ -74,13 +78,15 @@ describe('ShuffleDeck', () => {
     expect(screen.getByRole('button', { name: /Save 1 as a new collection/i })).toBeInTheDocument()
   })
 
-  it('undo of a dream keeps a Library favourite that predates the session', async () => {
+  it('undo of a dream keeps an account heart that predates the session', async () => {
     localStorage.setItem('travel-dreams-favorites', JSON.stringify(['a']))
-    renderDeck(['a', 'b'])
+    renderDeck(['a', 'b'], [], ['a'])
     await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
     await userEvent.click(screen.getByRole('button', { name: 'Finish shuffle early' }))
     await userEvent.click(screen.getByRole('button', { name: /Back one/i }))
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('a')
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['a'])
+    expect(isDream('a')).toBe(true)
+    expect((global.fetch as jest.Mock).mock.calls.filter(([url]: [string]) => url === '/api/library/hearts')).toEqual([])
   })
 
   it('verdict keys are inert on the end screen after Done early', async () => {
@@ -125,31 +131,31 @@ describe('ShuffleDeck', () => {
     expect(screen.getByText(/1 dream out of 1/i)).toBeInTheDocument()
   })
 
-  it('saves a dream to the account as well as this device', async () => {
+  it('saves a dream to the account and does not touch device favorites', async () => {
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['kept']))
     ;(global.fetch as jest.Mock).mockImplementation(() =>
       Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ placeIds: ['a'] }) })
     )
     renderDeck(['a', 'b'])
     await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('a')
-    expect(global.fetch).toHaveBeenCalledWith('/api/library/hearts', expect.objectContaining({ method: 'POST', body: JSON.stringify({ placeIds: ['a'], on: true }) }))
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/library/hearts',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify({ placeIds: ['a'], on: true }) })
+      )
+    )
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['kept'])
+    await waitFor(() => expect(isDream('a')).toBe(true))
   })
 
   it('puts a dream back and says so when the save fails', async () => {
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['kept']))
     ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }))
     renderDeck(['a', 'b'])
     await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
-    await waitFor(() => expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('a'))
+    await waitFor(() => expect(isDream('a')).toBe(false))
     expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment.")
-  })
-
-  it('keeps a device heart that was already there when saving it again fails', async () => {
-    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['a']))
-    ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }))
-    renderDeck(['a', 'b'])
-    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
-    await waitFor(() => expect(notify.error).toHaveBeenCalled())
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('a')
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['kept'])
   })
 
   it('sends an undo only after the dream it follows, and leaves the place undreamed', async () => {
@@ -170,7 +176,8 @@ describe('ShuffleDeck', () => {
     await waitFor(() => expect(heartsPosts).toBe(1))
     await userEvent.keyboard('z')
     expect(heartsPosts).toBe(1)
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('a')
+    expect(isDream('a')).toBe(false)
+    expect(localStorage.getItem('travel-dreams-favorites')).toBeNull()
     release({ placeIds: ['a'] })
     await waitFor(() =>
       expect((global.fetch as jest.Mock).mock.calls.filter(([url]: [string]) => url === '/api/library/hearts').map(([, init]: [string, RequestInit]) => JSON.parse(String(init.body)))).toEqual([
@@ -178,7 +185,8 @@ describe('ShuffleDeck', () => {
         { placeIds: ['a'], on: false },
       ])
     )
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('a')
+    expect(isDream('a')).toBe(false)
+    expect(localStorage.getItem('travel-dreams-favorites')).toBeNull()
   })
 
   describe('end screen collections', () => {

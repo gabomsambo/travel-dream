@@ -106,7 +106,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const STATUS_LABEL: Record<string, string> = { not_visited: "Dreaming", planned: "Planned", visited: "Been" }
 
 function LibraryPage({ data }: { data: LibraryData }) {
-  const { items, collections, inboxCount, userId } = data
+  const { items, collections, inboxCount } = data
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -177,7 +177,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
   }, [fallbackView])
 
   // ---- hearts, search, filtering --------------------------------------------
-  const { hearts, setHearts } = useLibraryHearts({ userId, heartIds: data.heartIds })
+  const { hearts, setHearts } = useLibraryHearts({ heartIds: data.heartIds })
   const now = React.useMemo(() => new Date(), [])
   const index = React.useMemo(() => buildSearchIndex(items), [items])
   // Typing stays instant; the page catches up a frame behind on a slow device.

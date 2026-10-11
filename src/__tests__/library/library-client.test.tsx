@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LibraryClient } from '@/components/library/library-client'
 import { resetHalfBuiltCollectionsForTests } from '@/components/library/library-add-to-collection'
-import { resetHeartWriterForTests } from '@/lib/explore/dreams'
+import { isDream, resetHeartWriterForTests, writeHearts } from '@/lib/explore/dreams'
 import { notify } from '@/lib/notify'
 import type { LibraryData } from '@/lib/library/types'
 import { item, photo } from '../helpers/library-items'
@@ -72,7 +72,6 @@ beforeEach(() => {
   jest.clearAllMocks()
   resetHalfBuiltCollectionsForTests()
   window.history.replaceState(null, '', '/')
-  localStorage.setItem('td:hearts-synced:v1:usr_test', '1')
 })
 
 const tile = (name: string) => screen.getAllByRole('button', { name: new RegExp(`^${name},`) })[0]
@@ -261,67 +260,82 @@ describe('hearts, saved to the account', () => {
     expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it("copies this device's old hearts onto the account once, without removing account hearts", async () => {
-    localStorage.removeItem('td:hearts-synced:v1:usr_test')
-    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2', 'plc_gone']))
-    routeFetch({ '/api/library/hearts': () => ({ status: 'success', placeIds: ['plc_2'] }) })
-    const { unmount } = render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)
-    await waitFor(() => expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBe('1'))
-    expect(callsTo('/api/library/hearts')).toEqual([
-      { url: '/api/library/hearts', method: 'POST', body: { placeIds: ['plc_2', 'plc_gone'], on: true } },
-    ])
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2', 'plc_gone'])
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 7' })).toBeInTheDocument()
-    unmount()
+  it('follows a newer account snapshot once nothing is saving', () => {
+    const { rerender } = render(<LibraryClient data={{ ...data, heartIds: ['plc_2'] }} />)
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    rerender(<LibraryClient data={{ ...data, heartIds: [] }} />)
+    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+    rerender(<LibraryClient data={{ ...data, heartIds: ['plc_5'] }} />)
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 5' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+  })
 
-    fetchMock.mockClear()
-    render(<LibraryClient data={{ ...data, heartIds: ['plc_7', 'plc_2'] }} />)
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
+  it('leaves an in-flight heart in place when a newer snapshot omits it', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string) => {
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        return first.gate
+      }
+      return json({ status: 'success' })
     })
-    expect(callsTo('/api/library/hearts')).toEqual([])
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 7' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toBeInTheDocument()
-  })
-
-  it('does not send a copy when every device heart is already on the account', async () => {
-    localStorage.removeItem('td:hearts-synced:v1:usr_test')
-    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_7']))
-    render(<LibraryClient data={{ ...data, heartIds: ['plc_7', 'plc_2'] }} />)
-    await waitFor(() => expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBe('1'))
-    expect(callsTo('/api/library/hearts')).toEqual([])
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_7'])
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 7' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toBeInTheDocument()
-  })
-
-  it('tries the device copy again on the next load when it fails, and a failed click does not drop it', async () => {
-    localStorage.removeItem('td:hearts-synced:v1:usr_test')
-    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2']))
-    fetchMock.mockImplementation(() => json({ status: 'error' }, 503))
     const user = userEvent.setup()
-    const { unmount } = render(<LibraryClient data={data} />)
-    await waitFor(() => expect(callsTo('/api/library/hearts').length).toBe(1))
+    const { rerender } = render(<LibraryClient data={data} />)
     await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    await waitFor(() => {
-      expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment.")
-      expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    rerender(<LibraryClient data={{ ...data, heartIds: [] }} />)
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    await act(async () => {
+      first.release({ status: 'success', placeIds: ['plc_2'] })
     })
-    expect(screen.queryByRole('button', { name: /^Hearts/ })).not.toBeInTheDocument()
-    expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBeNull()
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
-    unmount()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true'))
+  })
 
-    fetchMock.mockClear()
-    routeFetch({ '/api/library/hearts': () => ({ status: 'success', placeIds: ['plc_2'] }) })
+  it('keeps the hearts the server confirmed when a bulk save is only partial', async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        const ids = (body as { placeIds: string[] }).placeIds
+        return json({ status: 'success', placeIds: ids.slice(0, 1) })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
     render(<LibraryClient data={data} />)
-    await waitFor(() =>
-      expect(callsTo('/api/library/hearts')).toEqual([
-        { url: '/api/library/hearts', method: 'POST', body: { placeIds: ['plc_2'], on: true } },
-      ])
-    )
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
+    await user.keyboard('s')
+    await user.click(tile('Place 0'))
+    await user.click(tile('Place 6'))
+    await user.keyboard('h')
+    await waitFor(() => expect(callsTo('/api/library/hearts')).toHaveLength(1))
+    const body = callsTo('/api/library/hearts')[0].body as { placeIds: string[]; on: boolean }
+    expect(body.on).toBe(true)
+    const [kept, dropped] = body.placeIds
+    const label = (id: string) => `Place ${id.slice('plc_'.length)}`
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment."))
+    expect(screen.getByRole('button', { name: `Remove heart from ${label(kept)}` })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: `Heart ${label(dropped)}` })).toHaveAttribute('aria-pressed', 'false')
+    expect(notify.success).not.toHaveBeenCalled()
+  })
+
+  it('keeps an earlier chunk when the next heart request fails', async () => {
+    const ids = Array.from({ length: 1001 }, (_, i) => `p${i}`)
+    let posts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        posts += 1
+        if (posts === 1) return json({ status: 'success', placeIds: (body as { placeIds: string[] }).placeIds })
+        return json({ status: 'error' }, 503)
+      }
+      return json({ status: 'success' })
+    })
+    await expect(writeHearts(ids, true)).resolves.toBe(false)
+    expect(posts).toBe(2)
+    expect(isDream('p0')).toBe(true)
+    expect(isDream('p999')).toBe(true)
+    expect(isDream('p1000')).toBe(false)
+    expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment.")
   })
 
   it('shows a Hearts shelf once there is a heart, and narrows to them', async () => {

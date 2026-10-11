@@ -306,13 +306,20 @@ function hasText(value: string | null | undefined): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function normalizedCountry(value: string | null | undefined): string | null {
+  if (!hasText(value)) return null;
+  return value.trim().toLowerCase();
+}
+
 /** A country factor counts only when both sides name a country. */
 function countriesMatch(
   a: string | null | undefined,
   b: string | null | undefined
 ): boolean {
-  if (!hasText(a) || !hasText(b)) return false;
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
+  const left = normalizedCountry(a);
+  const right = normalizedCountry(b);
+  if (left === null || right === null) return false;
+  return left === right;
 }
 
 /**
@@ -324,9 +331,7 @@ function cityFactorMatch(
   a: { city?: string | null; country?: string | null },
   b: { city?: string | null; country?: string | null },
 ): boolean {
-  const countryA = a.country ? a.country : null;
-  const countryB = b.country ? b.country : null;
-  return citiesMatch(a.city, b.city) && countryA === countryB;
+  return citiesMatch(a.city, b.city) && normalizedCountry(a.country) === normalizedCountry(b.country);
 }
 
 function sameGooglePlace(place1: Place, place2: Place): boolean {

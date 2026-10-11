@@ -666,4 +666,41 @@ describe('duplicate score table', () => {
     expect(citiesMatch('Rome', 'Roma')).toBe(true)
     expect(rome.factors.cityMatch).toBe(false)
   })
+
+  it('folds country case and space into the city scope and keeps two blank countries together', () => {
+    const noCoords = { kind: 'landmark' as const, coords: null }
+    const matching = calculateDuplicateScore(
+      place({ name: 'Lisbon', city: 'Lisbon', country: 'Portugal', ...noCoords }),
+      place({ name: 'Lisboa', city: 'Lisboa', country: 'Portugal', ...noCoords }),
+    )
+    const caseFold = calculateDuplicateScore(
+      place({ name: 'Lisbon', city: 'Lisbon', country: 'Portugal', ...noCoords }),
+      place({ name: 'Lisboa', city: 'Lisboa', country: 'portugal', ...noCoords }),
+    )
+    const spaced = calculateDuplicateScore(
+      place({ name: 'Lisbon', city: 'Lisbon', country: 'Portugal', ...noCoords }),
+      place({ name: 'Lisboa', city: 'Lisboa', country: 'Portugal ', ...noCoords }),
+    )
+
+    expect(caseFold.factors.cityMatch).toBe(true)
+    expect(caseFold.factors.countryMatch).toBe(true)
+    expect(spaced.factors.cityMatch).toBe(true)
+    expect(spaced.factors.countryMatch).toBe(true)
+    expect(caseFold.score).toBeCloseTo(matching.score, 5)
+    expect(spaced.score).toBeCloseTo(matching.score, 5)
+    expect(caseFold.score).toBeCloseTo(1, 5)
+    expect(duplicatePageBand(caseFold.score, caseFold.flags)).toBe('Main')
+    expect(duplicatePageBand(spaced.score, spaced.flags)).toBe('Main')
+
+    const blanks = calculateDuplicateScore(
+      place({ name: 'Lisbon', city: 'Lisbon', country: null, ...noCoords }),
+      place({ name: 'Lisboa', city: 'Lisboa', country: '   ', ...noCoords }),
+    )
+    expect(blanks.factors.cityMatch).toBe(true)
+    expect(blanks.factors.countryMatch).toBe(false)
+
+    const rome = calculateDuplicateScore(romeGeorgia, romaItaly)
+    expect(rome.factors.cityMatch).toBe(false)
+    expect(duplicatePageBand(rome.score, rome.flags)).toBe('No')
+  })
 })

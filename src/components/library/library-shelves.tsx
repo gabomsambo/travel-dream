@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowRight, Inbox, Plus, Shuffle } from "lucide-react"
+import { Heart, Plus, Shuffle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Shelf } from "@/lib/library/filters"
 import type { ExploreCollection } from "@/lib/explore/types"
@@ -14,55 +14,48 @@ const SHELVES: Array<{ value: Shelf; label: string }> = [
   { value: "not_visited", label: "Dreaming" },
   { value: "planned", label: "Planned" },
   { value: "visited", label: "Been" },
+  { value: "hearts", label: "Hearts" },
 ]
 
 /**
- * All · Dreaming · Planned · Been — the visit-status filter as shelves — and
- * "Needs review", which leaves for the Inbox rather than mixing unconfirmed
- * places in. `active` is null when the filter panel holds a custom mix.
+ * All · Dreaming · Planned · Been · Hearts — the visit-status filter as
+ * shelves, plus the places you've hearted (saved to your account). `active`
+ * is null when the filter bar holds a custom mix. Hearts appears once there is
+ * one to show.
  */
 export function LibraryShelves({
   active,
   counts,
-  inboxCount,
   onShelf,
 }: {
   active: Shelf | null
   counts: Record<Shelf, number>
-  inboxCount: number
   onShelf: (shelf: Shelf) => void
 }) {
   return (
     <div className="flex items-center gap-3">
       <div className="-mx-4 flex min-w-0 flex-1 scroll-px-4 items-center gap-2 overflow-x-auto px-4 pb-1 hide-scrollbar sm:mx-0 sm:px-0 sm:pb-0">
         <div role="group" aria-label="Shelves" className="inline-flex shrink-0 gap-0.5 rounded-full bg-secondary p-[3px]">
-          {SHELVES.map((s) => (
-            <button
-              key={s.value}
-              type="button"
-              aria-pressed={active === s.value}
-              onClick={() => onShelf(s.value)}
-              className={cn(
-                "whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium text-muted-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring",
-                active === s.value ? "bg-background text-foreground shadow-sm" : "hover:text-foreground"
-              )}
-            >
-              {s.label}
-              <small className="ml-1 text-[11px] font-medium opacity-60">{counts[s.value]}</small>
-            </button>
-          ))}
+          {SHELVES.map((s) => {
+            if (s.value === "hearts" && counts.hearts === 0 && active !== "hearts") return null
+            return (
+              <button
+                key={s.value}
+                type="button"
+                aria-pressed={active === s.value}
+                onClick={() => onShelf(s.value)}
+                className={cn(
+                  "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium text-muted-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring",
+                  active === s.value ? "bg-background text-foreground shadow-sm" : "hover:text-foreground"
+                )}
+              >
+                {s.value === "hearts" && <Heart className={cn("h-3.5 w-3.5", active === "hearts" ? "fill-[#ff5a6e] text-[#ff5a6e]" : "")} aria-hidden />}
+                {s.label}
+                <small className="ml-0.5 text-[11px] font-medium opacity-60">{counts[s.value]}</small>
+              </button>
+            )
+          })}
         </div>
-        <Link
-          href="/inbox"
-          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-[7px] text-[13px] font-medium text-muted-foreground outline-none transition hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Inbox className="h-3.5 w-3.5" />
-          Needs review
-          {inboxCount > 0 && (
-            <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{inboxCount}</span>
-          )}
-          <ArrowRight className="h-3 w-3 opacity-60" />
-        </Link>
       </div>
       <Link
         href="/explore/shuffle"

@@ -25,6 +25,7 @@ const actions: LibraryActions = {
   openPlace: jest.fn(),
   archive: jest.fn(),
   remove: jest.fn(),
+  addToCollection: jest.fn(),
   findImage: jest.fn(),
 }
 

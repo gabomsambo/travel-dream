@@ -1,6 +1,8 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LibraryClient } from '@/components/library/library-client'
+import { resetHalfBuiltCollectionsForTests } from '@/components/library/library-add-to-collection'
+import { notify } from '@/lib/notify'
 import type { LibraryData } from '@/lib/library/types'
 import { item, photo } from '../helpers/library-items'
 
@@ -19,17 +21,52 @@ const items = Array.from({ length: 14 }, (_, i) =>
 )
 
 const data: LibraryData = {
+  userId: 'usr_test',
   items,
   collections: [{ id: 'col_1', name: 'Kyoto in autumn', placeIds: ['plc_1', 'plc_4'] }],
   inboxCount: 3,
+  heartIds: [],
+  savedViews: [],
+}
+
+type Call = { url: string; method: string; body: unknown }
+const fetchMock = global.fetch as jest.Mock
+const calls = (): Call[] =>
+  fetchMock.mock.calls.map(([url, init]: [string, RequestInit | undefined]) => ({
+    url,
+    method: init?.method ?? 'GET',
+    body: init?.body ? JSON.parse(String(init.body)) : undefined,
+  }))
+const callsTo = (prefix: string) => calls().filter((c) => c.url.startsWith(prefix))
+const json = (body: unknown, status = 200) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) })
+
+/** A small fake of the API: hearts echo the ids they were sent, the rest answer success. */
+function routeFetch(overrides: Record<string, (body: unknown) => unknown> = {}) {
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    for (const [prefix, handler] of Object.entries(overrides)) if (url.startsWith(prefix)) return json(handler(body))
+    if (url === '/api/library/hearts') return json({ status: 'success', placeIds: (body as { placeIds: string[] }).placeIds })
+    if (url === '/api/library/views') return json({ status: 'success', view: { id: 'svw_1', ...(body as object) } }, 201)
+    if (url === '/api/collections') return json({ collection: { id: 'col_new' } }, 201)
+    if (url.endsWith('/places')) return json({ results: { successful: (body as { placeIds: string[] }).placeIds, failed: [] } })
+    if (url === '/api/places/bulk-actions') return json({ status: 'success', result: { updatedCount: (body as { placeIds: string[] }).placeIds.length } })
+    return json({ status: 'success' })
+  })
 }
 
 beforeEach(() => {
   localStorage.clear()
-  ;(global.fetch as jest.Mock).mockReset()
+  fetchMock.mockReset()
+  routeFetch()
+  jest.clearAllMocks()
+  resetHalfBuiltCollectionsForTests()
+  window.history.replaceState(null, '', '/')
+  localStorage.setItem('td:hearts-synced:v1:usr_test', '1')
 })
 
-describe('LibraryClient', () => {
+const tile = (name: string) => screen.getAllByRole('button', { name: new RegExp(`^${name},`) })[0]
+
+describe('LibraryClient — build 1 structure', () => {
   it('opens on the journal cover, the shelves and country chapters', () => {
     render(<LibraryClient data={data} />)
     expect(screen.getByRole('heading', { level: 1, name: 'Your atlas' })).toBeInTheDocument()
@@ -43,7 +80,7 @@ describe('LibraryClient', () => {
   it('opens the quick-look sheet on click, which leads to the Postcard — not the old tabbed dialog', async () => {
     const user = userEvent.setup()
     render(<LibraryClient data={data} />)
-    await user.click(screen.getAllByRole('button', { name: /^Place 3,/ })[0])
+    await user.click(tile('Place 3'))
     const sheet = await screen.findByRole('dialog', { name: 'Place 3' })
     expect(within(sheet).getByRole('link', { name: /Open place/ })).toHaveAttribute('href', '/place/plc_3')
     expect(within(sheet).queryByRole('tab')).not.toBeInTheDocument()
@@ -54,21 +91,13 @@ describe('LibraryClient', () => {
     render(<LibraryClient data={data} />)
     await user.click(screen.getByRole('button', { name: 'More for Place 0' }))
     const menu = await screen.findByRole('menu')
-    for (const label of [/Quick look/, /Open place/, /Heart it/, /Find image/, /Select/, /Archive/, /Delete/]) {
+    for (const label of [/Quick look/, /Open place/, /Heart it/, /Add to collection/, /Find image/, /Select/, /Archive/, /Delete/]) {
       expect(within(menu).getByRole('menuitem', { name: label })).toBeInTheDocument()
     }
     await user.click(within(menu).getByRole('menuitem', { name: /Delete/ }))
     const confirm = await screen.findByRole('alertdialog')
     expect(within(confirm).getByRole('button', { name: /Delete Permanently/ })).toBeDisabled()
-    expect(global.fetch).not.toHaveBeenCalled()
-  })
-
-  it('hearts a place on this device, shared with Shuffle', async () => {
-    const user = userEvent.setup()
-    render(<LibraryClient data={data} />)
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(callsTo('/api/places/bulk-actions')).toEqual([])
   })
 
   it('narrows to a shelf', async () => {
@@ -107,10 +136,244 @@ describe('LibraryClient', () => {
       item({ id: 'k2', name: 'Fushimi', country: 'Japan', city: 'Kyoto', photos: [photo], visitStatus: 'not_visited' }),
       item({ id: 't1', name: 'Senso-ji', country: 'Japan', city: 'Tokyo', photos: [photo], visitStatus: 'visited', lastVisited: '2024-04-12' }),
     ]
-    render(<LibraryClient data={{ items: [...items, ...japan], collections: [], inboxCount: 0 }} />)
+    render(<LibraryClient data={{ ...data, items: [...items, ...japan], collections: [] }} />)
     await user.click(screen.getByRole('button', { name: /^Kyoto\s*2$/ }))
     expect(screen.queryByRole('button', { name: /^Senso-ji,/ })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Been\s*5/ }))
     expect(screen.getAllByRole('button', { name: /^Senso-ji,/ }).length).toBeGreaterThan(0)
+  })
+})
+
+describe('hearts, saved to the account', () => {
+  it('hearts a place on the account and on this device, for Shuffle', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    expect(callsTo('/api/library/hearts')).toEqual([{ url: '/api/library/hearts', method: 'POST', body: { placeIds: ['plc_2'], on: true } }])
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('rolls a heart back and says so when the save fails', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementation(() => json({ status: 'error' }, 500))
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false'))
+    expect(notify.error).toHaveBeenCalled()
+  })
+
+  it("syncs this device's old hearts to the account once, keeping only what the server accepts", async () => {
+    localStorage.removeItem('td:hearts-synced:v1:usr_test')
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2', 'plc_gone']))
+    routeFetch({ '/api/library/hearts': () => ({ status: 'success', placeIds: ['plc_2'] }) })
+    const { unmount } = render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)
+    await waitFor(() => expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBe('1'))
+    expect(callsTo('/api/library/hearts')).toEqual([
+      { url: '/api/library/hearts', method: 'POST', body: { placeIds: ['plc_2', 'plc_gone'], on: true } },
+    ])
+    // The device now mirrors the account: its own heart, the synced one, not the unknown id.
+    expect(new Set(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]'))).toEqual(new Set(['plc_7', 'plc_2']))
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toBeInTheDocument()
+    unmount()
+
+    fetchMock.mockClear()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_7', 'plc_2'] }} />)
+    await act(async () => undefined)
+    expect(callsTo('/api/library/hearts')).toEqual([])
+  })
+
+  it('leaves the device copy alone when the one-time sync fails, to try again next time', async () => {
+    localStorage.removeItem('td:hearts-synced:v1:usr_test')
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2']))
+    fetchMock.mockImplementation(() => json({ status: 'error' }, 503))
+    render(<LibraryClient data={data} />)
+    await waitFor(() => expect(callsTo('/api/library/hearts').length).toBe(1))
+    await act(async () => undefined)
+    expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBeNull()
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
+  })
+
+  it('replays a heart a dropped request left queued', async () => {
+    localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_3: true, plc_7: false }))
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)
+    await waitFor(() => expect(callsTo('/api/library/hearts').length).toBe(2))
+    expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
+      { placeIds: ['plc_3'], on: true },
+      { placeIds: ['plc_7'], on: false },
+    ])
+    expect(localStorage.getItem('td:hearts-pending:v1')).toBeNull()
+  })
+
+  it('shows a Hearts shelf once there is a heart, and narrows to them', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<LibraryClient data={data} />)
+    expect(screen.queryByRole('button', { name: /^Hearts/ })).not.toBeInTheDocument()
+    rerender(<LibraryClient data={{ ...data, heartIds: ['plc_5', 'plc_inbox'] }} />)
+    await user.click(screen.getByRole('button', { name: /^Hearts\s*1/ }))
+    expect(screen.getAllByRole('button', { name: /^Place 5,/ }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /^Place 4,/ })).not.toBeInTheDocument()
+    expect(window.location.search).toBe('?hearts=1')
+  })
+})
+
+describe('command-bar search', () => {
+  it('lists matches as you type; ↓ and Enter open the quick look', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    const input = screen.getByRole('combobox', { name: 'Search your library' })
+    await user.click(input)
+    await user.type(input, 'Place 3')
+    const list = await screen.findByRole('listbox', { name: 'Search results' })
+    expect(within(list).getAllByRole('option')[0]).toHaveTextContent('Place 3')
+    await user.keyboard('{ArrowDown}{Enter}')
+    expect(await screen.findByRole('dialog', { name: 'Place 3' })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('td:library-recent-searches:v1') ?? '[]')).toEqual(['Place 3'])
+  })
+
+  it('turns words into a real filter from a suggestion', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    const input = screen.getByRole('combobox', { name: 'Search your library' })
+    await user.click(input)
+    await user.type(input, 'itly')
+    const suggestion = within(await screen.findByRole('listbox')).getByRole('option', { name: /Country · Italy/ })
+    await user.click(within(suggestion).getByText('Italy'))
+    expect(screen.getByRole('button', { name: 'Remove filter 🇮🇹 Italy' })).toBeInTheDocument()
+    expect(input).toHaveValue('')
+    expect(screen.queryByRole('heading', { level: 2, name: 'Japan' })).not.toBeInTheDocument()
+  })
+
+  it('focuses on ⌘K and /, outside a text field', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    const input = screen.getByRole('combobox', { name: 'Search your library' })
+    await user.keyboard('{Control>}k{/Control}')
+    expect(input).toHaveFocus()
+    input.blur()
+    await user.keyboard('/')
+    expect(input).toHaveFocus()
+  })
+})
+
+describe('Select mode and the bulk bar', () => {
+  it('selects a range with shift-click in reading order and shows the bulk bar', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: /^Select$/ }))
+    const bar = screen.getByRole('toolbar', { name: 'Bulk actions' })
+    // The range follows the page as it reads: the first and fourth places on it.
+    const onPage = screen.getAllByRole('button').filter((b) => b.dataset.placeId)
+    await user.click(onPage[0])
+    await user.keyboard('{Shift>}')
+    await user.click(onPage[3])
+    await user.keyboard('{/Shift}')
+    expect(within(bar).getByText('4 selected')).toBeInTheDocument()
+    for (const b of onPage.slice(0, 4)) expect(screen.getByRole('checkbox', { name: `Select ${b.getAttribute('aria-label')!.split(',')[0]}` })).toHaveAttribute('aria-checked', 'true')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('toolbar', { name: 'Bulk actions' })).not.toBeInTheDocument()
+  })
+
+  it('sets a status on the selection, and Undo puts each back the way it was', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.keyboard('s')
+    await user.click(tile('Place 0'))
+    await user.click(tile('Place 6'))
+    await user.click(within(screen.getByRole('toolbar', { name: 'Bulk actions' })).getByRole('button', { name: /Set status/ }))
+    await user.click(await screen.findByRole('menuitem', { name: /Been/ }))
+    await waitFor(() => expect(callsTo('/api/places/bulk-actions').length).toBe(1))
+    // Place 0 was already Been, so only Place 6 changes.
+    expect(callsTo('/api/places/bulk-actions')[0].body).toEqual({ action: 'set-visit-status', placeIds: ['plc_6'], visitStatus: 'visited' })
+    const [, opts] = (notify.success as jest.Mock).mock.calls.find(([m]) => String(m).startsWith('Marked'))!
+    await act(async () => opts.cancel.onClick())
+    await waitFor(() => expect(callsTo('/api/places/bulk-actions').length).toBe(2))
+    expect(callsTo('/api/places/bulk-actions')[1].body).toEqual({ action: 'set-visit-status', placeIds: ['plc_6'], visitStatus: 'not_visited' })
+  })
+
+  it('archives with an Undo that restores', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.keyboard('s')
+    await user.click(tile('Place 3'))
+    await user.keyboard('a')
+    await waitFor(() => expect(callsTo('/api/places/bulk-actions')[0]?.body).toEqual({ action: 'archive', placeIds: ['plc_3'] }))
+    const [, opts] = (notify.success as jest.Mock).mock.calls.find(([m]) => String(m).startsWith('Archived'))!
+    await act(async () => opts.cancel.onClick())
+    await waitFor(() => expect(callsTo('/api/places/bulk-actions')[1]?.body).toEqual({ action: 'restore', placeIds: ['plc_3'] }))
+  })
+})
+
+describe('Add to collection', () => {
+  it('adds only the places a collection does not have yet, and Undo takes exactly those out', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.keyboard('s')
+    await user.click(tile('Place 1'))
+    await user.click(tile('Place 7'))
+    await user.keyboard('c')
+    const dialog = await screen.findByRole('dialog', { name: /Add 2 places to a collection/ })
+    expect(within(dialog).getByText(/has 1 of these/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /Kyoto in autumn/ }))
+    await waitFor(() => expect(callsTo('/api/collections/col_1/places')).toEqual([
+      { url: '/api/collections/col_1/places', method: 'POST', body: { placeIds: ['plc_7'] } },
+    ]))
+    const [message, opts] = (notify.success as jest.Mock).mock.calls.find(([m]) => String(m).startsWith('Added'))!
+    expect(message).toBe('Added 1 to Kyoto in autumn')
+    expect(opts.description).toBe('1 added · 1 was already there')
+    await act(async () => opts.cancel.onClick())
+    await waitFor(() => expect(calls().some((c) => c.url === '/api/collections/col_1/places/plc_7' && c.method === 'DELETE')).toBe(true))
+  })
+
+  it('creates a new collection inline, named after the places, and a retry never makes a second copy', async () => {
+    const user = userEvent.setup()
+    let failAdd = true
+    routeFetch({})
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/collections') return json({ collection: { id: 'col_new' } }, 201)
+      if (url === '/api/collections/col_new/places') return failAdd ? json({ status: 'error' }, 500) : json({ results: { successful: body.placeIds, failed: [] } })
+      return json({ status: 'success', placeIds: [] })
+    })
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'More for Place 2' }))
+    await user.click(await screen.findByRole('menuitem', { name: /Add to collection/ }))
+    const dialog = await screen.findByRole('dialog', { name: /Add Place 2 to a collection/ })
+    expect(within(dialog).getByLabelText('New collection name')).toHaveValue('City 2 trip')
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('City 2 trip was created, but the places didn\'t save to it.', expect.anything()))
+    failAdd = false
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Added 1 to City 2 trip', expect.anything()))
+    expect(callsTo('/api/collections').filter((c) => c.url === '/api/collections').length).toBe(1)
+  })
+})
+
+describe('smart shelves and saved views', () => {
+  it('"No collection" narrows to unfiled places, and the view saves to the account', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: /No collection\s*12/ }))
+    expect(screen.queryByRole('button', { name: /^Place 1,/ })).not.toBeInTheDocument()
+    expect(window.location.search).toBe('?uncollected=1')
+    await user.click(screen.getByRole('button', { name: /Save view/ }))
+    const name = await screen.findByLabelText('Name this view')
+    expect(name).toHaveValue('Not in a collection')
+    await user.clear(name)
+    await user.type(name, 'To file{Enter}')
+    await waitFor(() => expect(callsTo('/api/library/views')).toEqual([
+      { url: '/api/library/views', method: 'POST', body: { name: 'To file', query: 'uncollected=1' } },
+    ]))
+    expect(await screen.findByRole('button', { name: 'To file', pressed: true })).toBeInTheDocument()
+  })
+
+  it('applies a saved view in one tap', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, savedViews: [{ id: 'svw_1', name: 'Italy planned', query: 'country=Italy&visitStatus=planned' }] }} />)
+    await user.click(screen.getByRole('button', { name: 'Italy planned' }))
+    expect(window.location.search).toBe('?country=Italy&visitStatus=planned')
+    expect(screen.getByRole('button', { name: 'Italy planned' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByRole('button', { name: /^Place 4,/ }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /^Place 5,/ })).not.toBeInTheDocument()
   })
 })

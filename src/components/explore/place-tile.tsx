@@ -43,7 +43,8 @@ export function PlaceTile({
   caption?: string
   /** Render the caption as the owner's own words: italic serif, in quotes. */
   captionQuote?: boolean
-  onOpen: () => void
+  /** The click, so a caller can read modifier keys (the Library's shift-click range). */
+  onOpen: (e: React.MouseEvent<HTMLButtonElement>) => void
   /** Also mark planned places (Explore only marks the ones you've been to). */
   showPlanned?: boolean
   /**

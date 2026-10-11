@@ -1,7 +1,8 @@
 "use client"
 
+import type * as React from "react"
 import Link from "next/link"
-import { Archive, ArrowUpRight, Eye, Heart, ImagePlus, MoreHorizontal, SquareCheck, Trash2 } from "lucide-react"
+import { Archive, ArrowUpRight, Eye, FolderPlus, Heart, ImagePlus, MoreHorizontal, SquareCheck, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   DropdownMenu,
@@ -14,9 +15,9 @@ import type { LibraryItem } from "@/lib/library/types"
 import { useLibraryActions } from "./library-actions"
 
 /**
- * The ⋯ menu every Library view shares: look, open, heart, find a photo,
- * select, archive, delete. Archive and delete go through the page's existing
- * confirmation dialogs.
+ * The ⋯ menu every Library view shares: look, open, heart, add to a
+ * collection, find a photo, select, archive, delete. Archive comes with an
+ * Undo; delete asks first.
  */
 export function LibraryPlaceMenu({
   item,
@@ -62,6 +63,9 @@ export function LibraryPlaceMenu({
           <Heart className={cn("mr-2 h-4 w-4", hearted && "fill-current text-rose-500")} />
           {hearted ? "Remove heart" : "Heart it"}
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => a.addToCollection([item.id])}>
+          <FolderPlus className="mr-2 h-4 w-4" /> Add to collection…
+        </DropdownMenuItem>
         {item.photos.length === 0 && (
           <DropdownMenuItem onClick={() => a.findImage(item)}>
             <ImagePlus className="mr-2 h-4 w-4" /> Find image
@@ -92,7 +96,7 @@ export function SelectMark({
 }: {
   checked: boolean
   label: string
-  onToggle: () => void
+  onToggle: (e: React.MouseEvent<HTMLButtonElement>) => void
   tone?: "glass" | "plain"
   className?: string
 }) {
@@ -104,7 +108,7 @@ export function SelectMark({
       aria-label={label}
       onClick={(e) => {
         e.stopPropagation()
-        onToggle()
+        onToggle(e)
       }}
       className={cn(
         "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 outline-none transition focus-visible:ring-2 focus-visible:ring-ring",
@@ -123,7 +127,7 @@ export function SelectMark({
   )
 }
 
-/** The glass heart on a tile; the same hearts Shuffle keeps (this device only until they sync). */
+/** The glass heart on a tile: saved to the account, the same hearts Shuffle keeps. */
 export function HeartButton({ id, name, className }: { id: string; name: string; className?: string }) {
   const a = useLibraryActions()
   const on = a.hearts.has(id)

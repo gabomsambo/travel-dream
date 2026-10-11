@@ -1,0 +1,133 @@
+"use client"
+
+import * as React from "react"
+import { notify } from "@/lib/notify"
+import {
+  readDreams, requeueDreams, saveDreams, setDreamLocal, takePendingDreams, writeDreams,
+} from "@/lib/explore/dreams"
+
+/** The device key that records this account's one-time sync of the old device-only hearts. */
+export function heartsSyncedKey(userId: string): string {
+  return `td:hearts-synced:v1:${userId}`
+}
+
+const BATCH = 500
+
+async function saveAll(ids: string[], on: boolean): Promise<string[]> {
+  const applied: string[] = []
+  for (let i = 0; i < ids.length; i += BATCH) applied.push(...(await saveDreams(ids.slice(i, i + BATCH), on)))
+  return applied
+}
+
+/**
+ * Hearts, saved to the account.
+ *
+ * On the first Library load on a device, the hearts this device kept before
+ * they were an account field are sent up once. The server keeps only the
+ * caller's own places and ignores repeats, so a retry or a second tab is
+ * harmless, and the device copy is never cleared before the account has them.
+ * After that sync the account is the truth: its hearts are mirrored onto the
+ * device for Shuffle, after replaying any heart a dropped request left queued.
+ */
+export function useLibraryHearts({ userId, heartIds }: { userId: string; heartIds: string[] }) {
+  const [hearts, setHearts] = React.useState<Set<string>>(() => new Set(heartIds))
+  // Optimistic changes still on their way to the server, so a refresh that
+  // lands mid-save doesn't flip a heart back for a moment.
+  const inflight = React.useRef(new Map<string, boolean>())
+
+  const withInflight = React.useCallback((base: Iterable<string>) => {
+    const next = new Set(base)
+    for (const [id, on] of inflight.current) {
+      if (on) next.add(id)
+      else next.delete(id)
+    }
+    return next
+  }, [])
+
+  React.useEffect(() => setHearts(withInflight(heartIds)), [heartIds, withInflight])
+
+  // Read once per mount: the effect below must see the list this page loaded with.
+  const initial = React.useRef(heartIds)
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const key = heartsSyncedKey(userId)
+      let synced = false
+      try {
+        synced = localStorage.getItem(key) === "1"
+      } catch {
+        /* storage blocked: treat as not synced; the server dedupes */
+      }
+      const account = new Set(initial.current)
+      const pending = takePendingDreams()
+      const off = new Set(pending.off)
+      const on = new Set(pending.on.filter((id) => !account.has(id)))
+      if (!synced) for (const id of readDreams()) if (!account.has(id) && !off.has(id)) on.add(id)
+
+      let added: string[] = []
+      try {
+        if (on.size) added = await saveAll([...on], true)
+        if (off.size) await saveAll([...off], false)
+        try {
+          localStorage.setItem(key, "1")
+        } catch {
+          /* storage blocked */
+        }
+      } catch {
+        // Nothing is lost: the device copy is untouched and the queue is put back.
+        requeueDreams(pending.on, true)
+        requeueDreams(pending.off, false)
+        return
+      }
+      const final = new Set(account)
+      for (const id of added) final.add(id)
+      for (const id of off) final.delete(id)
+      writeDreams(final)
+      if (!cancelled && (added.length || off.size)) setHearts(withInflight(final))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [userId, withInflight])
+
+  /** Hearts or un-hearts places now, saves in the background, and rolls back on failure. */
+  const setMany = React.useCallback(
+    async (ids: string[], on: boolean): Promise<boolean> => {
+      if (!ids.length) return true
+      const before = new Map(ids.map((id) => [id, hearts.has(id)]))
+      for (const id of ids) {
+        inflight.current.set(id, on)
+        setDreamLocal(id, on)
+      }
+      setHearts((prev) => {
+        const next = new Set(prev)
+        for (const id of ids) {
+          if (on) next.add(id)
+          else next.delete(id)
+        }
+        return next
+      })
+      try {
+        await saveAll(ids, on)
+        return true
+      } catch {
+        setHearts((prev) => {
+          const next = new Set(prev)
+          for (const [id, was] of before) {
+            if (was) next.add(id)
+            else next.delete(id)
+            setDreamLocal(id, was)
+          }
+          return next
+        })
+        notify.error(on ? "Couldn't save that heart. Try again in a moment." : "Couldn't remove that heart. Try again in a moment.")
+        return false
+      } finally {
+        for (const id of ids) inflight.current.delete(id)
+      }
+    },
+    [hearts]
+  )
+
+  return { hearts, setHearts: setMany }
+}

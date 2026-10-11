@@ -12,9 +12,16 @@ import { flagFor } from "@/lib/explore/geo"
 import { citiesMatch } from "@/lib/city-names"
 import { chapterSummary, citiesOf, fullDate, locationOf, monthYear, type Chapter } from "@/lib/library/chapters"
 import type { GroupMode, LibraryItem, LibraryView } from "@/lib/library/types"
-import { useLibraryActions } from "./library-actions"
+import { useLibraryActions, useLongPress } from "./library-actions"
 import { LibraryTile } from "./library-tile"
 import { HeartButton, LibraryPlaceMenu, SelectMark } from "./library-place-menu"
+
+/** A row or entry that starts Select mode on a long press (touch only). */
+function Pressable({ id, as: Tag = "div", ...props }: { id: string; as?: "div" | "article" } & React.HTMLAttributes<HTMLElement>) {
+  const a = useLibraryActions()
+  const press = useLongPress(() => a.select(id), !a.selecting)
+  return <Tag {...props} {...press} />
+}
 
 /** Header of one chapter: flag, serif name, the counts, and where it continues. */
 function ChapterHeader({ chapter, group, items, collage }: { chapter: Chapter; group: GroupMode; items: LibraryItem[]; collage?: boolean }) {
@@ -201,10 +208,10 @@ function JournalChapter({ items, siblings, single }: { items: LibraryItem[]; sib
       {shown.map((p) => {
         const checked = a.selected.has(p.id)
         return (
-          <article key={p.id} className={cn("grid grid-cols-[96px_minmax(0,1fr)] gap-4 border-b py-4 sm:grid-cols-[240px_minmax(0,1fr)] sm:gap-5", checked && "bg-primary/5")}>
+          <Pressable as="article" id={p.id} key={p.id} className={cn("grid grid-cols-[96px_minmax(0,1fr)] gap-4 border-b py-4 [-webkit-touch-callout:none] sm:grid-cols-[240px_minmax(0,1fr)] sm:gap-5", checked && "bg-primary/5")}>
             <button
               type="button"
-              onClick={() => a.activate(p.id, siblings)}
+              onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })}
               aria-label={`${p.name}, ${locationOf(p)}`}
               className="group relative aspect-square overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:aspect-[4/3] sm:rounded-2xl"
             >
@@ -216,7 +223,7 @@ function JournalChapter({ items, siblings, single }: { items: LibraryItem[]; sib
                   {flagFor(p.country) && <span className="mr-1">{flagFor(p.country)}</span>}
                   {locationOf(p) || "Somewhere"} · {kindLabel(p.kind)}
                 </p>
-                {a.selecting && <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={() => a.toggleSelect(p.id)} tone="plain" />}
+                {a.selecting && <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} tone="plain" />}
                 <HeartButton id={p.id} name={p.name} className="h-7 w-7 bg-secondary text-foreground backdrop-blur-none hover:bg-secondary/80" />
                 <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
               </div>
@@ -224,7 +231,7 @@ function JournalChapter({ items, siblings, single }: { items: LibraryItem[]; sib
                 <button
                   type="button"
                   data-place-id={p.id}
-                  onClick={() => a.activate(p.id, siblings)}
+                  onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })}
                   className="mt-1 text-left font-editorial text-[28px] leading-none outline-none hover:underline focus-visible:underline sm:text-[38px]"
                 >
                   {p.name}
@@ -243,7 +250,7 @@ function JournalChapter({ items, siblings, single }: { items: LibraryItem[]; sib
                 {monthYear(p.createdAt) && <span>Saved {monthYear(p.createdAt)}</span>}
               </div>
             </div>
-          </article>
+          </Pressable>
         )
       })}
       {items.length > shown.length && (
@@ -279,28 +286,29 @@ function ListChapter({ items, siblings, collectionNames, single }: { items: Libr
         const checked = a.selected.has(p.id)
         const cols2 = collectionNames.get(p.id) ?? []
         return (
-          <div
+          <Pressable
+            id={p.id}
             role="row"
             key={p.id}
             className={cn(
-              "grid grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-3 border-b px-2 py-2 transition hover:bg-secondary/40",
+              "grid grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-3 border-b px-2 py-2 transition [-webkit-touch-callout:none] hover:bg-secondary/40",
               cols,
               checked && "bg-primary/5"
             )}
           >
             <span role="cell" className="hidden md:block">
-              <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={() => a.toggleSelect(p.id)} tone="plain" className="h-[18px] w-[18px]" />
+              <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} tone="plain" className="h-[18px] w-[18px]" />
             </span>
             <span role="cell" className="relative">
-              <button type="button" onClick={() => a.activate(p.id, siblings)} aria-label={`Open ${p.name}`} className="block rounded-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <button type="button" onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })} aria-label={`Open ${p.name}`} className="block rounded-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <Thumb p={p} className="h-14 w-14 rounded-xl md:h-11 md:w-11 md:rounded-[10px]" />
               </button>
               {a.selecting && (
-                <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={() => a.toggleSelect(p.id)} className="absolute -left-1 -top-1 md:hidden" />
+                <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} className="absolute -left-1 -top-1 md:hidden" />
               )}
             </span>
             <span role="cell" className="min-w-0">
-              <button type="button" data-place-id={p.id} onClick={() => a.activate(p.id, siblings)} className="block max-w-full truncate text-left font-semibold outline-none hover:underline focus-visible:underline">
+              <button type="button" data-place-id={p.id} onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })} className="block max-w-full truncate text-left font-semibold outline-none hover:underline focus-visible:underline">
                 {p.name}
               </button>
               <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground md:hidden">
@@ -319,7 +327,7 @@ function ListChapter({ items, siblings, collectionNames, single }: { items: Libr
             <span role="cell" className="flex justify-end">
               <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
             </span>
-          </div>
+          </Pressable>
         )
       })}
       {items.length > shown.length && (
@@ -419,20 +427,13 @@ const GROUP_NOUN: Record<GroupMode, [string, string]> = {
 
 /** The serif index where the filter wall used to be: jump to a chapter, see where you are. */
 function IndexRail({ chapters, group, active }: { chapters: Chapter[]; group: GroupMode; active: string | null }) {
-  const { selecting } = useLibraryActions()
   const [all, setAll] = React.useState(false)
   const LIMIT = 14
   const shown = all ? chapters : chapters.slice(0, LIMIT)
   const [one, many] = GROUP_NOUN[group]
   return (
-    // While selecting, the selection toolbar makes the sticky bar taller.
-    <nav
-      aria-label="Index"
-      className={cn(
-        "sticky hidden max-h-[calc(100vh-150px)] overflow-y-auto pb-6 hide-scrollbar lg:block",
-        selecting ? "top-[104px]" : "top-[56px]"
-      )}
-    >
+    // Sits under the sticky tools, whose height (one row, or two with filter chips) they publish.
+    <nav aria-label="Index" className="sticky top-[calc(var(--library-bar-h,46px)+10px)] hidden max-h-[calc(100vh-150px)] overflow-y-auto pb-6 hide-scrollbar lg:block">
       <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
         Index · {chapters.length} {chapters.length === 1 ? one : many}
       </p>
@@ -451,6 +452,9 @@ function IndexRail({ chapters, group, active }: { chapters: Chapter[]; group: Gr
 /** Phones: a floating "Index" pill that opens the chapters as a two-column sheet. */
 function MobileIndex({ chapters, group, active }: { chapters: Chapter[]; group: GroupMode; active: string | null }) {
   const [open, setOpen] = React.useState(false)
+  const { selecting } = useLibraryActions()
+  // The bulk bar owns the bottom of the screen while selecting.
+  if (selecting) return null
   const [, many] = GROUP_NOUN[group]
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>

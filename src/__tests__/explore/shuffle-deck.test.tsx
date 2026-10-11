@@ -122,6 +122,24 @@ describe('ShuffleDeck', () => {
     expect(screen.getByText(/1 dream out of 1/i)).toBeInTheDocument()
   })
 
+  it('saves a dream to the account as well as this device', async () => {
+    ;(global.fetch as jest.Mock).mockImplementation(() =>
+      Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ placeIds: ['a'] }) })
+    )
+    renderDeck(['a', 'b'])
+    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('a')
+    expect(global.fetch).toHaveBeenCalledWith('/api/library/hearts', expect.objectContaining({ method: 'POST', body: JSON.stringify({ placeIds: ['a'], on: true }) }))
+  })
+
+  it('queues a dream whose save fails, for the Library to replay', async () => {
+    ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }))
+    renderDeck(['a', 'b'])
+    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(JSON.parse(localStorage.getItem('td:hearts-pending:v1') ?? '{}')).toEqual({ a: true })
+  })
+
   describe('end screen collections', () => {
     beforeAll(() => {
       // Radix Select relies on pointer-capture and scrolling APIs jsdom lacks.
@@ -131,11 +149,14 @@ describe('ShuffleDeck', () => {
     })
 
     const ok = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })
+    // Hearts are saved to the account as they happen; these tests are about the collection calls.
     const posts = () =>
-      (global.fetch as jest.Mock).mock.calls.map(([url, init]: [string, RequestInit]) => ({
-        url,
-        body: JSON.parse(String(init.body)),
-      }))
+      (global.fetch as jest.Mock).mock.calls
+        .filter(([url]: [string]) => url !== '/api/library/hearts')
+        .map(([url, init]: [string, RequestInit]) => ({
+          url,
+          body: JSON.parse(String(init.body)),
+        }))
 
     async function dreamTwoThenDone() {
       await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
@@ -179,7 +200,7 @@ describe('ShuffleDeck', () => {
       await dreamTwoThenDone()
       await pickCollection('Lisbon trip')
       await userEvent.click(screen.getByRole('button', { name: 'Add places' }))
-      expect(global.fetch).not.toHaveBeenCalled()
+      expect(posts()).toEqual([])
       expect(notify.info).toHaveBeenCalledWith('Already in Lisbon trip')
     })
   })

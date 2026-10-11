@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { flagFor } from "@/lib/explore/geo"
 import { groupBySlug } from "@/lib/explore/atlas"
@@ -167,45 +166,3 @@ export function SparseCover({ total, countries }: { total: number; countries: nu
     </section>
   )
 }
-
-/** "Search your atlas…": the Library's own search, the same fuzzy index as before. `/` focuses it. */
-export const LibrarySearchPill = React.forwardRef<
-  HTMLInputElement,
-  { value: string; onChange: (v: string) => void; className?: string }
->(function LibrarySearchPill({ value, onChange, className }, ref) {
-  return (
-    <div
-      className={cn(
-        "relative z-10 flex h-[50px] items-center gap-3 rounded-full border bg-card pl-5 pr-2.5 shadow-[0_8px_28px_rgba(0,0,0,.12)] sm:h-[60px] sm:pl-[22px]",
-        "focus-within:ring-2 focus-within:ring-ring",
-        className
-      )}
-    >
-      <Search className="h-[18px] w-[18px] shrink-0 text-muted-foreground" aria-hidden />
-      <input
-        ref={ref}
-        type="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Search your atlas…"
-        name="library-search"
-        aria-label="Search your library"
-        className="min-w-0 flex-1 bg-transparent font-editorial text-[21px] text-foreground outline-none placeholder:text-muted-foreground sm:text-[26px] [&::-webkit-search-cancel-button]:hidden"
-      />
-      {value ? (
-        <button
-          type="button"
-          onClick={() => onChange("")}
-          aria-label="Clear search"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      ) : (
-        <kbd className="mr-1 hidden rounded-md border px-1.5 py-0.5 font-sans text-[11px] text-muted-foreground sm:block" title="Press / to search">
-          /
-        </kbd>
-      )}
-    </div>
-  )
-})

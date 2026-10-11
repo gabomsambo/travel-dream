@@ -186,6 +186,7 @@ export function DuplicateExpandedView({
           <DuplicateComparisonPanel
             target={target}
             compareTo={activePlace}
+            mergeAllSources={nonTargetPlaces}
             fieldOverrides={fieldOverrides}
             onPickField={handlePickField}
           />
@@ -203,7 +204,9 @@ export function DuplicateExpandedView({
       {mergedPlace && (
         <DuplicateMergePreview
           mergedPlace={mergedPlace}
+          target={target}
           sourceCount={cluster.places.length}
+          willAddLabel={cluster.places.length > 2 ? 'Merge All' : 'Merge These Two'}
         />
       )}
 

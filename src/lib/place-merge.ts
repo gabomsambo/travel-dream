@@ -28,6 +28,25 @@ export const MERGE_OVERRIDE_FIELDS = [
 
 export type MergeOverrideField = (typeof MERGE_OVERRIDE_FIELDS)[number];
 
+/** Labels shared by the comparison rows and the merge preview. */
+export const MERGE_OVERRIDE_FIELD_LABELS: Record<MergeOverrideField, string> = {
+  name: 'Name',
+  description: 'Description',
+  address: 'Address',
+  coords: 'Coordinates',
+  website: 'Website',
+  phone: 'Phone',
+  hours: 'Hours',
+  price_level: 'Price level',
+  best_time: 'Best time',
+  practicalInfo: 'Practical info',
+  admin: 'Region',
+  city: 'City',
+  country: 'Country',
+  kind: 'Kind',
+  googlePlaceId: 'Google place id',
+};
+
 /** place id whose value to use for that field. Unknown ids are ignored. */
 export type MergeFieldOverrides = Partial<Record<MergeOverrideField, string>>;
 
@@ -136,6 +155,40 @@ function takeHigher(current: number | null | undefined, incoming: number | null 
 }
 
 /**
+ * Place whose value `mergePlaceFields` writes for one single-value field.
+ * An override wins when it names a place in this merge and that value is
+ * non-empty; otherwise the kept place wins, then the first source that has one.
+ */
+export function scalarFieldContributor(
+  target: Place,
+  sources: Place[],
+  field: MergeOverrideField,
+  fieldOverrides?: MergeFieldOverrides
+): Place | null {
+  const allowed = new Map<string, Place>([[target.id, target]]);
+  for (const source of sources) allowed.set(source.id, source);
+
+  const overrideId = fieldOverrides?.[field];
+  if (overrideId) {
+    const chosen = allowed.get(overrideId);
+    if (chosen && !isEmptyOverrideValue(field, chosen)) return chosen;
+  }
+
+  if (!isEmptyOverrideValue(field, target)) return target;
+  for (const source of sources) {
+    if (!isEmptyOverrideValue(field, source)) return source;
+  }
+  return null;
+}
+
+/** Single-value fields empty on `target` and filled on a `mergePlaceFields` result. */
+export function fieldsFilledByMerge(target: Place, merged: Place): MergeOverrideField[] {
+  return MERGE_OVERRIDE_FIELDS.filter(
+    (field) => isEmptyOverrideValue(field, target) && !isEmptyOverrideValue(field, merged)
+  );
+}
+
+/**
  * The one merge rule shared by the preview and `bulkMergePlaces`.
  *
  * Sources are applied in array order (the order the user chose). Empty
@@ -159,12 +212,6 @@ export function mergePlaceFields(
   merged.altNames = unionStrings([target.name], target.altNames);
 
   for (const source of sources) {
-    for (const field of MERGE_OVERRIDE_FIELDS) {
-      if (isEmptyOverrideValue(field, merged) && !isEmptyOverrideValue(field, source)) {
-        assignOverride(merged, field, source);
-      }
-    }
-
     merged.notes = appendNote(merged.notes, source.notes);
     merged.tags = unionStrings(merged.tags, source.tags);
     merged.vibes = unionStrings(merged.vibes, source.vibes);
@@ -177,17 +224,9 @@ export function mergePlaceFields(
     merged.ratingSelf = takeHigher(merged.ratingSelf, source.ratingSelf);
   }
 
-  const allowed = new Map<string, Place>([[target.id, target]]);
-  for (const source of sources) allowed.set(source.id, source);
-
-  if (fieldOverrides) {
-    for (const field of MERGE_OVERRIDE_FIELDS) {
-      const placeId = fieldOverrides[field];
-      if (!placeId) continue;
-      const chosen = allowed.get(placeId);
-      if (!chosen || isEmptyOverrideValue(field, chosen)) continue;
-      assignOverride(merged, field, chosen);
-    }
+  for (const field of MERGE_OVERRIDE_FIELDS) {
+    const chosen = scalarFieldContributor(target, sources, field, fieldOverrides);
+    if (chosen) assignOverride(merged, field, chosen);
   }
 
   const anyLibrary =

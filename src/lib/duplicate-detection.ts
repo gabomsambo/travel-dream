@@ -117,7 +117,7 @@ export interface DuplicateGroupEdge {
   flags: DuplicateEdgeFlag[];
 }
 
-/** A place the distance split removed. Empty until that split ships. */
+/** A place the distance split removed from a group. */
 export interface DuplicateLeftOut {
   id: string;
   name: string;
@@ -753,6 +753,226 @@ function buildGroupEdge(
   };
 }
 
+interface AdmittedEdge {
+  a: string;
+  b: string;
+  score: number;
+  sameGooglePlace: boolean;
+}
+
+function memberRoots(
+  memberIds: readonly string[],
+  edges: readonly AdmittedEdge[],
+): Map<string, string> {
+  const parent = new Map<string, string>();
+  for (const id of memberIds) parent.set(id, id);
+
+  const find = (id: string): string => {
+    let root = id;
+    while (parent.get(root) !== root) {
+      root = parent.get(root)!;
+    }
+    let cursor = id;
+    while (cursor !== root) {
+      const next = parent.get(cursor)!;
+      parent.set(cursor, root);
+      cursor = next;
+    }
+    return root;
+  };
+
+  for (const edge of edges) {
+    if (!parent.has(edge.a) || !parent.has(edge.b)) continue;
+    const ra = find(edge.a);
+    const rb = find(edge.b);
+    if (ra === rb) continue;
+    if (ra > rb) parent.set(ra, rb);
+    else parent.set(rb, ra);
+  }
+
+  const roots = new Map<string, string>();
+  for (const id of memberIds) roots.set(id, find(id));
+  return roots;
+}
+
+function farGeocodedPairs(
+  memberIds: readonly string[],
+  placesById: Map<string, Place>,
+): Array<[string, string]> {
+  const limit = DUPLICATE_DISTANCE_PENALTIES.farKm * 1000;
+  const pairs: Array<[string, string]> = [];
+  for (let i = 0; i < memberIds.length; i++) {
+    const placeA = placesById.get(memberIds[i]);
+    if (!placeA) continue;
+    for (let j = i + 1; j < memberIds.length; j++) {
+      const placeB = placesById.get(memberIds[j]);
+      if (!placeB) continue;
+      const metres = distanceMetres(placeA, placeB);
+      if (metres !== null && metres > limit) pairs.push([memberIds[i], memberIds[j]]);
+    }
+  }
+  return pairs;
+}
+
+function disconnectedFarCount(
+  memberIds: readonly string[],
+  edges: readonly AdmittedEdge[],
+  farPairs: ReadonlyArray<readonly [string, string]>,
+): number {
+  const roots = memberRoots(memberIds, edges);
+  let count = 0;
+  for (const [a, b] of farPairs) {
+    if (roots.get(a) !== roots.get(b)) count++;
+  }
+  return count;
+}
+
+/**
+ * While two geocoded members more than 2 km apart are still connected, drop
+ * the weakest included edge whose removal separates a far pair. A same-Google
+ * place edge stays: that match is certain even when the pins disagree.
+ */
+function dropFarBridges(
+  memberIds: readonly string[],
+  edges: readonly AdmittedEdge[],
+  placesById: Map<string, Place>,
+): AdmittedEdge[] {
+  const farPairs = farGeocodedPairs(memberIds, placesById);
+  if (farPairs.length === 0) return edges.slice();
+
+  const current = edges.slice();
+  for (let step = 0; step < edges.length; step++) {
+    const baseline = disconnectedFarCount(memberIds, current, farPairs);
+    if (baseline === farPairs.length) break;
+
+    let best: { index: number; score: number; disconnected: number; key: string } | null = null;
+    for (let i = 0; i < current.length; i++) {
+      if (current[i].sameGooglePlace) continue;
+      const without = current.filter((_, index) => index !== i);
+      const disconnected = disconnectedFarCount(memberIds, without, farPairs);
+      if (disconnected <= baseline) continue;
+
+      const edge = current[i];
+      const candidate = {
+        index: i,
+        score: edge.score,
+        disconnected,
+        key: pairKey(edge.a, edge.b),
+      };
+      const weaker = !best || candidate.score < best.score;
+      const sameScoreMorePairs = best !== null
+        && candidate.score === best.score
+        && candidate.disconnected > best.disconnected;
+      const sameScoreStableKey = best !== null
+        && candidate.score === best.score
+        && candidate.disconnected === best.disconnected
+        && candidate.key < best.key;
+      if (weaker || sameScoreMorePairs || sameScoreStableKey) best = candidate;
+    }
+    if (!best) break;
+    current.splice(best.index, 1);
+  }
+  return current;
+}
+
+function groupsFromEdges(
+  memberIds: readonly string[],
+  edges: readonly AdmittedEdge[],
+): string[][] {
+  const roots = memberRoots(memberIds, edges);
+  const groups = new Map<string, string[]>();
+  for (const id of memberIds) {
+    const root = roots.get(id)!;
+    const members = groups.get(root);
+    if (members) members.push(id);
+    else groups.set(root, [id]);
+  }
+  return [...groups.values()];
+}
+
+function nearestGeocoded(
+  place: Place,
+  groupIds: readonly string[],
+  placesById: Map<string, Place>,
+): { id: string; metres: number } | null {
+  let best: { id: string; metres: number } | null = null;
+  for (const id of groupIds) {
+    const other = placesById.get(id);
+    if (!other) continue;
+    const metres = distanceMetres(place, other);
+    if (metres === null) continue;
+    if (!best || metres < best.metres || (metres === best.metres && id < best.id)) {
+      best = { id, metres };
+    }
+  }
+  return best;
+}
+
+function leftOutForGroups(
+  memberIds: readonly string[],
+  survivors: readonly string[][],
+  originalEdges: readonly AdmittedEdge[],
+  placesById: Map<string, Place>,
+): Map<string, DuplicateLeftOut[]> {
+  const survivorOf = new Map<string, string[]>();
+  for (const group of survivors) {
+    for (const id of group) survivorOf.set(id, group);
+  }
+
+  const adjacency = new Map<string, string[]>();
+  for (const edge of originalEdges) {
+    const fromA = adjacency.get(edge.a) ?? [];
+    fromA.push(edge.b);
+    adjacency.set(edge.a, fromA);
+    const fromB = adjacency.get(edge.b) ?? [];
+    fromB.push(edge.a);
+    adjacency.set(edge.b, fromB);
+  }
+
+  const byGroup = new Map<string, DuplicateLeftOut[]>();
+  for (const leftoverId of memberIds) {
+    if (survivorOf.has(leftoverId)) continue;
+    const place = placesById.get(leftoverId);
+    if (!place) continue;
+
+    const seen = new Set<string>([leftoverId]);
+    const queue = [leftoverId];
+    let group: string[] | undefined;
+    while (queue.length > 0 && !group) {
+      const id = queue.shift()!;
+      for (const next of adjacency.get(id) ?? []) {
+        const owner = survivorOf.get(next);
+        if (owner) {
+          group = owner;
+          break;
+        }
+        if (seen.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+    if (!group) continue;
+
+    const nearest = nearestGeocoded(place, group, placesById);
+    if (!nearest) continue;
+    const key = [...group].sort().join('+');
+    const list = byGroup.get(key) ?? [];
+    list.push({
+      id: place.id,
+      name: place.name,
+      distanceM: Math.round(nearest.metres),
+      fromId: nearest.id,
+      reason: formatDistanceApart(nearest.metres),
+    });
+    byGroup.set(key, list);
+  }
+
+  for (const list of byGroup.values()) {
+    list.sort((a, b) => a.id.localeCompare(b.id));
+  }
+  return byGroup;
+}
+
 /**
  * Groups are connected components of main edges. At or above the main-queue
  * score, only a Main-band pair is an edge, so a guarded same-spot pair does
@@ -761,8 +981,10 @@ function buildGroupEdge(
  * `+`, so it does not depend on database row order. Every pair inside the
  * component is kept, including pairs under the threshold.
  *
- * `leftOut` and `mergedOn` are present for the clusters contract. The distance
- * split and the merge-log date are not applied here.
+ * When two geocoded members are more than 2 km apart, the weakest edge on a
+ * path between them is dropped and the component is rebuilt. A place that
+ * split leaves behind is `leftOut`. `mergedOn` stays null until the merge-log
+ * lookup ships.
  */
 export function findDuplicateClusters(
   duplicateResults: Map<string, DuplicateDetectionResult>,
@@ -815,9 +1037,17 @@ export function findDuplicateClusters(
     parent.set(rb, ra);
   };
 
+  const admitted: AdmittedEdge[] = [];
   for (const [key, score] of storedScore) {
-    if (!admittedToCluster(score, storedFlags.get(key), minConfidence)) continue;
+    const flags = storedFlags.get(key) ?? [];
+    if (!admittedToCluster(score, flags, minConfidence)) continue;
     const [a, b] = key.split('\0');
+    admitted.push({
+      a,
+      b,
+      score,
+      sameGooglePlace: flags.includes('same Google place'),
+    });
     union(a, b);
   }
 
@@ -832,47 +1062,54 @@ export function findDuplicateClusters(
   const clusters: DuplicateCluster[] = [];
   for (const memberIds of components.values()) {
     if (memberIds.length < minClusterSize) continue;
-    memberIds.sort();
+    const memberSet = new Set(memberIds);
+    const componentEdges = admitted.filter(edge => memberSet.has(edge.a) && memberSet.has(edge.b));
+    const kept = dropFarBridges(memberIds, componentEdges, placesById);
+    const survivors = groupsFromEdges(memberIds, kept).filter(group => group.length >= minClusterSize);
+    const leftOutByGroup = leftOutForGroups(memberIds, survivors, componentEdges, placesById);
 
-    const places: Place[] = [];
-    for (const memberId of memberIds) {
-      const place = placesById.get(memberId);
-      if (place) places.push(place);
-    }
-    if (places.length !== memberIds.length) continue;
-
-    const edges: DuplicateGroupEdge[] = [];
-    for (let i = 0; i < places.length; i++) {
-      for (let j = i + 1; j < places.length; j++) {
-        const placeA = places[i];
-        const placeB = places[j];
-        edges.push(buildGroupEdge(
-          placeA,
-          placeB,
-          storedScore.get(pairKey(placeA.id, placeB.id)),
-          minConfidence,
-          config
-        ));
+    for (const groupIds of survivors) {
+      groupIds.sort();
+      const places: Place[] = [];
+      for (const memberId of groupIds) {
+        const place = placesById.get(memberId);
+        if (place) places.push(place);
       }
+      if (places.length !== groupIds.length) continue;
+
+      const edges: DuplicateGroupEdge[] = [];
+      for (let i = 0; i < places.length; i++) {
+        for (let j = i + 1; j < places.length; j++) {
+          const placeA = places[i];
+          const placeB = places[j];
+          edges.push(buildGroupEdge(
+            placeA,
+            placeB,
+            storedScore.get(pairKey(placeA.id, placeB.id)),
+            minConfidence,
+            config
+          ));
+        }
+      }
+
+      const included = edges.filter(edge => edge.included);
+      if (included.length === 0) continue;
+
+      const avgConfidence = included.reduce((sum, edge) => sum + edge.score, 0) / included.length;
+      const weakestIncludedScore = Math.min(...included.map(edge => edge.score));
+      const id = groupIds.join('+');
+
+      clusters.push({
+        id,
+        cluster_id: id,
+        places,
+        avgConfidence,
+        weakestIncludedScore,
+        edges,
+        leftOut: leftOutByGroup.get(id) ?? [],
+        mergedOn: null,
+      });
     }
-
-    const included = edges.filter(edge => edge.included);
-    if (included.length === 0) continue;
-
-    const avgConfidence = included.reduce((sum, edge) => sum + edge.score, 0) / included.length;
-    const weakestIncludedScore = Math.min(...included.map(edge => edge.score));
-    const id = memberIds.join('+');
-
-    clusters.push({
-      id,
-      cluster_id: id,
-      places,
-      avgConfidence,
-      weakestIncludedScore,
-      edges,
-      leftOut: [],
-      mergedOn: null,
-    });
   }
 
   return clusters.sort((a, b) => b.avgConfidence - a.avgConfidence || a.id.localeCompare(b.id));

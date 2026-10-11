@@ -15,10 +15,9 @@ import {
 
 /**
  * Measured pairs from the duplicates scoring report.
- * The component split (drop the weakest edge between two geocoded members
- * more than 2 km apart) is not applied here: the grouping change was not on
- * main when this branch started, so that split belongs to whichever of the
- * two PRs lands second.
+ * Grouping is on main, so a component also drops the weakest edge on a path
+ * between two geocoded members more than 2 km apart. The Gail's Wimbledon
+ * case covers that split.
  *
  * Two rows differ from the report's proposed column because the 500 m–2 km
  * penalty of 0.05 was accepted after that column was filled: Starbucks at
@@ -703,4 +702,117 @@ describe('duplicate score table', () => {
     expect(rome.factors.cityMatch).toBe(false)
     expect(duplicatePageBand(rome.score, rome.flags)).toBe('No')
   })
+
+  it('drops the unpinned bridge that pulls Gail\'s Wimbledon into the Dulwich group', async () => {
+    const bakery = place({
+      id: 'plc_gail_1',
+      name: "Gail's Bakery",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4613, lon: -0.0860 },
+    })
+    const dulwich = place({
+      id: 'plc_gail_2',
+      name: "GAIL's Bakery Dulwich",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4615, lon: -0.0857 },
+    })
+    const gails = place({
+      id: 'plc_gail_3',
+      name: 'Gails',
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: null,
+    })
+    const wimbledon = place({
+      id: 'plc_gail_4',
+      name: "Gail's Bakery Wimbledon",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4214, lon: -0.2064 },
+    })
+
+    const bridge = calculateDuplicateScore(gails, wimbledon)
+    expect(duplicatePageBand(bridge.score, bridge.flags)).toBe('Main')
+    const direct = calculateDuplicateScore(bakery, wimbledon)
+    expect(duplicatePageBand(direct.score, direct.flags)).toBe('No')
+
+    const orders = permutations([bakery, dulwich, gails, wimbledon])
+    expect(orders).toHaveLength(24)
+    for (const order of orders) {
+      const clusters = findDuplicateClusters(
+        await batchDetectDuplicates(order),
+        2,
+        DUPLICATE_MAIN_SCORE,
+      )
+      expect(clusters).toHaveLength(1)
+      expect(clusters[0].id).toBe('plc_gail_1+plc_gail_2+plc_gail_3')
+      expect(clusters[0].places.map((item) => item.id)).toEqual([
+        'plc_gail_1',
+        'plc_gail_2',
+        'plc_gail_3',
+      ])
+      expect(clusters[0].leftOut).toEqual([
+        {
+          id: 'plc_gail_4',
+          name: "Gail's Bakery Wimbledon",
+          distanceM: 9451,
+          fromId: 'plc_gail_1',
+          reason: '9.5 km apart',
+        },
+      ])
+    }
+
+    const unpinnedPair = findDuplicateClusters(
+      await batchDetectDuplicates([gails, wimbledon]),
+      2,
+      DUPLICATE_MAIN_SCORE,
+    )
+    expect(unpinnedPair).toHaveLength(1)
+    expect(unpinnedPair[0].places.map((item) => item.id).sort()).toEqual([
+      'plc_gail_3',
+      'plc_gail_4',
+    ])
+    expect(unpinnedPair[0].leftOut).toEqual([])
+  })
+
+  it('keeps a same Google place together when the pins are more than 2 km apart', () => {
+    const a = pinned('Iguazu Falls', 'Puerto Iguazu', 'Argentina', 'landmark', {
+      id: 'google-a',
+      googlePlaceId: 'ChIJ_far',
+    })
+    const b = pinned('Cataratas do Iguaçu', 'Foz do Iguaçu', 'Brazil', 'landmark', {
+      id: 'google-b',
+      googlePlaceId: 'ChIJ_far',
+      coords: atKm(PIN, 3),
+    })
+    const { score, flags } = calculateDuplicateScore(a, b)
+    expect(score).toBe(1)
+    expect(flags).toContain('same Google place')
+
+    const detected = detectDuplicates(a, [a, b])
+    const clusters = findDuplicateClusters(
+      new Map([[a.id, detected]]),
+      2,
+      DUPLICATE_MAIN_SCORE,
+    )
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0].places.map((item) => item.id).sort()).toEqual(['google-a', 'google-b'])
+    expect(clusters[0].leftOut).toEqual([])
+  })
 })
+
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items]
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i++) {
+    const rest = items.filter((_, index) => index !== i)
+    for (const perm of permutations(rest)) out.push([items[i], ...perm])
+  }
+  return out
+}

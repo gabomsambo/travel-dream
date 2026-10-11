@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { flagFor } from "@/lib/explore/geo"
+import { tallyCities } from "@/lib/city-names"
 import type { Chapter } from "@/lib/library/chapters"
 import type { LibraryItem } from "@/lib/library/types"
 import type { CoverStats } from "./library-cover"
@@ -82,15 +83,7 @@ export function LibraryMapView({
   const waiting = items.filter((p) => p.visitStatus === "not_visited").length
 
   const topCities = React.useMemo(() => {
-    const m = new Map<string, { city: string; country: string; n: number }>()
-    for (const p of items) {
-      if (!p.city?.trim()) continue
-      const k = `${p.city.trim().toLowerCase()}|${p.country?.trim().toLowerCase() ?? ""}`
-      const e = m.get(k) ?? { city: p.city.trim(), country: p.country?.trim() ?? "", n: 0 }
-      e.n++
-      m.set(k, e)
-    }
-    return [...m.values()].sort((x, y) => y.n - x.n || x.city.localeCompare(y.city)).slice(0, 6)
+    return tallyCities(items).slice(0, 6).map((c) => ({ city: c.city, country: c.country, n: c.count }))
   }, [items])
 
   return (

@@ -9,6 +9,7 @@ import Link from "next/link"
 import * as Dialog from "@radix-ui/react-dialog"
 import { ArrowUpRight, ChevronLeft, ChevronRight, Clock, Plus, Sparkles, UserRound, X, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { citiesMatch } from "@/lib/city-names"
 import { Button } from "@/components/adapters/button"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -51,7 +52,7 @@ export function PlaceSheet({
 
   const sameCity = React.useMemo(() => {
     if (!place?.city) return []
-    return [...places.values()].filter((p) => p.city === place.city && p.id !== place.id).slice(0, 6)
+    return [...places.values()].filter((p) => citiesMatch(p.city, place.city) && p.id !== place.id).slice(0, 6)
   }, [place, places])
 
   const Icon = place ? kindIcon(place.kind) : null

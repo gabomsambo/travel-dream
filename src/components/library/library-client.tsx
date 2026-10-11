@@ -25,6 +25,7 @@ import {
   EMPTY_FILTERS, buildExportScope, filterItems, hasActiveFilters, panelFilterCount, parseFilters, parseGroup, parseView,
   shelfOf, sortItems, toSearchParams, type LibraryFilterState, type Shelf,
 } from "@/lib/library/filters"
+import { cityFilterLabels } from "@/lib/city-names"
 import type { GroupMode, LibraryData, LibraryItem, LibraryView } from "@/lib/library/types"
 import type { ExportFormat } from "@/types/export"
 import { ActiveFilterChips } from "./active-filter-chips"
@@ -139,7 +140,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const filterOptions = React.useMemo(
     () => ({
       kinds: [...new Set(items.map((p) => p.kind))].sort(),
-      cities: [...new Set(items.map((p) => p.city).filter((c): c is string => !!c))].sort(),
+      cities: cityFilterLabels(items.map((p) => p.city)),
       countries: [...new Set(items.map((p) => p.country).filter((c): c is string => !!c))].sort(),
       tags: [...new Set(items.flatMap((p) => p.tags))].sort(),
       vibes: [...new Set(items.flatMap((p) => p.vibes))].sort(),

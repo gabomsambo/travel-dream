@@ -104,6 +104,19 @@ describe('buildAtlas', () => {
     expect(atlas[1].cities.map((c) => [c.slug, c.places.length])).toEqual([['sao-paulo', 2]]);
   });
 
+  it('merges known exonyms onto the English name', () => {
+    const atlas = buildAtlas([
+      place({ country: 'Portugal', city: 'Lisboa' }),
+      place({ country: 'Portugal', city: 'Lisbon' }),
+      place({ country: 'Portugal', city: 'Porto' }),
+    ]);
+    expect(atlas[0].cities.map((c) => [c.slug, c.city, c.places.length])).toEqual([
+      ['lisbon', 'Lisbon', 2],
+      ['porto', 'Porto', 1],
+    ]);
+    expect(atlas[0].cities[0].places.map((p) => p.city).sort()).toEqual(['Lisboa', 'Lisbon']);
+  });
+
   it('gives non-Latin names their own non-empty slug', () => {
     const atlas = buildAtlas([
       place({ country: 'Japan', city: '東京' }),

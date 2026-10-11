@@ -9,6 +9,7 @@ import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { editorialFont } from "@/components/explore/fonts"
 import { flagFor } from "@/lib/explore/geo"
+import { citiesMatch } from "@/lib/city-names"
 import { chapterSummary, citiesOf, fullDate, locationOf, monthYear, type Chapter } from "@/lib/library/chapters"
 import type { GroupMode, LibraryItem, LibraryView } from "@/lib/library/types"
 import { useLibraryActions } from "./library-actions"
@@ -348,7 +349,7 @@ function ChapterSection({
   const showCities = group === "country" && view !== "list"
   const cities = showCities ? citiesOf(chapter.items) : []
   const activeCity = city && cities.length > 1 && cities.some((c) => c.city === city) ? city : null
-  const items = activeCity ? chapter.items.filter((p) => p.city?.trim() === activeCity) : chapter.items
+  const items = activeCity ? chapter.items.filter((p) => citiesMatch(p.city, activeCity)) : chapter.items
   const single = chapter.key === "all"
 
   return (

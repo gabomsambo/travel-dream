@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { GOOGLE_PLACES_LANGUAGE } from '@/lib/city-names';
 
 interface PlacePrediction {
   place_id: string;
@@ -39,6 +40,8 @@ export async function GET(request: NextRequest) {
       input,
       key: apiKey,
       types: 'establishment|geocode',
+      // Same language as Place Details, so the picker and the saved city agree.
+      language: GOOGLE_PLACES_LANGUAGE,
     });
 
     if (sessionToken) {

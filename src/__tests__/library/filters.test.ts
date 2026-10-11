@@ -38,6 +38,7 @@ describe('filterItems', () => {
     expect(ids(filterItems(places, f({ rating: 4 }), null))).toEqual(['a']);
     expect(ids(filterItems(places, f({ country: 'Italy' }), null))).toEqual(['c']);
     expect(ids(filterItems(places, f({ city: 'Tokyo' }), null))).toEqual(['b']);
+    expect(ids(filterItems(places, f({ city: 'Roma' }), null))).toEqual(['c']);
     expect(ids(filterItems(places, f({ tags: new Set(['temples']) }), null))).toEqual(['a']);
     expect(ids(filterItems(places, f({ vibes: new Set(['historic']) }), null))).toEqual(['a']);
     expect(ids(filterItems(places, f({ search: 'x' }), new Set(['c'])))).toEqual(['c']);

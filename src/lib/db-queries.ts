@@ -6,6 +6,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling } from './db-utils';
 import { isClaimableNow } from './mass-upload/queue-sql';
 import { forUser } from '@/lib/tenant-db';
+import { storedCitiesMatching } from '@/lib/city-names';
 import type { Place, Source, Collection, PlaceWithSources } from '@/types/database';
 
 /**
@@ -49,6 +50,22 @@ export type LibraryPlace = {
 };
 
 // Place queries
+/**
+ * Stored spellings of `city` for this user. The strings come back unchanged
+ * so the follow-up `IN` matches the column without rewriting it. `userId` is
+ * applied here; callers still AND it again on the row query.
+ */
+async function matchingCitySpellings(userId: string, city: string): Promise<string[]> {
+  const rows = await db
+    .select({ city: places.city })
+    .from(places)
+    .where(eq(places.userId, userId));
+  return storedCitiesMatching(
+    rows.map((row) => row.city),
+    city,
+  );
+}
+
 export async function getPlaceById(id: string, userId: string): Promise<Place | null> {
   return withErrorHandling(async () => {
     const result = await db.select().from(places)
@@ -60,9 +77,11 @@ export async function getPlaceById(id: string, userId: string): Promise<Place | 
 
 export async function getPlacesByCity(city: string, userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
+    const names = await matchingCitySpellings(userId, city);
+    if (names.length === 0) return [];
     return await db.select()
       .from(places)
-      .where(and(eq(places.city, city), eq(places.userId, userId)))
+      .where(and(inArray(places.city, names), eq(places.userId, userId)))
       .orderBy(asc(places.name));
   }, 'getPlacesByCity');
 }
@@ -148,9 +167,12 @@ export async function searchPlaces(query: {
       conditions.push(textCondition);
     }
 
-    // Location filters
+    // Location filters. City matches the folded key and known exonyms; the
+    // predicate is still AND-ed with this user's id below.
     if (query.city) {
-      conditions.push(eq(places.city, query.city));
+      const names = await matchingCitySpellings(query.userId, query.city);
+      if (names.length === 0) return [];
+      conditions.push(inArray(places.city, names));
     }
 
     if (query.country) {

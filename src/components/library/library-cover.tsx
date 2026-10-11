@@ -5,6 +5,7 @@ import { Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { flagFor } from "@/lib/explore/geo"
 import { groupBySlug } from "@/lib/explore/atlas"
+import { tallyCities } from "@/lib/city-names"
 import type { LibraryItem } from "@/lib/library/types"
 import type { Shelf } from "@/lib/library/filters"
 import type { GroupMode } from "@/lib/library/types"
@@ -45,11 +46,11 @@ export interface CoverStats {
 export function coverStats(items: LibraryItem[]): CoverStats {
   const located = items.filter((p) => p.country?.trim())
   const groups = groupBySlug(located, (p) => p.country!.trim()).sort((a, b) => b.places.length - a.places.length)
-  const cities = new Set(items.filter((p) => p.city?.trim()).map((p) => `${p.city!.trim().toLowerCase()}|${p.country?.trim().toLowerCase() ?? ""}`))
+  const cities = tallyCities(items)
   return {
     total: items.length,
     countries: groups.length,
-    cities: cities.size,
+    cities: cities.length,
     been: items.filter((p) => p.visitStatus === "visited").length,
     planned: items.filter((p) => p.visitStatus === "planned").length,
     dreaming: items.filter((p) => p.visitStatus === "not_visited").length,

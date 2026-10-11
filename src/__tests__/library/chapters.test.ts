@@ -23,6 +23,23 @@ describe('buildChapters', () => {
     expect(chapters[0].href).toBe('/explore/atlas/japan');
   });
 
+  it('groups Lisbon and Lisboa as one city chapter without renaming the places', () => {
+    const chapters = buildChapters(
+      [
+        item({ id: 'praca', city: 'Lisbon', country: 'Portugal' }),
+        item({ id: 'miradouro', city: 'Lisboa', country: 'Portugal' }),
+        item({ id: 'porto', city: 'Porto', country: 'Portugal' }),
+      ],
+      'city',
+      [],
+      NOW,
+    );
+    const lisbon = chapters.find((c) => c.title === 'Lisbon');
+    expect(lisbon?.items.map((p) => p.id).sort()).toEqual(['miradouro', 'praca']);
+    expect(lisbon?.items.map((p) => p.city).sort()).toEqual(['Lisboa', 'Lisbon']);
+    expect(chapters.find((c) => c.title === 'Lisboa')).toBeUndefined();
+  });
+
   it('groups by city with the country as the eyebrow', () => {
     const chapters = buildChapters(places, 'city', [], NOW);
     expect(chapters[0]).toMatchObject({ title: 'Kyoto', eyebrow: 'Japan' });
@@ -94,6 +111,14 @@ describe('chapter text', () => {
       { city: 'Kyoto', count: 2 },
       { city: 'Tokyo', count: 1 },
     ]);
+    expect(citiesOf([
+      item({ id: 'a', city: 'Lisboa', country: 'Portugal' }),
+      item({ id: 'b', city: 'Lisbon', country: 'Portugal' }),
+    ])).toEqual([{ city: 'Lisbon', count: 2 }]);
+    expect(chapterSummary([
+      item({ id: 'a', city: 'Lisboa', country: 'Portugal' }),
+      item({ id: 'b', city: 'Lisbon', country: 'Portugal' }),
+    ])).toBe('2 places');
   });
 
   it('labels a collection by its next date, or as a memory', () => {

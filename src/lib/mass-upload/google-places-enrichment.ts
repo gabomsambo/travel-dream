@@ -1,4 +1,5 @@
 import { parseAddressComponents } from '@/lib/address-parser';
+import { GOOGLE_PLACES_LANGUAGE } from '@/lib/city-names';
 import type { GeminiExtractedPlace, PipelinePlace } from '@/types/extraction-pipeline';
 
 // ─── Internal Types ───────────────────────────────────────────────────────────
@@ -153,6 +154,8 @@ export class GooglePlacesEnrichmentService {
     url.searchParams.set('input', query);
     url.searchParams.set('key', this.apiKey);
     url.searchParams.set('types', 'establishment|geocode');
+    // English locality names, matching the Add Place picker and details route.
+    url.searchParams.set('language', GOOGLE_PLACES_LANGUAGE);
 
     const data = await this.callGoogle<{ predictions?: Array<{ place_id: string }> }>(
       url,
@@ -172,6 +175,7 @@ export class GooglePlacesEnrichmentService {
       'fields',
       'place_id,name,formatted_address,geometry,address_components,opening_hours'
     );
+    url.searchParams.set('language', GOOGLE_PLACES_LANGUAGE);
 
     const data = await this.callGoogle<{
       result?: {

@@ -87,4 +87,39 @@ describe('getExplorePlacesInCity', () => {
     const french = await getExplorePlacesInCity(ALICE.id, 'Paris', 'France', 'plc_alice_louvre');
     expect(french.map((p) => p.id)).toEqual(['plc_alice_eiffel']);
   });
+
+  it('treats Lisboa and Lisbon as one city without rewriting the stored names or crossing tenants', async () => {
+    const now = new Date().toISOString();
+    await exec(
+      `INSERT INTO places (id,user_id,name,kind,status,city,country,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['plc_alice_lisbon', ALICE.id, 'Praça', 'landmark', 'library', 'Lisbon', 'Portugal', now, now]
+    );
+    await exec(
+      `INSERT INTO places (id,user_id,name,kind,status,city,country,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['plc_alice_lisboa', ALICE.id, 'Miradouro', 'landmark', 'library', 'Lisboa', 'Portugal', now, now]
+    );
+    await exec(
+      `INSERT INTO places (id,user_id,name,kind,status,city,country,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['plc_bob_lisboa', BOB.id, 'Bob Lisboa', 'cafe', 'library', 'Lisboa', 'Portugal', now, now]
+    );
+
+    const alice = await getExplorePlacesInCity(ALICE.id, 'Lisbon', 'Portugal', 'plc_alice_lisbon');
+    expect(alice.map((p) => p.id)).toEqual(['plc_alice_lisboa']);
+    expect(alice.map((p) => p.city)).toEqual(['Lisboa']);
+
+    const fromLocal = await getExplorePlacesInCity(ALICE.id, 'Lisboa', 'Portugal', 'plc_alice_lisboa');
+    expect(fromLocal.map((p) => p.id)).toEqual(['plc_alice_lisbon']);
+
+    const bob = await getExplorePlacesInCity(BOB.id, 'Lisbon', 'Portugal', 'plc_bob_lisboa');
+    expect(bob).toEqual([]);
+    const aliceSeesBob = await getExplorePlacesInCity(ALICE.id, 'Lisboa', 'Portugal', 'plc_alice_lisbon');
+    expect(aliceSeesBob.map((p) => p.id)).not.toContain('plc_bob_lisboa');
+
+    const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<{ rows: Array<{ city: string }> }> } };
+    const stored = await client.execute({
+      sql: `SELECT city FROM places WHERE id IN (?, ?) ORDER BY id`,
+      args: ['plc_alice_lisboa', 'plc_alice_lisbon'],
+    });
+    expect(stored.rows.map((row) => row.city)).toEqual(['Lisboa', 'Lisbon']);
+  });
 });

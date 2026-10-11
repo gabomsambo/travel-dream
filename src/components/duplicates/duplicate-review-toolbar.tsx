@@ -54,9 +54,6 @@ export function DuplicateReviewToolbar({
             <Merge className="h-4 w-4 mr-1" />
           )}
           {mergeLabel}
-          <kbd className="ml-2 bg-primary-foreground/20 px-1.5 py-0.5 rounded text-xs font-mono hidden sm:inline">
-            m
-          </kbd>
         </Button>
         <Button
           variant="outline"
@@ -66,9 +63,6 @@ export function DuplicateReviewToolbar({
         >
           <XCircle className="h-4 w-4 mr-1" />
           {dismissLabel}
-          <kbd className="ml-2 bg-muted px-1.5 py-0.5 rounded text-xs font-mono hidden sm:inline">
-            d
-          </kbd>
         </Button>
       </div>
     </div>

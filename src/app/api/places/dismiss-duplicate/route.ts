@@ -10,6 +10,7 @@ import { dismissedDuplicates } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { getOwnedPlaceIds } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { clearDuplicateScanCache } from '@/lib/duplicate-scan-cache';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -83,6 +84,10 @@ export async function POST(request: NextRequest) {
     await db.insert(dismissedDuplicates)
       .values(inserts)
       .onConflictDoNothing();
+
+    // The scan caches clusters after filtering dismissals, so a dismiss has to
+    // drop that cache or the next load serves the group that was just dismissed.
+    clearDuplicateScanCache();
 
     return NextResponse.json({
       status: 'success',
@@ -161,6 +166,8 @@ export async function DELETE(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    clearDuplicateScanCache();
 
     return NextResponse.json({
       status: 'success',

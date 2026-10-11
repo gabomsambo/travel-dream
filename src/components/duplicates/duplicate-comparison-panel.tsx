@@ -3,12 +3,15 @@
 import { Check, AlertTriangle, Plus, Minus } from 'lucide-react';
 import { Badge } from '@/components/adapters/badge';
 import { cn } from '@/lib/utils';
+import type { MergeFieldOverrides, MergeOverrideField } from '@/lib/place-merge';
 import type { Place } from '@/types/database';
 
 interface DuplicateComparisonPanelProps {
   target: Place;
   compareTo: Place;
   className?: string;
+  fieldOverrides?: MergeFieldOverrides;
+  onPickField?: (field: MergeOverrideField, placeId: string | null) => void;
 }
 
 type FieldValue = string | number | boolean | string[] | null | undefined | Place['coords'];
@@ -18,6 +21,7 @@ interface FieldComparison {
   targetValue: FieldValue;
   compareValue: FieldValue;
   type: 'text' | 'array' | 'coords';
+  overrideField?: MergeOverrideField;
 }
 
 function formatCoords(coords: Place['coords']): string {
@@ -123,15 +127,17 @@ export function DuplicateComparisonPanel({
   target,
   compareTo,
   className,
+  fieldOverrides,
+  onPickField,
 }: DuplicateComparisonPanelProps) {
   const fields: FieldComparison[] = [
     { label: 'Name', targetValue: target.name, compareValue: compareTo.name, type: 'text' },
-    { label: 'Kind', targetValue: target.kind, compareValue: compareTo.kind, type: 'text' },
-    { label: 'City', targetValue: target.city, compareValue: compareTo.city, type: 'text' },
-    { label: 'Country', targetValue: target.country, compareValue: compareTo.country, type: 'text' },
-    { label: 'Address', targetValue: target.address, compareValue: compareTo.address, type: 'text' },
-    { label: 'Coordinates', targetValue: target.coords, compareValue: compareTo.coords, type: 'coords' },
-    { label: 'Description', targetValue: target.description, compareValue: compareTo.description, type: 'text' },
+    { label: 'Kind', targetValue: target.kind, compareValue: compareTo.kind, type: 'text', overrideField: 'kind' },
+    { label: 'City', targetValue: target.city, compareValue: compareTo.city, type: 'text', overrideField: 'city' },
+    { label: 'Country', targetValue: target.country, compareValue: compareTo.country, type: 'text', overrideField: 'country' },
+    { label: 'Address', targetValue: target.address, compareValue: compareTo.address, type: 'text', overrideField: 'address' },
+    { label: 'Coordinates', targetValue: target.coords, compareValue: compareTo.coords, type: 'coords', overrideField: 'coords' },
+    { label: 'Description', targetValue: target.description, compareValue: compareTo.description, type: 'text', overrideField: 'description' },
     { label: 'Tags', targetValue: target.tags, compareValue: compareTo.tags, type: 'array' },
     { label: 'Vibes', targetValue: target.vibes, compareValue: compareTo.vibes, type: 'array' },
     { label: 'Activities', targetValue: target.activities, compareValue: compareTo.activities, type: 'array' },
@@ -156,13 +162,17 @@ export function DuplicateComparisonPanel({
         const targetDisplay = getFieldValue(field.targetValue, field.type);
         const compareDisplay = getFieldValue(field.compareValue, field.type);
 
+        const usingCompare = !!(
+          field.overrideField && fieldOverrides?.[field.overrideField] === compareTo.id
+        );
+
         return (
           <div
             key={field.label}
             className={cn(
               'grid grid-cols-[120px_1fr_auto_1fr] gap-2 py-2 items-start',
-              indicator === 'target-missing' && 'bg-blue-50/50 -mx-2 px-2 rounded',
-              indicator === 'differ' && 'bg-amber-50/50 -mx-2 px-2 rounded'
+              indicator === 'target-missing' && 'bg-blue-50/50 dark:bg-blue-950/40 -mx-2 px-2 rounded',
+              indicator === 'differ' && 'bg-amber-50/50 dark:bg-amber-950/40 -mx-2 px-2 rounded'
             )}
           >
             <div className="text-sm font-medium text-muted-foreground">{field.label}</div>
@@ -184,6 +194,18 @@ export function DuplicateComparisonPanel({
                 <ArrayBadges values={field.compareValue as string[] || []} />
               ) : (
                 compareDisplay || <span className="text-muted-foreground italic">Empty</span>
+              )}
+              {indicator === 'differ' && field.overrideField && onPickField && (
+                <button
+                  type="button"
+                  className="mt-1 block text-xs underline text-primary"
+                  onClick={() => onPickField(
+                    field.overrideField as MergeOverrideField,
+                    usingCompare ? null : compareTo.id
+                  )}
+                >
+                  {usingCompare ? 'Using this value' : 'Use this value'}
+                </button>
               )}
             </div>
           </div>

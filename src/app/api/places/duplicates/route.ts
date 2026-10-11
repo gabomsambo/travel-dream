@@ -18,6 +18,11 @@ import { eq, and, ne } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 import type { Place } from '@/types/database';
+import {
+  clearDuplicateScanCache,
+  getDuplicateScanCache,
+  setDuplicateScanCache,
+} from '@/lib/duplicate-scan-cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutes for duplicate detection
@@ -45,32 +50,8 @@ const DuplicateConfigSchema = z.object({
   }).default(DEFAULT_DETECTION_CONFIG.weights)
 }).default(DEFAULT_DETECTION_CONFIG);
 
-// Cache for expensive duplicate calculations
-const duplicateCache = new Map<string, any>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
 function getCacheKey(params: any): string {
   return JSON.stringify(params);
-}
-
-function setCache(key: string, value: any) {
-  duplicateCache.set(key, {
-    data: value,
-    timestamp: Date.now()
-  });
-}
-
-function getCache(key: string): any | null {
-  const cached = duplicateCache.get(key);
-  if (!cached) return null;
-
-  const isExpired = Date.now() - cached.timestamp > CACHE_TTL;
-  if (isExpired) {
-    duplicateCache.delete(key);
-    return null;
-  }
-
-  return cached.data;
 }
 
 async function getDismissedPairsSet(userId: string): Promise<Set<string>> {
@@ -170,7 +151,7 @@ export async function GET(request: NextRequest) {
 
     // Check cache first
     const cacheKey = getCacheKey({ userId: user.id, placeId, status, limit, config, mode });
-    const cachedResult = getCache(cacheKey);
+    const cachedResult = getDuplicateScanCache(cacheKey);
     if (cachedResult) {
       return NextResponse.json({
         status: 'success',
@@ -254,7 +235,7 @@ export async function GET(request: NextRequest) {
           }
         };
 
-        setCache(cacheKey, response);
+        setDuplicateScanCache(cacheKey, response);
         return NextResponse.json({
           status: 'success',
           ...response,
@@ -331,7 +312,7 @@ export async function GET(request: NextRequest) {
           config
         };
 
-        setCache(cacheKey, response);
+        setDuplicateScanCache(cacheKey, response);
         return NextResponse.json({
           status: 'success',
           ...response,
@@ -403,7 +384,7 @@ export async function GET(request: NextRequest) {
           config
         };
 
-        setCache(cacheKey, response);
+        setDuplicateScanCache(cacheKey, response);
         return NextResponse.json({
           status: 'success',
           ...response,
@@ -448,7 +429,7 @@ export async function DELETE() {
     // full re-detection for every active user simultaneously.
     await requireAuthForApi();
 
-    duplicateCache.clear();
+    clearDuplicateScanCache();
 
     return NextResponse.json({
       status: 'success',

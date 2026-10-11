@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Star, XCircle, Merge } from 'lucide-react';
 import { Button } from '@/components/adapters/button';
 import { Badge } from '@/components/adapters/badge';
@@ -21,7 +21,15 @@ import {
   computeMergedPlace,
 } from '@/lib/duplicate-target-selector';
 import { cn } from '@/lib/utils';
+import type { MergeFieldOverrides } from '@/lib/place-merge';
 import type { Place } from '@/types/database';
+
+export interface OpenGroupMergeIntent {
+  clusterId: string;
+  targetId: string;
+  sourceIds: string[];
+  fieldOverrides?: MergeFieldOverrides;
+}
 
 interface DuplicateCluster {
   cluster_id: string;
@@ -31,9 +39,10 @@ interface DuplicateCluster {
 
 interface DuplicateExpandedViewProps {
   cluster: DuplicateCluster;
-  onMerge: () => void;
-  onMergePair: (targetId: string, sourceId: string) => void;
+  onMerge: (intent: OpenGroupMergeIntent) => void;
+  onMergePair: (targetId: string, sourceId: string, fieldOverrides?: MergeFieldOverrides) => void;
   onDismiss: () => void;
+  onIntentChange?: (intent: OpenGroupMergeIntent | null) => void;
   reasoning?: string[];
   isLoading?: boolean;
   className?: string;
@@ -44,6 +53,7 @@ export function DuplicateExpandedView({
   onMerge,
   onMergePair,
   onDismiss,
+  onIntentChange,
   reasoning,
   isLoading = false,
   className,
@@ -54,6 +64,7 @@ export function DuplicateExpandedView({
   );
 
   const [selectedTargetId, setSelectedTargetId] = useState<string>(recommendedTargetId);
+  const [fieldOverrides, setFieldOverrides] = useState<MergeFieldOverrides>({});
 
   const nonTargetPlaces = useMemo(
     () => cluster.places.filter(p => p.id !== selectedTargetId),
@@ -76,16 +87,41 @@ export function DuplicateExpandedView({
 
   const mergedPlace = useMemo(() => {
     if (!target) return null;
-    return computeMergedPlace(target, nonTargetPlaces);
-  }, [target, nonTargetPlaces]);
+    return computeMergedPlace(target, nonTargetPlaces, fieldOverrides);
+  }, [target, nonTargetPlaces, fieldOverrides]);
+
+  const mergeIntent = useMemo<OpenGroupMergeIntent | null>(() => {
+    if (!target) return null;
+    return {
+      clusterId: cluster.cluster_id,
+      targetId: target.id,
+      sourceIds: nonTargetPlaces.map((place) => place.id),
+      fieldOverrides: Object.keys(fieldOverrides).length > 0 ? fieldOverrides : undefined,
+    };
+  }, [cluster.cluster_id, target, nonTargetPlaces, fieldOverrides]);
+
+  useEffect(() => {
+    onIntentChange?.(mergeIntent);
+    return () => onIntentChange?.(null);
+  }, [mergeIntent, onIntentChange]);
 
   // When target changes, update active tab to first non-target place
   const handleTargetChange = (newTargetId: string) => {
     setSelectedTargetId(newTargetId);
+    setFieldOverrides({});
     const newNonTargets = cluster.places.filter(p => p.id !== newTargetId);
     if (newNonTargets.length > 0 && !newNonTargets.find(p => p.id === activeTabPlaceId)) {
       setActiveTabPlaceId(newNonTargets[0].id);
     }
+  };
+
+  const handlePickField = (field: keyof MergeFieldOverrides, placeId: string | null) => {
+    setFieldOverrides((prev) => {
+      const next = { ...prev };
+      if (!placeId) delete next[field];
+      else next[field] = placeId;
+      return next;
+    });
   };
 
   if (!target) {
@@ -147,7 +183,12 @@ export function DuplicateExpandedView({
       {activePlace && (
         <div className="border rounded-lg p-4 bg-card">
           <h4 className="text-sm font-medium mb-4">Field Comparison</h4>
-          <DuplicateComparisonPanel target={target} compareTo={activePlace} />
+          <DuplicateComparisonPanel
+            target={target}
+            compareTo={activePlace}
+            fieldOverrides={fieldOverrides}
+            onPickField={handlePickField}
+          />
         </div>
       )}
 
@@ -172,7 +213,11 @@ export function DuplicateExpandedView({
         {activePlace && (
           <div className="flex gap-3">
             <Button
-              onClick={() => onMergePair(selectedTargetId, activeTabPlaceId)}
+              onClick={() => onMergePair(
+                selectedTargetId,
+                activeTabPlaceId,
+                Object.keys(fieldOverrides).length > 0 ? fieldOverrides : undefined
+              )}
               disabled={isLoading}
               className="flex-1 min-w-0"
             >
@@ -198,7 +243,7 @@ export function DuplicateExpandedView({
         {cluster.places.length > 2 && (
           <Button
             variant="secondary"
-            onClick={onMerge}
+            onClick={() => mergeIntent && onMerge(mergeIntent)}
             disabled={isLoading}
             className="w-full"
           >

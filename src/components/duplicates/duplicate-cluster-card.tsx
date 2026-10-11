@@ -11,6 +11,8 @@ import {
 } from '@/components/ui-v2/accordion';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { MergeFieldOverrides } from '@/lib/place-merge';
+import type { OpenGroupMergeIntent } from './duplicate-expanded-view';
 import type { Place } from '@/types/database';
 
 interface DuplicateCluster {
@@ -23,9 +25,10 @@ interface DuplicateClusterCardProps {
   cluster: DuplicateCluster;
   selected: boolean;
   onSelect: () => void;
-  onMerge: () => void;
-  onMergePair: (targetId: string, sourceId: string) => void;
+  onMerge: (intent: OpenGroupMergeIntent) => void;
+  onMergePair: (targetId: string, sourceId: string, fieldOverrides?: MergeFieldOverrides) => void;
   onDismiss: () => void;
+  onIntentChange?: (intent: OpenGroupMergeIntent | null) => void;
   isLoading?: boolean;
   reasoning?: string[];
 }
@@ -37,6 +40,7 @@ export function DuplicateClusterCard({
   onMerge,
   onMergePair,
   onDismiss,
+  onIntentChange,
   isLoading = false,
   reasoning,
 }: DuplicateClusterCardProps) {
@@ -56,7 +60,11 @@ export function DuplicateClusterCard({
         )}
       >
         <div
-          className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+          className={cn(
+            'absolute top-3 right-3 z-10 transition-opacity',
+            'opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-within:opacity-100',
+            selected && '[@media(hover:hover)]:opacity-100'
+          )}
           onClick={(e) => e.stopPropagation()}
         >
           <Checkbox
@@ -114,6 +122,7 @@ export function DuplicateClusterCard({
               onMerge={onMerge}
               onMergePair={onMergePair}
               onDismiss={onDismiss}
+              onIntentChange={onIntentChange}
               reasoning={reasoning}
               isLoading={isLoading}
             />

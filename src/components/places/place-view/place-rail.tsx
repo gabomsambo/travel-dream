@@ -9,6 +9,7 @@ import type { PlaceWithRelations, Reservation } from "@/types/database"
 import { AddToTripMenu } from "./add-to-trip-menu"
 import { PlaceMap } from "./place-map"
 import { callUrl, directionsUrl } from "./mobile-action-bar"
+import { SectionPencilSlot } from "./section-edit"
 
 type VisitStatus = "not_visited" | "planned" | "visited"
 
@@ -168,8 +169,11 @@ export function YourPlan({
   const hasDetails = Boolean(planned || lastVisited || companions.length || priority || rating || place.reservations.length)
 
   return (
-    <section aria-labelledby="place-plan" className={CARD}>
-      <h2 id="place-plan" className={EYEBROW}>Your plan</h2>
+    <section aria-labelledby="place-plan" className={cn(CARD, "group")}>
+      <div className="flex items-center">
+        <h2 id="place-plan" className={EYEBROW}>Your plan</h2>
+        <SectionPencilSlot id="plan" />
+      </div>
       <VisitStatusControl value={status} onChange={onStatusChange} />
       <dl className="mt-4 space-y-3 text-sm">
         {planned && (
@@ -265,8 +269,11 @@ export function OnTheGround({ place, onEdit }: { place: PlaceWithRelations; onEd
   const call = callUrl(place.phone)
 
   return (
-    <section aria-labelledby="place-ground" className={CARD}>
-      <h2 id="place-ground" className={EYEBROW}>On the ground</h2>
+    <section aria-labelledby="place-ground" className={cn(CARD, "group")}>
+      <div className="flex items-center">
+        <h2 id="place-ground" className={EYEBROW}>On the ground</h2>
+        <SectionPencilSlot id="ground" />
+      </div>
       {!hasAny ? (
         <div className="mt-2 space-y-3 text-sm text-muted-foreground">
           <p>No address, hours or contact yet.</p>

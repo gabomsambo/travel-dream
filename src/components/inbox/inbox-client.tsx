@@ -8,6 +8,7 @@ import { useConfidenceSelection } from "@/hooks/use-bulk-selection"
 import { Badge } from "@/components/adapters/badge"
 import { notify } from '@/lib/notify'
 import type { Place } from "@/types/database"
+import { placeEditHref } from "@/lib/place-view/edit-link"
 import type { ExportFormat } from "@/types/export"
 
 interface InboxClientProps {
@@ -416,6 +417,7 @@ export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
         onArchive={handleArchivePlace}
         onEdit={handleEditPlace}
         onMerge={handleMergePlace}
+        openPlaceHref={placeEditHref}
         virtualizeThreshold={200} // Enable virtualization for 200+ places
         containerHeight={500} // Reasonable height for inbox view
         enablePerformanceMonitoring={process.env.NODE_ENV === 'development'}

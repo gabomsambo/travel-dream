@@ -19,6 +19,7 @@ interface VirtualizedPlaceGridProps {
   onEdit?: (placeId: string) => void
   onMerge?: (placeId: string) => void
   onView?: (placeId: string) => void
+  openPlaceHref?: (placeId: string) => string
   emptyMessage?: string
   itemHeight?: number
   overscan?: number
@@ -158,6 +159,7 @@ export function VirtualizedPlaceGrid({
   onEdit,
   onMerge,
   onView,
+  openPlaceHref,
   emptyMessage = "No places found",
   itemHeight = 280,
   overscan = 5,
@@ -319,6 +321,7 @@ export function VirtualizedPlaceGrid({
                     onEdit={onEdit}
                     onMerge={onMerge}
                     onView={onView}
+                    openPlaceHref={openPlaceHref?.(place.id)}
                     onObserve={(element) => observeElement(element, place.id)}
                     onUnobserve={() => unobserveElement(place.id)}
                   />
@@ -348,6 +351,7 @@ interface VirtualizedPlaceCardProps {
   onEdit?: (placeId: string) => void
   onMerge?: (placeId: string) => void
   onView?: (placeId: string) => void
+  openPlaceHref?: string
   onObserve?: (element: Element) => void
   onUnobserve?: () => void
 }

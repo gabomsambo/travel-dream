@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { MapPin } from "lucide-react"
+import { useTheme } from "next-themes"
 import { cn } from "@/lib/utils"
 import { kindIcon } from "@/components/explore/kind-icon"
 
@@ -23,11 +24,14 @@ export function PlaceMap({
   className?: string
 }) {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+  const { resolvedTheme } = useTheme()
+  const dark = resolvedTheme === "dark"
   const [failed, setFailed] = React.useState(false)
   const Icon = kindIcon(kind)
 
+  // Follow the page theme, as the interactive library map already does.
   const src = token
-    ? `https://api.mapbox.com/styles/v1/mapbox/light-v11/static/${coords.lon},${coords.lat},15,0/600x400@2x?access_token=${token}`
+    ? `https://api.mapbox.com/styles/v1/mapbox/${dark ? "dark-v11" : "light-v11"}/static/${coords.lon},${coords.lat},15,0/600x400@2x?access_token=${token}`
     : null
 
   return (
@@ -49,7 +53,13 @@ export function PlaceMap({
       <span className="absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-4 ring-white">
         <Icon className="h-4 w-4" aria-hidden />
       </span>
-      {src && !failed && <span className="absolute bottom-1.5 right-2 text-[9px] text-black/60">© Mapbox</span>}
+      {src && !failed && (
+        // Mapbox's static-image terms require both notices.
+        <span className={cn("absolute bottom-1.5 right-2 text-[9px]", dark ? "text-white/70" : "text-black/60")}>
+          <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener noreferrer">© Mapbox</a>{" "}
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap</a>
+        </span>
+      )}
     </div>
   )
 }

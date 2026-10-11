@@ -33,7 +33,12 @@ export function MobileActionBar({
   const call = callUrl(place.phone)
 
   return (
-    <div className="sticky bottom-0 z-30 border-t bg-background/95 px-3 pb-5 pt-3 backdrop-blur lg:hidden">
+    // The scroller (<main> in (app)/layout.tsx) pads its bottom edge with
+    // p-3 sm:p-6, and a sticky element stops at that padding edge — leaving a
+    // strip of content visible under the bar. The negative bottom offset
+    // sticks the bar flush with the viewport and the matching negative margin
+    // keeps it from reserving that strip in the scroll flow.
+    <div className="sticky bottom-[-0.75rem] z-30 -mb-3 border-t bg-background/95 px-3 pb-5 pt-3 backdrop-blur sm:bottom-[-1.5rem] sm:-mb-6 lg:hidden">
       <div className="flex gap-2">
         {dirUrl && (
           <a

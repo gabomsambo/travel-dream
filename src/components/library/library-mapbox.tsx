@@ -51,13 +51,15 @@ export default function LibraryMapbox({ items, onOpen }: { items: LibraryItem[];
   }, [data])
 
   // Read the theme's colours after the theme class lands on <html>.
-  const [colors, setColors] = React.useState({ primary: "#3b82f6", fg: "#0f172a", bg: "#ffffff", accent: "#f59e0b" })
+  const [colors, setColors] = React.useState({ primary: "#3b82f6", fg: "#0f172a", bg: "#ffffff", planned: "#f97316" })
   React.useEffect(() => {
     setColors({
       primary: token("--primary", "#3b82f6"),
       fg: token("--foreground", "#0f172a"),
       bg: token("--background", "#ffffff"),
-      accent: token("--accent", "#f59e0b"),
+      // --map-planned is defined per theme in globals.css; --accent is a
+      // hover-surface token in classic and nearly invisible on the basemap.
+      planned: token("--map-planned", "#f97316"),
     })
   }, [resolvedTheme])
 
@@ -87,7 +89,7 @@ export default function LibraryMapbox({ items, onOpen }: { items: LibraryItem[];
     source: "library",
     filter: ["!", ["has", "point_count"]],
     paint: {
-      "circle-color": ["match", ["get", "status"], "visited", colors.primary, "planned", colors.accent, colors.fg],
+      "circle-color": ["match", ["get", "status"], "visited", colors.primary, "planned", colors.planned, colors.fg],
       "circle-radius": 6,
       "circle-stroke-width": 2,
       "circle-stroke-color": colors.bg,

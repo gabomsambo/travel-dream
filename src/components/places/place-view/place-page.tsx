@@ -21,27 +21,38 @@ const PlaceFullView = dynamic(() => loadEditor().then((mod) => ({ default: mod.P
   ),
 })
 
+type PlaceMode = "view" | "postcard" | "classic"
+
+function clearEditorQuery(replace: (href: string, options?: { scroll?: boolean }) => void) {
+  const url = new URL(window.location.href)
+  if (!url.searchParams.has("edit") && !url.searchParams.has("editor")) return
+  replace(url.pathname, { scroll: false })
+}
+
 /**
- * /place/[id]: opens in the read view (or the editor, with ?edit=1 or the "Open places in
- * edit mode" setting); the existing editor is one Edit away and returns with Done. Saves refresh the server data, so the view always shows what was saved.
+ * /place/[id]: opens on the Postcard. Edit, ?edit=1 and "Open places in edit mode" turn that
+ * same page into Postcard edit mode. The pre-redesign form stays at ?editor=classic and
+ * More → Open classic editor. Done only leaves; a failed save stays put.
  */
 export function PlacePage({
   place,
   trips = [],
   alsoIn = [],
   startInEdit = false,
+  startClassic = false,
 }: {
   place: PlaceWithRelations
   trips?: ExploreCollection[]
   alsoIn?: ExplorePlace[]
   startInEdit?: boolean
+  startClassic?: boolean
 }) {
   const router = useRouter()
-  const [mode, setMode] = React.useState<"view" | "edit">(startInEdit ? "edit" : "view")
-  const preferenceApplied = React.useRef(startInEdit)
+  const [mode, setMode] = React.useState<PlaceMode>(startClassic ? "classic" : startInEdit ? "postcard" : "view")
+  const preferenceApplied = React.useRef(startInEdit || startClassic)
 
   // The setting lives in localStorage, so it can only be read after mount. ?edit=1 is
-  // already decided on the server and does not flash.
+  // already decided on the server and does not flash. Classic is an explicit URL, not a setting.
   React.useEffect(() => {
     if (preferenceApplied.current) return
     preferenceApplied.current = true
@@ -49,7 +60,7 @@ export function PlacePage({
       const raw = window.localStorage.getItem("user-preferences")
       if (!raw) return
       const prefs = JSON.parse(raw) as { openPlacesInEditMode?: boolean }
-      if (prefs.openPlacesInEditMode) setMode("edit")
+      if (prefs.openPlacesInEditMode) setMode("postcard")
     } catch {
       // A broken preferences blob should not trap the page in the editor.
     }
@@ -57,36 +68,51 @@ export function PlacePage({
   const viewHandlesRef = React.useRef<PlaceViewHandles | null>(null)
   const [editSeed, setEditSeed] = React.useState<PlaceWithRelations | null>(null)
 
-  // A one-tap status write or a section-pencil edit left in flight when Edit is pressed must
-  // settle before the editor mounts, or the editor's full-record save would silently revert it.
-  const enterEdit = React.useCallback(async () => {
-    await viewHandlesRef.current?.flushStatus()
-    if (viewHandlesRef.current && !(await viewHandlesRef.current.flushSections())) return
-    setEditSeed(viewHandlesRef.current?.displayPlace() ?? null)
-    setMode("edit")
-  }, [])
-  const exitEdit = React.useCallback(() => {
+  const leaveToView = React.useCallback(() => {
     setMode("view")
+    clearEditorQuery((href, options) => router.replace(href, options))
     router.refresh()
   }, [router])
 
-  React.useEffect(() => {
+  // The classic form saves a full snapshot, so anything still in flight has to land first.
+  const enterClassic = React.useCallback(async () => {
+    await viewHandlesRef.current?.flushStatus()
+    if (viewHandlesRef.current && !(await viewHandlesRef.current.flushSections())) return
+    const seeded = viewHandlesRef.current?.displayPlace() ?? place
+    if (!seeded.name.trim()) return
+    setEditSeed(seeded)
+    setMode("classic")
+    const url = new URL(window.location.href)
+    url.searchParams.delete("edit")
+    url.searchParams.set("editor", "classic")
+    router.replace(`${url.pathname}?${url.searchParams.toString()}`, { scroll: false })
     document.querySelector("main")?.scrollTo({ top: 0 })
-  }, [mode])
+  }, [place, router])
 
   const editPlace = editSeed
     ? { ...editSeed, reservations: place.reservations, links: place.links, attachments: place.attachments }
     : place
 
-  if (mode === "edit") {
-    return <PlaceFullView initialPlace={editPlace} onDone={exitEdit} />
+  if (mode === "classic") {
+    return <PlaceFullView initialPlace={editPlace} onDone={leaveToView} />
   }
 
   return (
     // Edge to edge like Explore: inline-size containment keeps the full-bleed hero from
     // widening the (app) shell's flex column, and -m-3 matches the shell's mobile padding.
     <div className={`${editorialFont.variable} -m-3 min-h-full pb-24 [contain:inline-size] sm:-m-6`}>
-      <PlaceView place={place} trips={trips} alsoIn={alsoIn} onEdit={() => void enterEdit()} onPrefetchEdit={loadEditor} onPhotoAttached={() => router.refresh()} handlesRef={viewHandlesRef} />
+      <PlaceView
+        place={place}
+        trips={trips}
+        alsoIn={alsoIn}
+        editing={mode === "postcard"}
+        onEdit={() => setMode("postcard")}
+        onDoneEditing={leaveToView}
+        onOpenClassic={() => void enterClassic()}
+        onPrefetchEdit={loadEditor}
+        onPhotoAttached={() => router.refresh()}
+        handlesRef={viewHandlesRef}
+      />
     </div>
   )
 }

@@ -9,7 +9,7 @@ import { resetHalfBuiltTripsForTests } from '@/components/places/place-view/add-
 
 const mockRefresh = jest.fn()
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: mockRefresh, push: jest.fn() }),
+  useRouter: () => ({ refresh: mockRefresh, push: jest.fn(), replace: jest.fn() }),
 }))
 jest.mock('next/dynamic', () => ({
   __esModule: true,

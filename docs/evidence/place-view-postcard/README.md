@@ -2,6 +2,8 @@
 
 These are live captures from headless Chromium (`chrome-devtools-axi`, CDP `:9341`) against `next dev` on `:3301`. I was signed in as the local demo user (`explorer@local.test`) against a throwaway SQLite file seeded from the Explore prototype data, never production. Desktop captures are 1440×900 and mobile 390×844. **Before** is `main` at `a59f34c` with the same data.
 
+Global Edit no longer opens the form in the edit frames below. It edits this Postcard in place. That form stays at More → Open classic editor and `?editor=classic`. See [Postcard edit evidence](../td-place-edit-build/README.md).
+
 There are two places:
 - *Fushimi Inari-taisha* (rich): photos, note, description, hours, contact, links with titles, a reservation, and sources.
 - *Bar Leone* (sparse): only the basics, as the upload pipeline leaves them.

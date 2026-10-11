@@ -9,7 +9,7 @@ import { FindImageButton } from "@/components/places/find-image-button"
 const PhotoUploader = dynamic(() => import("@/components/upload/photo-uploader").then((mod) => mod.PhotoUploader), { ssr: false })
 import { cn } from "@/lib/utils"
 import type { Reservation } from "@/types/database"
-import { SECTION_LABELS, type SectionEditApi, type SectionId } from "./section-edit"
+import { SECTION_LABELS, useSectionEdit, type SectionEditApi, type SectionId } from "./section-edit"
 
 const LABEL = "text-xs font-medium text-muted-foreground"
 const INPUT = "mt-1 flex h-10 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -31,13 +31,21 @@ function Field({
   placeholder?: string
 }) {
   const id = React.useId()
+  // Postcard edit keeps values looking like values until the field is focused.
+  const quiet = Boolean(useSectionEdit()?.editingAll)
+  const inputClass = quiet
+    ? "mt-1 flex h-10 w-full rounded-xl border border-transparent bg-transparent px-1 text-sm outline-none focus:border-input focus:bg-background focus:px-3.5 focus-visible:ring-2 focus-visible:ring-ring"
+    : INPUT
+  const areaClass = quiet
+    ? "mt-1 min-h-[84px] w-full rounded-xl border border-transparent bg-transparent px-1 py-1 text-sm leading-6 outline-none focus:border-input focus:bg-background focus:px-3.5 focus-visible:ring-2 focus-visible:ring-ring"
+    : AREA
   return (
     <label htmlFor={id} className="block min-w-0">
       <span className={LABEL}>{label}</span>
       {area ? (
-        <textarea id={id} value={value} placeholder={placeholder} rows={4} onChange={(event) => onChange(event.target.value)} className={AREA} />
+        <textarea id={id} value={value} placeholder={placeholder} rows={4} onChange={(event) => onChange(event.target.value)} className={areaClass} />
       ) : (
-        <input id={id} type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} className={INPUT} />
+        <input id={id} type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} className={inputClass} />
       )}
     </label>
   )
@@ -55,6 +63,7 @@ function TagField({
   placeholder: string
 }) {
   const [draft, setDraft] = React.useState("")
+  const quiet = Boolean(useSectionEdit()?.editingAll)
   const add = () => {
     const next = draft.trim()
     if (!next) return
@@ -64,7 +73,7 @@ function TagField({
   return (
     <div>
       <span className={LABEL}>{label}</span>
-      <div className="mt-1 flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border border-input bg-background px-2.5 py-1.5">
+      <div className={cn("mt-1 flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border px-2.5 py-1.5", quiet ? "border-transparent bg-transparent focus-within:border-input focus-within:bg-background" : "border-input bg-background")}>
         {value.map((tag) => (
           <button
             key={tag}

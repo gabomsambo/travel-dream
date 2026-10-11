@@ -13,7 +13,8 @@ import { About, GoodToKnow, Links, Photos, RecordInfo, SectionHeader, Sources, W
 import { OnTheGround, YourPlan } from "./place-rail"
 import { AlsoInCity } from "./also-in-city"
 import { MobileActionBar } from "./mobile-action-bar"
-import { EditableSection, SectionEditProvider, useSectionEdit, type SectionEditHandles, type SectionId } from "./section-edit"
+import { applyDraft, SectionEditProvider, useSectionEdit, type SectionEditHandles, type SectionId } from "./section-edit"
+import { EditIndex, SectionSlot, sectionShown } from "./postcard-edit"
 
 const PhotoLightbox = dynamic(
   () => import("@/components/ui-custom/photo-lightbox").then((mod) => ({ default: mod.PhotoLightbox })),
@@ -26,7 +27,7 @@ type VisitStatus = "not_visited" | "planned" | "visited"
 export interface PlaceViewHandles {
   /** Resolves once no one-tap visit-status write is in flight or queued. */
   flushStatus: () => Promise<void>
-  /** Resolves true once every section-pencil edit is saved; false if a save failed. */
+  /** Resolves true once in-flight Postcard and section edits are saved; false if a save failed. */
   flushSections: () => Promise<boolean>
   /** The place as currently displayed, including a confirmed status override and section edits. */
   displayPlace: () => PlaceWithRelations
@@ -103,14 +104,91 @@ function QuickFacts({ place }: { place: PlaceWithRelations }) {
   )
 }
 
+function PlaceColumns({
+  place,
+  displayPlace,
+  photos,
+  trips,
+  onEdit,
+  onStatusChange,
+  onTripsChanged,
+  onOpenPhoto,
+}: {
+  place: PlaceWithRelations
+  displayPlace: PlaceWithRelations
+  photos: Attachment[]
+  trips: ExploreCollection[]
+  onEdit: () => void
+  onStatusChange: (next: VisitStatus) => void
+  onTripsChanged: () => void
+  onOpenPhoto: (index: number) => void
+}) {
+  const api = useSectionEdit()
+  const editing = Boolean(api?.editingAll)
+  const shownPlace = editing && api ? applyDraft(displayPlace, api.draft) : displayPlace
+
+  if (editing && api?.mobile) {
+    return (
+      <>
+        <EditIndex place={shownPlace} />
+        <div className="mt-10 space-y-12 px-4 sm:px-8">
+          <Sources place={place} />
+          <RecordInfo place={place} />
+        </div>
+      </>
+    )
+  }
+
+  return (
+    // On small screens the rail sits right after the note; from lg it is a sticky column.
+    <div className="grid gap-10 px-4 pt-6 sm:px-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-x-12 lg:pt-2 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="min-w-0 space-y-10 empty:hidden lg:col-start-1 lg:row-start-1">
+        <SectionSlot id="why" shown={sectionShown("why", shownPlace)}>
+          <WhyItsHere place={shownPlace} />
+        </SectionSlot>
+        {!editing && <MakeItYours place={place} hasPhotos={photos.length > 0} onEdit={onEdit} />}
+      </div>
+      <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1" aria-label="Plan and practical details">
+        <div className="space-y-4 lg:sticky lg:top-6">
+          <SectionSlot id="plan" shown>
+            <YourPlan place={shownPlace} onEdit={onEdit} onStatusChange={onStatusChange} trips={trips} onTripsChanged={onTripsChanged} />
+          </SectionSlot>
+          <SectionSlot id="ground" shown>
+            <OnTheGround place={shownPlace} onEdit={onEdit} />
+          </SectionSlot>
+        </div>
+      </aside>
+      <div className="min-w-0 space-y-12 lg:col-start-1 lg:row-start-2">
+        <SectionSlot id="about" shown={sectionShown("about", shownPlace)}>
+          <About place={shownPlace} />
+        </SectionSlot>
+        <SectionSlot id="know" shown={sectionShown("know", shownPlace)}>
+          <GoodToKnow place={shownPlace} />
+        </SectionSlot>
+        <SectionSlot id="photos" shown={sectionShown("photos", shownPlace)}>
+          <Photos photos={photos} onOpen={onOpenPhoto} />
+        </SectionSlot>
+        <SectionSlot id="links" shown={sectionShown("links", shownPlace)}>
+          <Links place={shownPlace} />
+        </SectionSlot>
+        <Sources place={place} />
+        <RecordInfo place={place} />
+      </div>
+    </div>
+  )
+}
+
 /**
  * The read view of a place ("Postcard"): Explore's hero, a reading column, and a sticky
- * rail with the plan and the practical details. Section pencils edit in place; the global
- * editor lives behind `onEdit`.
+ * rail with the plan and the practical details. Section pencils edit one part in place.
+ * Global Edit turns this same page into Postcard edit mode (`editing`).
  */
 export function PlaceView({
   place,
+  editing = false,
   onEdit,
+  onDoneEditing,
+  onOpenClassic,
   onPrefetchEdit,
   onPhotoAttached,
   handlesRef,
@@ -118,7 +196,10 @@ export function PlaceView({
   alsoIn,
 }: {
   place: PlaceWithRelations
+  editing?: boolean
   onEdit: () => void
+  onDoneEditing?: () => void
+  onOpenClassic?: () => void
   onPrefetchEdit?: () => void
   onPhotoAttached: () => void
   handlesRef?: React.MutableRefObject<PlaceViewHandles | null>
@@ -135,7 +216,10 @@ export function PlaceView({
   const persistingRef = React.useRef(false)
   const statusGenerationRef = React.useRef(0)
   const persistPromiseRef = React.useRef<Promise<void> | null>(null)
-  const displayPlace = statusOverride ? { ...place, visitStatus: statusOverride } : place
+  const displayPlace = React.useMemo(
+    () => (statusOverride ? { ...place, visitStatus: statusOverride } : place),
+    [place, statusOverride]
+  )
   const sectionHandlesRef = React.useRef<SectionEditHandles | null>(null)
 
   const persistVisitStatus = async () => {
@@ -212,31 +296,19 @@ export function PlaceView({
   }
 
   return (
-    <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef}>
-      <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} />
+    <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={editing} onExitEditing={onDoneEditing}>
+      <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} />
       <QuickFacts place={displayPlace} />
-
-      {/* On small screens the rail sits right after the note; from lg it is a sticky column. */}
-      <div className="grid gap-10 px-4 pt-6 sm:px-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-x-12 lg:pt-2 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="min-w-0 space-y-10 empty:hidden lg:col-start-1 lg:row-start-1">
-          <EditableSection id="why" read={<WhyItsHere place={place} />} />
-          <MakeItYours place={place} hasPhotos={photos.length > 0} onEdit={onEdit} />
-        </div>
-        <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1" aria-label="Plan and practical details">
-          <div className="space-y-4 lg:sticky lg:top-6">
-            <EditableSection id="plan" read={<YourPlan place={displayPlace} onEdit={onEdit} onStatusChange={setVisitStatus} trips={trips} onTripsChanged={() => router.refresh()} />} />
-            <EditableSection id="ground" read={<OnTheGround place={place} onEdit={onEdit} />} />
-          </div>
-        </aside>
-        <div className="min-w-0 space-y-12 lg:col-start-1 lg:row-start-2">
-          <EditableSection id="about" read={<About place={place} />} />
-          <EditableSection id="know" read={<GoodToKnow place={place} />} />
-          <EditableSection id="photos" read={<Photos photos={photos} onOpen={setLightbox} />} />
-          <EditableSection id="links" read={<Links place={place} />} />
-          <Sources place={place} />
-          <RecordInfo place={place} />
-        </div>
-      </div>
+      <PlaceColumns
+        place={place}
+        displayPlace={displayPlace}
+        photos={photos}
+        trips={trips}
+        onEdit={onEdit}
+        onStatusChange={setVisitStatus}
+        onTripsChanged={() => router.refresh()}
+        onOpenPhoto={setLightbox}
+      />
 
       {place.city && <AlsoInCity city={place.city} places={alsoIn} />}
 

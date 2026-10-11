@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Archive, ArchiveRestore, Ellipsis, Loader2, Trash2 } from "lucide-react"
+import { Archive, ArchiveRestore, Ellipsis, Loader2, PencilLine, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/adapters/button"
 import {
@@ -28,11 +28,15 @@ export function PlaceActionsMenu({
   placeName,
   status,
   className,
+  onOpenClassic,
+  onPrefetchClassic,
 }: {
   placeId: string
   placeName: string
   status: string
   className?: string
+  onOpenClassic?: () => void
+  onPrefetchClassic?: () => void
 }) {
   const router = useRouter()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
@@ -99,12 +103,18 @@ export function PlaceActionsMenu({
             type="button"
             aria-label="More actions"
             disabled={busy !== null}
+            onPointerEnter={onPrefetchClassic}
+            onFocus={onPrefetchClassic}
             className={cn("inline-flex h-9 w-9 items-center justify-center rounded-full", className)}
           >
             {busy && busy !== "delete" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Ellipsis className="h-4 w-4" aria-hidden />}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onSelect={() => onOpenClassic?.()}>
+            <PencilLine className="mr-2 h-4 w-4" aria-hidden /> Open classic editor
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {status === "archived" ? (
             <DropdownMenuItem onSelect={() => setStatus("library")}>
               <ArchiveRestore className="mr-2 h-4 w-4" aria-hidden /> Restore to library

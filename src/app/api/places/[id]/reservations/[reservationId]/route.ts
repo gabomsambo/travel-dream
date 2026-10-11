@@ -47,7 +47,7 @@ export async function PATCH(
     }
 
     const { updateReservation } = await import('@/lib/db-mutations');
-    const updated = await updateReservation(reservationId, validation.data, user.id);
+    const updated = await updateReservation(reservationId, validation.data, user.id, placeId);
 
     return NextResponse.json({
       status: 'success',
@@ -88,7 +88,7 @@ export async function DELETE(
         { status: 404 }
       );
     }
-    await deleteReservation(reservationId, user.id);
+    await deleteReservation(reservationId, user.id, placeId);
 
     return NextResponse.json({
       status: 'success',

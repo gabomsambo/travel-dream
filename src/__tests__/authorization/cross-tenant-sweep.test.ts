@@ -484,10 +484,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         params: { id: t.collection },
         body: { placeIds: [t.place2] },
       }),
-      refuses: [207],
-      because:
-        'addPlaceToCollection checks that both the place and the collection are the caller\'s and throws ' +
-        'otherwise; the route reports per-id failures as 207 Multi-Status.',
     },
   },
   'collections/[id]/places/[placeId]': {
@@ -830,10 +826,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         url: `${API}/places/bulk-merge`,
         body: { clusters: [{ targetId: t.place, sourceIds: [t.place2], confidence: 0.9 }] },
       }),
-      refuses: [200],
-      because:
-        'bulkMergePlaces refuses any cluster whose places are not all the caller\'s and reports it as a ' +
-        'per-cluster error inside a 200.',
     },
   },
   'places/dismiss-duplicate': {

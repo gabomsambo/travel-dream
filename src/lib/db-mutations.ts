@@ -1090,6 +1090,7 @@ export async function bulkMergePlaces(
           clusterId: cluster.targetId,
           status: 'error',
           error: error instanceof Error ? error.message : 'Unknown error',
+          notFound: error instanceof NotFoundError,
         });
         failedCount++;
       }
@@ -1366,7 +1367,8 @@ export async function updateReservation(
     specialRequests?: string | null;
     totalCost?: string | null;
   },
-  userId: string
+  userId: string,
+  placeId: string
 ) {
   return withErrorHandling(async () => {
     const { reservations } = await import('@/db/schema');
@@ -1377,7 +1379,7 @@ export async function updateReservation(
       .where(eq(reservations.id, id))
       .limit(1);
 
-    if (!reservation) {
+    if (!reservation || reservation.placeId !== placeId) {
       throw new NotFoundError(`Reservation ${id} not found`);
     }
 
@@ -1392,14 +1394,18 @@ export async function updateReservation(
     const [updated] = await db
       .update(reservations)
       .set(data)
-      .where(eq(reservations.id, id))
+      .where(and(eq(reservations.id, id), eq(reservations.placeId, placeId)))
       .returning();
+
+    if (!updated) {
+      throw new NotFoundError(`Reservation ${id} not found`);
+    }
 
     return updated;
   }, 'updateReservation');
 }
 
-export async function deleteReservation(id: string, userId: string) {
+export async function deleteReservation(id: string, userId: string, placeId: string) {
   return withErrorHandling(async () => {
     const { reservations } = await import('@/db/schema');
     const { eq, and } = await import('drizzle-orm');
@@ -1409,7 +1415,7 @@ export async function deleteReservation(id: string, userId: string) {
       .where(eq(reservations.id, id))
       .limit(1);
 
-    if (!reservation) {
+    if (!reservation || reservation.placeId !== placeId) {
       throw new NotFoundError(`Reservation ${id} not found`);
     }
 
@@ -1421,9 +1427,14 @@ export async function deleteReservation(id: string, userId: string) {
       throw new NotFoundError('Unauthorized to delete this reservation');
     }
 
-    await db
+    const deleted = await db
       .delete(reservations)
-      .where(eq(reservations.id, id));
+      .where(and(eq(reservations.id, id), eq(reservations.placeId, placeId)))
+      .returning();
+
+    if (deleted.length === 0) {
+      throw new NotFoundError(`Reservation ${id} not found`);
+    }
 
     return { success: true };
   }, 'deleteReservation');

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { addPlaceToCollection } from '@/lib/db-mutations';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
+import { NotFoundError } from '@/lib/db-utils';
 
 const AddPlacesSchema = z.object({
   placeIds: z.array(z.string())
@@ -23,12 +24,14 @@ export async function POST(
       successful: [] as string[],
       failed: [] as { placeId: string; error: string }[],
     };
+    let notFoundCount = 0;
 
     for (const placeId of placeIds) {
       try {
         await addPlaceToCollection(placeId, collectionId, user.id);
         results.successful.push(placeId);
       } catch (error) {
+        if (error instanceof NotFoundError) notFoundCount++;
         results.failed.push({
           placeId,
           error: error instanceof Error ? error.message : 'Unknown error',
@@ -37,6 +40,18 @@ export async function POST(
     }
 
     const allSuccessful = results.failed.length === 0;
+    const everyIdMissing =
+      results.successful.length === 0 &&
+      results.failed.length > 0 &&
+      notFoundCount === results.failed.length;
+
+    if (everyIdMissing) {
+      return NextResponse.json({
+        status: 'error',
+        message: 'Place or collection not found',
+        results,
+      }, { status: 404 });
+    }
 
     return NextResponse.json({
       status: allSuccessful ? 'success' : 'partial',

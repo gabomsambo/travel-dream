@@ -165,6 +165,10 @@ describe('section pencils', () => {
     expect(screen.getByLabelText('Description')).toHaveValue('A mountain of gates.')
     expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
     expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
+
+    // The 800ms debounce is still pending. Let it land before the file continues,
+    // or the PATCH fires into the next test's fetch mock.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 2000 })
   })
 
   it('saves a pencil edit still inside the debounce before the classic editor is seeded', async () => {

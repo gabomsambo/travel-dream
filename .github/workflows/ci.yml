@@ -20,6 +20,13 @@ jobs:
 
       - run: npm ci
 
+      # Errors here fail the build. The tenant-isolation audit's evidence was
+      # that lint had already named the two handlers that leaked with
+      # "'user' is assigned a value but never used" — but the rule was a
+      # warning and nothing ran it. Needs no env: lint reads no secrets.
+      - name: Lint
+        run: npm run lint
+
       - name: Type check
         run: npx tsc --noEmit
 

@@ -1,5 +1,5 @@
 import { JSONSchemaType } from 'ajv';
-import { ExtractedPlace, ExtractionResult, BatchExtractionResult } from '@/types/llm-extraction';
+import { ExtractedPlace } from '@/types/llm-extraction';
 import { PLACE_KINDS } from '@/types/database';
 
 // Schema version for migration support

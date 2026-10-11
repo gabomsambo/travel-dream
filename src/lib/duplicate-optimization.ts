@@ -3,8 +3,7 @@ import {
   type DuplicateDetectionConfig,
   type DuplicateDetectionResult,
   DEFAULT_DETECTION_CONFIG,
-  detectDuplicates,
-  calculateNameSimilarity
+  detectDuplicates
 } from './duplicate-detection';
 
 interface SpatialIndex {

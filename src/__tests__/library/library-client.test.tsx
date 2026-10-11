@@ -231,13 +231,25 @@ describe('hearts, saved to the account', () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
     await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment."))
+    await waitFor(() => {
+      expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment.")
+      expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+    })
+    expect(screen.queryByRole('button', { name: /^Hearts/ })).not.toBeInTheDocument()
     expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
       { placeIds: ['plc_2'], on: true },
       { placeIds: ['plc_2'], on: true },
     ])
     expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBeNull()
     expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
+      { placeIds: ['plc_2'], on: true },
+      { placeIds: ['plc_2'], on: true },
+      { placeIds: ['plc_2'], on: true },
+    ]))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false'))
+    expect(screen.queryByRole('button', { name: /^Hearts/ })).not.toBeInTheDocument()
     unmount()
 
     fetchMock.mockClear()

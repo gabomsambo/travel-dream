@@ -3,6 +3,7 @@
 import * as React from "react"
 import { notify } from "@/lib/notify"
 import {
+  heartAccountValue,
   heartIntentsNewerThan,
   heartRollbackValue,
   heartSeqSnapshot,
@@ -76,9 +77,10 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
           if (!account.has(id) && !offSet.has(id) && !seen.has(id)) onIds.push(id)
         }
       }
-      const baseline = (id: string) => account.has(id) || deviceAtStart.has(id)
-      const onWrite = queueHeartWrites(onIds, true, { baseline, requeue: new Set(pendingOn) })
-      const offWrite = queueHeartWrites(off, false, { baseline, requeue: new Set(off) })
+      const hadAccount = (id: string) => account.has(id)
+      const baseline = (id: string) => hadAccount(id) || deviceAtStart.has(id)
+      const onWrite = queueHeartWrites(onIds, true, { baseline, account: hadAccount, requeue: new Set(pendingOn) })
+      const offWrite = queueHeartWrites(off, false, { baseline, account: hadAccount, requeue: new Set(off) })
       const floor = new Map(seqAtStart)
       for (const [id, seq] of onWrite.seqs) floor.set(id, Math.max(floor.get(id) ?? 0, seq))
       for (const [id, seq] of offWrite.seqs) floor.set(id, Math.max(floor.get(id) ?? 0, seq))
@@ -139,7 +141,7 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
       try {
         const result = await write.done
         if (result.ok) return true
-        const revert = new Map<string, boolean>()
+        const revert = new Map<string, { visible: boolean; device: boolean }>()
         let synced = false
         try {
           synced = localStorage.getItem(heartsSyncedKey(userId)) === "1"
@@ -148,15 +150,16 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
         }
         const deviceAtStart = deviceAtStartRef.current
         for (const id of result.rejected) {
-          revert.set(id, heartRollbackValue(id, !synced && (deviceAtStart?.has(id) ?? false)))
+          const preserveDevice = !synced && (deviceAtStart?.has(id) ?? false)
+          revert.set(id, { visible: heartAccountValue(id), device: heartRollbackValue(id, preserveDevice) })
         }
         if (revert.size) {
           setHearts((prev) => {
             const next = new Set(prev)
-            for (const [id, was] of revert) {
-              if (was) next.add(id)
+            for (const [id, rolled] of revert) {
+              if (rolled.visible) next.add(id)
               else next.delete(id)
-              setDreamLocal(id, was)
+              setDreamLocal(id, rolled.device)
             }
             return next
           })

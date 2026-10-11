@@ -118,6 +118,7 @@ type Lane = {
   intent: boolean;
   committed: boolean | undefined;
   baseline: boolean;
+  account: boolean;
   tail: Promise<void>;
 };
 
@@ -147,13 +148,15 @@ export type HeartSaveResult = {
 export type HeartWriteOptions = {
   /** Value before this place's first write, used when none of them land. */
   baseline?: (id: string) => boolean;
+  /** Account value before this place's first write. Defaults to `baseline`. */
+  account?: (id: string) => boolean;
   /** On failure, queue these ids again when they are still the latest intent. */
   requeue?: ReadonlySet<string>;
 };
 
 const EMPTY_SAVE: HeartSaveResult = { ok: true, applied: [], rejected: [], seqs: new Map() };
 
-function claim(ids: string[], on: boolean, baselineOf: (id: string) => boolean): Claim {
+function claim(ids: string[], on: boolean, baselineOf: (id: string) => boolean, accountOf: (id: string) => boolean): Claim {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -164,7 +167,7 @@ function claim(ids: string[], on: boolean, baselineOf: (id: string) => boolean):
     let lane = lanes.get(id);
     if (!lane) {
       const baseline = baselineOf(id);
-      lane = { seq: 0, intent: baseline, committed: undefined, baseline, tail: Promise.resolve() };
+      lane = { seq: 0, intent: baseline, committed: undefined, baseline, account: accountOf(id), tail: Promise.resolve() };
       lanes.set(id, lane);
     }
     lane.seq += 1;
@@ -261,8 +264,9 @@ export function queueHeartWrites(
 ): { seqs: Map<string, number>; done: Promise<HeartSaveResult> } {
   if (!ids.length) return { seqs: new Map(), done: Promise.resolve(EMPTY_SAVE) };
   const baselineOf = options?.baseline ?? (() => false);
+  const accountOf = options?.account ?? baselineOf;
   const claims: Claim[] = [];
-  for (let i = 0; i < ids.length; i += BATCH) claims.push(claim(ids.slice(i, i + BATCH), on, baselineOf));
+  for (let i = 0; i < ids.length; i += BATCH) claims.push(claim(ids.slice(i, i + BATCH), on, baselineOf, accountOf));
   const seqs = new Map<string, number>();
   for (const held of claims) for (const [id, seq] of held.seqs) seqs.set(id, seq);
   const epochAtStart = epoch;
@@ -276,6 +280,14 @@ export function heartRollbackValue(id: string, preserveUnsyncedDeviceHeart = fal
   if (!lane) return preserveUnsyncedDeviceHeart;
   if (lane.committed !== undefined) return lane.committed;
   return lane.baseline || preserveUnsyncedDeviceHeart;
+}
+
+/** Visible heart: what a write applied, or the account's value when none have landed. */
+export function heartAccountValue(id: string): boolean {
+  const lane = lanes.get(id);
+  if (!lane) return false;
+  if (lane.committed !== undefined) return lane.committed;
+  return lane.account;
 }
 
 /** The intent of `seq` while that write is still the latest one for the place. */

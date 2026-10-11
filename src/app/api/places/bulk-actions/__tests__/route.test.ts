@@ -22,12 +22,19 @@ import { NextRequest } from 'next/server'
 
 jest.mock('@/lib/db-utils', () => ({
   withErrorHandling: jest.fn((fn) => fn()),
+  NotFoundError: class NotFoundError extends Error {},
+}))
+
+jest.mock('@/lib/db-queries', () => ({
+  getOwnedPlaceIds: jest.fn(async (ids: string[]) => new Set(ids)),
 }))
 
 import { bulkConfirmPlaces, batchArchivePlaces } from '@/lib/db-mutations'
+import { getOwnedPlaceIds } from '@/lib/db-queries'
 
 const mockBulkConfirmPlaces = bulkConfirmPlaces as jest.MockedFunction<typeof bulkConfirmPlaces>
 const mockBatchArchivePlaces = batchArchivePlaces as jest.MockedFunction<typeof batchArchivePlaces>
+const mockGetOwnedPlaceIds = getOwnedPlaceIds as jest.MockedFunction<typeof getOwnedPlaceIds>
 
 describe('/api/places/bulk-actions', () => {
   beforeEach(() => {
@@ -126,6 +133,28 @@ describe('/api/places/bulk-actions', () => {
       expect(response.status).toBe(500)
       expect(data.status).toBe('error')
       expect(data.result.updatedCount).toBe(0)
+    })
+
+    it('returns 404 when a place id is not the caller\'s', async () => {
+      mockGetOwnedPlaceIds.mockResolvedValueOnce(new Set(['place-1']))
+
+      const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'confirm',
+          placeIds: ['place-1', 'place-foreign']
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(404)
+      expect(data.status).toBe('error')
+      expect(mockBulkConfirmPlaces).not.toHaveBeenCalled()
     })
 
     it('validates request data', async () => {

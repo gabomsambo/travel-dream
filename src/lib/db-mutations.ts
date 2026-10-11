@@ -3,7 +3,7 @@ import { del } from '@vercel/blob';
 import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
-import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId } from './db-utils';
+import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId, NotFoundError } from './db-utils';
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
 import { isClaimableNow } from './mass-upload/queue-sql';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
@@ -44,7 +44,7 @@ export async function updatePlace(
       .returning();
 
     if (!updated) {
-      throw new Error(`Place with id ${id} not found or unauthorized`);
+      throw new NotFoundError(`Place with id ${id} not found or unauthorized`);
     }
 
     return updated;
@@ -64,7 +64,7 @@ export async function deletePlace(id: string, userId: string): Promise<void> {
         .limit(1);
 
       if (!place) {
-        throw new Error(`Place with id ${id} not found or unauthorized`);
+        throw new NotFoundError(`Place with id ${id} not found or unauthorized`);
       }
 
       // Delete related records first
@@ -119,7 +119,7 @@ export async function updateSource(
       .returning();
 
     if (!updated) {
-      throw new Error(`Source with id ${id} not found or unauthorized`);
+      throw new NotFoundError(`Source with id ${id} not found or unauthorized`);
     }
 
     return updated;
@@ -134,7 +134,7 @@ export async function deleteSource(id: string, userId: string): Promise<void> {
       .limit(1);
 
     if (!source) {
-      throw new Error(`Source with id ${id} not found or unauthorized`);
+      throw new NotFoundError(`Source with id ${id} not found or unauthorized`);
     }
 
     await withTransaction(async (tx) => {
@@ -237,7 +237,7 @@ export async function updateCollection(
       .returning();
 
     if (!updated) {
-      throw new Error(`Collection with id ${id} not found or unauthorized`);
+      throw new NotFoundError(`Collection with id ${id} not found or unauthorized`);
     }
 
     return updated;
@@ -253,7 +253,7 @@ export async function deleteCollection(id: string, userId: string): Promise<void
         .limit(1);
 
       if (!collection) {
-        throw new Error(`Collection with id ${id} not found or unauthorized`);
+        throw new NotFoundError(`Collection with id ${id} not found or unauthorized`);
       }
 
       // Delete related records first
@@ -281,7 +281,7 @@ export async function updateCollectionTransportMode(
       .returning();
 
     if (!updated) {
-      throw new Error(`Collection with id ${collectionId} not found or unauthorized`);
+      throw new NotFoundError(`Collection with id ${collectionId} not found or unauthorized`);
     }
 
     return updated;
@@ -300,7 +300,7 @@ export async function togglePlacePin(
       .limit(1);
 
     if (!collection) {
-      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+      throw new NotFoundError(`Collection ${collectionId} not found or unauthorized`);
     }
 
     const [current] = await db
@@ -312,7 +312,7 @@ export async function togglePlacePin(
       ));
 
     if (!current) {
-      throw new Error(`Place ${placeId} not found in collection ${collectionId}`);
+      throw new NotFoundError(`Place ${placeId} not found in collection ${collectionId}`);
     }
 
     await db
@@ -338,7 +338,7 @@ export async function updatePlaceNote(
       .limit(1);
 
     if (!collection) {
-      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+      throw new NotFoundError(`Collection ${collectionId} not found or unauthorized`);
     }
 
     await db
@@ -363,7 +363,7 @@ export async function linkSourceToPlace(sourceId: string, placeId: string, userI
       .limit(1);
 
     if (!source || !place) {
-      throw new Error('Source or place not found or unauthorized');
+      throw new NotFoundError('Source or place not found or unauthorized');
     }
 
     await db.insert(sourcesToPlaces).values({
@@ -384,7 +384,7 @@ export async function unlinkSourceFromPlace(sourceId: string, placeId: string, u
       .limit(1);
 
     if (!source || !place) {
-      throw new Error('Source or place not found or unauthorized');
+      throw new NotFoundError('Source or place not found or unauthorized');
     }
 
     await db.delete(sourcesToPlaces)
@@ -411,7 +411,7 @@ export async function addPlaceToCollection(
       .limit(1);
 
     if (!place || !collection) {
-      throw new Error('Place or collection not found or unauthorized');
+      throw new NotFoundError('Place or collection not found or unauthorized');
     }
 
     // If no order index provided, append to end
@@ -446,7 +446,7 @@ export async function removePlaceFromCollection(
       .limit(1);
 
     if (!collection) {
-      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+      throw new NotFoundError(`Collection ${collectionId} not found or unauthorized`);
     }
 
     console.log('[removePlaceFromCollection] Deleting placeId:', placeId, 'from collectionId:', collectionId);
@@ -478,7 +478,7 @@ export async function reorderPlacesInCollection(
       .limit(1);
 
     if (!collection) {
-      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+      throw new NotFoundError(`Collection ${collectionId} not found or unauthorized`);
     }
 
     await withTransaction(async (tx) => {
@@ -519,7 +519,7 @@ export async function saveDayBuckets(
       .returning();
 
     if (result.length === 0) {
-      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+      throw new NotFoundError(`Collection ${collectionId} not found or unauthorized`);
     }
 
     console.log('[saveDayBuckets] Update result:', result);
@@ -547,7 +547,7 @@ export async function saveUnscheduledPlaces(
       .returning();
 
     if (result.length === 0) {
-      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+      throw new NotFoundError(`Collection ${collectionId} not found or unauthorized`);
     }
 
     console.log('[saveUnscheduledPlaces] Update result:', result);
@@ -569,7 +569,7 @@ export async function updateDayNote(
       .limit(1);
 
     if (!collection[0]) {
-      throw new Error(`Collection ${collectionId} not found or unauthorized`);
+      throw new NotFoundError(`Collection ${collectionId} not found or unauthorized`);
     }
 
     const dayBuckets = collection[0].dayBuckets as any[];
@@ -709,7 +709,7 @@ export async function updateSourceWithLLMMetadata(
       .limit(1);
 
     if (!existingSource) {
-      throw new Error(`Source with id ${sourceId} not found or unauthorized`);
+      throw new NotFoundError(`Source with id ${sourceId} not found or unauthorized`);
     }
 
     // Store LLM metadata in meta.llmProcessing JSON field
@@ -887,7 +887,7 @@ export async function mergePlaces(
       ]);
 
       if (!sourcePlace[0] || !targetPlace[0]) {
-        throw new Error('Source or target place not found or unauthorized');
+        throw new NotFoundError('Source or target place not found or unauthorized');
       }
 
       const source = sourcePlace[0];
@@ -977,9 +977,9 @@ export async function bulkMergePlaces(
           const sourcePlaces = await tx.select().from(places)
             .where(and(inArray(places.id, cluster.sourceIds), eq(places.userId, userId)));
 
-          if (!targetPlace) throw new Error('Target place not found or unauthorized');
+          if (!targetPlace) throw new NotFoundError('Target place not found or unauthorized');
           if (sourcePlaces.length !== cluster.sourceIds.length) {
-            throw new Error('One or more source places not found or unauthorized');
+            throw new NotFoundError('One or more source places not found or unauthorized');
           }
 
           const sourceSnapshots = sourcePlaces.map((p: Place) => ({ ...p }));
@@ -1174,7 +1174,7 @@ export async function createAttachment(
       .limit(1);
 
     if (!place) {
-      throw new Error(`Place ${data.placeId} not found or unauthorized`);
+      throw new NotFoundError(`Place ${data.placeId} not found or unauthorized`);
     }
 
     const { attachments } = await import('@/db/schema');
@@ -1218,7 +1218,7 @@ export async function deleteAttachment(id: string, userId: string) {
       .limit(1);
 
     if (!attachment) {
-      throw new Error(`Attachment ${id} not found`);
+      throw new NotFoundError(`Attachment ${id} not found`);
     }
 
     const [place] = await db.select().from(places)
@@ -1271,7 +1271,7 @@ export async function createPlaceLink(
       .limit(1);
 
     if (!place) {
-      throw new Error(`Place ${data.placeId} not found or unauthorized`);
+      throw new NotFoundError(`Place ${data.placeId} not found or unauthorized`);
     }
 
     const { placeLinks } = await import('@/db/schema');
@@ -1296,7 +1296,7 @@ export async function deletePlaceLink(id: string, userId: string) {
       .limit(1);
 
     if (!link) {
-      throw new Error(`Link ${id} not found`);
+      throw new NotFoundError(`Link ${id} not found`);
     }
 
     const [place] = await db.select().from(places)
@@ -1338,7 +1338,7 @@ export async function createReservation(
       .limit(1);
 
     if (!place) {
-      throw new Error(`Place ${data.placeId} not found or unauthorized`);
+      throw new NotFoundError(`Place ${data.placeId} not found or unauthorized`);
     }
 
     const { reservations } = await import('@/db/schema');
@@ -1378,7 +1378,7 @@ export async function updateReservation(
       .limit(1);
 
     if (!reservation) {
-      throw new Error(`Reservation ${id} not found`);
+      throw new NotFoundError(`Reservation ${id} not found`);
     }
 
     const [place] = await db.select().from(places)
@@ -1386,7 +1386,7 @@ export async function updateReservation(
       .limit(1);
 
     if (!place) {
-      throw new Error('Unauthorized to update this reservation');
+      throw new NotFoundError('Unauthorized to update this reservation');
     }
 
     const [updated] = await db
@@ -1410,7 +1410,7 @@ export async function deleteReservation(id: string, userId: string) {
       .limit(1);
 
     if (!reservation) {
-      throw new Error(`Reservation ${id} not found`);
+      throw new NotFoundError(`Reservation ${id} not found`);
     }
 
     const [place] = await db.select().from(places)
@@ -1418,7 +1418,7 @@ export async function deleteReservation(id: string, userId: string) {
       .limit(1);
 
     if (!place) {
-      throw new Error('Unauthorized to delete this reservation');
+      throw new NotFoundError('Unauthorized to delete this reservation');
     }
 
     await db
@@ -1487,7 +1487,7 @@ export async function batchCreatePlaces(
         .limit(1);
 
       if (!collection) {
-        throw new Error(`Collection ${options.collectionId} not found or unauthorized`);
+        throw new NotFoundError(`Collection ${options.collectionId} not found or unauthorized`);
       }
     }
 
@@ -1544,7 +1544,7 @@ export async function createPlacesFromPipeline(
         .where(and(eq(sourcesCurrentSchema.id, sourceId), eq(sourcesCurrentSchema.userId, userId)))
         .limit(1);
 
-      if (!source) throw new Error(`Source ${sourceId} not found or unauthorized`);
+      if (!source) throw new NotFoundError(`Source ${sourceId} not found or unauthorized`);
 
       const screenshotUri = source.uri;
       const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; fileSize?: number; thumbnailPath?: string } } | null;

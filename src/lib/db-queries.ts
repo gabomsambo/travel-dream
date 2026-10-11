@@ -58,6 +58,22 @@ export async function getPlaceById(id: string, userId: string): Promise<Place | 
   }, 'getPlaceById');
 }
 
+/**
+ * The subset of `placeIds` owned by `userId`, as a set. Routes that take a
+ * list of place ids (reorder, bulk actions, day buckets, dismiss-duplicate)
+ * compare against this and answer 404 when a named id is not the caller's,
+ * instead of silently ignoring it or failing the whole batch with a 500.
+ */
+export async function getOwnedPlaceIds(placeIds: string[], userId: string): Promise<Set<string>> {
+  const unique = [...new Set(placeIds)];
+  if (unique.length === 0) return new Set();
+  return withErrorHandling(async () => {
+    const rows = await db.select({ id: places.id }).from(places)
+      .where(and(inArray(places.id, unique), eq(places.userId, userId)));
+    return new Set(rows.map((r) => r.id));
+  }, 'getOwnedPlaceIds');
+}
+
 export async function getPlacesByCity(city: string, userId: string): Promise<Place[]> {
   return withErrorHandling(async () => {
     return await db.select()

@@ -111,8 +111,9 @@ describe('POST /api/llm-process', () => {
 
     expect(select.conditions).toHaveLength(1);
     expect(whereMentions(select.conditions[0], CALLER.id)).toBe(true);
-    // Nothing matched under the caller's scope → nothing extracted
-    expect(data.message).toBe('No sources require LLM processing');
+    // Nothing matched under the caller's scope → 404, nothing extracted
+    expect(res.status).toBe(404);
+    expect(data.message).toBe('Sources not found');
     expect(mockBatchExtract).not.toHaveBeenCalled();
   });
 
@@ -180,7 +181,8 @@ describe('POST /api/llm-process/batch', () => {
 
     expect(select.conditions.length).toBeGreaterThan(0);
     expect(whereMentions(select.conditions[0], CALLER.id)).toBe(true);
-    expect(data.message).toBe('No sources require LLM processing');
+    expect(res.status).toBe(404);
+    expect(data.message).toBe('Sessions not found');
     expect(mockBatchExtract).not.toHaveBeenCalled();
   });
 

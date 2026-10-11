@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ExportRequestSchema } from '@/types/export';
 import type { ExportErrorResponse } from '@/types/export';
 import { exportData } from '@/lib/export-service';
+import { NotFoundError } from '@/lib/db-utils';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export const maxDuration = 60;
@@ -56,7 +57,8 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString()
     };
 
-    const status = error instanceof Error && error.message.includes('not found') ? 404 : 500;
+    const status = error instanceof NotFoundError ||
+      (error instanceof Error && error.message.includes('not found')) ? 404 : 500;
 
     return NextResponse.json(errorResponse, { status });
   }

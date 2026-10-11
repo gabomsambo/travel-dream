@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { togglePlacePin } from '@/lib/db-mutations';
+import { NotFoundError } from '@/lib/db-utils';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 export async function PATCH(
@@ -18,6 +19,12 @@ export async function PATCH(
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Collection or place not found' },
+        { status: 404 }
+      );
     }
     return NextResponse.json(
       { status: 'error', message: 'Failed to toggle pin' },

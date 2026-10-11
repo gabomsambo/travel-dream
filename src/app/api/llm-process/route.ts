@@ -75,6 +75,17 @@ export async function POST(request: NextRequest) {
             eq(sourcesCurrentSchema.userId, user.id)
           ));
       }, 'getSourcesByIds');
+
+      if (sourceIds.length > 0 && sourcesToProcess.length === 0) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            message: 'Sources not found',
+            results: []
+          },
+          { status: 404 }
+        );
+      }
     } else if (sessionId) {
       // Process sources from upload session
       const session = await db.select()

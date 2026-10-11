@@ -10,10 +10,14 @@ jest.mock('@/lib/auth-helpers', () => ({
 jest.mock('@/lib/export-service', () => ({
   exportData: jest.fn(),
 }));
+jest.mock('@/lib/db-utils', () => ({
+  NotFoundError: class NotFoundError extends Error {},
+}));
 
 // ── Imports (after mocks) ──────────────────────────────────────────────
 import { POST } from '../route';
 import { NextRequest } from 'next/server';
+import { NotFoundError } from '@/lib/db-utils';
 import * as exportService from '@/lib/export-service';
 
 describe('POST /api/export', () => {
@@ -264,9 +268,9 @@ describe('POST /api/export', () => {
       expect(data.message).toBe('Database connection failed');
     });
 
-    it('should return 500 for no places found', async () => {
+    it('should return 404 for no places found', async () => {
       const mockExportData = jest.spyOn(exportService, 'exportData') as any;
-      mockExportData.mockRejectedValue(new Error('No places found to export'));
+      mockExportData.mockRejectedValue(new NotFoundError('No places found to export'));
 
       const request = new NextRequest('http://localhost:3000/api/export', {
         method: 'POST',
@@ -280,7 +284,7 @@ describe('POST /api/export', () => {
       const response = await POST(request);
       const data = await response.json();
 
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(404);
       expect(data.status).toBe('error');
     });
   });

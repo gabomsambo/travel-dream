@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getPlacesInCollection } from '@/lib/db-queries';
+import { getCollectionById, getPlacesInCollection } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { point } from '@turf/helpers';
 import distance from '@turf/distance';
@@ -27,6 +27,16 @@ export async function POST(
     const { id } = await params;
     const body = await request.json();
     const { hoursPerDay, transportMode } = AutoScheduleSchema.parse(body);
+
+    // The planner reads through the scoped collection query, so a foreign
+    // collection would otherwise answer 200 with an empty schedule.
+    const collection = await getCollectionById(id, user.id);
+    if (!collection) {
+      return NextResponse.json(
+        { status: 'error', message: 'Collection not found' },
+        { status: 404 }
+      );
+    }
 
     const places = await getPlacesInCollection(id, user.id);
 

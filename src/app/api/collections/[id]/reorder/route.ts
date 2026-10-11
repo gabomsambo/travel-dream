@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { reorderPlacesInCollection } from '@/lib/db-mutations';
+import { getOwnedPlaceIds } from '@/lib/db-queries';
+import { NotFoundError } from '@/lib/db-utils';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
 const ReorderPlacesSchema = z.object({
@@ -18,6 +20,16 @@ export async function PATCH(
     const { id: collectionId } = await params;
     const body = await request.json();
     const { placeIds } = ReorderPlacesSchema.parse(body);
+
+    // Reordering only touches membership rows that exist, so a foreign id
+    // would otherwise fall through as a silent no-op.
+    const owned = await getOwnedPlaceIds(placeIds, user.id);
+    if (owned.size !== new Set(placeIds).size) {
+      return NextResponse.json(
+        { status: 'error', message: 'Place not found' },
+        { status: 404 }
+      );
+    }
 
     await reorderPlacesInCollection(collectionId, placeIds, user.id);
 
@@ -37,6 +49,12 @@ export async function PATCH(
           errors: error.errors,
         },
         { status: 400 }
+      );
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Collection not found' },
+        { status: 404 }
       );
     }
 

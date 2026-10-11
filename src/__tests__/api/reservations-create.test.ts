@@ -6,6 +6,10 @@ jest.mock('@/lib/db-mutations', () => ({
   createReservation: jest.fn(),
 }));
 
+jest.mock('@/lib/db-utils', () => ({
+  NotFoundError: class NotFoundError extends Error {},
+}));
+
 jest.mock('@/lib/auth-helpers', () => ({
   requireAuthForApi: jest.fn(),
   isAuthError: jest.fn(() => false),
@@ -13,6 +17,7 @@ jest.mock('@/lib/auth-helpers', () => ({
 
 import { POST } from '@/app/api/places/[id]/reservations/route';
 import { createReservation } from '@/lib/db-mutations';
+import { NotFoundError } from '@/lib/db-utils';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import type { NextRequest } from 'next/server';
 
@@ -60,5 +65,13 @@ describe('POST /api/places/[id]/reservations', () => {
     expect((await post({ reservationDate: null })).status).toBe(400);
     expect((await post({ reservationDate: '2026-11-18', bookingUrl: 'not a url' })).status).toBe(400);
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for a place the caller does not own without creating anything', async () => {
+    mockCreate.mockRejectedValue(new NotFoundError('Place plc_1 not found or unauthorized'));
+
+    const response = await post({ reservationDate: '2026-11-18' });
+
+    expect(response.status).toBe(404);
   });
 });

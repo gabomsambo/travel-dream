@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { withErrorHandling } from '@/lib/db-utils';
 import { bulkConfirmPlaces, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces } from '@/lib/db-mutations';
+import { getOwnedPlaceIds } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
@@ -61,6 +62,20 @@ export async function POST(request: NextRequest) {
     const uniquePlaceIds = [...new Set(placeIds)];
     if (uniquePlaceIds.length !== placeIds.length) {
       console.warn(`Duplicate place IDs detected: ${placeIds.length} requested, ${uniquePlaceIds.length} unique`);
+    }
+
+    // Every named id must be the caller's: the scoped batch update would
+    // otherwise match nothing and the route would answer 500.
+    const ownedPlaceIds = await getOwnedPlaceIds(uniquePlaceIds, user.id);
+    if (ownedPlaceIds.size !== uniquePlaceIds.length) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'One or more places were not found',
+          timestamp: new Date().toISOString(),
+        },
+        { status: 404 }
+      );
     }
 
     let updatedCount = 0;

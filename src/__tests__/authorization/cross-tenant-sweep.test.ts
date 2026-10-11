@@ -386,11 +386,6 @@ type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS';
 
 const API = 'http://localhost/api';
 
-// Reasons shared by entries whose refusal is not a 404/403. Each is still held
-// to "no write, no leak"; the status is recorded so a change is noticed.
-const MUTATION_THROWS =
-  'Refused by the userId-scoped function in db-mutations, which throws "not found or unauthorized"; ' +
-  'the route maps every throw to 500 instead of 404.';
 /**
  * Owning a container is not owning the rows it names. These cases put Bob's
  * source id inside Alice's own upload session — the shape `mass-upload/status`
@@ -406,8 +401,6 @@ const PLANTED_IN_OWN_SESSION: Pick<Case, 'name' | 'slots' | 'setup'> = {
     return [FIXTURE.bobSource];
   },
 };
-const SCOPED_QUERY_EMPTY =
-  'The caller-scoped query matches nothing, so the handler answers 200 with an empty result and writes nothing.';
 
 const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   // --- auth & upload plumbing --------------------------------------------
@@ -435,14 +428,10 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
     PATCH: {
       slots: ['collection'],
       request: (t) => ({ url: `${API}/collections/${t.collection}`, params: { id: t.collection }, body: { name: 'renamed by sweep' } }),
-      refuses: [500],
-      because: MUTATION_THROWS,
     },
     DELETE: {
       slots: ['collection'],
       request: (t) => ({ url: `${API}/collections/${t.collection}`, params: { id: t.collection } }),
-      refuses: [500],
-      because: MUTATION_THROWS,
     },
   },
   'collections/[id]/available-images': {
@@ -470,14 +459,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         params: { id: t.collection },
         body: { dayBuckets: [{ id: 'day-1', dayNumber: 1, placeIds: [t.place] }], unscheduledPlaceIds: [] },
       }),
-      refuses: { all: [500], collection: [500], place: [200] },
-      because:
-        'A foreign collection throws in saveDayBuckets (500). The place ids are not checked: in the ' +
-        'caller\'s own collection they are stored as given (200) — see callerRowMayNameForeignId.',
-      callerRowMayNameForeignId:
-        'day_buckets is JSON on the caller\'s own collection row. Nothing on the server dereferences its ' +
-        'place ids; the day planner only matches them against the places the scoped collection query ' +
-        'already returned, so a foreign id renders as nothing and reaches no one else.',
     },
   },
   'collections/[id]/days/auto-schedule': {
@@ -488,8 +469,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         params: { id: t.collection },
         body: { hoursPerDay: 8, transportMode: 'walk' },
       }),
-      refuses: [200],
-      because: SCOPED_QUERY_EMPTY,
       ownerWritesNothing: 'Computes a proposed schedule and returns it; saving it is PATCH /days.',
     },
   },
@@ -518,10 +497,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         url: `${API}/collections/${t.collection}/places/${t.place}`,
         params: { id: t.collection, placeId: t.place },
       }),
-      refuses: { all: [500], collection: [500], place: [200] },
-      because:
-        'A foreign collection throws in removePlaceFromCollection (500); in the caller\'s own collection ' +
-        'the delete matches no membership row for a foreign place and answers 200.',
     },
   },
   'collections/[id]/places/[placeId]/note': {
@@ -532,10 +507,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         params: { id: t.collection, placeId: t.place },
         body: { note: 'overwritten by sweep' },
       }),
-      refuses: { all: [500], collection: [500], place: [200] },
-      because:
-        'updatePlaceNote throws for a foreign collection (500); in the caller\'s own collection the update ' +
-        'matches no membership row for a foreign place and answers 200.',
     },
   },
   'collections/[id]/places/[placeId]/pin': {
@@ -545,8 +516,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         url: `${API}/collections/${t.collection}/places/${t.place}/pin`,
         params: { id: t.collection, placeId: t.place },
       }),
-      refuses: [500],
-      because: MUTATION_THROWS,
     },
   },
   'collections/[id]/reorder': {
@@ -557,10 +526,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         params: { id: t.collection },
         body: { placeIds: [t.place] },
       }),
-      refuses: { all: [500], collection: [500], place: [200] },
-      because:
-        'reorderPlacesInCollection throws for a foreign collection (500); in the caller\'s own collection ' +
-        'it updates order only on membership rows that exist, so a foreign place changes nothing (200).',
     },
   },
   'collections/[id]/settings': {
@@ -571,8 +536,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         params: { id: t.collection },
         body: { transportMode: 'drive' },
       }),
-      refuses: [500],
-      because: MUTATION_THROWS,
     },
   },
 
@@ -592,8 +555,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         name: 'selected places',
         slots: ['place'],
         request: (t) => ({ url: `${API}/export`, body: { scope: { type: 'selected', placeIds: [t.place] }, format: 'csv' } }),
-        refuses: [500],
-        because: 'exportData selects only the caller\'s places, finds none, and throws "No places found to export" (500).',
         ownerWritesNothing: 'Builds an export file from a read; POST only because the scope is a body.',
       },
     ],
@@ -607,15 +568,11 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         name: 'collection scope',
         slots: ['collection'],
         request: (t) => ({ url: `${API}/export/preview?scope=${encodeURIComponent(JSON.stringify({ type: 'collection', collectionId: t.collection }))}` }),
-        refuses: [200],
-        because: SCOPED_QUERY_EMPTY,
       },
       {
         name: 'selected places',
         slots: ['place'],
         request: (t) => ({ url: `${API}/export/preview?scope=${encodeURIComponent(JSON.stringify({ type: 'selected', placeIds: [t.place] }))}` }),
-        refuses: [200],
-        because: SCOPED_QUERY_EMPTY,
       },
     ],
   },
@@ -636,8 +593,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
           options: { confidentMode: true, targetStatus: 'library', collectionId: t.collection, template: 'auto' },
         },
       }),
-      refuses: [500],
-      because: MUTATION_THROWS,
     },
   },
   'import/parse': {
@@ -651,8 +606,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         name: 'by sourceIds',
         slots: ['source'],
         request: (t) => ({ url: `${API}/llm-process`, body: { sourceIds: [t.source] } }),
-        refuses: [200],
-        because: SCOPED_QUERY_EMPTY,
         ownerWritesNothing: 'Extraction is mocked to return nothing, so there is nothing to store.',
         ownerReaches: () => expect(llmExtractionService.batchExtract).toHaveBeenCalled(),
       },
@@ -677,8 +630,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       {
         slots: ['session'],
         request: (t) => ({ url: `${API}/llm-process/batch`, body: { sessionIds: [t.session] } }),
-        refuses: [200],
-        because: SCOPED_QUERY_EMPTY,
         ownerWritesNothing: 'Extraction is mocked to return nothing, so there is nothing to store.',
         ownerReaches: () => expect(llmExtractionService.batchExtract).toHaveBeenCalled(),
       },
@@ -697,8 +648,8 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       request: (t) => ({ url: `${API}/llm-process/status?sessionId=${t.session}` }),
       refuses: [200],
       because:
-        'The sessionId only filters the caller\'s own in-memory queue entries ' +
-        '(getAllProcessingStatuses(user.id)); a foreign id matches nothing and the 200 carries no session data.',
+        'The sessionId is an opaque filter over the caller\'s own in-memory queue entries, not a session ' +
+        'lookup; a foreign value matches nothing and the 200 carries no session data.',
     },
     OPTIONS: { exempt: 'CORS preflight; returns static headers and reads nothing.' },
   },
@@ -833,8 +784,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
     POST: {
       slots: ['place'],
       request: (t) => ({ url: `${API}/places/${t.place}/links`, params: { id: t.place }, body: { url: 'https://example.com/sweep' } }),
-      refuses: [500],
-      because: MUTATION_THROWS,
     },
   },
   'places/[id]/reservations': {
@@ -845,8 +794,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         params: { id: t.place },
         body: { reservationDate: '2027-02-02' },
       }),
-      refuses: [500],
-      because: MUTATION_THROWS,
     },
   },
   'places/[id]/reservations/[reservationId]': {
@@ -857,11 +804,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         params: { id: t.place, reservationId: t.reservation },
         body: { notes: 'overwritten by sweep' },
       }),
-      refuses: { all: [500], reservation: [500], place: [200] },
-      because:
-        'The reservation is scoped to the caller through its place and a foreign one throws (500). The ' +
-        '[id] segment is never read, so a foreign place id with the caller\'s own reservation acts on the ' +
-        'caller\'s own reservation (200).',
     },
     DELETE: {
       slots: ['place', 'reservation'],
@@ -869,11 +811,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         url: `${API}/places/${t.place}/reservations/${t.reservation}`,
         params: { id: t.place, reservationId: t.reservation },
       }),
-      refuses: { all: [500], reservation: [500], place: [200] },
-      because:
-        'The reservation is scoped to the caller through its place and a foreign one throws (500). The ' +
-        '[id] segment is never read, so a foreign place id with the caller\'s own reservation acts on the ' +
-        'caller\'s own reservation (200).',
     },
   },
   'places/bulk-actions': {
@@ -882,8 +819,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         name: action,
         slots: ['place'],
         request: (t) => ({ url: `${API}/places/bulk-actions`, body: { action, placeIds: [t.place] } }),
-        refuses: [500],
-        because: 'The userId-scoped batch update/delete matches no row; the route answers 500 "No places were updated".',
       })),
     ],
     GET: { exempt: 'Returns static API documentation; reads nothing.' },
@@ -908,12 +843,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         url: `${API}/places/dismiss-duplicate`,
         body: { pairs: [{ placeId1: t.place, placeId2: t.place2 }] },
       }),
-      refuses: [200],
-      because: 'Writes only a row owned by the caller — see callerRowMayNameForeignId.',
-      callerRowMayNameForeignId:
-        'The dismissed pair is stored with user_id = caller. dismissed_duplicates has no unique constraint ' +
-        'or foreign key on the place ids, and every read filters on user_id, so a pair naming someone ' +
-        'else\'s place is visible to, and affects, only the caller.',
     },
     DELETE: {
       slots: ['place', 'place2'],
@@ -921,8 +850,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         url: `${API}/places/dismiss-duplicate`,
         body: { pairs: [{ placeId1: t.place, placeId2: t.place2 }] },
       }),
-      refuses: [200],
-      because: 'The delete is scoped to the caller\'s own rows; a pair naming a foreign place matches none.',
     },
     GET: { slots: [], request: () => ({ url: `${API}/places/dismiss-duplicate` }) },
   },
@@ -959,8 +886,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
     DELETE: {
       slots: ['source'],
       request: (t) => ({ url: `${API}/sources/${t.source}`, params: { id: t.source } }),
-      refuses: [500],
-      because: MUTATION_THROWS,
     },
   },
   'sources/clear': {
@@ -1019,10 +944,6 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       {
         slots: ['session'],
         request: (t) => ({ url: `${API}/upload/sessions?sessionId=${t.session}&cleanup=true` }),
-        refuses: [500],
-        because:
-          'The handler throws "Session not found" for a session the caller does not own — the same message ' +
-          'as a missing one — and maps it to 500.',
       },
       {
         ...PLANTED_IN_OWN_SESSION,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createPlaceLink } from '@/lib/db-mutations';
+import { NotFoundError } from '@/lib/db-utils';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
@@ -45,6 +46,12 @@ export async function POST(
           errors: error.errors,
         },
         { status: 400 }
+      );
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Place not found' },
+        { status: 404 }
       );
     }
 

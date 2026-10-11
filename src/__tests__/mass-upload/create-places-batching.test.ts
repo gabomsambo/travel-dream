@@ -14,6 +14,7 @@ jest.mock('@/lib/db-utils', () => ({
   generateSourceId: () => 'src_generated',
   generatePlaceId: () => `plc_generated_${++generatedCount}`,
   generateCollectionId: () => 'col_generated',
+  NotFoundError: class NotFoundError extends Error {},
 }));
 jest.mock('@vercel/blob', () => ({ del: jest.fn() }));
 

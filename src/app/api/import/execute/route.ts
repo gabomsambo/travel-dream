@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateRows, preparePlacesForImport } from '@/lib/import-service';
 import { batchCreatePlaces } from '@/lib/db-mutations';
+import { NotFoundError } from '@/lib/db-utils';
 import type { ColumnMapping, ImportOptions, ImportResult } from '@/types/import';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
@@ -121,6 +122,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { status: 'error', message: 'Authentication required' },
         { status: 401 }
+      );
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Target collection not found' },
+        { status: 404 }
       );
     }
     console.error('[API /import/execute] Error:', error);

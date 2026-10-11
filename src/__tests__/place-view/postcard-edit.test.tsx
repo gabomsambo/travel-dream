@@ -257,7 +257,11 @@ describe('Postcard edit mode', () => {
     expect(screen.queryByRole('heading', { level: 1, name: place.name })).not.toBeInTheDocument()
 
     rerender(<PlacePage place={{ ...place }} startInEdit />)
-    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue(place.name)
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: place.name })).not.toBeInTheDocument()
   })
 
   it('mentions planned or visited status on the phone plan row before an empty label', async () => {
@@ -338,6 +342,71 @@ describe('Postcard edit mode', () => {
     const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)) as Record<string, unknown>)
     expect(bodies.filter((body) => 'name' in body)).toEqual([{ name: 'B' }])
     expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+  })
+
+  it('does not copy a cleared hero name back from a refresh or retry it after the in-flight save fails', async () => {
+    const resolvers: Array<(value: ReturnType<typeof jsonResponse>) => void> = []
+    const fetchMock = jest.fn().mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { rerender } = render(<PlacePage place={place} startInEdit />)
+
+    const name = screen.getByRole('textbox', { name: 'Place name' })
+    await userEvent.clear(name)
+    await userEvent.type(name, 'B')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 2000 })
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ name: 'B' })
+
+    await userEvent.clear(name)
+    rerender(<PlacePage place={{ ...place }} startInEdit />)
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+
+    await act(async () => {
+      resolvers[0](jsonResponse(false, 'Server exploded'))
+    })
+    await waitFor(() => expect(screen.getAllByText('Server exploded').length).toBeGreaterThan(0))
+
+    let settledRetry = false
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(() => {
+      if (!settledRetry && resolvers.length > 1) {
+        settledRetry = true
+        resolvers[1](jsonResponse(true))
+      }
+      expect(screen.getAllByText('Place name is required').length).toBeGreaterThan(0)
+    })
+
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)) as Record<string, unknown>)
+    expect(bodies.filter((body) => 'name' in body)).toEqual([{ name: 'B' }])
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: place.name })).not.toBeInTheDocument()
+  })
+
+  it('retries a hero name that is still on screen when its save fails', async () => {
+    const resolvers: Array<(value: ReturnType<typeof jsonResponse>) => void> = []
+    const fetchMock = jest.fn().mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    render(<PlacePage place={place} startInEdit />)
+
+    const name = screen.getByRole('textbox', { name: 'Place name' })
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Torii')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 2000 })
+
+    await act(async () => {
+      resolvers[0](jsonResponse(false, 'Server exploded'))
+    })
+    await waitFor(() => expect(screen.getAllByText('Server exploded').length).toBeGreaterThan(0))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 2000 })
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ name: 'Torii' })
+
+    await act(async () => {
+      resolvers[1](jsonResponse(false, 'Server exploded'))
+    })
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('Torii')
     expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
   })
 

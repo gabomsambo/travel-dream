@@ -204,6 +204,20 @@ function keysDraftWouldDrop(draft: PlaceDraft): string[] {
   return dropped
 }
 
+function restoreFailedSave(
+  snapshot: Record<string, unknown>,
+  pending: Record<string, unknown>,
+  draft: PlaceDraft | null,
+): Record<string, unknown> {
+  const restored = { ...snapshot }
+  if (draft) {
+    for (const field of keysDraftWouldDrop(draft)) delete restored[field]
+    const trimmed = draft.name.trim()
+    if ("name" in restored && (trimmed === "" || restored.name !== trimmed)) delete restored.name
+  }
+  return { ...restored, ...pending }
+}
+
 function focusSectionRow(returnTo: HTMLElement) {
   const section = returnTo.getAttribute("data-edit-section")
   if (!section || !Object.hasOwn(SECTION_LABELS, section)) return
@@ -285,12 +299,7 @@ function usePlaceAutosave(placeId: string, onSaved: () => void, draftRef: React.
       }, 2000)
       return true
     } catch (err) {
-      const restored = { ...body }
-      const draft = draftRef.current
-      if (draft) {
-        for (const field of keysDraftWouldDrop(draft)) delete restored[field]
-      }
-      pendingRef.current = { ...restored, ...pendingRef.current }
+      pendingRef.current = restoreFailedSave(body, pendingRef.current, draftRef.current)
       if (generation === generationRef.current) {
         setStatus("error")
         setError(err instanceof Error ? err.message : "Couldn't save")
@@ -513,6 +522,7 @@ export function SectionEditProvider({
   const save = usePlaceAutosave(place.id, onRefresh, draftRef)
   const placeIdRef = React.useRef(place.id)
   const dirtyRef = React.useRef(new Set<keyof PlaceDraft>())
+  const retractedNameRef = React.useRef(false)
   const openerRef = React.useRef<HTMLElement | null>(null)
   const watchedOpenerRef = React.useRef<HTMLElement | null>(null)
   const openerConnectedRef = React.useRef(false)
@@ -531,6 +541,7 @@ export function SectionEditProvider({
     if (placeIdRef.current !== place.id) {
       placeIdRef.current = place.id
       dirty.clear()
+      retractedNameRef.current = false
       draftRef.current = fresh
       setDraft(fresh)
       setActive(null)
@@ -545,6 +556,9 @@ export function SectionEditProvider({
         Object.assign(next, { [key]: current[key] })
       }
     })
+    if (retractedNameRef.current && !dirty.has("name")) {
+      next.name = current.name
+    }
     draftRef.current = next
     setDraft(next)
   }, [place])
@@ -567,7 +581,9 @@ export function SectionEditProvider({
       dirtyRef.current.add("lon")
     } else if (nameCleared) {
       dirtyRef.current.delete("name")
+      retractedNameRef.current = true
     } else {
+      if (key === "name") retractedNameRef.current = false
       dirtyRef.current.add(key)
     }
     setDraft((prev) => {

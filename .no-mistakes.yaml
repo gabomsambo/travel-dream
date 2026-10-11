@@ -12,24 +12,14 @@
 # entry becomes the primary agent for the whole run, so order is the only
 # dial here.
 #
-# opencode leads as of 2026-09-05. It runs on OpenCode's free tier with no
-# credential at all (verified: `opencode run` answers on the free big-pickle
-# model, exit 0), so every run it takes is Claude and Codex quota preserved.
+# cursor leads for review (Grok 4.7; model pin is machine-local). opencode is
+# second as the availability fallback. Step 5 Preview on the GO route and Muse
+# Spark 1.3 on GO were trialed first but failed: GO returned "Endpoint is
+# unavailable" for most Step 5 requests, and Muse Spark was rejected because GO
+# does not accept the review request's tool_choice.
 #
-# Two known weaknesses, accepted deliberately -- codex sits directly behind it
-# and claude behind that, so the gate never fails for want of a runnable agent:
-#
-#   1. Structured output. codex has native structured-output parsing; opencode
-#      goes through no-mistakes' "prompt-only structured output fallback",
-#      which validates JSON out of the final assistant text. That is the
-#      weaker path for the review step's findings, and review is where 42 of
-#      46 lifetime fixes on these repos came from.
-#   2. No session reuse. `session_reuse` is supported for claude and codex
-#      only; other agents run cold, so opencode re-reads context on every
-#      review round rather than keeping a durable session.
-#
-# To revert to the previous behaviour, delete `opencode,` from the list.
-agent: [opencode, cursor, codex, claude]
+# To revert to opencode-first, swap cursor and opencode in the list.
+agent: [cursor, opencode, codex, claude]
 
 # no-mistakes gate configuration for travel-dream.
 #

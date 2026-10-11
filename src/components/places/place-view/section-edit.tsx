@@ -176,19 +176,35 @@ export interface SectionEditHandles {
   withDraft: (place: PlaceWithRelations) => PlaceWithRelations
 }
 
-function patchFor(draft: PlaceDraft, key: keyof PlaceDraft): Record<string, unknown> {
+interface FieldPatch {
+  set: Record<string, unknown>
+  drop: string[]
+}
+
+function patchFor(draft: PlaceDraft, key: keyof PlaceDraft): FieldPatch {
   if (key === "name") {
     const name = draft.name.trim()
-    return name ? { name } : {}
+    return name ? { set: { name }, drop: [] } : { set: {}, drop: ["name"] }
   }
   if (key === "lat" || key === "lon") {
-    if (draft.lat.trim() === "" && draft.lon.trim() === "") return { coords: null }
+    if (draft.lat.trim() === "" && draft.lon.trim() === "") return { set: { coords: null }, drop: [] }
     const lat = Number(draft.lat)
     const lon = Number(draft.lon)
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return {}
-    return { coords: { lat, lon } }
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { set: {}, drop: [] }
+    return { set: { coords: { lat, lon } }, drop: [] }
   }
-  return { [key]: draft[key] }
+  return { set: { [key]: draft[key] }, drop: [] }
+}
+
+function focusOpener(returnTo: HTMLElement | null) {
+  if (!returnTo) return
+  if (returnTo.isConnected) {
+    returnTo.focus()
+    return
+  }
+  const section = returnTo.getAttribute("data-edit-section")
+  if (!section || !Object.hasOwn(SECTION_LABELS, section)) return
+  document.querySelector<HTMLElement>(`[data-edit-section="${section}"][data-edit-section-row]`)?.focus()
 }
 
 function useMobileSheet(): boolean {
@@ -272,9 +288,16 @@ function usePlaceAutosave(placeId: string, onSaved: () => void) {
 
   const debounced = useDebouncedCallback(runSave, 800)
 
-  const update = React.useCallback((partial: Record<string, unknown>) => {
-    if (Object.keys(partial).length === 0) return
-    pendingRef.current = { ...pendingRef.current, ...partial }
+  const update = React.useCallback((partial: FieldPatch) => {
+    for (const key of partial.drop) delete pendingRef.current[key]
+    if (Object.keys(partial.set).length > 0) {
+      pendingRef.current = { ...pendingRef.current, ...partial.set }
+    }
+    if (partial.drop.length === 0 && Object.keys(partial.set).length === 0) return
+    if (Object.keys(pendingRef.current).length === 0) {
+      debounced.cancel()
+      return
+    }
     debounced()
   }, [debounced])
 
@@ -302,6 +325,10 @@ function usePlaceAutosave(placeId: string, onSaved: () => void) {
   }, [])
 
   const noteError = React.useCallback((message: string) => {
+    if (idleTimer.current) {
+      clearTimeout(idleTimer.current)
+      idleTimer.current = null
+    }
     setStatus("error")
     setError(message)
   }, [])
@@ -507,9 +534,12 @@ export function SectionEditProvider({
   }, [handlesRef, save.flush])
 
   const setField = React.useCallback(<K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => {
+    const nameCleared = key === "name" && (typeof value !== "string" || value.trim() === "")
     if (key === "lat" || key === "lon") {
       dirtyRef.current.add("lat")
       dirtyRef.current.add("lon")
+    } else if (nameCleared) {
+      dirtyRef.current.delete("name")
     } else {
       dirtyRef.current.add(key)
     }
@@ -534,7 +564,7 @@ export function SectionEditProvider({
     const returnTo = openerRef.current
     setActive(null)
     // Move focus before the sheet unmounts, or the browser drops it on document.body.
-    returnTo?.focus()
+    focusOpener(returnTo)
   }, [flushSave])
 
   const exitEditing = React.useCallback(async () => {
@@ -547,7 +577,7 @@ export function SectionEditProvider({
     const returnTo = openerRef.current
     setActive(null)
     onExitRef.current?.()
-    returnTo?.focus()
+    focusOpener(returnTo)
     return true
   }, [flushSave, reportError])
 

@@ -85,6 +85,8 @@ export function EditIndex({ place }: { place: PlaceWithRelations }) {
           <li key={row.key}>
             <button
               type="button"
+              data-edit-section={row.section}
+              {...(row.add ? {} : { "data-edit-section-row": "" })}
               onClick={() => api.open(row.section)}
               className="flex w-full items-center gap-3 px-4 py-3 text-left"
             >

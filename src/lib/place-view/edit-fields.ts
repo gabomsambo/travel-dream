@@ -115,6 +115,12 @@ export interface EditIndexRow {
   add: boolean
 }
 
+function planVisitSummary(place: PlaceWithRelations): string | null {
+  if (place.visitStatus === "planned") return "Planned"
+  if (place.visitStatus === "visited") return "Been"
+  return null
+}
+
 /** One row per section, plus a “+ Add” row for each missing field. */
 export function editIndexRows(place: PlaceWithRelations): EditIndexRow[] {
   const rows: EditIndexRow[] = []
@@ -122,11 +128,12 @@ export function editIndexRows(place: PlaceWithRelations): EditIndexRow[] {
     const fields = fieldsFor(section)
     const present = fields.filter((field) => !field.missing(place))
     const summary = present.map((field) => field.summary(place)).filter((value): value is string => Boolean(value))
+    const visit = section === "plan" ? planVisitSummary(place) : null
     rows.push({
       key: section,
       section,
       title: EDIT_SECTION_LABELS[section],
-      detail: summary[0] ?? "Nothing here yet",
+      detail: summary[0] ?? visit ?? "Nothing here yet",
       add: false,
     })
     for (const field of fields) {

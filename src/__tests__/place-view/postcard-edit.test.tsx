@@ -232,4 +232,77 @@ describe('Postcard edit mode', () => {
     expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
     expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
   })
+
+  it('drops a queued hero name when the field is cleared and stays in edit mode', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(jsonResponse(true))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { rerender } = render(<PlacePage place={place} startInEdit />)
+
+    const name = screen.getByRole('textbox', { name: 'Place name' })
+    await userEvent.clear(name)
+    await userEvent.type(name, 'B')
+    await userEvent.clear(name)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    })
+
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)) as Record<string, unknown>)
+    expect(bodies.filter((body) => 'name' in body)).toEqual([])
+    expect(name).toHaveValue('')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    expect(screen.getAllByText('Place name is required').length).toBeGreaterThan(0)
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: place.name })).not.toBeInTheDocument()
+
+    rerender(<PlacePage place={{ ...place }} startInEdit />)
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue(place.name)
+  })
+
+  it('mentions planned or visited status on the phone plan row before an empty label', async () => {
+    setMobile(true)
+    const bare = {
+      ...sparse,
+      visitStatus: 'planned' as const,
+      priority: 0,
+      ratingSelf: 0,
+      plannedVisit: null,
+      lastVisited: null,
+      companions: [],
+      reservations: [],
+    }
+    const { rerender } = render(<PlacePage place={bare} startInEdit />)
+
+    expect(await screen.findByRole('button', { name: 'Your plan Planned' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Your plan Nothing here yet' })).not.toBeInTheDocument()
+
+    rerender(<PlacePage place={{ ...bare, visitStatus: 'visited' }} startInEdit />)
+    expect(screen.getByRole('button', { name: 'Your plan Been' })).toBeInTheDocument()
+
+    rerender(<PlacePage place={{ ...bare, visitStatus: 'not_visited' }} startInEdit />)
+    expect(screen.getByRole('button', { name: 'Your plan Nothing here yet' })).toBeInTheDocument()
+  })
+
+  it('returns focus to the section row when the add row that opened the sheet is gone', async () => {
+    setMobile(true)
+    const fetchMock = jest.fn().mockResolvedValue(jsonResponse(true))
+    global.fetch = fetchMock as unknown as typeof fetch
+    render(<PlacePage place={sparse} startInEdit />)
+
+    const add = await screen.findByRole('button', { name: /\+ Add a description/ })
+    add.focus()
+    await userEvent.click(add)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Edit About' })
+    await userEvent.type(within(dialog).getByLabelText('Description'), 'A')
+    expect(screen.queryByRole('button', { name: /\+ Add a description/ })).not.toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Done with About' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(document.activeElement).toHaveTextContent('About')
+    expect(document.activeElement).toHaveTextContent('A')
+    expect(document.activeElement).not.toHaveTextContent('+ Add')
+    expect(document.activeElement).toHaveAttribute('data-edit-section', 'about')
+  })
 })

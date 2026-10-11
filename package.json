@@ -21,9 +21,7 @@
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f travel-dreams",
     "docker:shell": "docker-compose exec travel-dreams sh",
-    "docker:health": "./scripts/docker-health-check.sh",
-    "rollout:enable": "node scripts/rollout-enable-percent.js",
-    "rollout:disable": "node scripts/rollout-force-disable.js"
+    "docker:health": "./scripts/docker-health-check.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",

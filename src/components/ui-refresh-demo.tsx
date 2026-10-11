@@ -1,6 +1,6 @@
 "use client"
 
-import { useUIRefresh } from "@/lib/feature-flags"
+import { useUiRefreshEnabled } from "@/components/ui-refresh-provider"
 import { Button } from "@/components/adapters/button"
 import { Button as ButtonV2 } from "@/components/ui-v2/button"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/adapters/card"
@@ -11,14 +11,14 @@ import { Badge as BadgeV2 } from "@/components/ui-v2/badge"
 /**
  * UI Refresh Demo Component
  *
- * Unreferenced scaffolding from the original UI-refresh rollout. It still
- * branches on the retired localStorage flag (`useUIRefresh`), which no longer
- * tracks the theme, so it does NOT follow the Settings → Appearance switch —
- * switch it to `useUiRefreshEnabled()` from `@/components/ui-refresh-provider`
- * before rendering it anywhere.
+ * Unreferenced scaffolding from the original UI-refresh rollout. It now
+ * branches on `useUiRefreshEnabled()`, so it follows the Settings →
+ * Appearance → "Tropical Boutique UI" switch like any other themed component.
+ * It is still mounted by nothing — kept as the design reference for the two
+ * component trees.
  */
 export function UIRefreshDemo() {
-  const [uiRefreshEnabled] = useUIRefresh()
+  const uiRefreshEnabled = useUiRefreshEnabled()
 
   if (uiRefreshEnabled) {
     return (

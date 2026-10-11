@@ -1,13 +1,7 @@
 import { DuplicatesPageClient } from '@/components/duplicates/duplicates-page-client';
 import { auth } from '@/lib/auth';
+import type { DuplicateCluster } from '@/lib/duplicate-detection';
 import { cookies } from 'next/headers';
-import type { Place } from '@/types/database';
-
-interface DuplicateCluster {
-  cluster_id: string;
-  places: Place[];
-  avgConfidence: number;
-}
 
 type DuplicatesFetchResult =
   | { ok: true; clusters: DuplicateCluster[]; timestamp: string | null }

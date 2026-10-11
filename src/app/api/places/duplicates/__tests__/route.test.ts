@@ -236,9 +236,14 @@ describe('/api/places/duplicates', () => {
 
       const mockClusters = [
         {
+          id: 'cluster-1',
           places: [mockPlaces[0], mockPlaces[1]],
           avgConfidence: 0.89,
-          cluster_id: 'cluster-1'
+          weakestIncludedScore: 0.89,
+          cluster_id: 'cluster-1',
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
         }
       ]
 
@@ -255,6 +260,7 @@ describe('/api/places/duplicates', () => {
       expect(data.mode).toBe('clusters')
       expect(data.clusters).toHaveLength(1)
       expect(data.clusters[0].places).toHaveLength(2)
+      expect(data.possible).toEqual([])
       expect(data.summary.totalClusters).toBe(1)
       expect(data.summary.largestClusterSize).toBe(2)
     })
@@ -277,6 +283,7 @@ describe('/api/places/duplicates', () => {
       expect(data.status).toBe('success')
       expect(data.mode).toBe('clusters')
       expect(data.clusters).toHaveLength(0)
+      expect(data.possible).toEqual([])
       expect(data.summary.totalPlaces).toBe(1)
     })
   })

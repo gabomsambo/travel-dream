@@ -1,4 +1,5 @@
 import type { Place } from '@/types/database';
+import { citiesMatch, citiesMatchInCountry } from '@/lib/city-names';
 
 // Configuration for duplicate detection
 export interface DuplicateDetectionConfig {
@@ -52,6 +53,59 @@ export interface DuplicateDetectionResult {
   potentialDuplicates: DuplicateMatch[];
   hasHighConfidenceDuplicates: boolean;
   totalCandidates: number;
+}
+
+/** Factor scores on a group edge. Kind, city, and country are 1 or 0. */
+export interface DuplicateEdgeFactors {
+  name: number;
+  location: number;
+  kind: number;
+  city: number;
+  country: number;
+}
+
+export type DuplicateEdgeFlag =
+  | 'same Google place'
+  | 'same spot, different name'
+  | 'far apart';
+
+/**
+ * One pair inside a group. `included` is true when this edge is why the
+ * members share a group (score at or above the grouping threshold).
+ */
+export interface DuplicateGroupEdge {
+  a: string;
+  b: string;
+  score: number;
+  included: boolean;
+  distanceM: number | null;
+  factors: DuplicateEdgeFactors;
+  for: string[];
+  against: string[];
+  flags: DuplicateEdgeFlag[];
+}
+
+/** A place the distance split removed. Empty until that split ships. */
+export interface DuplicateLeftOut {
+  id: string;
+  name: string;
+  distanceM: number;
+  fromId: string;
+  reason: string;
+}
+
+export interface DuplicateCluster {
+  /** Member ids sorted and joined with `+`. Stable across requests. */
+  id: string;
+  /** Same value as `id`. Kept so today's page can keep reading `cluster_id`. */
+  cluster_id: string;
+  places: Place[];
+  avgConfidence: number;
+  weakestIncludedScore: number;
+  edges: DuplicateGroupEdge[];
+  leftOut: DuplicateLeftOut[];
+  /** ISO timestamp when a merge alt-name explains an included edge. Null until that lookup ships. */
+  mergedOn: string | null;
 }
 
 /**
@@ -338,6 +392,29 @@ export function checkAlternativeNames(place1: Place, place2: Place): number {
 }
 
 /**
+ * Score one pair the same way `detectDuplicates` does, including the alt-name
+ * boost. Returned even when the score is under the detector floor, so a group
+ * can keep the pairs it would otherwise throw away.
+ */
+export function scoreDuplicatePair(
+  place1: Place,
+  place2: Place,
+  config: DuplicateDetectionConfig = DEFAULT_DETECTION_CONFIG
+): { score: number; factors: DuplicateMatch['factors']; reasoning: string[] } {
+  const { score, factors } = calculateDuplicateScore(place1, place2, config);
+  const altNameScore = checkAlternativeNames(place1, place2);
+  const enhancedNameScore = Math.max(factors.nameScore, altNameScore);
+  const enhancedScore = score + (enhancedNameScore - factors.nameScore) * config.weights.name;
+  const enhancedFactors = { ...factors, nameScore: enhancedNameScore };
+
+  return {
+    score: enhancedScore,
+    factors: enhancedFactors,
+    reasoning: generateDuplicateReasoning(place1, place2, enhancedFactors, enhancedScore),
+  };
+}
+
+/**
  * Main function to detect duplicates for a given place
  */
 export function detectDuplicates(
@@ -351,30 +428,15 @@ export function detectDuplicates(
     // Skip self-comparison
     if (candidate.id === targetPlace.id) continue;
 
-    // Calculate base duplicate score
-    const { score, factors } = calculateDuplicateScore(targetPlace, candidate, config);
-
-    // Check alternative names for better matching
-    const altNameScore = checkAlternativeNames(targetPlace, candidate);
-    const enhancedNameScore = Math.max(factors.nameScore, altNameScore);
-
-    // Recalculate with enhanced name score
-    const enhancedScore = score + (enhancedNameScore - factors.nameScore) * config.weights.name;
+    const scored = scoreDuplicatePair(targetPlace, candidate, config);
 
     // Only include if above minimum confidence
-    if (enhancedScore >= config.minConfidenceScore) {
-      const enhancedFactors = { ...factors, nameScore: enhancedNameScore };
-
+    if (scored.score >= config.minConfidenceScore) {
       potentialDuplicates.push({
         place: candidate,
-        confidence: enhancedScore,
-        factors: enhancedFactors,
-        reasoning: generateDuplicateReasoning(
-          targetPlace,
-          candidate,
-          enhancedFactors,
-          enhancedScore
-        )
+        confidence: scored.score,
+        factors: scored.factors,
+        reasoning: scored.reasoning,
       });
     }
   }
@@ -416,48 +478,250 @@ export async function batchDetectDuplicatesUnoptimized(
 
 export { optimizedBatchDetectDuplicates as batchDetectDuplicates } from './duplicate-optimization';
 
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}\0${b}` : `${b}\0${a}`;
+}
+
+/** Metres between two pins, or null when either place has no coordinates. */
+function distanceMetres(place1: Place, place2: Place): number | null {
+  const c1 = place1.coords;
+  const c2 = place2.coords;
+  if (
+    !c1 || !c2 ||
+    typeof c1.lat !== 'number' || typeof c1.lon !== 'number' ||
+    typeof c2.lat !== 'number' || typeof c2.lon !== 'number'
+  ) {
+    return null;
+  }
+  return calculateLocationDistance(c1, c2) * 1000;
+}
+
+function citiesDisagree(place1: Place, place2: Place): boolean {
+  const cityA = place1.city?.trim();
+  const cityB = place2.city?.trim();
+  if (!cityA || !cityB) return false;
+
+  const countryA = place1.country?.trim().toLowerCase() ?? '';
+  const countryB = place2.country?.trim().toLowerCase() ?? '';
+  if (countryA && countryB && countryA !== countryB) {
+    return !citiesMatchInCountry(
+      { city: cityA, country: countryA },
+      { city: cityB, country: countryB }
+    );
+  }
+  return !citiesMatch(cityA, cityB);
+}
+
+function formatDistanceApart(metres: number): string {
+  if (metres > 2000) return `${(metres / 1000).toFixed(1)} km apart`;
+  return `${Math.round(metres)} m apart`;
+}
+
 /**
- * Find all duplicate clusters (groups of similar places)
- * @param duplicateResults - Map of place IDs to their duplicate detection results
- * @param minClusterSize - Minimum number of places to form a cluster (default: 2)
- * @param minConfidence - Minimum confidence threshold for including duplicates in clusters (default: 0.6)
+ * Against-sentences and flags for one pair. These do not change the score:
+ * a missing city or a missing pin is the absence of a for-sentence, not a disagreement.
+ */
+function pairDisagreement(
+  placeA: Place,
+  placeB: Place,
+  nameScore: number,
+  rawMetres: number | null
+): { against: string[]; flags: DuplicateEdgeFlag[] } {
+  const against: string[] = [];
+  const flags: DuplicateEdgeFlag[] = [];
+
+  if (placeA.googlePlaceId && placeA.googlePlaceId === placeB.googlePlaceId) {
+    flags.push('same Google place');
+  }
+
+  const kindsAgree = Boolean(
+    placeA.kind?.trim() && placeB.kind?.trim() && placeA.kind === placeB.kind
+  );
+  if (
+    rawMetres !== null &&
+    rawMetres <= 50 &&
+    nameScore < 0.5 &&
+    kindsAgree
+  ) {
+    flags.push('same spot, different name');
+  }
+
+  if (nameScore < 0.5) against.push('Names differ');
+
+  if (rawMetres !== null && rawMetres > 500) {
+    against.push(formatDistanceApart(rawMetres));
+    if (rawMetres > 2000) flags.push('far apart');
+  }
+
+  if (citiesDisagree(placeA, placeB)) {
+    const cityA = placeA.city?.trim();
+    const cityB = placeB.city?.trim();
+    if (cityA && cityB) against.push(`${cityA} vs ${cityB}`);
+  }
+
+  if (placeA.kind?.trim() && placeB.kind?.trim() && placeA.kind !== placeB.kind) {
+    against.push(`${placeA.kind} vs ${placeB.kind}`);
+  }
+
+  const countryA = placeA.country?.trim();
+  const countryB = placeB.country?.trim();
+  if (countryA && countryB && countryA.toLowerCase() !== countryB.toLowerCase()) {
+    against.push(`${countryA} vs ${countryB}`);
+  }
+
+  return { against, flags };
+}
+
+function buildGroupEdge(
+  placeA: Place,
+  placeB: Place,
+  storedScore: number | undefined,
+  minConfidence: number,
+  config: DuplicateDetectionConfig
+): DuplicateGroupEdge {
+  const scored = scoreDuplicatePair(placeA, placeB, config);
+  const rawMetres = distanceMetres(placeA, placeB);
+  const { against, flags } = pairDisagreement(placeA, placeB, scored.factors.nameScore, rawMetres);
+  const qualified = storedScore !== undefined && storedScore >= minConfidence;
+
+  return {
+    a: placeA.id,
+    b: placeB.id,
+    // The detector's score is what put the edge in the group. Pairs the
+    // detector dropped (under its floor) are rescored so the group can show them.
+    score: qualified && storedScore !== undefined ? storedScore : scored.score,
+    included: qualified,
+    distanceM: rawMetres === null ? null : Math.round(rawMetres),
+    factors: {
+      name: scored.factors.nameScore,
+      location: scored.factors.locationScore,
+      kind: scored.factors.kindMatch ? 1 : 0,
+      city: scored.factors.cityMatch ? 1 : 0,
+      country: scored.factors.countryMatch ? 1 : 0,
+    },
+    for: scored.reasoning,
+    against,
+    flags,
+  };
+}
+
+/**
+ * Groups are connected components of main edges (score >= `minConfidence`).
+ * The id is the member ids sorted and joined with `+`, so it does not depend
+ * on database row order. Every pair inside the component is kept, including
+ * pairs under the threshold.
+ *
+ * `leftOut` and `mergedOn` are present for the clusters contract. The distance
+ * split and the merge-log date are not applied here.
  */
 export function findDuplicateClusters(
   duplicateResults: Map<string, DuplicateDetectionResult>,
   minClusterSize: number = 2,
-  minConfidence: number = 0.6
-): Array<{ places: Place[]; avgConfidence: number; cluster_id: string }> {
-  const processed = new Set<string>();
-  const clusters: Array<{ places: Place[]; avgConfidence: number; cluster_id: string }> = [];
+  minConfidence: number = 0.6,
+  config: DuplicateDetectionConfig = DEFAULT_DETECTION_CONFIG
+): DuplicateCluster[] {
+  const placesById = new Map<string, Place>();
+  const storedScore = new Map<string, number>();
 
+  for (const [, result] of duplicateResults) {
+    placesById.set(result.originalPlace.id, result.originalPlace);
+  }
   for (const [placeId, result] of duplicateResults) {
-    if (processed.has(placeId)) continue;
-
-    const cluster: Place[] = [result.originalPlace];
-    let totalConfidence = 0;
-    let confidenceCount = 0;
-
-    // Add duplicates that meet the configurable confidence threshold
     for (const duplicate of result.potentialDuplicates) {
-      if (duplicate.confidence >= minConfidence && !processed.has(duplicate.place.id)) {
-        cluster.push(duplicate.place);
-        totalConfidence += duplicate.confidence;
-        confidenceCount++;
+      if (!placesById.has(duplicate.place.id)) {
+        placesById.set(duplicate.place.id, duplicate.place);
       }
-    }
-
-    // Mark all places in cluster as processed
-    cluster.forEach(place => processed.add(place.id));
-
-    // Only include clusters with multiple places
-    if (cluster.length >= minClusterSize) {
-      clusters.push({
-        places: cluster,
-        avgConfidence: confidenceCount > 0 ? totalConfidence / confidenceCount : 0,
-        cluster_id: `cluster_${crypto.randomUUID()}`
-      });
+      const key = pairKey(placeId, duplicate.place.id);
+      const previous = storedScore.get(key);
+      if (previous === undefined || duplicate.confidence > previous) {
+        storedScore.set(key, duplicate.confidence);
+      }
     }
   }
 
-  return clusters.sort((a, b) => b.avgConfidence - a.avgConfidence);
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    let root = id;
+    while ((parent.get(root) ?? root) !== root) {
+      root = parent.get(root)!;
+    }
+    let cursor = id;
+    while (cursor !== root) {
+      const next = parent.get(cursor) ?? cursor;
+      parent.set(cursor, root);
+      cursor = next;
+    }
+    return root;
+  };
+  const union = (a: string, b: string) => {
+    if (!parent.has(a)) parent.set(a, a);
+    if (!parent.has(b)) parent.set(b, b);
+    let ra = find(a);
+    let rb = find(b);
+    if (ra === rb) return;
+    if (ra > rb) [ra, rb] = [rb, ra];
+    parent.set(rb, ra);
+  };
+
+  for (const [key, score] of storedScore) {
+    if (score < minConfidence) continue;
+    const [a, b] = key.split('\0');
+    union(a, b);
+  }
+
+  const components = new Map<string, string[]>();
+  for (const id of parent.keys()) {
+    const root = find(id);
+    const members = components.get(root);
+    if (members) members.push(id);
+    else components.set(root, [id]);
+  }
+
+  const clusters: DuplicateCluster[] = [];
+  for (const memberIds of components.values()) {
+    if (memberIds.length < minClusterSize) continue;
+    memberIds.sort();
+
+    const places: Place[] = [];
+    for (const memberId of memberIds) {
+      const place = placesById.get(memberId);
+      if (place) places.push(place);
+    }
+    if (places.length !== memberIds.length) continue;
+
+    const edges: DuplicateGroupEdge[] = [];
+    for (let i = 0; i < places.length; i++) {
+      for (let j = i + 1; j < places.length; j++) {
+        const placeA = places[i];
+        const placeB = places[j];
+        edges.push(buildGroupEdge(
+          placeA,
+          placeB,
+          storedScore.get(pairKey(placeA.id, placeB.id)),
+          minConfidence,
+          config
+        ));
+      }
+    }
+
+    const included = edges.filter(edge => edge.included);
+    if (included.length === 0) continue;
+
+    const avgConfidence = included.reduce((sum, edge) => sum + edge.score, 0) / included.length;
+    const weakestIncludedScore = Math.min(...included.map(edge => edge.score));
+    const id = memberIds.join('+');
+
+    clusters.push({
+      id,
+      cluster_id: id,
+      places,
+      avgConfidence,
+      weakestIncludedScore,
+      edges,
+      leftOut: [],
+      mergedOn: null,
+    });
+  }
+
+  return clusters.sort((a, b) => b.avgConfidence - a.avgConfidence || a.id.localeCompare(b.id));
 }

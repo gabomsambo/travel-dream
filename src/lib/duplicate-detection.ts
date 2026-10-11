@@ -1,5 +1,5 @@
 import type { Place } from '@/types/database';
-import { citiesMatch, citiesMatchInCountry } from '@/lib/city-names';
+import { citiesMatch } from '@/lib/city-names';
 
 // Configuration for duplicate detection
 export interface DuplicateDetectionConfig {
@@ -269,6 +269,10 @@ export function calculateLocationSimilarity(
   return 0;
 }
 
+function placesShareCity(place1: Place, place2: Place): boolean {
+  return citiesMatch(place1.city, place2.city);
+}
+
 /**
  * Calculate overall duplicate confidence score
  * Uses adaptive weighting when location data is missing to prevent unfair penalization
@@ -289,8 +293,8 @@ export function calculateDuplicateScore(
       ? calculateLocationSimilarity(place1.coords, place2.coords, config.locationThresholdKm)
       : 0,
     kindMatch: place1.kind === place2.kind,
-    // Treat null === null as a match for city/country (both unknown is compatible)
-    cityMatch: place1.city?.toLowerCase() === place2.city?.toLowerCase(),
+    cityMatch: placesShareCity(place1, place2),
+    // A missing country matches a missing country.
     countryMatch: place1.country?.toLowerCase() === place2.country?.toLowerCase()
   };
 
@@ -497,19 +501,8 @@ function distanceMetres(place1: Place, place2: Place): number | null {
 }
 
 function citiesDisagree(place1: Place, place2: Place): boolean {
-  const cityA = place1.city?.trim();
-  const cityB = place2.city?.trim();
-  if (!cityA || !cityB) return false;
-
-  const countryA = place1.country?.trim().toLowerCase() ?? '';
-  const countryB = place2.country?.trim().toLowerCase() ?? '';
-  if (countryA && countryB && countryA !== countryB) {
-    return !citiesMatchInCountry(
-      { city: cityA, country: countryA },
-      { city: cityB, country: countryB }
-    );
-  }
-  return !citiesMatch(cityA, cityB);
+  if (!place1.city?.trim() || !place2.city?.trim()) return false;
+  return !placesShareCity(place1, place2);
 }
 
 function formatDistanceApart(metres: number): string {
@@ -596,7 +589,7 @@ function buildGroupEdge(
       name: scored.factors.nameScore,
       location: scored.factors.locationScore,
       kind: scored.factors.kindMatch ? 1 : 0,
-      city: scored.factors.cityMatch ? 1 : 0,
+      city: placesShareCity(placeA, placeB) ? 1 : 0,
       country: scored.factors.countryMatch ? 1 : 0,
     },
     for: scored.reasoning,

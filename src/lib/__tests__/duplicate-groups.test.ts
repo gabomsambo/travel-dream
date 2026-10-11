@@ -302,6 +302,7 @@ describe('duplicate groups', () => {
       })
       const [cluster] = await groupAt([lisbon, lisboa])
       const pair = edge(cluster, 'lisbon', 'lisboa')
+      expect(pair.factors.city).toBe(1)
       expect(pair.against).not.toContain('Lisbon vs Lisboa')
       expect(pair.against.some(sentence => sentence.includes('Lisboa'))).toBe(false)
     })
@@ -466,7 +467,7 @@ describe('duplicate groups', () => {
       expect(pair.score).toBeLessThan(1)
     })
 
-    it('still groups two blank cities and does not invent a city disagreement', async () => {
+    it('does not treat two blank cities as the same city', async () => {
       const secret = place({
         id: 'beach-a',
         name: 'Secret Beach',
@@ -483,13 +484,14 @@ describe('duplicate groups', () => {
         country: null,
         coords: null,
       })
-      const [cluster] = await groupAt([secret, harris])
-      expect(cluster.places.map(item => item.id).sort()).toEqual(['beach-a', 'beach-b'])
+      const scored = scoreDuplicatePair(secret, harris)
+      expect(scored.factors.cityMatch).toBe(false)
+      expect(await groupAt([secret, harris])).toHaveLength(0)
+
+      const [cluster] = await groupAt([secret, harris], 0.6)
       const pair = edge(cluster, 'beach-a', 'beach-b')
-      expect(pair.included).toBe(true)
-      expect(pair.score).toBeGreaterThanOrEqual(0.7)
-      expect(pair.distanceM).toBeNull()
-      expect(pair.against.some(sentence => sentence.includes(' vs '))).toBe(false)
+      expect(pair.factors.city).toBe(0)
+      expect(pair.against).toEqual([])
     })
   })
 })

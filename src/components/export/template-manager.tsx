@@ -36,7 +36,7 @@ interface TemplateManagerProps {
 }
 
 export function TemplateManager({
-  currentConfig,
+  currentConfig: _currentConfig,
   templates,
   onSaveTemplate,
   onLoadTemplate,

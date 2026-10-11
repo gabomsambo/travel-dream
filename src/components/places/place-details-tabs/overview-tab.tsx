@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/adapters/badge"
 import { Separator } from "@/components/adapters/separator"
-import { MapPin, DollarSign, Calendar } from "lucide-react"
+import { DollarSign, Calendar } from "lucide-react"
 import type { PlaceWithRelations } from "@/types/database"
 
 interface OverviewTabProps {

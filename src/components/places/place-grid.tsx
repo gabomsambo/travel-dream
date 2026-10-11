@@ -38,7 +38,6 @@ export function PlaceGrid({
   onConfirm,
   onArchive,
   onEdit,
-  onMerge,
   onView,
   openPlaceHref,
   emptyMessage = "No places found",
@@ -50,8 +49,6 @@ export function PlaceGrid({
   const {
     shouldVirtualize,
     getVirtualGridProps,
-    getRegularGridProps,
-    performanceMetrics,
     performanceSuggestions
   } = useVirtualGrid(places, {
     threshold: virtualizeThreshold,

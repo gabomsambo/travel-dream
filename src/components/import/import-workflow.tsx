@@ -9,9 +9,9 @@ import { ColumnMapper } from './column-mapper'
 import { ImportOptions } from './import-options'
 import { ImportPreview } from './import-preview'
 import { ImportReview } from './import-review'
-import { validateRows, preparePlacesForImport } from '@/lib/import-service'
+import { validateRows } from '@/lib/import-service'
 import { autoMapColumns } from '@/lib/import-field-metadata'
-import type { ImportPreviewResponse, ColumnMapping, ImportOptions as ImportOptionsType, ParsedRow, ImportResult, ImportTemplate } from '@/types/import'
+import type { ImportPreviewResponse, ColumnMapping, ParsedRow, ImportResult, ImportTemplate } from '@/types/import'
 
 type Step = 'upload' | 'mapping' | 'options' | 'preview' | 'review' | 'importing' | 'complete'
 
@@ -31,7 +31,7 @@ export function ImportWorkflow({ onComplete, onClose, onStepChange }: ImportWork
   const [error, setError] = useState<string | null>(null)
 
   const [parseResult, setParseResult] = useState<ImportPreviewResponse | null>(null)
-  const [rows, setRows] = useState<string[][]>([])
+  const [, setRows] = useState<string[][]>([])
   const [mappings, setMappings] = useState<ColumnMapping[]>([])
   const [template, setTemplate] = useState<ImportTemplate>('auto')
 
@@ -93,7 +93,7 @@ export function ImportWorkflow({ onComplete, onClose, onStepChange }: ImportWork
     return new FormData()
   }
 
-  const getExtraRows = (total: number, sample: number) => {
+  const getExtraRows = (_total: number, _sample: number) => {
     return []
   }
 

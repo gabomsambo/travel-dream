@@ -1,10 +1,9 @@
-import Ajv, { JSONSchemaType, ValidateFunction, ErrorObject } from 'ajv';
+import Ajv, { ValidateFunction, ErrorObject } from 'ajv';
 import addFormats from 'ajv-formats';
 import {
   ExtractedPlace,
   LLMError,
-  LLMErrorType,
-  ExtractionResult
+  LLMErrorType
 } from '@/types/llm-extraction';
 import { PLACE_KINDS } from '@/types/database';
 import {
@@ -13,8 +12,7 @@ import {
   llmResponseSchema,
   extractionResultSchema,
   CURRENT_SCHEMA_VERSION,
-  SchemaValidationError,
-  categorizeConfidence
+  SchemaValidationError
 } from './extraction-schema';
 
 // Validation result type

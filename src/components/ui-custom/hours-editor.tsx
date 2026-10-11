@@ -187,15 +187,9 @@ export function HoursEditor({ value, onChange }: HoursEditorProps) {
         return { ...range, days: range.days.filter(d => d !== day) }
       }
 
-      const hasDayInOtherRange = ranges.some(r => r.id !== rangeId && r.days.includes(day))
-
       if (range.days.includes(day)) {
         return { ...range, days: range.days.filter(d => d !== day) }
       } else {
-        const otherRangesUpdated = ranges
-          .filter(r => r.id !== rangeId)
-          .map(r => ({ ...r, days: r.days.filter(d => d !== day) }))
-
         return { ...range, days: sortDays([...range.days, day]) }
       }
     })

@@ -174,7 +174,6 @@ export function autoMapColumns(
   headers: string[],
   template: ImportTemplate = 'auto'
 ): ColumnMapping[] {
-  const normalizedHeaders = headers.map(h => h.toLowerCase().trim());
 
   if (template !== 'auto' && IMPORT_TEMPLATES[template]) {
     const templateMap = IMPORT_TEMPLATES[template]!;
@@ -257,18 +256,6 @@ function autoMapSingleColumn(header: string, index: number): ColumnMapping {
 
 export function getTargetFieldOptions(): Array<{ value: string; label: string; category: string }> {
   const options: Array<{ value: string; label: string; category: string }> = [];
-
-  const categoryOrder = [
-    'essentials',
-    'location',
-    'contact',
-    'categorization',
-    'user_notes',
-    'visit_tracking',
-    'social',
-    'llm_metadata',
-    'system_meta',
-  ];
 
   const categoryLabels: Record<string, string> = {
     essentials: 'Essentials',

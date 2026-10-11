@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/adapters/dialog";
 import { Button } from "@/components/adapters/button";
-import { Download, Map, Navigation, FileText, FileSpreadsheet, Copy, Check, Loader2 } from 'lucide-react';
+import { Map, Navigation, FileText, FileSpreadsheet, Copy, Check, Loader2 } from 'lucide-react';
 import { notify, NOTIFY_DURATION } from '@/lib/notify';
 import type { Collection, Place } from '@/types/database';
 import type { ExportFormat } from '@/types/export';

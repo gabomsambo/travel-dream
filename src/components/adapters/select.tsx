@@ -2,9 +2,6 @@
 
 import * as React from "react"
 import {
-  Select as SelectV1,
-  SelectGroup as SelectGroupV1,
-  SelectValue as SelectValueV1,
   SelectTrigger as SelectTriggerV1,
   SelectContent as SelectContentV1,
   SelectLabel as SelectLabelV1,
@@ -14,9 +11,6 @@ import {
   SelectScrollDownButton as SelectScrollDownButtonV1,
 } from "@/components/ui/select"
 import {
-  Select as SelectV2,
-  SelectGroup as SelectGroupV2,
-  SelectValue as SelectValueV2,
   SelectTrigger as SelectTriggerV2,
   SelectContent as SelectContentV2,
   SelectLabel as SelectLabelV2,

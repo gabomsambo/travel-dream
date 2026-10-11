@@ -1,11 +1,11 @@
 "use client"
 
 import { useMemo } from 'react'
-import { Calendar, CalendarDays } from 'lucide-react'
+import { CalendarDays } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useMapContext } from './map-context'
-import { DAY_COLORS, getDayColor } from '@/lib/map-colors'
+import { getDayColor } from '@/lib/map-colors'
 import type { DayBucket } from '@/types/database'
 
 export function MapDayOverlay() {

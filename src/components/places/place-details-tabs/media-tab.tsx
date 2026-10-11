@@ -21,7 +21,7 @@ interface MediaTabProps {
   onUpdate?: () => Promise<void>
 }
 
-export function MediaTab({ place, onUpdate }: MediaTabProps) {
+export function MediaTab({ place }: MediaTabProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [mediaError, setMediaError] = useState<string | null>(null)

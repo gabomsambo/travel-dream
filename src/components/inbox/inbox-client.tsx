@@ -56,7 +56,7 @@ function optimisticReducer(state: Place[], action: OptimisticAction): Place[] {
   }
 }
 
-export function InboxClient({ initialPlaces, initialStats }: InboxClientProps) {
+export function InboxClient({ initialPlaces }: InboxClientProps) {
   const router = useRouter()
   const [places, setOptimisticPlaces] = useOptimistic(initialPlaces, optimisticReducer)
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all')

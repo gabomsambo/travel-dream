@@ -1,4 +1,4 @@
-import { eq, and, or, like, inArray, desc, asc, sql, gte, lte, between, isNull, SQL } from 'drizzle-orm';
+import { eq, and, or, like, inArray, desc, asc, sql, between, SQL } from 'drizzle-orm';
 import { unstable_cache } from 'next/cache';
 import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, attachments } from '@/db/schema';
@@ -7,7 +7,7 @@ import { withErrorHandling } from './db-utils';
 import { isClaimableNow } from './mass-upload/queue-sql';
 import { forUser } from '@/lib/tenant-db';
 import { storedCitiesMatching } from '@/lib/city-names';
-import type { Place, Source, Collection, PlaceWithSources } from '@/types/database';
+import type { Place, Source, Collection } from '@/types/database';
 
 /**
  * Narrowed row shape for the /library route.
@@ -629,7 +629,7 @@ export async function getPlacesByConfidenceRange(userId: string, options: {
 }
 
 // Temporary replacement function
-export async function getLLMProcessingStats(userId: string) {
+export async function getLLMProcessingStats(_userId: string) {
   return {
     sources: { total: 0, processed: 0, pending: 0, failed: 0 },
     places: { total_llm_generated: 0, by_confidence: { high: 0, medium: 0, low: 0 }, avg_confidence: 0 },
@@ -1002,7 +1002,7 @@ export async function getCollectionsForPlace(placeId: string, userId: string): P
 
 export async function getPlaceWithRelations(placeId: string, userId: string) {
   return withErrorHandling(async () => {
-    const { places, sourcesCurrentSchema } = await import('@/db/schema');
+    const { places } = await import('@/db/schema');
     const { eq, and } = await import('drizzle-orm');
 
     const place = await db

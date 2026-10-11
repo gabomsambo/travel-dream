@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { StopItem } from "./stop-item"
-import { Calendar, MapPin, Sparkles, Trash2, StickyNote, ChevronDown, ChevronUp } from "lucide-react"
+import { MapPin, Sparkles, Trash2, StickyNote, ChevronDown, ChevronUp } from "lucide-react"
 import type { DayBucket, Place } from "@/types/database"
 import { cn } from "@/lib/utils"
 import { optimizeCollectionRoute } from "@/lib/algorithms/tsp"
@@ -78,7 +78,6 @@ export function DayColumn({
 
   const handleOptimize = () => {
     const lockedPlaceIds = day.lockedPlaceIds || []
-    const lockedPlaces = places.filter((p) => lockedPlaceIds.includes(p.id))
     const unlockedPlaces = placesWithCoords.filter((p) => !lockedPlaceIds.includes(p.id))
 
     if (unlockedPlaces.length < 2) {

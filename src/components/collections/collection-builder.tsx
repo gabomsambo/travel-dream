@@ -31,7 +31,7 @@ interface CollectionBuilderProps {
 export function CollectionBuilder({ initialCollection }: CollectionBuilderProps) {
   const router = useRouter();
   const mapContext = useCollectionMapContextOptional();
-  const [collection, setCollection] = useState(initialCollection);
+  const [collection] = useState(initialCollection);
   const [places, setPlaces] = useState(initialCollection.places);
   const [optimisticPlaces, setOptimisticPlaces] = useOptimistic(places);
   const [addPlacesDialogOpen, setAddPlacesDialogOpen] = useState(false);

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
 jest.mock('@upstash/ratelimit', () => ({
   Ratelimit: jest.fn().mockImplementation(() => ({
@@ -21,7 +21,6 @@ import {
   checkRateLimit,
   getRouteTier,
   rateLimitResponse,
-  addRateLimitHeaders,
 } from '../rate-limit';
 
 function createMockRequest(options: {

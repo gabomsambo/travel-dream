@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useMemo } from 'react'
-import { ArrowRight, Check, AlertTriangle, X, ChevronDown } from 'lucide-react'
+import { useMemo } from 'react'
+import { ArrowRight, Check, AlertTriangle, X } from 'lucide-react'
 import { Badge } from "@/components/adapters/badge"
-import { Button } from "@/components/adapters/button"
 import { Card } from "@/components/adapters/card"
 import {
   Select,

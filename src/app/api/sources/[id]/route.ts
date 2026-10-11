@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { deleteSource } from '@/lib/db-mutations'
 import { NotFoundError } from '@/lib/db-utils'
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers'
-import { z } from 'zod'
 
 export const runtime = 'nodejs'
 

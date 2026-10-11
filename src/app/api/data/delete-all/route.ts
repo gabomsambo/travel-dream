@@ -57,13 +57,6 @@ export async function DELETE() {
         )
       }
 
-      // Get all collection IDs for this user
-      const userCollections = await tx
-        .select({ id: collections.id })
-        .from(collections)
-        .where(eq(collections.userId, user.id))
-      const collectionIds = userCollections.map(c => c.id)
-
       // Delete junction table records (only those related to user's places/sources/collections)
       if (placeIds.length > 0) {
         await tx.delete(sourcesToPlaces).where(inArray(sourcesToPlaces.placeId, placeIds))

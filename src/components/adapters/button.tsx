@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Button as ButtonV1, buttonVariants as buttonVariantsV1 } from "@/components/ui/button"
+import { Button as ButtonV1 } from "@/components/ui/button"
 import { Button as ButtonV2, buttonVariants as buttonVariantsV2 } from "@/components/ui-v2/button"
 import type { VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"

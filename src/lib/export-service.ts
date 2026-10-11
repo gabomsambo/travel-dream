@@ -1,8 +1,8 @@
 import { inArray, and, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { places, placesToCollections, collections } from '@/db/schema';
-import type { Place, PlaceToCollection, Collection } from '@/types/database';
-import type { ExportRequest, ExportResult, LibraryFilters } from '@/types/export';
+import { places, placesToCollections } from '@/db/schema';
+import type { Place, Collection } from '@/types/database';
+import type { ExportRequest, ExportResult } from '@/types/export';
 import { getPlacesInCollection, getPlacesByStatus, searchPlaces, getCollectionById } from './db-queries';
 import { getFieldsForPreset } from './export-field-metadata';
 import { generateCSV } from './export-generators/csv-generator';

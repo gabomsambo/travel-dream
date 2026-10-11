@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withErrorHandling } from '@/lib/db-utils';
-import { getPlacesByStatus } from '@/lib/db-queries';
 import {
   detectDuplicates,
   batchDetectDuplicates,
@@ -15,7 +14,7 @@ import {
 // eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
 import { places, dismissedDuplicates } from '@/db/schema';
-import { eq, inArray, and, ne } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 import type { Place } from '@/types/database';

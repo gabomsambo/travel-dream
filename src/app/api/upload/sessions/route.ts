@@ -7,7 +7,7 @@ import { withErrorHandling, NotFoundError } from '@/lib/db-utils';
 // See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
 // eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db';
-import { uploadSessions, sources } from '@/db/schema';
+import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';

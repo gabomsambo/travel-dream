@@ -1,6 +1,6 @@
 "use client"
 
-import { MapPin, Calendar, DollarSign, Star, X } from "lucide-react"
+import { MapPin, Calendar, DollarSign, Star } from "lucide-react"
 import {
   Dialog,
   DialogContent,

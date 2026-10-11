@@ -6,7 +6,6 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/
 import { Checkbox } from '@/components/ui-v2/checkbox';
 import { Card, CardContent } from '@/components/ui-v2/card';
 import { Button } from '@/components/ui-v2/button';
-import { Label } from '@/components/ui-v2/label';
 import { FIELD_CATEGORIES, FIELD_DEFINITIONS } from '@/lib/export-field-metadata';
 import type { FieldPreset, FieldCategory } from '@/types/export';
 
@@ -77,12 +76,6 @@ export function FieldPicker({
     return categoryFields.every(fieldId => customFields.includes(fieldId));
   };
 
-  const isCategoryPartiallySelected = (category: FieldCategory): boolean => {
-    const categoryFields = FIELD_CATEGORIES[category].fields;
-    const selectedCount = categoryFields.filter(fieldId => customFields.includes(fieldId)).length;
-    return selectedCount > 0 && selectedCount < categoryFields.length;
-  };
-
   return (
     <div className="space-y-6">
       <div className="space-y-4">
@@ -126,7 +119,6 @@ export function FieldPicker({
           <Accordion type="multiple" className="w-full">
             {(Object.entries(FIELD_CATEGORIES) as [FieldCategory, typeof FIELD_CATEGORIES[FieldCategory]][]).map(([categoryKey, category]) => {
               const fullySelected = isCategoryFullySelected(categoryKey);
-              const partiallySelected = isCategoryPartiallySelected(categoryKey);
               const selectedCount = category.fields.filter(fieldId => customFields.includes(fieldId)).length;
 
               return (

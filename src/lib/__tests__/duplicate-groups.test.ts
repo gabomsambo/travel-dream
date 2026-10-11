@@ -1,6 +1,11 @@
 import {
   batchDetectDuplicates,
+  calculateDuplicateScore,
   calculateNameSimilarity,
+  DEFAULT_DETECTION_CONFIG,
+  detectDuplicates,
+  duplicatePageBand,
+  DUPLICATE_DISTANCE_PENALTIES,
   findDuplicateClusters,
   scoreDuplicatePair,
   type DuplicateCluster,
@@ -11,7 +16,8 @@ import { createMockPlace } from '@/__tests__/helpers/mass-upload-helpers'
 
 /**
  * Cluster payload: stable id, weakest inclusion edge, and every pair in the
- * group. Scores stay on today's scorer, so Fjellheisen is 0.777 / 0.857 / 0.585.
+ * group. A blank city takes none of the missing-coordinate weight, so
+ * Fjellheisen is 0.777 / 0.900 / 0.614.
  */
 const EDGE_KEYS = [
   'a',
@@ -225,7 +231,7 @@ describe('duplicate groups', () => {
       expect(richInbox.flags).toEqual([])
 
       expect(richSparse.included).toBe(true)
-      expect(richSparse.score).toBeCloseTo(0.857, 3)
+      expect(richSparse.score).toBeCloseTo(0.9, 3)
       expect(richSparse.distanceM).toBeNull()
       expect(richSparse.factors).toEqual(expect.objectContaining({
         name: 1,
@@ -237,7 +243,7 @@ describe('duplicate groups', () => {
 
       // Under the detector floor, so it used to be thrown away.
       expect(inboxSparse.included).toBe(false)
-      expect(inboxSparse.score).toBeCloseTo(0.585, 3)
+      expect(inboxSparse.score).toBeCloseTo(0.614, 2)
       expect(inboxSparse.distanceM).toBeNull()
       expect(inboxSparse.against).toEqual([])
       expect(inboxSparse.for).toEqual(expect.arrayContaining([
@@ -256,7 +262,7 @@ describe('duplicate groups', () => {
   })
 
   describe('against sentences and flags', () => {
-    it('names a city and country disagreement without treating a blank city as one', async () => {
+    it('names a city and country disagreement and withholds location weight when both cities differ', async () => {
       const vienna = place({
         id: 'vie',
         name: 'Café Central',
@@ -273,11 +279,24 @@ describe('duplicate groups', () => {
         country: 'Spain',
         coords: null,
       })
-      const [cluster] = await groupAt([vienna, madrid])
+      const scored = calculateDuplicateScore(vienna, madrid)
+      expect(scored.factors.cityMatch).toBe(false)
+      expect(scored.factors.countryMatch).toBe(false)
+      // Name and kind only: the location weight stays put when both cities differ.
+      expect(scored.score).toBeCloseTo(0.55, 3)
+      expect(duplicatePageBand(scored.score, scored.flags)).toBe('No')
+      expect(await groupAt([vienna, madrid])).toHaveLength(0)
+      expect(await groupAt([vienna, madrid], 0.6)).toHaveLength(0)
+
+      const pin = { lat: 48.2082, lon: 16.3738 }
+      const [cluster] = await groupAt([
+        place({ ...vienna, coords: pin }),
+        place({ ...madrid, coords: pin }),
+      ])
       const pair = edge(cluster, 'vie', 'mad')
       expect(pair.included).toBe(true)
-      expect(pair.score).toBeCloseTo(0.786, 2)
-      expect(pair.distanceM).toBeNull()
+      expect(pair.score).toBeCloseTo(0.85, 2)
+      expect(pair.distanceM).toBe(0)
       // The two sides are the member ids in order, so the sentence is stable.
       expect(pair.against).toEqual(['Madrid vs Vienna', 'Spain vs Austria'])
       expect(pair.flags).toEqual([])
@@ -328,7 +347,7 @@ describe('duplicate groups', () => {
       expect(edge(cluster, 'dutch-a', 'dutch-b').against).toContain('restaurant vs cafe')
     })
 
-    it('states kilometres and the far-apart flag without lowering the score', async () => {
+    it('states kilometres and the far-apart flag and lowers the score by 0.12', async () => {
       const here = { lat: 38.7223, lon: -9.1393 }
       const left = place({
         id: 'star-a',
@@ -346,16 +365,29 @@ describe('duplicate groups', () => {
         country: 'Portugal',
         coords: offset(here.lat, here.lon, 3000),
       })
-      const [cluster] = await groupAt([left, right])
+      // The pair itself is under the detector floor. A third copy with no pin
+      // keeps both in one group so the far edge is still reported.
+      const bridge = place({
+        id: 'star-bridge',
+        name: 'Starbucks',
+        kind: 'cafe',
+        city: 'Lisbon',
+        country: 'Portugal',
+        coords: null,
+      })
+      expect(await groupAt([left, right])).toHaveLength(0)
+      const [cluster] = await groupAt([left, right, bridge])
+      expect(cluster.places.map(item => item.id)).toEqual(['star-a', 'star-b', 'star-bridge'])
       const pair = edge(cluster, 'star-a', 'star-b')
-      expect(pair.included).toBe(true)
-      expect(pair.score).toBeCloseTo(0.7, 2)
+      expect(pair.included).toBe(false)
+      // Location score is 0 past 500 m, so the unpenalized total is 0.70.
+      expect(pair.score).toBeCloseTo(0.7 - DUPLICATE_DISTANCE_PENALTIES.farPenalty, 2)
       expect(pair.distanceM).toBeGreaterThan(2000)
       expect(pair.against).toContain(`${((pair.distanceM ?? 0) / 1000).toFixed(1)} km apart`)
       expect(pair.flags).toContain('far apart')
     })
 
-    it('states metres between 500 m and 2 km without the far-apart flag', async () => {
+    it('states metres between 500 m and 2 km, applies the 0.05 penalty, and omits the far-apart flag', async () => {
       const here = { lat: 38.7223, lon: -9.1393 }
       const left = place({
         id: 'near-a',
@@ -373,9 +405,12 @@ describe('duplicate groups', () => {
         country: 'Portugal',
         coords: offset(here.lat, here.lon, 1199),
       })
-      const [cluster] = await groupAt([left, right])
+      expect(await groupAt([left, right])).toHaveLength(0)
+      const [cluster] = await groupAt([left, right], 0.6)
       const pair = edge(cluster, 'near-a', 'near-b')
-      expect(pair.score).toBeCloseTo(0.7, 2)
+      expect(pair.included).toBe(true)
+      expect(pair.score).toBeCloseTo(0.7 - DUPLICATE_DISTANCE_PENALTIES.midPenalty, 2)
+      expect(duplicatePageBand(pair.score, pair.flags)).toBe('Possible')
       expect(pair.distanceM).toBeGreaterThan(500)
       expect(pair.distanceM).toBeLessThanOrEqual(2000)
       expect(pair.against).toContain(`${pair.distanceM} m apart`)
@@ -413,7 +448,7 @@ describe('duplicate groups', () => {
       expect(pair.distanceM).toBe(0)
     })
 
-    it('does not pull a low-scoring pair into a group just because the Google place id matches', async () => {
+    it('scores a same Google place id as a certain match even when the names do not', async () => {
       const foo = place({
         id: 'g-a',
         name: 'Foo Place',
@@ -432,14 +467,29 @@ describe('duplicate groups', () => {
         googlePlaceId: 'ChIJsame',
         coords: null,
       })
-      const natural = scoreDuplicatePair(foo, bar)
+      const natural = calculateDuplicateScore(
+        place({ ...foo, googlePlaceId: null }),
+        place({ ...bar, googlePlaceId: null }),
+      )
       expect(natural.score).toBeLessThan(0.7)
-      expect(natural.score).not.toBe(1)
-      const clusters = await groupAt([foo, bar])
-      expect(clusters).toHaveLength(0)
+      expect(natural.flags).not.toContain('same Google place')
+
+      const certain = calculateDuplicateScore(foo, bar)
+      expect(certain.score).toBe(1)
+      expect(certain.flags).toEqual(['same Google place'])
+
+      const detected = detectDuplicates(foo, [foo, bar])
+      expect(detected.potentialDuplicates).toHaveLength(1)
+      expect(detected.potentialDuplicates[0].confidence).toBe(1)
+      const clusters = findDuplicateClusters(new Map([[foo.id, detected]]), 2, 0.7)
+      expect(clusters).toHaveLength(1)
+      const pair = edge(clusters[0], 'g-a', 'g-b')
+      expect(pair.included).toBe(true)
+      expect(pair.score).toBe(1)
+      expect(pair.flags).toContain('same Google place')
     })
 
-    it('labels a same Google place id on a pair that already matches, without forcing the score to 1', async () => {
+    it('labels a same Google place id as a certain match and does not apply a distance penalty', async () => {
       const pin = { lat: 41.4036, lon: 2.1744 }
       const left = place({
         id: 'g-match-a',
@@ -457,14 +507,26 @@ describe('duplicate groups', () => {
         city: 'Barcelona',
         country: 'Spain',
         googlePlaceId: 'ChIJsagrada',
-        coords: offset(pin.lat, pin.lon, 100),
+        coords: offset(pin.lat, pin.lon, 3000),
       })
-      const natural = scoreDuplicatePair(left, right)
+      const apart = calculateDuplicateScore(
+        place({ ...left, googlePlaceId: null }),
+        place({ ...right, googlePlaceId: null }),
+      )
+      expect(apart.flags).toContain('far apart')
+      expect(apart.score).toBeCloseTo(0.7 - DUPLICATE_DISTANCE_PENALTIES.farPenalty, 2)
+      expect(apart.score).toBeLessThan(1)
+
+      const certain = calculateDuplicateScore(left, right)
+      expect(certain.score).toBe(1)
+      expect(certain.flags).toEqual(['same Google place'])
+
       const [cluster] = await groupAt([left, right])
       const pair = edge(cluster, 'g-match-a', 'g-match-b')
       expect(pair.flags).toContain('same Google place')
-      expect(pair.score).toBeCloseTo(natural.score, 5)
-      expect(pair.score).toBeLessThan(1)
+      expect(pair.score).toBe(1)
+      expect(pair.included).toBe(true)
+      expect(pair.distanceM).toBeGreaterThan(2000)
     })
 
     it('groups alias cities whose names do not share a prefix', async () => {
@@ -496,7 +558,9 @@ describe('duplicate groups', () => {
       }
     })
 
-    it('counts a rescored in-group pair once its score clears the threshold', async () => {
+    it('counts a cross-city pair in the group once its score clears the threshold', async () => {
+      const pin = { lat: 38.7223, lon: -9.1393 }
+      const porto = offset(pin.lat, pin.lon, 200)
       const places = [
         place({
           id: 'cafe-lisbon',
@@ -504,7 +568,7 @@ describe('duplicate groups', () => {
           kind: 'cafe',
           city: 'Lisbon',
           country: 'Portugal',
-          coords: null,
+          coords: pin,
         }),
         place({
           id: 'cafe-porto',
@@ -512,7 +576,7 @@ describe('duplicate groups', () => {
           kind: 'cafe',
           city: 'Porto',
           country: 'Portugal',
-          coords: null,
+          coords: porto,
         }),
         place({
           id: 'central-porto',
@@ -520,7 +584,7 @@ describe('duplicate groups', () => {
           kind: 'cafe',
           city: 'Porto',
           country: 'Portugal',
-          coords: null,
+          coords: porto,
         }),
       ]
       const [cluster] = await groupAt(places)
@@ -561,11 +625,18 @@ describe('duplicate groups', () => {
         country: null,
         coords: null,
       })
-      const scored = scoreDuplicatePair(secret, harris)
+      const scored = calculateDuplicateScore(secret, harris)
       expect(scored.factors.cityMatch).toBe(false)
+      expect(scored.factors.countryMatch).toBe(false)
+      expect(scored.score).toBeCloseTo(0.592, 2)
+      expect(scored.score).toBeLessThan(0.6)
+      expect(duplicatePageBand(scored.score, scored.flags)).toBe('No')
       expect(await groupAt([secret, harris])).toHaveLength(0)
+      expect(await groupAt([secret, harris], 0.6)).toHaveLength(0)
 
-      const [cluster] = await groupAt([secret, harris], 0.6)
+      const floor = { ...DEFAULT_DETECTION_CONFIG, minConfidenceScore: 0.5 }
+      const results = await batchDetectDuplicates([secret, harris], floor)
+      const [cluster] = findDuplicateClusters(results, 2, 0.5, floor)
       const pair = edge(cluster, 'beach-a', 'beach-b')
       expect(pair.factors.city).toBe(0)
       expect(pair.against).toEqual([])

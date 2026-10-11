@@ -225,7 +225,7 @@ function restoreFailedSave(
 
 function focusSectionRow(returnTo: HTMLElement) {
   const section = returnTo.getAttribute("data-edit-section")
-  if (!section || !Object.hasOwn(SECTION_LABELS, section)) return
+  if (!section || !Object.prototype.hasOwnProperty.call(SECTION_LABELS, section)) return
   document.querySelector<HTMLElement>(`[data-edit-section="${section}"][data-edit-section-row]`)?.focus()
 }
 
@@ -529,7 +529,7 @@ function MobileSheet({ api }: { api: SectionEditApi }) {
             {api.status === "error" && <span className="font-medium text-destructive">{api.error ?? "Couldn't save"}</span>}
           </span>
         </div>
-        <SectionEditor id={api.active} api={api} />
+        <SectionEditor id={active} api={api} />
         <button
           type="button"
           aria-label={`Done with ${label}`}

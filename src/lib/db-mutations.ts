@@ -1727,17 +1727,17 @@ export async function createPlacesFromPipeline(
         new Set(pipelinePlaces.map(p => p.name).filter((n): n is string => Boolean(n)))
       );
 
-      const byGoogleId = new Map<string, Place>();
+      const byGoogleId = new Map<string, Place[]>();
       if (googleIds.length > 0) {
         const rows = await tx.select().from(places)
           .where(and(eq(places.userId, userId), inArray(places.googlePlaceId, googleIds)));
         for (const row of rows as Place[]) {
           if (!row.googlePlaceId) continue;
-          byGoogleId.set(row.googlePlaceId, preferLivePlace(byGoogleId.get(row.googlePlaceId), row));
+          rememberIdentityMatch(byGoogleId, row.googlePlaceId, row);
         }
       }
 
-      const byNameKey = new Map<string, Place>();
+      const byNameKey = new Map<string, Place[]>();
       if (names.length > 0) {
         const rows = await tx.select().from(places)
           .where(and(
@@ -1745,8 +1745,7 @@ export async function createPlacesFromPipeline(
             sql`LOWER(${places.name}) IN (${sql.join(names.map(n => sql`LOWER(${n})`), sql`, `)})`
           ));
         for (const row of rows as Place[]) {
-          const key = placeNameKey(row.name, row.city, row.country);
-          byNameKey.set(key, preferLivePlace(byNameKey.get(key), row));
+          rememberIdentityMatch(byNameKey, placeNameKey(row.name, row.city, row.country), row);
         }
       }
 
@@ -1756,20 +1755,18 @@ export async function createPlacesFromPipeline(
       for (const p of pipelinePlaces) {
         // ── Dedup check (in-memory, including places created in this batch) ─
         const nameKey = p.name ? placeNameKey(p.name, p.city ?? null, p.country ?? null) : null;
-        const existingPlace =
+        const candidates =
           (p.googlePlaceId ? byGoogleId.get(p.googlePlaceId) : undefined) ??
           (nameKey ? byNameKey.get(nameKey) : undefined);
 
-        if (existingPlace) {
+        if (candidates && candidates.length > 0) {
           // A place archived by a merge still carries its Google id and name.
           // Attach this screenshot to the survivor instead of the archived copy.
-          const linked = existingPlace.status === 'archived'
-            ? await survivorOfMergedArchive(tx, existingPlace, userId)
-            : existingPlace;
+          const linked = await resolveIdentityMatch(tx, candidates, userId);
           sourceLinks.push({ sourceId, placeId: linked.id });
           createdPlaces.push(linked);
-          if (p.googlePlaceId) byGoogleId.set(p.googlePlaceId, linked);
-          if (nameKey) byNameKey.set(nameKey, linked);
+          if (p.googlePlaceId) byGoogleId.set(p.googlePlaceId, [linked]);
+          if (nameKey) byNameKey.set(nameKey, [linked]);
           continue;
         }
 
@@ -1801,8 +1798,8 @@ export async function createPlacesFromPipeline(
 
         const [place] = await tx.insert(places).values(newPlace).returning();
         createdPlaces.push(place);
-        if (place.googlePlaceId) byGoogleId.set(place.googlePlaceId, place);
-        if (nameKey) byNameKey.set(nameKey, place);
+        if (place.googlePlaceId) byGoogleId.set(place.googlePlaceId, [place]);
+        if (nameKey) byNameKey.set(nameKey, [place]);
 
         // Link source → place
         sourceLinks.push({ sourceId, placeId: place.id });
@@ -1845,11 +1842,22 @@ function placeNameKey(name: string, city: string | null, country: string | null)
   return [name, city ?? '', country ?? ''].map(v => v.toLowerCase()).join('\u0000');
 }
 
-/** A live row wins over an archived one when both match the same identity. */
-function preferLivePlace(current: Place | undefined, candidate: Place): Place {
-  if (!current) return candidate;
-  if (current.status === 'archived' && candidate.status !== 'archived') return candidate;
-  return current;
+function rememberIdentityMatch(map: Map<string, Place[]>, key: string, place: Place): void {
+  const matches = map.get(key);
+  if (matches) matches.push(place);
+  else map.set(key, [place]);
+}
+
+/** Prefer a live identity match; otherwise the first archived row that resolves through merge_logs. */
+async function resolveIdentityMatch(tx: any, candidates: Place[], userId: string): Promise<Place> {
+  const live = candidates.find((candidate) => candidate.status !== 'archived');
+  if (live) return live;
+
+  for (const candidate of candidates) {
+    const survivor = await survivorOfMergedArchive(tx, candidate, userId);
+    if (survivor.id !== candidate.id) return survivor;
+  }
+  return candidates[0];
 }
 
 /**

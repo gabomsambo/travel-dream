@@ -491,6 +491,109 @@ describe('duplicate merge fixes', () => {
     )).toBe('plc_old_archive');
   });
 
+  it('attaches a later screenshot to the merge survivor when an older archive shares that identity', async () => {
+    const { mergeLogs } = require('@/db/schema') as typeof import('@/db/schema');
+    const database = await db();
+
+    // Old is inserted first so it is the first archived row the lookup returns.
+    await insertPlace({
+      id: 'plc_old_saito',
+      name: 'Sushi Saito',
+      kind: 'restaurant',
+      status: 'archived',
+      city: 'Tokyo',
+      country: 'Japan',
+      googlePlaceId: 'G-copy',
+    });
+    await insertPlace({
+      id: 'plc_keep_saito',
+      name: 'Saito',
+      kind: 'restaurant',
+      status: 'library',
+      city: 'Tokyo',
+      country: 'Japan',
+      googlePlaceId: 'G-keep',
+    });
+    await insertPlace({
+      id: 'plc_copy_saito',
+      name: 'Sushi Saito',
+      kind: 'restaurant',
+      status: 'archived',
+      city: 'Tokyo',
+      country: 'Japan',
+      googlePlaceId: 'G-copy',
+    });
+    await database.insert(mergeLogs).values({
+      id: 'mrg_saito_copy',
+      targetId: 'plc_keep_saito',
+      sourceIds: ['plc_copy_saito'],
+      confidence: 0.9,
+      performedBy: 'user',
+      undone: false,
+    });
+    await client().execute({
+      sql: `INSERT INTO sources (id, user_id, type, uri, processing_status, created_at, updated_at)
+            VALUES (?, ?, 'screenshot', ?, 'completed', ?, ?),
+                   (?, ?, 'screenshot', ?, 'completed', ?, ?)`,
+      args: [
+        'src_gcopy', ALICE.id, 'https://example.test/gcopy.jpg', now, now,
+        'src_name', ALICE.id, 'https://example.test/name.jpg', now, now,
+      ],
+    });
+
+    const blank: Omit<PipelinePlace, 'name' | 'googlePlaceId' | 'city' | 'country'> = {
+      kind: 'restaurant',
+      admin: null,
+      description: null,
+      tags: null,
+      vibes: null,
+      confidence: 0.8,
+      price_level: null,
+      best_time: null,
+      activities: null,
+      cuisine: null,
+      amenities: null,
+      practicalInfo: null,
+      recommendedBy: null,
+      coords: { lat: 35.66, lon: 139.73 },
+      address: null,
+    };
+
+    const byGoogleId = await createPlacesFromPipeline([{
+      ...blank,
+      name: 'Different Label',
+      city: 'Osaka',
+      country: 'Japan',
+      googlePlaceId: 'G-copy',
+    }], 'src_gcopy', ALICE.id);
+    const byName = await createPlacesFromPipeline([{
+      ...blank,
+      name: 'Sushi Saito',
+      city: 'Tokyo',
+      country: 'Japan',
+      googlePlaceId: null,
+    }], 'src_name', ALICE.id);
+
+    expect(byGoogleId.map((place) => place.id)).toEqual(['plc_keep_saito']);
+    expect(byName.map((place) => place.id)).toEqual(['plc_keep_saito']);
+    expect(await readCell(
+      'SELECT place_id FROM sources_to_places WHERE source_id = ?',
+      ['src_gcopy']
+    )).toBe('plc_keep_saito');
+    expect(await readCell(
+      'SELECT place_id FROM sources_to_places WHERE source_id = ?',
+      ['src_name']
+    )).toBe('plc_keep_saito');
+    expect(await readCell(
+      'SELECT COUNT(*) FROM places WHERE name = ? AND id NOT IN (?, ?)',
+      ['Sushi Saito', 'plc_old_saito', 'plc_copy_saito']
+    )).toBe(0);
+    expect(await readCell(
+      'SELECT COUNT(*) FROM places WHERE name = ?',
+      ['Different Label']
+    )).toBe(0);
+  });
+
   describe('single-value field picks', () => {
     const keptFilled = {
       name: 'Kept Name',

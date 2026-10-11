@@ -446,3 +446,25 @@ describe('PlacePage one-tap visit status', () => {
     expect(screen.getByTestId('editor-status')).toHaveTextContent('planned')
   })
 })
+
+describe('PlacePage hours from a Google Add Place', () => {
+  // The hours object `/api/google-places/details` returns and `add-place-dialog`
+  // posts: Mon–Sat 09:00–17:00, closed Sunday. Add Place used to reject this
+  // shape entirely; after the fix it round-trips into the row, and the place
+  // page must render the summary the rest of the app already knew how to show.
+  const kinkakujiHours = {
+    monday: '09:00-17:00',
+    tuesday: '09:00-17:00',
+    wednesday: '09:00-17:00',
+    thursday: '09:00-17:00',
+    friday: '09:00-17:00',
+    saturday: '09:00-17:00',
+    sunday: 'closed',
+  }
+
+  it('summarises the stored hours object on the ground section', () => {
+    const { container } = render(<PlacePage place={{ ...rich, id: 'plc_kinkakuji', name: 'Kinkaku-ji', hours: kinkakujiHours }} />)
+    const text = container.textContent ?? ''
+    expect(text).toContain('Mon–Sat 9:00 AM–5:00 PM · Sun Closed')
+  })
+})

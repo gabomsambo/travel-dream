@@ -106,7 +106,12 @@ export function CollectionPlaceItem({
 
         {/* Place Info */}
         <div className="flex-1 min-w-0">
-          <h4 className="font-medium truncate">{place.name}</h4>
+          <h4 className="flex items-center gap-2 font-medium truncate">
+            <span className="truncate">{place.name}</span>
+            {place.status === 'archived' && (
+              <Badge variant="secondary" className="shrink-0 text-xs">Archived</Badge>
+            )}
+          </h4>
           <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
             {place.kind && (
               <Badge variant="outline" className="text-xs">

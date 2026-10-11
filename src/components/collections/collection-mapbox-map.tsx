@@ -61,7 +61,7 @@ export function CollectionMapboxMap() {
         },
         properties: {
           id: place.id,
-          name: place.name,
+          name: place.status === 'archived' ? `${place.name} (archived)` : place.name,
           orderNumber: index + 1
         }
       }

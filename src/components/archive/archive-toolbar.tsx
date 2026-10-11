@@ -18,6 +18,14 @@ import {
 } from "@/components/adapters/tooltip"
 import { cn } from "@/lib/utils"
 
+/** Shortcuts this page actually handles. The tooltip must not promise more. */
+export const ARCHIVE_SHORTCUTS = [
+  "r — Restore the selection",
+  "d — Delete the selection",
+  "Cmd/Ctrl+A — Select all shown",
+  "Esc — Clear the selection",
+] as const
+
 export interface ArchiveToolbarProps {
   selectedCount: number
   totalCount: number
@@ -59,7 +67,7 @@ export function ArchiveToolbar({
   const hasSelection = selectedCount > 0
 
   return (
-    <div className={cn("flex items-center justify-between gap-4 p-4 border-b bg-background/95 backdrop-blur", className)}>
+    <div className={cn("flex flex-wrap items-center justify-between gap-2 p-3 border-b bg-background/95 backdrop-blur sm:gap-4 sm:p-4", className)}>
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
           {hasSelection ? (
@@ -82,7 +90,7 @@ export function ArchiveToolbar({
                   disabled={disabled || totalCount === 0}
                   className="h-8"
                 >
-                  {isAllSelected ? "None" : isSomeSelected ? "All" : "All"}
+                  {isAllSelected ? "None" : isSomeSelected ? "All remaining" : "All"}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -109,7 +117,7 @@ export function ArchiveToolbar({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Move selected items back to library (Shortcut: R)
+                  Restore the selection to the library (r)
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -129,7 +137,7 @@ export function ArchiveToolbar({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Permanently delete selected items from database (Shortcut: D)
+                  Permanently delete the selection (d)
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -177,6 +185,7 @@ export function ArchiveToolbar({
                 variant="ghost"
                 size="sm"
                 onClick={onToggleKeyboardHints}
+                aria-label="Keyboard shortcuts"
                 className={cn(
                   "h-8 px-2",
                   showKeyboardHints && "bg-accent text-accent-foreground"
@@ -189,14 +198,9 @@ export function ArchiveToolbar({
               <div className="space-y-1">
                 <div className="font-medium">Keyboard Shortcuts</div>
                 <div className="text-xs space-y-0.5">
-                  <div>j/k - Navigate up/down</div>
-                  <div>r - Restore current item</div>
-                  <div>R - Restore all selected</div>
-                  <div>d - Delete current item</div>
-                  <div>D - Delete all selected</div>
-                  <div>Space - Toggle selection</div>
-                  <div>Cmd/Ctrl+A - Select all</div>
-                  <div>Cmd+Shift+A - Go to archive</div>
+                  {ARCHIVE_SHORTCUTS.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
                 </div>
               </div>
             </TooltipContent>

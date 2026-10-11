@@ -1,7 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { MapPin, Star, Heart, MoreVertical } from "lucide-react"
+import { MapPin, Star, Heart, MoreVertical, RotateCcw, Trash2 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/adapters/dropdown-menu"
 import type { PlaceWithCover, LibraryPlaceWithCover } from "@/lib/library-adapters"
 import { FavoriteManager, parsePriceLevel, formatPriceSymbols } from "@/lib/place-card-helpers"
 import { cn } from "@/lib/utils"
@@ -14,9 +20,12 @@ interface PlaceCardV2Props {
   place: PlaceWithCover | LibraryPlaceWithCover
   onClick?: () => void
   className?: string
+  /** Archive keeps the kebab. Restore and Delete are the only actions. */
+  onRestore?: () => void
+  onDelete?: () => void
 }
 
-export function PlaceCardV2({ place, onClick, className }: PlaceCardV2Props) {
+export function PlaceCardV2({ place, onClick, className, onRestore, onDelete }: PlaceCardV2Props) {
   const [isFavorited, setIsFavorited] = React.useState(
     FavoriteManager.isFavorited(place.id)
   )
@@ -39,7 +48,11 @@ export function PlaceCardV2({ place, onClick, className }: PlaceCardV2Props) {
         "group cursor-pointer overflow-hidden transition-all hover:shadow-md",
         className
       )}
-      onClick={onClick}
+      onClick={(e) => {
+        const target = e.target as HTMLElement
+        if (target.closest("button, a")) return
+        onClick?.()
+      }}
     >
       {/* Cover Image */}
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
@@ -100,23 +113,43 @@ export function PlaceCardV2({ place, onClick, className }: PlaceCardV2Props) {
             <h3 className="font-semibold leading-tight text-balance line-clamp-2">
               {place.name}
             </h3>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-6 w-6 shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreVertical className="h-4 w-4" />
-              <span className="sr-only">More options</span>
-            </Button>
+            {(onRestore || onDelete) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0"
+                    aria-label={`More for ${place.name}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  {onRestore && (
+                    <DropdownMenuItem onClick={onRestore}>
+                      <RotateCcw className="mr-2 h-4 w-4" /> Restore
+                    </DropdownMenuItem>
+                  )}
+                  {onDelete && (
+                    <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
 
+          {[place.city, place.country].filter(Boolean).length > 0 && (
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <MapPin className="h-3.5 w-3.5" />
             <span className="line-clamp-1">
-              {place.city}, {place.country}
+              {[place.city, place.country].filter(Boolean).join(", ")}
             </span>
           </div>
+          )}
         </div>
 
         {/* Description */}

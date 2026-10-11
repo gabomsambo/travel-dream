@@ -42,6 +42,9 @@ export function PlaceHero({
   const edit = useSectionEdit()
   const editing = Boolean(edit?.editingAll)
   const cover = photos[0]
+  const back = place.status === "archived"
+    ? { href: "/archive", label: "Archive" }
+    : { href: "/library", label: "Library" }
   const flag = flagFor(place.country)
   const countrySlug = place.country ? slugify(place.country) : null
   const vibes = (place.vibes ?? []).slice(0, 3)
@@ -66,9 +69,9 @@ export function PlaceHero({
 
       <div className={cn("relative flex flex-col justify-between gap-10 px-4 pb-10 pt-4 sm:px-8 sm:pb-16 sm:pt-6", cover ? "min-h-[min(72vh,38rem)]" : "min-h-[26rem]", editing && "pt-16 sm:pt-20")}>
         <div className="flex items-center gap-2">
-          <Link href="/library" className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium", GLASS)}>
+          <Link href={back.href} className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium", GLASS)}>
             <ArrowLeft className="h-4 w-4" aria-hidden />
-            <span>Library</span>
+            <span>{back.label}</span>
           </Link>
           <span className="ml-auto" />
           {!cover && (

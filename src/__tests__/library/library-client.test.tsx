@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LibraryClient } from '@/components/library/library-client'
 import { resetHalfBuiltCollectionsForTests } from '@/components/library/library-add-to-collection'
-import { isDream, resetHeartWriterForTests, writeHearts } from '@/lib/explore/dreams'
+import { isDream, resetHeartWriterForTests, seedAccountHearts, writeHearts } from '@/lib/explore/dreams'
 import { notify } from '@/lib/notify'
 import type { LibraryData } from '@/lib/library/types'
 import { item, photo } from '../helpers/library-items'
@@ -362,6 +362,60 @@ describe('hearts, saved to the account', () => {
     expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment.")
   })
 
+  it('offers Undo for hearts that landed when another heart in that save fails', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return first.gate
+        return json({ status: 'error' }, 503)
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_2'] }} />)
+    await user.keyboard('s')
+    await user.click(tile('Place 0'))
+    await user.click(tile('Place 6'))
+    await user.keyboard('h')
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    await act(async () => {
+      const sent = (callsTo('/api/library/hearts')[0].body as { placeIds: string[] }).placeIds
+      first.release({ status: 'success', placeIds: sent })
+    })
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Hearted 2 places', expect.anything()))
+    const [, opts] = (notify.success as jest.Mock).mock.calls.find(([m]) => m === 'Hearted 2 places')!
+    expect(opts.cancel.label).toBe('Undo')
+    expect(notify.error).toHaveBeenCalledWith("Couldn't remove that heart. Try again in a moment.")
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 0' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 6' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    await act(async () => opts.cancel.onClick())
+    await waitFor(() => expect(callsTo('/api/library/hearts').at(-1)?.body).toEqual({ placeIds: ['plc_0', 'plc_6'], on: false }))
+
+    resetHeartWriterForTests()
+    const flight = heldResponse()
+    let posts = 0
+    fetchMock.mockImplementation((url: string) => {
+      if (url === '/api/library/hearts') {
+        posts += 1
+        return flight.gate
+      }
+      return json({ status: 'success' })
+    })
+    const saved = writeHearts(['plc_9'], true)
+    await waitFor(() => expect(posts).toBe(1))
+    seedAccountHearts(['plc_9'])
+    await act(async () => {
+      flight.release({ status: 'error' }, 503)
+    })
+    await expect(saved).resolves.toBe(false)
+    expect(isDream('plc_9')).toBe(true)
+  })
+
   it('shows a Hearts shelf once there is a heart, and narrows to them', async () => {
     const user = userEvent.setup()
     const { rerender } = render(<LibraryClient data={data} />)
@@ -606,6 +660,42 @@ describe('Add to collection', () => {
     } finally {
       routerSpy.mockRestore()
     }
+  })
+
+  it('fills the same new collection on retry when only some places were added', async () => {
+    const many = Array.from({ length: 101 }, (_, i) =>
+      item({ id: `bulk_${i}`, name: `Bulk ${i}`, country: 'Japan', city: 'Kyoto', photos: [photo] })
+    )
+    let placePosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/collections' && init?.method === 'POST') return json({ collection: { id: 'col_new' } }, 201)
+      if (url === '/api/collections/col_new/places' && init?.method === 'POST') {
+        placePosts += 1
+        if (placePosts === 2) return json({ status: 'error' }, 503)
+        return json({ results: { successful: (body as { placeIds: string[] }).placeIds, failed: [] } })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, items: many }} />)
+    await user.keyboard('{Control>}a{/Control}')
+    await user.click(screen.getByRole('button', { name: 'Add to collection' }))
+    const dialog = await screen.findByRole('dialog', { name: /Add 101 places to a collection/ })
+    expect(within(dialog).getByLabelText('New collection name')).toHaveValue('Kyoto trip')
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Added 100 to Kyoto trip', expect.anything()))
+    const [, opts] = (notify.warning as jest.Mock).mock.calls.find(([m]) => m === 'Added 100 to Kyoto trip')!
+    expect(opts.description).toBe("100 added · 1 couldn't be added")
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Add to collection' }))
+    const again = await screen.findByRole('dialog', { name: /Add 101 places to a collection/ })
+    expect(within(again).getByLabelText('New collection name')).toHaveValue('Kyoto trip')
+    await user.click(within(again).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Added 101 to Kyoto trip', expect.anything()))
+    expect(calls().filter((c) => c.url === '/api/collections' && c.method === 'POST')).toHaveLength(1)
+    expect(calls().filter((c) => c.url === '/api/collections/col_new/places' && c.method === 'POST')).toHaveLength(4)
   })
 })
 

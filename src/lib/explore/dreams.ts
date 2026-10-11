@@ -6,13 +6,13 @@ const SAVE_FAILED = "Couldn't save that heart. Try again in a moment.";
 const REMOVE_FAILED = "Couldn't remove that heart. Try again in a moment.";
 const BATCH = 1000;
 
-type Lane = { confirmed: boolean; desired: boolean; busy: boolean; clicks: number; snapshot: boolean | null };
+type Lane = { confirmed: boolean; desired: boolean; busy: boolean; clicks: number; snapshot: boolean | null; failedClick: number };
 const lanes = new Map<string, Lane>();
 let generation = 0;
 let refreshUi: (() => void) | null = null;
 let tail: Promise<void> = Promise.resolve();
 
-const fresh = (on: boolean): Lane => ({ confirmed: on, desired: on, busy: false, clicks: 0, snapshot: null });
+const fresh = (on: boolean): Lane => ({ confirmed: on, desired: on, busy: false, clicks: 0, snapshot: null, failedClick: 0 });
 const publish = () => refreshUi?.();
 
 export function resetHeartWriterForTests(): void {
@@ -76,41 +76,43 @@ async function postChunk(ids: string[], on: boolean): Promise<Set<string> | null
   }
 }
 
-async function send(ids: string[], on: boolean, gen: number, started: Map<string, number>): Promise<boolean> {
+async function send(ids: string[], on: boolean, gen: number, started: Map<string, number>): Promise<void> {
   const applied = new Set<string>();
   for (let i = 0; i < ids.length; i += BATCH) {
     const got = await postChunk(ids.slice(i, i + BATCH), on);
-    if (generation !== gen) return true;
+    if (generation !== gen) return;
     if (!got) break;
     for (const id of got) applied.add(id);
   }
-  if (generation !== gen) return true;
+  if (generation !== gen) return;
   let toast = false;
   for (const id of ids) {
     const row = lanes.get(id);
-    if (!row) continue;
+    const stamp = started.get(id);
+    if (!row || stamp === undefined) continue;
     if (applied.has(id)) {
       row.confirmed = on;
       row.snapshot = null;
+      row.failedClick = 0;
+    } else {
+      row.failedClick = stamp;
+      if (row.clicks === stamp) {
+        if (row.snapshot !== null) row.confirmed = row.snapshot;
+        row.snapshot = null;
+        row.desired = row.confirmed;
+        toast = true;
+      } else if (row.snapshot !== null) {
+        row.confirmed = row.snapshot;
+        row.snapshot = null;
+      }
     }
     row.busy = false;
-    if (row.clicks === started.get(id) && !applied.has(id)) {
-      if (row.snapshot !== null) row.confirmed = row.snapshot;
-      row.snapshot = null;
-      row.desired = row.confirmed;
-      toast = true;
-    } else if (!applied.has(id) && row.snapshot !== null) {
-      row.confirmed = row.snapshot;
-      row.snapshot = null;
-    }
   }
   if (toast) notify.error(on ? SAVE_FAILED : REMOVE_FAILED);
   publish();
-  return !toast;
 }
 
-async function drain(gen: number): Promise<boolean> {
-  let ok = true;
+async function drain(gen: number): Promise<void> {
   while (generation === gen) {
     const onIds: string[] = [];
     const offIds: string[] = [];
@@ -121,24 +123,24 @@ async function drain(gen: number): Promise<boolean> {
       started.set(id, row.clicks);
       (row.desired ? onIds : offIds).push(id);
     }
-    if (!started.size) return ok;
-    const [onOk, offOk] = await Promise.all([
-      onIds.length ? send(onIds, true, gen, started) : true,
-      offIds.length ? send(offIds, false, gen, started) : true,
+    if (!started.size) return;
+    await Promise.all([
+      onIds.length ? send(onIds, true, gen, started) : undefined,
+      offIds.length ? send(offIds, false, gen, started) : undefined,
     ]);
-    if (!onOk || !offOk) ok = false;
   }
-  return ok;
 }
 
-/** Saves `on` for each place. False when any id did not land. */
+/** Saves `on` for each place. False when any id in this call did not land. */
 export function writeHearts(ids: string[], on: boolean): Promise<boolean> {
   const unique = [...new Set(ids.filter(Boolean))];
   if (!unique.length) return Promise.resolve(true);
+  const stamps = new Map<string, number>();
   for (const id of unique) {
     const row = lane(id);
     row.desired = on;
     row.clicks += 1;
+    stamps.set(id, row.clicks);
   }
   publish();
   const gen = generation;
@@ -147,8 +149,11 @@ export function writeHearts(ids: string[], on: boolean): Promise<boolean> {
     () => undefined,
     () => undefined
   );
-  return run.then(
-    (ok) => ok && unique.every((id) => lanes.get(id)?.confirmed === on && lanes.get(id)?.desired === on)
+  return run.then(() =>
+    unique.every((id) => {
+      const row = lanes.get(id);
+      return !!row && row.failedClick !== stamps.get(id) && row.confirmed === on && row.desired === on;
+    })
   );
 }
 

@@ -212,7 +212,7 @@ export function AddToCollectionDialog({
         halfBuilt.set(key, { id, seen: false })
       }
       const { added, failed } = await addPlaces(id, ids)
-      halfBuilt.delete(key)
+      if (failed === 0) halfBuilt.delete(key)
       finish(id, name, added, 0, failed)
     } catch {
       const orphan = halfBuilt.get(key)

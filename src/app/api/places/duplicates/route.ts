@@ -85,10 +85,10 @@ async function getDismissedPairsSet(userId: string): Promise<Set<string>> {
   return dismissedSet;
 }
 
-function filterDismissedClusters(
-  clusters: Array<{ places: Place[]; avgConfidence: number; cluster_id: string }>,
+function filterDismissedClusters<T extends { places: Place[] }>(
+  clusters: T[],
   dismissedSet: Set<string>
-): Array<{ places: Place[]; avgConfidence: number; cluster_id: string }> {
+): T[] {
   return clusters.filter(cluster => {
     // Check if ANY pair in cluster is dismissed
     for (let i = 0; i < cluster.places.length; i++) {
@@ -362,6 +362,7 @@ export async function GET(request: NextRequest) {
             status: 'success',
             mode: 'clusters',
             clusters: [],
+            possible: [],
             summary: {
               totalPlaces: targetPlaces.length,
               totalClusters: 0,
@@ -375,8 +376,9 @@ export async function GET(request: NextRequest) {
         // Batch duplicate detection for clustering
         const duplicateResults = await batchDetectDuplicates(targetPlaces, config);
 
-        // Find clusters with configurable confidence threshold
-        const allClusters = findDuplicateClusters(duplicateResults, 2, minConfidence);
+        // Connected components of edges at or above the caller's threshold.
+        // The page asks for 0.7. Pairs under that stay on the group as edges.
+        const allClusters = findDuplicateClusters(duplicateResults, 2, minConfidence, config);
 
         // Filter out dismissed clusters (scoped to current user)
         const dismissedSet = await getDismissedPairsSet(user.id);
@@ -394,6 +396,9 @@ export async function GET(request: NextRequest) {
               country: p.country
             }))
           })),
+          // Pairs that are not main edges live on `edges` inside a group.
+          // A separate Possible list is filled by the scoring change, not here.
+          possible: [] as const,
           summary: {
             totalPlaces: targetPlaces.length,
             totalClusters: clusters.length,

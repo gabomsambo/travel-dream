@@ -92,8 +92,8 @@ curl 'http://localhost:3000/api/places/duplicates?mode=clusters&status=library&p
 ```
 
 **Expected:**
-- Returns clusters array with duplicate groups
-- Each cluster has: places[], avgConfidence, cluster_id
+- Returns a `clusters` array of duplicate groups
+- Each cluster is a `DuplicateCluster` (`src/lib/duplicate-detection.ts`)
 
 ## 📋 Feature Checklist
 

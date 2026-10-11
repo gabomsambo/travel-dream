@@ -534,7 +534,7 @@ describe('Duplicate Detection Utils', () => {
           name: 'Seychelles Beach Resort',
           coords: null,
           kind: 'hotel',
-          city: null,
+          city: 'Victoria',
           country: null,
         },
         {
@@ -543,7 +543,7 @@ describe('Duplicate Detection Utils', () => {
           name: 'Seychelles',
           coords: null,
           kind: 'beach',
-          city: null,
+          city: 'Victoria',
           country: null,
         },
       ]
@@ -650,7 +650,7 @@ describe('Duplicate Detection Utils', () => {
       expect(scoreSameKind).toBeGreaterThan(scoreDiffKind)
     })
 
-    it('should treat null city as matching (both unknown)', () => {
+    it('does not treat blank cities as the same city', () => {
       const place1: Place = {
         ...mockPlaces[0],
         id: 'city-null-1',
@@ -669,9 +669,12 @@ describe('Duplicate Detection Utils', () => {
         city: null,
         country: null,
       }
+      const emptyCity: Place = { ...place2, id: 'city-empty', city: '' }
+      const whitespaceCity: Place = { ...place2, id: 'city-blank', city: '   ' }
 
       const { factors } = calculateDuplicateScore(place1, place2)
-      expect(factors.cityMatch).toBe(true)
+      expect(factors.cityMatch).toBe(false)
+      expect(calculateDuplicateScore(emptyCity, whitespaceCity).factors.cityMatch).toBe(false)
       expect(factors.countryMatch).toBe(true)
     })
 

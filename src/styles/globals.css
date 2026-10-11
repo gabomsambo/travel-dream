@@ -19,8 +19,10 @@
     --muted-foreground: 215.4 16.3% 46.9%;
     --accent: 210 40% 96%;
     --accent-foreground: 222.2 47.4% 11.2%;
-    /* Planned pins on the map: must contrast with Mapbox light-v11, so it
-       cannot reuse --accent (a hover-surface token in this theme). */
+    /* Planned pins, legend dot, and Planned pill. The fill must contrast with
+       the Mapbox basemap, so it cannot reuse --accent (a hover-surface token
+       in this theme). --map-planned-foreground stays dark in every theme so
+       the pill label clears 4.5:1 against that bright fill. */
     --map-planned: 24 95% 50%;
     --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 50%;

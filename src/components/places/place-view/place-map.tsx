@@ -8,9 +8,10 @@ import { kindIcon } from "@/components/explore/kind-icon"
 
 /**
  * A static map with the place pinned, using the Mapbox access token the app
- * already ships (no new key). Rendered as a plain image so it stays light; when
- * the token is missing or the image fails, a muted placeholder keeps the card
- * shaped the same and the pin still marks the spot.
+ * already ships (no new key). Rendered as a plain image so it stays lightweight.
+ * The basemap is light-v11 or dark-v11 once the page theme has resolved; until
+ * then, and when the token is missing or the image fails, a muted placeholder
+ * keeps the card shaped the same and the pin still marks the spot.
  */
 export function PlaceMap({
   coords,
@@ -30,7 +31,6 @@ export function PlaceMap({
   const [failedSrc, setFailedSrc] = React.useState<string | null>(null)
   const Icon = kindIcon(kind)
 
-  // Follow the page theme, as the interactive library map already does.
   const src =
     token && style
       ? `https://api.mapbox.com/styles/v1/mapbox/${style}/static/${coords.lon},${coords.lat},15,0/600x400@2x?access_token=${token}`

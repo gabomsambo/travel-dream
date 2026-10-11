@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LibraryClient } from '@/components/library/library-client'
 import { resetHalfBuiltCollectionsForTests } from '@/components/library/library-add-to-collection'
+import { resetHeartQueueForTests } from '@/lib/explore/dreams'
 import { notify } from '@/lib/notify'
 import type { LibraryData } from '@/lib/library/types'
 import { item, photo } from '../helpers/library-items'
@@ -80,6 +81,7 @@ function routeFetch(overrides: Record<string, (body: unknown) => unknown> = {}) 
 
 beforeEach(() => {
   localStorage.clear()
+  resetHeartQueueForTests()
   fetchMock.mockReset()
   routeFetch()
   jest.clearAllMocks()
@@ -449,6 +451,60 @@ describe('hearts, saved to the account', () => {
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment."))
     expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
     expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('plc_2')
+  })
+
+  it('does not let a failed replay put an un-heart back over a heart that landed after it', async () => {
+    localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_2: false }))
+    const pending = holdHeartPosts()
+    const user = userEvent.setup()
+    const { unmount } = render(<LibraryClient data={data} />)
+    await waitFor(() => expect(pending.map((p) => p.body)).toEqual([{ placeIds: ['plc_2'], on: false }]))
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    expect(pending).toHaveLength(1)
+    await act(async () => {
+      pending[0].held.release({ status: 'error' }, 503)
+    })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    expect(pending[1].body).toEqual({ placeIds: ['plc_2'], on: true })
+    await act(async () => {
+      pending[1].held.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true'))
+    expect(localStorage.getItem('td:hearts-pending:v1')).toBeNull()
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('plc_2')
+    unmount()
+
+    fetchMock.mockClear()
+    routeFetch()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_2'] }} />)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(callsTo('/api/library/hearts')).toEqual([])
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('keeps a replayed un-heart when the un-heart that followed it fails', async () => {
+    localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_2: false }))
+    const pending = holdHeartPosts()
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_2'] }} />)
+    await waitFor(() => expect(pending.map((p) => p.body)).toEqual([{ placeIds: ['plc_2'], on: false }]))
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    expect(pending).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+    await act(async () => {
+      pending[0].held.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    expect(pending[1].body).toEqual({ placeIds: ['plc_2'], on: false })
+    await act(async () => {
+      pending[1].held.release({ status: 'error' }, 500)
+    })
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't remove that heart. Try again in a moment."))
+    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('plc_2')
   })
 
   it('shows a Hearts shelf once there is a heart, and narrows to them', async () => {

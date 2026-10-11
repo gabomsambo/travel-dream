@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LibraryClient } from '@/components/library/library-client'
 import { resetHalfBuiltCollectionsForTests } from '@/components/library/library-add-to-collection'
-import { resetHeartQueueForTests } from '@/lib/explore/dreams'
+import { resetHeartWriterForTests } from '@/lib/explore/dreams'
 import { notify } from '@/lib/notify'
 import type { LibraryData } from '@/lib/library/types'
 import { item, photo } from '../helpers/library-items'
@@ -50,21 +50,6 @@ function heldResponse() {
   return { gate, release }
 }
 
-/** Holds every hearts POST so a test can see which writes are in flight. */
-function holdHeartPosts() {
-  const pending: Array<{ body: { placeIds: string[]; on: boolean }; held: ReturnType<typeof heldResponse> }> = []
-  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-    const body = init?.body ? JSON.parse(String(init.body)) : undefined
-    if (url === '/api/library/hearts') {
-      const held = heldResponse()
-      pending.push({ body, held })
-      return held.gate
-    }
-    return json({ status: 'success' })
-  })
-  return pending
-}
-
 /** A small fake of the API: hearts echo the ids they were sent, the rest answer success. */
 function routeFetch(overrides: Record<string, (body: unknown) => unknown> = {}) {
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
@@ -81,7 +66,7 @@ function routeFetch(overrides: Record<string, (body: unknown) => unknown> = {}) 
 
 beforeEach(() => {
   localStorage.clear()
-  resetHeartQueueForTests()
+  resetHeartWriterForTests()
   fetchMock.mockReset()
   routeFetch()
   jest.clearAllMocks()
@@ -171,25 +156,112 @@ describe('LibraryClient — build 1 structure', () => {
 })
 
 describe('hearts, saved to the account', () => {
-  it('hearts a place on the account and on this device, for Shuffle', async () => {
+  it('hearts a place on the account', async () => {
     const user = userEvent.setup()
     render(<LibraryClient data={data} />)
     await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
     expect(callsTo('/api/library/hearts')).toEqual([{ url: '/api/library/hearts', method: 'POST', body: { placeIds: ['plc_2'], on: true } }])
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
     expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual([])
   })
 
   it('rolls a heart back and says so when the save fails', async () => {
     const user = userEvent.setup()
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2']))
     fetchMock.mockImplementation(() => json({ status: 'error' }, 500))
     render(<LibraryClient data={data} />)
     await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false'))
-    expect(notify.error).toHaveBeenCalled()
+    expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment.")
+    expect(screen.queryByRole('button', { name: /^Hearts/ })).not.toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
   })
 
-  it("syncs this device's old hearts to the account once, keeping only what the server accepts", async () => {
+  it('sends the latest click only after the save already in flight, and leaves that state', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return first.gate
+        return json({ status: 'success', placeIds: body.placeIds })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    expect(heartsPosts).toBe(1)
+    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+    await act(async () => {
+      first.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
+      { placeIds: ['plc_2'], on: true },
+      { placeIds: ['plc_2'], on: false },
+    ]))
+    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('keeps the latest heart when the save already in flight fails', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return first.gate
+        return json({ status: 'success', placeIds: body.placeIds })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    expect(heartsPosts).toBe(1)
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    await act(async () => {
+      first.release({ status: 'error' }, 500)
+    })
+    await waitFor(() => expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
+      { placeIds: ['plc_2'], on: true },
+      { placeIds: ['plc_2'], on: true },
+    ]))
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(notify.error).not.toHaveBeenCalled()
+  })
+
+  it('puts the heart back to the last state the server confirmed when a later save fails', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string) => {
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return first.gate
+        return json({ status: 'error' }, 500)
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await act(async () => {
+      first.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true'))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't remove that heart. Try again in a moment."))
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it("copies this device's old hearts onto the account once, without removing account hearts", async () => {
     localStorage.removeItem('td:hearts-synced:v1:usr_test')
     localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2', 'plc_gone']))
     routeFetch({ '/api/library/hearts': () => ({ status: 'success', placeIds: ['plc_2'] }) })
@@ -198,354 +270,58 @@ describe('hearts, saved to the account', () => {
     expect(callsTo('/api/library/hearts')).toEqual([
       { url: '/api/library/hearts', method: 'POST', body: { placeIds: ['plc_2', 'plc_gone'], on: true } },
     ])
-    // The device now mirrors the account: its own heart, the synced one, not the unknown id.
-    expect(new Set(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]'))).toEqual(new Set(['plc_7', 'plc_2']))
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2', 'plc_gone'])
     expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 7' })).toBeInTheDocument()
     unmount()
 
     fetchMock.mockClear()
     render(<LibraryClient data={{ ...data, heartIds: ['plc_7', 'plc_2'] }} />)
-    await act(async () => undefined)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     expect(callsTo('/api/library/hearts')).toEqual([])
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 7' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toBeInTheDocument()
   })
 
-  it('leaves the device copy alone when the one-time sync fails, to try again next time', async () => {
+  it('does not send a copy when every device heart is already on the account', async () => {
     localStorage.removeItem('td:hearts-synced:v1:usr_test')
-    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2']))
-    fetchMock.mockImplementation(() => json({ status: 'error' }, 503))
-    render(<LibraryClient data={data} />)
-    await waitFor(() => expect(callsTo('/api/library/hearts').length).toBe(1))
-    await act(async () => undefined)
-    expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBeNull()
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_7']))
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_7', 'plc_2'] }} />)
+    await waitFor(() => expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBe('1'))
+    expect(callsTo('/api/library/hearts')).toEqual([])
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_7'])
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 7' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toBeInTheDocument()
   })
 
-  it('keeps a device heart when the sync and a later heart click both fail, and retries it on the next load', async () => {
+  it('tries the device copy again on the next load when it fails, and a failed click does not drop it', async () => {
     localStorage.removeItem('td:hearts-synced:v1:usr_test')
     localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2']))
     fetchMock.mockImplementation(() => json({ status: 'error' }, 503))
     const user = userEvent.setup()
     const { unmount } = render(<LibraryClient data={data} />)
     await waitFor(() => expect(callsTo('/api/library/hearts').length).toBe(1))
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
     await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
     await waitFor(() => {
       expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment.")
       expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
     })
     expect(screen.queryByRole('button', { name: /^Hearts/ })).not.toBeInTheDocument()
-    expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
-      { placeIds: ['plc_2'], on: true },
-      { placeIds: ['plc_2'], on: true },
-    ])
     expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBeNull()
     expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    await waitFor(() => expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
-      { placeIds: ['plc_2'], on: true },
-      { placeIds: ['plc_2'], on: true },
-      { placeIds: ['plc_2'], on: true },
-    ]))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false'))
-    expect(screen.queryByRole('button', { name: /^Hearts/ })).not.toBeInTheDocument()
     unmount()
 
     fetchMock.mockClear()
+    routeFetch({ '/api/library/hearts': () => ({ status: 'success', placeIds: ['plc_2'] }) })
     render(<LibraryClient data={data} />)
     await waitFor(() =>
       expect(callsTo('/api/library/hearts')).toEqual([
         { url: '/api/library/hearts', method: 'POST', body: { placeIds: ['plc_2'], on: true } },
       ])
     )
-  })
-
-  it('replays a heart a dropped request left queued', async () => {
-    localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_3: true, plc_7: false }))
-    render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)
-    await waitFor(() => expect(callsTo('/api/library/hearts').length).toBe(2))
-    expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
-      { placeIds: ['plc_3'], on: true },
-      { placeIds: ['plc_7'], on: false },
-    ])
-    expect(localStorage.getItem('td:hearts-pending:v1')).toBeNull()
-  })
-
-  it('keeps a heart toggled while the first sync is still saving', async () => {
-    localStorage.removeItem('td:hearts-synced:v1:usr_test')
-    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2']))
-    const sync = heldResponse()
-    let heartsPosts = 0
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined
-      if (url === '/api/library/hearts') {
-        heartsPosts += 1
-        if (heartsPosts === 1) return sync.gate
-        return json({ status: 'success', placeIds: body.placeIds })
-      }
-      return json({ status: 'success' })
-    })
-    const user = userEvent.setup()
-    render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)
-    await waitFor(() => expect(heartsPosts).toBe(1))
-    await user.click(screen.getByRole('button', { name: 'Heart Place 3' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 3' })).toHaveAttribute('aria-pressed', 'true'))
-    await act(async () => {
-      sync.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBe('1'))
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 3' })).toHaveAttribute('aria-pressed', 'true')
-    expect(new Set(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]'))).toEqual(new Set(['plc_7', 'plc_2', 'plc_3']))
-  })
-
-  it('keeps an un-heart made while the first sync is still saving', async () => {
-    localStorage.removeItem('td:hearts-synced:v1:usr_test')
-    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2', 'plc_gone']))
-    const sync = heldResponse()
-    let heartsPosts = 0
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined
-      if (url === '/api/library/hearts') {
-        heartsPosts += 1
-        if (heartsPosts === 1) return sync.gate
-        return json({ status: 'success', placeIds: body.placeIds })
-      }
-      return json({ status: 'success' })
-    })
-    const user = userEvent.setup()
-    render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)
-    await waitFor(() => expect(heartsPosts).toBe(1))
-    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 7' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 7' })).toHaveAttribute('aria-pressed', 'false'))
-    await act(async () => {
-      sync.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBe('1'))
-    expect(screen.getByRole('button', { name: 'Heart Place 7' })).toHaveAttribute('aria-pressed', 'false')
-    const stored = new Set<string>(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]'))
-    expect(stored.has('plc_7')).toBe(false)
-    expect(stored.has('plc_2')).toBe(true)
-    expect(stored.has('plc_gone')).toBe(false)
-  })
-
-  it('sends a later un-heart only after the heart it follows, and leaves the place unhearted', async () => {
-    const first = heldResponse()
-    let heartsPosts = 0
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined
-      if (url === '/api/library/hearts') {
-        heartsPosts += 1
-        if (heartsPosts === 1) return first.gate
-        return json({ status: 'success', placeIds: body.placeIds })
-      }
-      return json({ status: 'success' })
-    })
-    const user = userEvent.setup()
-    render(<LibraryClient data={data} />)
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    await waitFor(() => expect(heartsPosts).toBe(1))
-    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
-    expect(heartsPosts).toBe(1)
-    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
-    await act(async () => {
-      first.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
-      { placeIds: ['plc_2'], on: true },
-      { placeIds: ['plc_2'], on: false },
-    ]))
-    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  it('does not let a failed earlier heart undo a later one', async () => {
-    const first = heldResponse()
-    let heartsPosts = 0
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined
-      if (url === '/api/library/hearts') {
-        heartsPosts += 1
-        if (heartsPosts === 1) return first.gate
-        return json({ status: 'success', placeIds: body.placeIds })
-      }
-      return json({ status: 'success' })
-    })
-    const user = userEvent.setup()
-    render(<LibraryClient data={data} />)
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    await waitFor(() => expect(heartsPosts).toBe(1))
-    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    expect(heartsPosts).toBe(1)
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
-    await act(async () => {
-      first.release({ status: 'error' }, 500)
-    })
-    await waitFor(() => expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
-      { placeIds: ['plc_2'], on: true },
-      { placeIds: ['plc_2'], on: false },
-      { placeIds: ['plc_2'], on: true },
-    ]))
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
-    expect(notify.error).not.toHaveBeenCalled()
-  })
-
-  it('applies a heart made during replay after the queued un-heart, not before it', async () => {
-    localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_3: true, plc_7: false }))
-    const pending = holdHeartPosts()
-    const user = userEvent.setup()
-    render(<LibraryClient data={data} />)
-    await waitFor(() => expect(pending.map((p) => p.body)).toEqual([
-      { placeIds: ['plc_3'], on: true },
-      { placeIds: ['plc_7'], on: false },
-    ]))
-    await user.click(screen.getByRole('button', { name: 'Heart Place 7' }))
-    expect(pending).toHaveLength(2)
-    await act(async () => {
-      pending[0].held.release({ status: 'success', placeIds: ['plc_3'] })
-      pending[1].held.release({ status: 'success', placeIds: ['plc_7'] })
-    })
-    await waitFor(() => expect(pending).toHaveLength(3))
-    expect(pending[2].body).toEqual({ placeIds: ['plc_7'], on: true })
-    await act(async () => {
-      pending[2].held.release({ status: 'success', placeIds: ['plc_7'] })
-    })
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 7' })).toHaveAttribute('aria-pressed', 'true'))
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('plc_7')
-  })
-
-  it('does not let a later queued batch overwrite a heart changed while an earlier batch is still saving', async () => {
-    const extras = Array.from({ length: 500 }, (_, i) => `x${i}`)
-    localStorage.setItem('td:hearts-pending:v1', JSON.stringify(Object.fromEntries([...extras, 'plc_2'].map((id) => [id, true]))))
-    const pending = holdHeartPosts()
-    const user = userEvent.setup()
-    render(<LibraryClient data={data} />)
-    await waitFor(() => expect(pending).toHaveLength(2))
-    expect(pending[0].body.placeIds).toHaveLength(500)
-    expect(pending[1].body).toEqual({ placeIds: ['plc_2'], on: true })
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
-    expect(pending).toHaveLength(2)
-    await act(async () => {
-      pending[0].held.release({ status: 'success', placeIds: pending[0].body.placeIds })
-      pending[1].held.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(pending).toHaveLength(3))
-    expect(pending[2].body).toEqual({ placeIds: ['plc_2'], on: true })
-    await act(async () => {
-      pending[2].held.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(pending).toHaveLength(4))
-    expect(pending[3].body).toEqual({ placeIds: ['plc_2'], on: false })
-    await act(async () => {
-      pending[3].held.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false'))
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('plc_2')
-  })
-
-  it('does not keep a heart on screen when hearting and un-hearting both fail', async () => {
-    const first = heldResponse()
-    let heartsPosts = 0
-    fetchMock.mockImplementation((url: string) => {
-      if (url === '/api/library/hearts') {
-        heartsPosts += 1
-        if (heartsPosts === 1) return first.gate
-        return json({ status: 'error' }, 500)
-      }
-      return json({ status: 'success' })
-    })
-    const user = userEvent.setup()
-    render(<LibraryClient data={data} />)
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    await waitFor(() => expect(heartsPosts).toBe(1))
-    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
-    await act(async () => {
-      first.release({ status: 'error' }, 500)
-    })
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false'))
-    expect(notify.error).toHaveBeenCalledWith("Couldn't remove that heart. Try again in a moment.")
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('plc_2')
-  })
-
-  it('keeps a heart the server stored when later toggles of it fail', async () => {
-    const first = heldResponse()
-    let heartsPosts = 0
-    fetchMock.mockImplementation((url: string) => {
-      if (url === '/api/library/hearts') {
-        heartsPosts += 1
-        if (heartsPosts === 1) return first.gate
-        return json({ status: 'error' }, 500)
-      }
-      return json({ status: 'success' })
-    })
-    const user = userEvent.setup()
-    render(<LibraryClient data={data} />)
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    await waitFor(() => expect(heartsPosts).toBe(1))
-    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    expect(heartsPosts).toBe(1)
-    await act(async () => {
-      first.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment."))
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('plc_2')
-  })
-
-  it('does not let a failed replay put an un-heart back over a heart that landed after it', async () => {
-    localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_2: false }))
-    const pending = holdHeartPosts()
-    const user = userEvent.setup()
-    const { unmount } = render(<LibraryClient data={data} />)
-    await waitFor(() => expect(pending.map((p) => p.body)).toEqual([{ placeIds: ['plc_2'], on: false }]))
-    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
-    expect(pending).toHaveLength(1)
-    await act(async () => {
-      pending[0].held.release({ status: 'error' }, 503)
-    })
-    await waitFor(() => expect(pending).toHaveLength(2))
-    expect(pending[1].body).toEqual({ placeIds: ['plc_2'], on: true })
-    await act(async () => {
-      pending[1].held.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true'))
-    expect(localStorage.getItem('td:hearts-pending:v1')).toBeNull()
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('plc_2')
-    unmount()
-
-    fetchMock.mockClear()
-    routeFetch()
-    render(<LibraryClient data={{ ...data, heartIds: ['plc_2'] }} />)
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    expect(callsTo('/api/library/hearts')).toEqual([])
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
-  })
-
-  it('keeps a replayed un-heart when the un-heart that followed it fails', async () => {
-    localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_2: false }))
-    const pending = holdHeartPosts()
-    const user = userEvent.setup()
-    render(<LibraryClient data={{ ...data, heartIds: ['plc_2'] }} />)
-    await waitFor(() => expect(pending.map((p) => p.body)).toEqual([{ placeIds: ['plc_2'], on: false }]))
-    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
-    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
-    expect(pending).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
-    await act(async () => {
-      pending[0].held.release({ status: 'success', placeIds: ['plc_2'] })
-    })
-    await waitFor(() => expect(pending).toHaveLength(2))
-    expect(pending[1].body).toEqual({ placeIds: ['plc_2'], on: false })
-    await act(async () => {
-      pending[1].held.release({ status: 'error' }, 500)
-    })
-    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't remove that heart. Try again in a moment."))
-    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
-    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('plc_2')
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
   })
 
   it('shows a Hearts shelf once there is a heart, and narrows to them', async () => {

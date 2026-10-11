@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { parseBestTime } from '@/lib/explore/best-time'
 import type { ExplorePlace } from '@/lib/explore/types'
 import { ExploreProvider } from '@/components/explore/explore-provider'
 import { ShuffleDeck } from '@/components/explore/shuffle-deck'
+import { resetHeartWriterForTests } from '@/lib/explore/dreams'
 import { notify } from '@/lib/notify'
 
 jest.mock('framer-motion', () => {
@@ -60,7 +61,9 @@ function renderDeck(deck: string[], collections: { id: string; name: string; pla
 describe('ShuffleDeck', () => {
   beforeEach(() => {
     localStorage.clear()
+    resetHeartWriterForTests()
     ;(global.fetch as jest.Mock)?.mockReset?.()
+    jest.clearAllMocks()
   })
 
   it('Done early lands on the end screen with dreams kept', async () => {
@@ -132,12 +135,50 @@ describe('ShuffleDeck', () => {
     expect(global.fetch).toHaveBeenCalledWith('/api/library/hearts', expect.objectContaining({ method: 'POST', body: JSON.stringify({ placeIds: ['a'], on: true }) }))
   })
 
-  it('queues a dream whose save fails, for the Library to replay', async () => {
+  it('puts a dream back and says so when the save fails', async () => {
     ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }))
     renderDeck(['a', 'b'])
     await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
-    await new Promise((r) => setTimeout(r, 0))
-    expect(JSON.parse(localStorage.getItem('td:hearts-pending:v1') ?? '{}')).toEqual({ a: true })
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('a'))
+    expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment.")
+  })
+
+  it('keeps a device heart that was already there when saving it again fails', async () => {
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['a']))
+    ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }))
+    renderDeck(['a', 'b'])
+    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
+    await waitFor(() => expect(notify.error).toHaveBeenCalled())
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('a')
+  })
+
+  it('sends an undo only after the dream it follows, and leaves the place undreamed', async () => {
+    let release!: (body: unknown) => void
+    let heartsPosts = 0
+    ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url !== '/api/library/hearts') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) })
+      heartsPosts += 1
+      if (heartsPosts === 1) {
+        return new Promise((resolve) => {
+          release = (body) => resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ placeIds: ['a'] }) })
+    })
+    renderDeck(['a', 'b'])
+    await userEvent.click(screen.getByRole('button', { name: /Keep dreaming/i }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await userEvent.keyboard('z')
+    expect(heartsPosts).toBe(1)
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('a')
+    release({ placeIds: ['a'] })
+    await waitFor(() =>
+      expect((global.fetch as jest.Mock).mock.calls.filter(([url]: [string]) => url === '/api/library/hearts').map(([, init]: [string, RequestInit]) => JSON.parse(String(init.body)))).toEqual([
+        { placeIds: ['a'], on: true },
+        { placeIds: ['a'], on: false },
+      ])
+    )
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('a')
   })
 
   describe('end screen collections', () => {

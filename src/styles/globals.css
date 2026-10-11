@@ -22,6 +22,7 @@
     /* Planned pins on the map: must contrast with Mapbox light-v11, so it
        cannot reuse --accent (a hover-surface token in this theme). */
     --map-planned: 24 95% 50%;
+    --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 214.3 31.8% 91.4%;
@@ -48,6 +49,7 @@
     --accent-foreground: 210 40% 98%;
     /* Bright against Mapbox dark-v11. */
     --map-planned: 32 95% 55%;
+    --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 58%;
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
@@ -78,6 +80,7 @@
     --accent: 14 85% 62%;
     --accent-foreground: 0 0% 100%;
     --map-planned: 14 85% 62%;
+    --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 35 18% 86%;
@@ -110,6 +113,7 @@
     --accent: 14 85% 62%;
     --accent-foreground: 220 20% 8%;
     --map-planned: 14 85% 62%;
+    --map-planned-foreground: 222.2 84% 4.9%;
     --destructive: 0 72% 58%;
     --destructive-foreground: 35 15% 92%;
     --border: 220 15% 18%;

@@ -25,14 +25,17 @@ export function PlaceMap({
 }) {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
   const { resolvedTheme } = useTheme()
-  const dark = resolvedTheme === "dark"
-  const [failed, setFailed] = React.useState(false)
+  const style =
+    resolvedTheme === "light" || resolvedTheme === "dark" ? `${resolvedTheme}-v11` : null
+  const [failedSrc, setFailedSrc] = React.useState<string | null>(null)
   const Icon = kindIcon(kind)
 
   // Follow the page theme, as the interactive library map already does.
-  const src = token
-    ? `https://api.mapbox.com/styles/v1/mapbox/${dark ? "dark-v11" : "light-v11"}/static/${coords.lon},${coords.lat},15,0/600x400@2x?access_token=${token}`
-    : null
+  const src =
+    token && style
+      ? `https://api.mapbox.com/styles/v1/mapbox/${style}/static/${coords.lon},${coords.lat},15,0/600x400@2x?access_token=${token}`
+      : null
+  const failed = src !== null && failedSrc === src
 
   return (
     <div className={cn("relative h-40 overflow-hidden rounded-2xl bg-muted", className)} aria-label={`Map of ${name}`}>
@@ -43,7 +46,7 @@ export function PlaceMap({
           alt=""
           loading="lazy"
           className="absolute inset-0 h-full w-full object-cover"
-          onError={() => setFailed(true)}
+          onError={() => setFailedSrc(src)}
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -55,7 +58,7 @@ export function PlaceMap({
       </span>
       {src && !failed && (
         // Mapbox's static-image terms require both notices.
-        <span className={cn("absolute bottom-1.5 right-2 text-[9px]", dark ? "text-white/70" : "text-black/60")}>
+        <span className={cn("absolute bottom-1.5 right-2 text-[9px]", resolvedTheme === "dark" ? "text-white/70" : "text-black/60")}>
           <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener noreferrer">© Mapbox</a>{" "}
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap</a>
         </span>

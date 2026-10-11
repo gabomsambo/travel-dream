@@ -53,7 +53,7 @@ function Row({ p, siblings }: { p: LibraryItem; siblings: string[] }) {
         {p.visitStatus === "visited" ? (
           <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">Been</span>
         ) : p.visitStatus === "planned" ? (
-          <span className="rounded-full bg-[hsl(var(--map-planned))] px-2 py-0.5 text-[11px] font-semibold text-white">Planned</span>
+          <span className="rounded-full bg-[hsl(var(--map-planned))] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--map-planned-foreground))]">Planned</span>
         ) : null}
       </button>
       <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />

@@ -86,6 +86,8 @@ describe('LibraryMapView status colours', () => {
     const plannedBadge = screen.getAllByText('Planned').find((el) => el.className.includes('rounded-full'))
     expect(plannedBadge).toBeDefined()
     expect(plannedBadge!.className).toContain('bg-[hsl(var(--map-planned))]')
+    expect(plannedBadge!.className).toContain('text-[hsl(var(--map-planned-foreground))]')
+    expect(plannedBadge!.className).not.toContain('text-white')
     expect(plannedBadge!.className).not.toContain('bg-accent')
   })
 })

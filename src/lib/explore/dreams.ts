@@ -91,17 +91,40 @@ export function requeueDreams(ids: string[], on: boolean): void {
   queue(ids, on);
 }
 
+const heartWriteTail = new Map<string, Promise<void>>();
+
 /** Saves heart changes to the account. Resolves the ids the server applied; rejects on failure. */
 export async function saveDreams(placeIds: string[], on: boolean): Promise<string[]> {
-  const res = await fetch(HEARTS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ placeIds, on }),
-    keepalive: true,
+  const earlier = Promise.all(
+    placeIds.map((id) =>
+      (heartWriteTail.get(id) ?? Promise.resolve()).then(
+        () => undefined,
+        () => undefined,
+      ),
+    ),
+  );
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
   });
-  if (!res.ok) throw new Error(`Saving hearts failed (${res.status})`);
-  const body = (await res.json().catch(() => null)) as { placeIds?: unknown } | null;
-  return Array.isArray(body?.placeIds) ? body.placeIds.filter((x): x is string => typeof x === 'string') : [];
+  const finished = earlier.then(() => gate);
+  for (const id of placeIds) heartWriteTail.set(id, finished);
+
+  try {
+    await earlier;
+    const res = await fetch(HEARTS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ placeIds, on }),
+      keepalive: true,
+    });
+    if (!res.ok) throw new Error(`Saving hearts failed (${res.status})`);
+    const body = (await res.json().catch(() => null)) as { placeIds?: unknown } | null;
+    return Array.isArray(body?.placeIds) ? body.placeIds.filter((x): x is string => typeof x === 'string') : [];
+  } finally {
+    release();
+    for (const id of placeIds) if (heartWriteTail.get(id) === finished) heartWriteTail.delete(id);
+  }
 }
 
 /**

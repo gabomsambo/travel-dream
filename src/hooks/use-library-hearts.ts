@@ -33,12 +33,14 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
   const [hearts, setHearts] = React.useState<Set<string>>(() => new Set(heartIds))
   // Optimistic changes still on their way to the server, so a refresh that
   // lands mid-save doesn't flip a heart back for a moment.
-  const inflight = React.useRef(new Map<string, boolean>())
+  const inflight = React.useRef(new Map<string, { on: boolean; ticket: number }>())
+  const tickets = React.useRef(0)
+  const toggledDuringSync = React.useRef<Map<string, boolean> | null>(null)
 
   const withInflight = React.useCallback((base: Iterable<string>) => {
     const next = new Set(base)
-    for (const [id, on] of inflight.current) {
-      if (on) next.add(id)
+    for (const [id, v] of inflight.current) {
+      if (v.on) next.add(id)
       else next.delete(id)
     }
     return next
@@ -50,6 +52,9 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
   const initial = React.useRef(heartIds)
   React.useEffect(() => {
     let cancelled = false
+    const deviceAtStart = readDreams()
+    const toggled = new Map<string, boolean>()
+    toggledDuringSync.current = toggled
     void (async () => {
       const key = heartsSyncedKey(userId)
       let synced = false
@@ -82,11 +87,32 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
       const final = new Set(account)
       for (const id of added) final.add(id)
       for (const id of off) final.delete(id)
+      const deviceNow = readDreams()
+      let diverged = false
+      for (const id of deviceNow) {
+        if (!deviceAtStart.has(id)) {
+          final.add(id)
+          diverged = true
+        }
+      }
+      for (const id of deviceAtStart) {
+        if (!deviceNow.has(id)) {
+          final.delete(id)
+          diverged = true
+        }
+      }
+      for (const [id, heartOn] of toggled) {
+        if (heartOn) final.add(id)
+        else final.delete(id)
+        diverged = true
+      }
       writeDreams(final)
-      if (!cancelled && (added.length || off.size)) setHearts(withInflight(final))
+      if (toggledDuringSync.current === toggled) toggledDuringSync.current = null
+      if (!cancelled && (added.length || off.size || diverged)) setHearts(withInflight(final))
     })()
     return () => {
       cancelled = true
+      if (toggledDuringSync.current === toggled) toggledDuringSync.current = null
     }
   }, [userId, withInflight])
 
@@ -94,10 +120,12 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
   const setMany = React.useCallback(
     async (ids: string[], on: boolean): Promise<boolean> => {
       if (!ids.length) return true
+      const ticket = ++tickets.current
       const before = new Map(ids.map((id) => [id, hearts.has(id)]))
       for (const id of ids) {
-        inflight.current.set(id, on)
+        inflight.current.set(id, { on, ticket })
         setDreamLocal(id, on)
+        toggledDuringSync.current?.set(id, on)
       }
       setHearts((prev) => {
         const next = new Set(prev)
@@ -107,23 +135,29 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
         }
         return next
       })
+      const owns = (id: string) => inflight.current.get(id)?.ticket === ticket
       try {
         await saveAll(ids, on)
         return true
       } catch {
-        setHearts((prev) => {
-          const next = new Set(prev)
-          for (const [id, was] of before) {
-            if (was) next.add(id)
-            else next.delete(id)
-            setDreamLocal(id, was)
-          }
-          return next
-        })
-        notify.error(on ? "Couldn't save that heart. Try again in a moment." : "Couldn't remove that heart. Try again in a moment.")
+        const revert = ids.filter(owns)
+        if (revert.length) {
+          setHearts((prev) => {
+            const next = new Set(prev)
+            for (const id of revert) {
+              const was = before.get(id) === true
+              if (was) next.add(id)
+              else next.delete(id)
+              setDreamLocal(id, was)
+              toggledDuringSync.current?.set(id, was)
+            }
+            return next
+          })
+          notify.error(on ? "Couldn't save that heart. Try again in a moment." : "Couldn't remove that heart. Try again in a moment.")
+        }
         return false
       } finally {
-        for (const id of ids) inflight.current.delete(id)
+        for (const id of ids) if (owns(id)) inflight.current.delete(id)
       }
     },
     [hearts]

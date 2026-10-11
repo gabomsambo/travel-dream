@@ -40,6 +40,15 @@ const calls = (): Call[] =>
 const callsTo = (prefix: string) => calls().filter((c) => c.url.startsWith(prefix))
 const json = (body: unknown, status = 200) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) })
 
+/** A fetch that stays pending until the test lets it answer. */
+function heldResponse() {
+  let release!: (body: unknown, status?: number) => void
+  const gate = new Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>((resolve) => {
+    release = (body, status = 200) => resolve({ ok: status < 400, status, json: () => Promise.resolve(body) })
+  })
+  return { gate, release }
+}
+
 /** A small fake of the API: hearts echo the ids they were sent, the rest answer success. */
 function routeFetch(overrides: Record<string, (body: unknown) => unknown> = {}) {
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
@@ -205,6 +214,124 @@ describe('hearts, saved to the account', () => {
     expect(localStorage.getItem('td:hearts-pending:v1')).toBeNull()
   })
 
+  it('keeps a heart toggled while the first sync is still saving', async () => {
+    localStorage.removeItem('td:hearts-synced:v1:usr_test')
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2']))
+    const sync = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return sync.gate
+        return json({ status: 'success', placeIds: body.placeIds })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Heart Place 3' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 3' })).toHaveAttribute('aria-pressed', 'true'))
+    await act(async () => {
+      sync.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBe('1'))
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 3' })).toHaveAttribute('aria-pressed', 'true')
+    expect(new Set(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]'))).toEqual(new Set(['plc_7', 'plc_2', 'plc_3']))
+  })
+
+  it('keeps an un-heart made while the first sync is still saving', async () => {
+    localStorage.removeItem('td:hearts-synced:v1:usr_test')
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2', 'plc_gone']))
+    const sync = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return sync.gate
+        return json({ status: 'success', placeIds: body.placeIds })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 7' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 7' })).toHaveAttribute('aria-pressed', 'false'))
+    await act(async () => {
+      sync.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBe('1'))
+    expect(screen.getByRole('button', { name: 'Heart Place 7' })).toHaveAttribute('aria-pressed', 'false')
+    const stored = new Set<string>(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]'))
+    expect(stored.has('plc_7')).toBe(false)
+    expect(stored.has('plc_2')).toBe(true)
+    expect(stored.has('plc_gone')).toBe(false)
+  })
+
+  it('sends a later un-heart only after the heart it follows, and leaves the place unhearted', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return first.gate
+        return json({ status: 'success', placeIds: body.placeIds })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    expect(heartsPosts).toBe(1)
+    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+    await act(async () => {
+      first.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
+      { placeIds: ['plc_2'], on: true },
+      { placeIds: ['plc_2'], on: false },
+    ]))
+    expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('does not let a failed earlier heart undo a later one', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return first.gate
+        return json({ status: 'success', placeIds: body.placeIds })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    expect(heartsPosts).toBe(1)
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    await act(async () => {
+      first.release({ status: 'error' }, 500)
+    })
+    await waitFor(() => expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
+      { placeIds: ['plc_2'], on: true },
+      { placeIds: ['plc_2'], on: false },
+      { placeIds: ['plc_2'], on: true },
+    ]))
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(notify.error).not.toHaveBeenCalled()
+  })
+
   it('shows a Hearts shelf once there is a heart, and narrows to them', async () => {
     const user = userEvent.setup()
     const { rerender } = render(<LibraryClient data={data} />)
@@ -253,6 +380,39 @@ describe('command-bar search', () => {
     input.blur()
     await user.keyboard('/')
     expect(input).toHaveFocus()
+  })
+
+  it('counts the places on the page when a shelf narrows the search', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_0'] }} />)
+    await user.click(screen.getByRole('button', { name: /^Hearts\s*1/ }))
+    const input = screen.getByRole('combobox', { name: 'Search your library' })
+    await user.click(input)
+    await user.type(input, 'Place')
+    const line = await screen.findByText(/the page below already shows 1 match/, { selector: 'p' })
+    expect(line).toHaveTextContent('search all places')
+    expect(screen.queryByText(/the page below already shows 14 matches/)).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^Place 0,/ }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /^Place 4,/ })).not.toBeInTheDocument()
+  })
+
+  it('lets ⌘K and / through when the library has no search field', async () => {
+    const user = userEvent.setup()
+    const got: string[] = []
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) got.push(e.defaultPrevented ? 'slash-blocked' : 'slash')
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') got.push(e.defaultPrevented ? 'k-blocked' : 'k')
+    }
+    document.addEventListener('keydown', onKey)
+    try {
+      render(<LibraryClient data={{ ...data, items: [], collections: [], inboxCount: 0, heartIds: [] }} />)
+      expect(screen.queryByRole('combobox', { name: 'Search your library' })).not.toBeInTheDocument()
+      await user.keyboard('{Control>}k{/Control}')
+      await user.keyboard('/')
+      expect(got).toEqual(['k', 'slash'])
+    } finally {
+      document.removeEventListener('keydown', onKey)
+    }
   })
 })
 

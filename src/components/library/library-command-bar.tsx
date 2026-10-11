@@ -440,7 +440,7 @@ export const LibraryCommandBar = React.forwardRef<HTMLInputElement, CommandBarPr
           />
           {value.trim().length >= 2 && (
             <p className="px-5 pt-1 text-[11px] text-muted-foreground">
-              ↑↓ to move · ↵ to open · Esc to close — the page below already shows {hits?.length ?? 0} {hits?.length === 1 ? "match" : "matches"}
+              ↑↓ to move · ↵ to open · Esc to close — the page below already shows {shownCount} {shownCount === 1 ? "match" : "matches"}
               {narrowed && (
                 <>
                   {" "}·{" "}

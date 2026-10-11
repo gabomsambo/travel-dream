@@ -524,7 +524,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
       const key = e.key.toLowerCase()
       if (mod && key === "k" && !e.shiftKey && !e.altKey) {
         // A second ⌘K from the Library's own search falls through to the app's command palette.
-        if (document.activeElement === searchRef.current || overlayOpen()) return
+        if (!searchRef.current || document.activeElement === searchRef.current || overlayOpen()) return
         e.preventDefault()
         e.stopImmediatePropagation()
         focusSearch()
@@ -533,6 +533,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
       if (isTyping(e.target) || overlayOpen()) return
       const focused = (document.activeElement as HTMLElement | null)?.dataset?.placeId
       if (e.key === "/" && !mod) {
+        if (!searchRef.current) return
         e.preventDefault()
         focusSearch()
       } else if (e.key === "?" && !mod) {

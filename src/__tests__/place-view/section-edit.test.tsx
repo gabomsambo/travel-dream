@@ -93,6 +93,7 @@ const place = {
     },
   ],
   sources: [],
+  collections: [],
 } as PlaceWithRelations
 
 describe('Open 24 hours', () => {

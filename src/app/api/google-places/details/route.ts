@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { parseAddressComponents } from '@/lib/address-parser';
+import { GOOGLE_PLACES_LANGUAGE } from '@/lib/city-names';
 
 interface PlaceDetailsResponse {
   result: {
@@ -134,6 +135,9 @@ export async function GET(request: NextRequest) {
       place_id: placeId,
       key: apiKey,
       fields,
+      // English locality names on new saves. Weekday text is parsed against
+      // English day names below, so this stays `en` rather than the browser locale.
+      language: GOOGLE_PLACES_LANGUAGE,
     });
 
     if (sessionToken) {

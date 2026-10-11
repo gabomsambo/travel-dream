@@ -5,6 +5,7 @@
  */
 import { groupBySlug } from '@/lib/explore/atlas';
 import { flagFor, slugify } from '@/lib/explore/geo';
+import { cityGroupLabel, cityMatchKey, collapseCityCounts } from '@/lib/city-names';
 import { kindLabel } from '@/components/explore/kind-icon';
 import type { ExploreCollection } from '@/lib/explore/types';
 import type { GroupMode, LibraryItem } from './types';
@@ -94,7 +95,7 @@ function byCountry(items: LibraryItem[]): Chapter[] {
 
 function byCity(items: LibraryItem[]): Chapter[] {
   const located = items.filter((p) => p.city?.trim());
-  const chapters: Chapter[] = groupBySlug(located, (p) => `${p.city!.trim()}\u0000${p.country?.trim() ?? ''}`).map((g) => {
+  const chapters: Chapter[] = groupBySlug(located, (p) => `${cityGroupLabel(p.city!)}\u0000${p.country?.trim() ?? ''}`).map((g) => {
     const [city, country] = g.name.split('\u0000');
     const countrySlug = country ? slugify(country) : null;
     return {
@@ -243,7 +244,9 @@ export function buildChapters(
 
 /** "16 places · 3 cities · 7 been · 7 planned" */
 export function chapterSummary(items: LibraryItem[], withCities = true): string {
-  const cities = new Set(items.map((p) => p.city?.trim().toLowerCase()).filter(Boolean)).size;
+  const cities = new Set(
+    items.map((p) => p.city?.trim()).filter((c): c is string => !!c).map((c) => cityMatchKey(c)),
+  ).size;
   const been = items.filter((p) => p.visitStatus === 'visited').length;
   const planned = items.filter((p) => p.visitStatus === 'planned').length;
   return [
@@ -258,10 +261,5 @@ export function chapterSummary(items: LibraryItem[], withCities = true): string 
 
 /** City chips for a country chapter: most-saved first. */
 export function citiesOf(items: LibraryItem[]): Array<{ city: string; count: number }> {
-  const counts = new Map<string, number>();
-  for (const p of items) {
-    const c = p.city?.trim();
-    if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
-  }
-  return [...counts].map(([city, count]) => ({ city, count })).sort((a, b) => b.count - a.count || a.city.localeCompare(b.city));
+  return collapseCityCounts(items.map((p) => p.city));
 }

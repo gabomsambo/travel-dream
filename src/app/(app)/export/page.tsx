@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { ExportClient } from '@/components/export/export-client';
 import { getAllCollections, getPlacesByStatus } from '@/lib/db-queries';
+import { cityFilterLabels } from '@/lib/city-names';
 import { auth } from '@/lib/auth';
 
 function ExportPageSkeleton() {
@@ -33,7 +34,7 @@ export default async function ExportPage() {
 
   const filterOptions = {
     kinds: [...new Set(libraryPlaces.map(p => p.kind))].sort(),
-    cities: [...new Set(libraryPlaces.map(p => p.city).filter(Boolean) as string[])].sort(),
+    cities: cityFilterLabels(libraryPlaces.map((p) => p.city)),
     countries: [...new Set(libraryPlaces.map(p => p.country).filter(Boolean) as string[])].sort(),
     tags: [...new Set(libraryPlaces.flatMap(p => p.tags || []))].sort(),
     vibes: [...new Set(libraryPlaces.flatMap(p => p.vibes || []))].sort()

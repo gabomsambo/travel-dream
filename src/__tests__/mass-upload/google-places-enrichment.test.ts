@@ -245,6 +245,9 @@ describe('GooglePlacesEnrichmentService', () => {
 
       const autocompleteUrl: string = (global.fetch as jest.Mock).mock.calls[0][0];
       expect(autocompleteUrl).toContain('input=Eiffel+Tower%2C+Paris%2C+France');
+      expect(autocompleteUrl).toContain('language=en');
+      const detailsUrl: string = (global.fetch as jest.Mock).mock.calls[1][0];
+      expect(detailsUrl).toContain('language=en');
     });
   });
 

@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, ne, type SQL } from 'drizzle-orm';
 import { attachments, collections, places, placesToCollections } from '@/db/schema';
+import { storedCitiesMatching } from '@/lib/city-names';
 import { forUser } from '@/lib/tenant-db';
 import { parseBestTime } from './best-time';
 import type { ExploreCollection, ExplorePlace } from './types';
@@ -109,6 +110,11 @@ export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> 
  * The user's other browsable places in one city, for the "Also in {city}" rail
  * on the place page. Scoped to the caller and filtered to the city, so it can
  * neither leak another tenant's rows nor pull in a same-named city elsewhere.
+ *
+ * City match is folded (case, diacritics, known exonyms such as Lisboa/Lisbon).
+ * The stored strings are read and passed back into `IN` — nothing is rewritten.
+ * Country stays an exact match, so a null never widens the rail and Paris,
+ * France does not meet Paris, United States.
  */
 export async function getExplorePlacesInCity(
   userId: string,
@@ -117,14 +123,23 @@ export async function getExplorePlacesInCity(
   excludeId: string
 ): Promise<ExplorePlace[]> {
   const scoped = forUser(userId);
+  const countryCond = country ? eq(places.country, country) : isNull(places.country);
+  const cityRows = await scoped.selectFields(
+    places,
+    { city: places.city },
+    and(countryCond, inArray(places.status, BROWSABLE)),
+  );
+  const names = storedCitiesMatching(
+    cityRows.map((row) => row.city),
+    city,
+  );
+  if (names.length === 0) return [];
   const conditions: SQL[] = [
-    eq(places.city, city),
+    inArray(places.city, names),
     ne(places.id, excludeId),
     inArray(places.status, BROWSABLE),
   ];
-  // A place with no country only matches others with no country, so a null
-  // never widens the rail to every same-named city.
-  conditions.push(country ? eq(places.country, country) : isNull(places.country));
+  if (countryCond) conditions.push(countryCond);
   const inCity = and(...conditions);
   const ids = await scoped.selectFields(places, { id: places.id }, inCity);
   if (ids.length === 0) return [];

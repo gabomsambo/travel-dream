@@ -9,6 +9,7 @@
  * too; the atlas module layers grouping, covers, season and region on top.
  */
 import { flagFor, slugify } from './geo';
+import { cityGroupLabel } from '@/lib/city-names';
 import type { CityGroup, CountryGroup, ExplorePlace } from './types';
 
 const SCENIC = new Set(['landmark', 'natural', 'viewpoint', 'beach', 'neighborhood', 'park']);
@@ -59,7 +60,13 @@ export function groupByCity(places: ExplorePlace[]) {
   const located = places.filter((p) => p.country?.trim());
   return groupBySlug(located, (p) => p.country!.trim()).map((country) => ({
     ...country,
-    cities: groupBySlug(country.places, (p) => p.city?.trim() || p.country!.trim()),
+    cities: groupBySlug(country.places, (p) => {
+      const city = p.city?.trim();
+      // Known exonyms share the English label before slugifying, so Lisboa and
+      // Lisbon land on one atlas page. A missing city still files under the
+      // country name, untouched by the alias map.
+      return city ? cityGroupLabel(city) : p.country!.trim();
+    }),
   }));
 }
 

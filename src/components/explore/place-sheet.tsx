@@ -9,6 +9,7 @@ import Link from "next/link"
 import * as Dialog from "@radix-ui/react-dialog"
 import { ArrowUpRight, ChevronLeft, ChevronRight, Clock, Plus, Sparkles, UserRound, X, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { citiesMatchInCountry, cityGroupLabel } from "@/lib/city-names"
 import { Button } from "@/components/adapters/button"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -51,7 +52,7 @@ export function PlaceSheet({
 
   const sameCity = React.useMemo(() => {
     if (!place?.city) return []
-    return [...places.values()].filter((p) => p.city === place.city && p.id !== place.id).slice(0, 6)
+    return [...places.values()].filter((p) => citiesMatchInCountry(p, place) && p.id !== place.id).slice(0, 6)
   }, [place, places])
 
   const Icon = place ? kindIcon(place.kind) : null
@@ -144,7 +145,7 @@ export function PlaceSheet({
                       <span className="text-base leading-none">{flagFor(place.country)}</span>
                       {place.country ? (
                         <Link
-                          href={`/explore/atlas/${slugify(place.country)}${place.city ? `/${slugify(place.city)}` : ""}`}
+                          href={`/explore/atlas/${slugify(place.country)}${place.city ? `/${slugify(cityGroupLabel(place.city))}` : ""}`}
                           className="rounded underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                         >
                           {[place.city, place.country].filter(Boolean).join(" · ")}

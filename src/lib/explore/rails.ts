@@ -6,6 +6,7 @@
  * Ordering is deterministic per calendar day (seeded by the date), so the page
  * feels alive day to day without reshuffling under the user on every refresh.
  */
+import { citiesMatchInCountry } from '@/lib/city-names';
 import { MONTH_NAMES } from './best-time';
 import { slugify } from './geo';
 import type { ExplorePlace, Rail, RailGroup, RailShape } from './types';
@@ -219,7 +220,7 @@ export function buildRails(all: ExplorePlace[], now: Date): Rail[] {
 function likeRail(seed: ExplorePlace, all: ExplorePlace[]): Rail | null {
   const sv = new Set(seed.vibes);
   const similar = all
-    .filter((p) => p.id !== seed.id && p.city !== seed.city)
+    .filter((p) => p.id !== seed.id && !citiesMatchInCountry(p, seed))
     .map((p) => ({ p, score: p.vibes.filter((v) => sv.has(v)).length + (p.kind === seed.kind ? 1 : 0) }))
     .filter((x) => x.score >= 2)
     .sort((a, b) => b.score - a.score || byPriority(a.p, b.p))

@@ -4,6 +4,7 @@
  * Client-safe: no database imports.
  */
 import type { ExportScope, LibraryFilters as ExportFilters } from '@/types/export';
+import { citiesMatch } from '@/lib/city-names';
 import type { GroupMode, LibraryItem, LibraryView } from './types';
 
 export interface LibraryFilterState {
@@ -130,7 +131,7 @@ export function filterItems(items: LibraryItem[], f: LibraryFilterState, searchI
   return items.filter((p) => {
     if (searchIds && !searchIds.has(p.id)) return false;
     if (f.kinds.size && !f.kinds.has(p.kind)) return false;
-    if (f.city !== 'all' && p.city !== f.city) return false;
+    if (f.city !== 'all' && !citiesMatch(p.city, f.city)) return false;
     if (f.country !== 'all' && p.country !== f.country) return false;
     if (f.tags.size && !p.tags.some((t) => f.tags.has(t))) return false;
     if (f.vibes.size && !p.vibes.some((v) => f.vibes.has(v))) return false;

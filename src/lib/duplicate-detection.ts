@@ -575,15 +575,17 @@ function buildGroupEdge(
   const scored = scoreDuplicatePair(placeA, placeB, config);
   const rawMetres = distanceMetres(placeA, placeB);
   const { against, flags } = pairDisagreement(placeA, placeB, scored.factors.nameScore, rawMetres);
-  const qualified = storedScore !== undefined && storedScore >= minConfidence;
+  // The detector's score is what put the edge in the group. Pairs the
+  // detector dropped (under its floor) are rescored so the group can show them.
+  const score = storedScore !== undefined && storedScore >= minConfidence
+    ? storedScore
+    : scored.score;
 
   return {
     a: placeA.id,
     b: placeB.id,
-    // The detector's score is what put the edge in the group. Pairs the
-    // detector dropped (under its floor) are rescored so the group can show them.
-    score: qualified && storedScore !== undefined ? storedScore : scored.score,
-    included: qualified,
+    score,
+    included: score >= minConfidence,
     distanceM: rawMetres === null ? null : Math.round(rawMetres),
     factors: {
       name: scored.factors.nameScore,

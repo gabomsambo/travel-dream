@@ -467,6 +467,83 @@ describe('duplicate groups', () => {
       expect(pair.score).toBeLessThan(1)
     })
 
+    it('groups alias cities whose names do not share a prefix', async () => {
+      const pairs = [
+        {
+          left: { id: 'luzia-en', name: 'Miradouro Santa Luzia', city: 'Lisbon', country: 'Portugal' },
+          right: { id: 'luzia-pt', name: 'Santa Luzia Viewpoint', city: 'Lisboa', country: 'Portugal' },
+        },
+        {
+          left: { id: 'park-pt', name: 'Ibirapuera Park', city: 'São Paulo', country: 'Brazil' },
+          right: { id: 'park-ascii', name: 'Park Ibirapuera', city: 'Sao Paulo', country: 'Brazil' },
+        },
+        {
+          left: { id: 'belvedere-en', name: 'Belvedere Palace', city: 'Vienna', country: 'Austria' },
+          right: { id: 'belvedere-de', name: 'Palace Belvedere', city: 'Wien', country: 'Austria' },
+        },
+      ]
+
+      for (const { left, right } of pairs) {
+        const clusters = await groupAt([
+          place({ ...left, kind: 'landmark', coords: null }),
+          place({ ...right, kind: 'landmark', coords: null }),
+        ])
+        expect(clusters).toHaveLength(1)
+        const pair = edge(clusters[0], left.id, right.id)
+        expect(pair.factors.city).toBe(1)
+        expect(pair.included).toBe(true)
+        expect(pair.score).toBeGreaterThanOrEqual(0.7)
+      }
+    })
+
+    it('counts a rescored in-group pair once its score clears the threshold', async () => {
+      const places = [
+        place({
+          id: 'cafe-lisbon',
+          name: 'Cafe Central',
+          kind: 'cafe',
+          city: 'Lisbon',
+          country: 'Portugal',
+          coords: null,
+        }),
+        place({
+          id: 'cafe-porto',
+          name: 'Cafe Central',
+          kind: 'cafe',
+          city: 'Porto',
+          country: 'Portugal',
+          coords: null,
+        }),
+        place({
+          id: 'central-porto',
+          name: 'Central Cafe',
+          kind: 'cafe',
+          city: 'Porto',
+          country: 'Portugal',
+          coords: null,
+        }),
+      ]
+      const [cluster] = await groupAt(places)
+      expect(cluster.places.map(item => item.id)).toEqual([
+        'cafe-lisbon',
+        'cafe-porto',
+        'central-porto',
+      ])
+
+      const cross = edge(cluster, 'cafe-lisbon', 'central-porto')
+      expect(cross.factors.city).toBe(0)
+      expect(cross.score).toBeGreaterThanOrEqual(0.7)
+      expect(cross.included).toBe(true)
+
+      const includedScores = cluster.edges.filter(item => item.included).map(item => item.score)
+      expect(includedScores).toHaveLength(3)
+      expect(cluster.weakestIncludedScore).toBe(Math.min(...includedScores))
+      expect(cluster.avgConfidence).toBeCloseTo(
+        includedScores.reduce((sum, score) => sum + score, 0) / includedScores.length,
+        5,
+      )
+    })
+
     it('does not treat two blank cities as the same city', async () => {
       const secret = place({
         id: 'beach-a',

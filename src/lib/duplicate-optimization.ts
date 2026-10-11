@@ -1,10 +1,18 @@
 import type { Place } from '@/types/database';
+import { cityMatchKey } from '@/lib/city-names';
 import {
   type DuplicateDetectionConfig,
   type DuplicateDetectionResult,
   DEFAULT_DETECTION_CONFIG,
   detectDuplicates
 } from './duplicate-detection';
+
+const EMPTY_CITY_KEY = 'NO_CITY';
+
+function cityIndexKey(city: string | null | undefined): string {
+  if (!city?.trim()) return EMPTY_CITY_KEY;
+  return cityMatchKey(city);
+}
 
 interface SpatialIndex {
   byCityKey: Map<string, Place[]>;
@@ -32,7 +40,7 @@ function buildSpatialIndex(places: Place[]): SpatialIndex {
   const byGeoBucket = new Map<string, Place[]>();
 
   for (const place of places) {
-    const cityKey = place.city?.toLowerCase().trim() || 'NO_CITY';
+    const cityKey = cityIndexKey(place.city);
 
     if (!byCityKey.has(cityKey)) {
       byCityKey.set(cityKey, []);
@@ -82,7 +90,7 @@ function getCandidatesForPlace(
   const candidates = new Set<Place>();
 
   // Strategy 1: Same city (most restrictive, highest signal)
-  const cityKey = place.city?.toLowerCase().trim() || 'NO_CITY';
+  const cityKey = cityIndexKey(place.city);
   const cityPlaces = spatialIndex.byCityKey.get(cityKey) || [];
 
   // Strategy 2: Geo proximity (if has coords)

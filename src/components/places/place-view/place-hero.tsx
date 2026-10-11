@@ -8,6 +8,8 @@ import { flagFor, slugify } from "@/lib/explore/geo"
 import { formatDateOnly } from "@/lib/place-view/format"
 import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
+import { PLACE_KINDS } from "@/types/database"
+import { useSectionEdit } from "./section-edit"
 import { FindImageButton } from "@/components/places/find-image-button"
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
@@ -24,6 +26,7 @@ export function PlaceHero({
   place,
   photos,
   onEdit,
+  onOpenClassic,
   onPrefetchEdit,
   onOpenPhoto,
   onPhotoAttached,
@@ -31,10 +34,13 @@ export function PlaceHero({
   place: PlaceWithRelations
   photos: Attachment[]
   onEdit: () => void
+  onOpenClassic?: () => void
   onPrefetchEdit?: () => void
   onOpenPhoto: (index: number) => void
   onPhotoAttached: () => void
 }) {
+  const edit = useSectionEdit()
+  const editing = Boolean(edit?.editingAll)
   const cover = photos[0]
   const flag = flagFor(place.country)
   const countrySlug = place.country ? slugify(place.country) : null
@@ -58,7 +64,7 @@ export function PlaceHero({
       <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/50 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background via-background/60 to-transparent sm:h-40" />
 
-      <div className={cn("relative flex flex-col justify-between gap-10 px-4 pb-10 pt-4 sm:px-8 sm:pb-16 sm:pt-6", cover ? "min-h-[min(72vh,38rem)]" : "min-h-[26rem]")}>
+      <div className={cn("relative flex flex-col justify-between gap-10 px-4 pb-10 pt-4 sm:px-8 sm:pb-16 sm:pt-6", cover ? "min-h-[min(72vh,38rem)]" : "min-h-[26rem]", editing && "pt-16 sm:pt-20")}>
         <div className="flex items-center gap-2">
           <Link href="/library" className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium", GLASS)}>
             <ArrowLeft className="h-4 w-4" aria-hidden />
@@ -76,25 +82,47 @@ export function PlaceHero({
               className={cn("h-9 rounded-full px-3.5", GLASS, "hover:text-white")}
             />
           )}
-          <button
-            type="button"
-            onClick={onEdit}
-            onPointerEnter={onPrefetchEdit}
-            onFocus={onPrefetchEdit}
-            className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium", GLASS)}
-          >
-            <Pencil className="h-4 w-4" aria-hidden />
-            Edit
-          </button>
-          <PlaceActionsMenu placeId={place.id} placeName={place.name} status={place.status} className={GLASS} />
+          {!editing && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium", GLASS)}
+            >
+              <Pencil className="h-4 w-4" aria-hidden />
+              Edit
+            </button>
+          )}
+          <PlaceActionsMenu
+            placeId={place.id}
+            placeName={place.name}
+            status={place.status}
+            className={GLASS}
+            onOpenClassic={onOpenClassic}
+            onPrefetchClassic={onPrefetchEdit}
+          />
         </div>
 
         <div className="flex flex-wrap items-end gap-6">
           <div className="min-w-0 max-w-4xl flex-1 animate-in fade-in slide-in-from-bottom-2 duration-500">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded-full bg-black/35 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white backdrop-blur-md">
-                {kindLabel(place.kind)}
-              </span>
+              {editing && edit ? (
+                <select
+                  aria-label="Category"
+                  value={edit.draft.kind}
+                  onChange={(event) => edit.setField("kind", event.target.value)}
+                  className="rounded-full bg-black/35 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white backdrop-blur-md"
+                >
+                  {PLACE_KINDS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {kindLabel(kind)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="rounded-full bg-black/35 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white backdrop-blur-md">
+                  {kindLabel(place.kind)}
+                </span>
+              )}
               {place.status === "inbox" && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-300/95 px-2.5 py-1 text-[11px] font-semibold text-black">
                   <Inbox className="h-3 w-3" aria-hidden /> In your inbox
@@ -121,9 +149,20 @@ export function PlaceHero({
                 </span>
               )}
             </div>
-            <h1 className="mt-3 break-words font-editorial text-5xl leading-[0.95] tracking-tight text-white drop-shadow-sm [text-wrap:balance] sm:text-7xl lg:text-8xl">
-              {place.name}
-            </h1>
+            {editing && edit ? (
+              <h1 className="mt-3">
+                <input
+                  aria-label="Place name"
+                  value={edit.draft.name}
+                  onChange={(event) => edit.setField("name", event.target.value)}
+                  className="w-full border-0 bg-transparent p-0 font-editorial text-5xl leading-[0.95] tracking-tight text-white outline-none drop-shadow-sm [text-wrap:balance] placeholder:text-white/40 focus:underline focus:decoration-white/40 sm:text-7xl lg:text-8xl"
+                />
+              </h1>
+            ) : (
+              <h1 className="mt-3 break-words font-editorial text-5xl leading-[0.95] tracking-tight text-white drop-shadow-sm [text-wrap:balance] sm:text-7xl lg:text-8xl">
+                {place.name}
+              </h1>
+            )}
             {(place.city || place.admin || place.country) && (
               <p className="mt-3 flex flex-wrap items-center gap-x-1.5 text-sm font-medium text-white/90 sm:text-base">
                 {flag ? <span aria-hidden>{flag}</span> : <MapPin className="h-4 w-4" aria-hidden />}

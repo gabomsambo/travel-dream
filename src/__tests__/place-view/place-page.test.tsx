@@ -7,7 +7,7 @@ import { PlacePage } from '@/components/places/place-view/place-page'
 
 const mockRefresh = jest.fn()
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: mockRefresh, push: jest.fn() }),
+  useRouter: () => ({ refresh: mockRefresh, push: jest.fn(), replace: jest.fn() }),
 }))
 // next/dynamic as a plain React.lazy, so the lazily loaded editor and lightbox resolve
 // to the module mocks below.
@@ -219,10 +219,29 @@ describe('PlacePage sparse place', () => {
   })
 })
 
+async function openClassicEditor() {
+  await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Open classic editor' }))
+}
+
 describe('PlacePage edit toggle', () => {
-  it('Edit shows the existing editor and Done returns to the view with fresh data', async () => {
+  it('Edit keeps the postcard and Done returns to the view with fresh data', async () => {
     render(<PlacePage place={rich} />)
     await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('Fushimi Inari-taisha')
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+    expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Fushimi Inari-taisha' })).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Place name' })).not.toBeInTheDocument()
+    expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('More → Open classic editor still opens the full form', async () => {
+    render(<PlacePage place={rich} />)
+    await openClassicEditor()
     expect(await screen.findByText('Editing: Fushimi Inari-taisha')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
 
@@ -433,9 +452,9 @@ describe('PlacePage one-tap visit status', () => {
     render(<PlacePage place={rich} />)
 
     await userEvent.click(screen.getByRole('radio', { name: 'Been' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    await openClassicEditor()
 
-    // The editor must not mount while the status PATCH is still on the wire, or its
+    // The classic editor must not mount while the status PATCH is still on the wire, or its
     // full-record save could revert the tapped status.
     expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
 
@@ -448,9 +467,9 @@ describe('PlacePage one-tap visit status', () => {
     expect(screen.getByTestId('editor-status')).toHaveTextContent('visited')
   })
 
-  it('opens the editor directly with the current status when no write is pending', async () => {
+  it('opens the classic editor directly with the current status when no write is pending', async () => {
     render(<PlacePage place={rich} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    await openClassicEditor()
     expect(await screen.findByText('Editing: Fushimi Inari-taisha')).toBeInTheDocument()
     expect(screen.getByTestId('editor-status')).toHaveTextContent('planned')
   })

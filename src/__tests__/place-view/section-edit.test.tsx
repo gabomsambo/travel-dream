@@ -4,12 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { HoursEditor } from '@/components/ui-custom/hours-editor'
 import { ReservationsSection } from '@/components/places/place-full-view-sections/reservations-section'
 import { PlacePage } from '@/components/places/place-view/place-page'
-import { placeEditHref } from '@/lib/place-view/edit-link'
+import { initialPlaceMode, placeClassicHref, placeEditHref } from '@/lib/place-view/edit-link'
 import type { PlaceWithRelations } from '@/types/database'
 
 const mockRefresh = jest.fn()
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: mockRefresh, push: jest.fn() }),
+  useRouter: () => ({ refresh: mockRefresh, push: jest.fn(), replace: jest.fn() }),
 }))
 jest.mock('next/dynamic', () => ({
   __esModule: true,
@@ -112,6 +112,11 @@ describe('Open 24 hours', () => {
   })
 })
 
+async function openClassicEditor() {
+  await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Open classic editor' }))
+}
+
 describe('section pencils', () => {
   beforeEach(() => {
     mockRefresh.mockClear()
@@ -144,7 +149,7 @@ describe('section pencils', () => {
     expect(screen.queryByLabelText('Description')).not.toBeInTheDocument()
   })
 
-  it('saves a pencil edit still inside the debounce before global Edit seeds the editor', async () => {
+  it('keeps a pencil draft on the postcard when global Edit is pressed before the debounce', async () => {
     const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
     global.fetch = fetchMock as unknown as typeof fetch
     render(<PlacePage place={place} />)
@@ -155,7 +160,25 @@ describe('section pencils', () => {
     await userEvent.type(description, 'A mountain of gates.')
     expect(fetchMock).not.toHaveBeenCalled()
 
-    await userEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[0])
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByLabelText('Description')).toHaveValue('A mountain of gates.')
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+    expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
+  })
+
+  it('saves a pencil edit still inside the debounce before the classic editor is seeded', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    render(<PlacePage place={place} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit About' }))
+    const description = screen.getByLabelText('Description')
+    await userEvent.clear(description)
+    await userEvent.type(description, 'A mountain of gates.')
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await openClassicEditor()
 
     expect(await screen.findByText('Seeded description: A mountain of gates.')).toBeInTheDocument()
     const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)))
@@ -178,7 +201,7 @@ describe('section pencils', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Edit Your plan' }))
     rerender(<PlacePage place={{ ...place, description: 'Saved in the full editor.' }} />)
 
-    await userEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[0])
+    await openClassicEditor()
     expect(await screen.findByText('Seeded description: Saved in the full editor.')).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -213,14 +236,22 @@ describe('section pencils', () => {
     expect(screen.getByLabelText('Your note')).toHaveValue('')
   })
 
-  it('opens the existing editor when the page is asked to start in edit mode', async () => {
+  it('opens Postcard edit mode when the page is asked to start in edit mode', async () => {
     render(<PlacePage place={place} startInEdit />)
-    expect(await screen.findByText('Editing: Fushimi Inari-taisha')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('Fushimi Inari-taisha')
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+    expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
   })
 
-  it('opens the existing editor when the user prefers edit mode', async () => {
+  it('opens Postcard edit mode when the user prefers edit mode', async () => {
     window.localStorage.setItem('user-preferences', JSON.stringify({ openPlacesInEditMode: true }))
     render(<PlacePage place={place} />)
+    expect(await screen.findByRole('textbox', { name: 'Place name' })).toHaveValue('Fushimi Inari-taisha')
+    expect(screen.queryByText(/Editing:/)).not.toBeInTheDocument()
+  })
+
+  it('opens the classic editor from an explicit start flag', async () => {
+    render(<PlacePage place={place} startClassic />)
     expect(await screen.findByText('Editing: Fushimi Inari-taisha')).toBeInTheDocument()
   })
 
@@ -312,7 +343,7 @@ describe('full-view reservation saves', () => {
 
   it('passes refreshed reservations to the open global editor', async () => {
     const { rerender } = render(<PlacePage place={place} />)
-    await userEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[0])
+    await openClassicEditor()
     expect(await screen.findByText('Reservations in editor: 1')).toBeInTheDocument()
 
     rerender(<PlacePage place={{ ...place, reservations: [] }} />)
@@ -320,9 +351,17 @@ describe('full-view reservation saves', () => {
   })
 })
 
-describe('placeEditHref', () => {
-  it('points Inbox and Review at the place editor', () => {
+describe('place edit routes', () => {
+  it('points Inbox and Review at Postcard edit mode', () => {
     expect(placeEditHref('plc_1')).toBe('/place/plc_1?edit=1')
+    expect(initialPlaceMode('1', undefined)).toBe('postcard')
+  })
+
+  it('keeps a plain link in read mode and sends the classic editor to its own URL', () => {
+    expect(initialPlaceMode(undefined, undefined)).toBe('view')
+    expect(initialPlaceMode('1', 'classic')).toBe('classic')
+    expect(placeClassicHref('plc_1')).toBe('/place/plc_1?editor=classic')
+    expect(initialPlaceMode(undefined, 'classic')).toBe('classic')
   })
 })
 

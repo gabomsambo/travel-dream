@@ -9,7 +9,7 @@ import type { PlaceWithRelations, Reservation } from "@/types/database"
 import { AddToTripMenu } from "./add-to-trip-menu"
 import { PlaceMap } from "./place-map"
 import { callUrl, directionsUrl } from "./mobile-action-bar"
-import { SectionPencilSlot } from "./section-edit"
+import { SectionPencilSlot, useSectionEdit } from "./section-edit"
 
 type VisitStatus = "not_visited" | "planned" | "visited"
 
@@ -166,6 +166,7 @@ export function YourPlan({
   const priority = place.priority ?? 0
   const rating = place.ratingSelf ?? 0
   const collections = place.collections ?? []
+  const sections = useSectionEdit()
   const hasDetails = Boolean(planned || lastVisited || companions.length || priority || rating || place.reservations.length)
 
   return (
@@ -253,7 +254,7 @@ export function YourPlan({
         />
       </div>
       {!hasDetails && (
-        <button type="button" onClick={onEdit} className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
+        <button type="button" onClick={() => (sections ? sections.open("plan") : onEdit())} className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
           <Pencil className="h-3.5 w-3.5" aria-hidden /> Add a date, companions or a booking
         </button>
       )}
@@ -267,6 +268,7 @@ export function OnTheGround({ place, onEdit }: { place: PlaceWithRelations; onEd
   const hasAny = Boolean(hours || place.address || coords || place.website || place.phone || place.email)
   const dirUrl = directionsUrl(coords)
   const call = callUrl(place.phone)
+  const sections = useSectionEdit()
 
   return (
     <section aria-labelledby="place-ground" className={cn(CARD, "group")}>
@@ -277,7 +279,7 @@ export function OnTheGround({ place, onEdit }: { place: PlaceWithRelations; onEd
       {!hasAny ? (
         <div className="mt-2 space-y-3 text-sm text-muted-foreground">
           <p>No address, hours or contact yet.</p>
-          <button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
+          <button type="button" onClick={() => (sections ? sections.open("ground") : onEdit())} className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
             <Pencil className="h-3.5 w-3.5" aria-hidden /> Add address & hours
           </button>
         </div>

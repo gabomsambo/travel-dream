@@ -39,6 +39,15 @@ describe('PlaceActionsMenu', () => {
     if (originalLength) Object.defineProperty(window.History.prototype, 'length', originalLength)
   })
 
+  it('offers Open classic editor without changing the place', async () => {
+    const onOpenClassic = jest.fn()
+    render(<PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="library" onOpenClassic={onOpenClassic} />)
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Open classic editor' }))
+    expect(onOpenClassic).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('archives through the existing PATCH endpoint, points to the Archive and goes back', async () => {
     renderMenu()
     await openMenu()

@@ -20,6 +20,8 @@ export const SECTION_LABELS: Record<SectionId, string> = {
 }
 
 export interface PlaceDraft {
+  name: string
+  kind: string
   notes: string
   recommendedBy: string
   description: string
@@ -53,9 +55,13 @@ type SaveStatus = "idle" | "saving" | "saved" | "error"
 
 export interface SectionEditApi {
   active: SectionId | null
+  /** Page-level Postcard edit. Section pencils stay available when this is false. */
+  editingAll: boolean
   mobile: boolean
   open: (id: SectionId) => void
   close: () => Promise<void>
+  /** Flush and leave Postcard edit. Stays put when the last save failed. */
+  exitEditing: () => Promise<boolean>
   status: SaveStatus
   error: string | null
   draft: PlaceDraft
@@ -75,6 +81,8 @@ export function useSectionEdit(): SectionEditApi | null {
 function draftFrom(place: PlaceWithRelations): PlaceDraft {
   const hours = place.hours && typeof place.hours === "object" ? (place.hours as Record<string, string>) : null
   return {
+    name: place.name ?? "",
+    kind: place.kind ?? "tip",
     notes: place.notes ?? "",
     recommendedBy: place.recommendedBy ?? "",
     description: place.description ?? "",
@@ -114,6 +122,8 @@ function placeWithDraft(place: PlaceWithRelations, draft: PlaceDraft, dirty: Rea
     coords = { lat: Number(draft.lat), lon: Number(draft.lon) }
   }
   const overlay: Partial<PlaceWithRelations> = {
+    name: draft.name,
+    kind: draft.kind,
     notes: draft.notes,
     recommendedBy: draft.recommendedBy || null,
     description: draft.description,
@@ -149,6 +159,11 @@ function placeWithDraft(place: PlaceWithRelations, draft: PlaceDraft, dirty: Rea
   return { ...place, ...picked }
 }
 
+/** The place with every section draft field laid over it, for edit-mode display. */
+export function applyDraft(place: PlaceWithRelations, draft: PlaceDraft): PlaceWithRelations {
+  return placeWithDraft(place, draft, new Set(Object.keys(draft) as Array<keyof PlaceDraft>))
+}
+
 function sameValue(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
@@ -162,6 +177,10 @@ export interface SectionEditHandles {
 }
 
 function patchFor(draft: PlaceDraft, key: keyof PlaceDraft): Record<string, unknown> {
+  if (key === "name") {
+    const name = draft.name.trim()
+    return name ? { name } : {}
+  }
   if (key === "lat" || key === "lon") {
     if (draft.lat.trim() === "" && draft.lon.trim() === "") return { coords: null }
     const lat = Number(draft.lat)
@@ -292,7 +311,7 @@ function usePlaceAutosave(placeId: string, onSaved: () => void) {
 
 function SaveMark({ status, error }: { status: SaveStatus; error: string | null }) {
   if (status === "saving") return <span className="text-background/70">Saving…</span>
-  if (status === "error") return <span role="alert" className="text-red-300">{error ?? "Save failed"}</span>
+  if (status === "error") return <span className="font-medium text-red-300">{error ?? "Couldn't save"}</span>
   if (status === "saved") {
     return (
       <span className="inline-flex items-center gap-1 text-emerald-300">
@@ -304,18 +323,24 @@ function SaveMark({ status, error }: { status: SaveStatus; error: string | null 
 }
 
 function EditingBar({ api }: { api: SectionEditApi }) {
-  if (!api.active || api.mobile) return null
+  // Postcard edit keeps the bar up the whole time, including on a phone.
+  // A single section pencil still hides it on a phone, where the sheet has its own Done.
+  if (!api.editingAll && (!api.active || api.mobile)) return null
+  const done = () => {
+    if (api.editingAll) void api.exitEditing()
+    else void api.close()
+  }
   return (
     <div className="pointer-events-none sticky top-0 z-40 h-0">
-      <div className="pointer-events-none flex justify-center px-4 pt-3">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-foreground py-1.5 pl-4 pr-1.5 text-sm text-background shadow-xl">
-          <Pencil className="h-4 w-4" aria-hidden />
+      <div className="pointer-events-none flex justify-center px-3 pt-3">
+        <div className="pointer-events-auto flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-full bg-foreground py-1.5 pl-4 pr-1.5 text-sm text-background shadow-xl">
+          <Pencil className="h-4 w-4 shrink-0" aria-hidden />
           <span className="font-medium">Editing</span>
-          <span className="hidden text-background/60 sm:inline">Changes save as you type</span>
+          <span className="text-background/70">Changes save as you type</span>
           <SaveMark status={api.status} error={api.error} />
           <button
             type="button"
-            onClick={() => void api.close()}
+            onClick={done}
             className="rounded-full bg-background px-4 py-1.5 font-semibold text-foreground"
           >
             Done
@@ -326,27 +351,63 @@ function EditingBar({ api }: { api: SectionEditApi }) {
   )
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function focusableIn(node: HTMLElement): HTMLElement[] {
+  return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.hasAttribute("disabled") && el.tabIndex !== -1)
+}
+
 function MobileSheet({ api }: { api: SectionEditApi }) {
+  const { active, mobile, close } = api
+  const dialogRef = React.useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = React.useState(false)
   React.useEffect(() => setMounted(true), [])
   React.useEffect(() => {
-    if (!api.active || !api.mobile) return
+    if (!mounted || !active || !mobile) return
+    const node = dialogRef.current
+    if (!node) return
+    const initial = focusableIn(node)
+    ;(initial[0] ?? node).focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") void api.close()
+      if (event.key === "Escape") {
+        event.preventDefault()
+        void close()
+        return
+      }
+      if (event.key !== "Tab") return
+      const items = focusableIn(node)
+      if (items.length === 0) {
+        event.preventDefault()
+        node.focus()
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      const inside = active instanceof Node && node.contains(active)
+      if (event.shiftKey && (!inside || active === first)) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (!inside || active === last)) {
+        event.preventDefault()
+        first.focus()
+      }
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [api])
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [mounted, active, mobile, close])
 
-  if (!mounted || !api.active || !api.mobile) return null
-  const label = SECTION_LABELS[api.active]
+  if (!mounted || !active || !mobile) return null
+  const label = SECTION_LABELS[active]
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end bg-black/50" onMouseDown={() => void api.close()}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={`Edit ${label}`}
-        className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-background p-5 pb-8 text-foreground shadow-2xl"
+        tabIndex={-1}
+        className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-background p-5 pb-8 text-foreground shadow-2xl outline-none"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-muted-foreground/30" aria-hidden />
@@ -362,12 +423,13 @@ function MobileSheet({ api }: { api: SectionEditApi }) {
                 <Check className="h-3.5 w-3.5" aria-hidden /> Saved
               </span>
             )}
-            {api.status === "error" && <span role="alert" className="text-destructive">{api.error ?? "Save failed"}</span>}
+            {api.status === "error" && <span className="font-medium text-destructive">{api.error ?? "Couldn't save"}</span>}
           </span>
         </div>
         <SectionEditor id={api.active} api={api} />
         <button
           type="button"
+          aria-label={`Done with ${label}`}
           onClick={() => void api.close()}
           className="mt-5 flex w-full items-center justify-center rounded-full bg-foreground py-3 text-sm font-semibold text-background"
         >
@@ -383,11 +445,15 @@ export function SectionEditProvider({
   place,
   onRefresh,
   handlesRef,
+  editingAll = false,
+  onExitEditing,
   children,
 }: {
   place: PlaceWithRelations
   onRefresh: () => void
   handlesRef?: React.MutableRefObject<SectionEditHandles | null>
+  editingAll?: boolean
+  onExitEditing?: () => void
   children: React.ReactNode
 }) {
   const mobile = useMobileSheet()
@@ -397,6 +463,11 @@ export function SectionEditProvider({
   const placeIdRef = React.useRef(place.id)
   const draftRef = React.useRef(draft)
   const dirtyRef = React.useRef(new Set<keyof PlaceDraft>())
+  const openerRef = React.useRef<HTMLElement | null>(null)
+  const onExitRef = React.useRef(onExitEditing)
+  React.useEffect(() => {
+    onExitRef.current = onExitEditing
+  }, [onExitEditing])
 
   React.useEffect(() => {
     draftRef.current = draft
@@ -449,16 +520,44 @@ export function SectionEditProvider({
     })
   }, [save])
 
+  const open = React.useCallback((id: SectionId) => {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setActive(id)
+  }, [])
+
+  const flushSave = save.flush
+  const reportError = save.noteError
+
   const close = React.useCallback(async () => {
-    const ok = await save.flush()
-    if (ok) setActive(null)
-  }, [save])
+    const ok = await flushSave()
+    if (!ok) return
+    const returnTo = openerRef.current
+    setActive(null)
+    // Move focus before the sheet unmounts, or the browser drops it on document.body.
+    returnTo?.focus()
+  }, [flushSave])
+
+  const exitEditing = React.useCallback(async () => {
+    const ok = await flushSave()
+    if (!ok) return false
+    if (!draftRef.current.name.trim()) {
+      reportError("Place name is required")
+      return false
+    }
+    const returnTo = openerRef.current
+    setActive(null)
+    onExitRef.current?.()
+    returnTo?.focus()
+    return true
+  }, [flushSave, reportError])
 
   const api = React.useMemo<SectionEditApi>(() => ({
     active,
+    editingAll,
     mobile,
-    open: setActive,
+    open,
     close,
+    exitEditing,
     status: save.status,
     error: save.error,
     draft,
@@ -467,10 +566,13 @@ export function SectionEditProvider({
     refresh: onRefresh,
     noteSaved: save.noteSaved,
     noteError: save.noteError,
-  }), [active, mobile, close, save.status, save.error, save.noteSaved, save.noteError, draft, setField, place, onRefresh])
+  }), [active, editingAll, mobile, open, close, exitEditing, save.status, save.error, save.noteSaved, save.noteError, draft, setField, place, onRefresh])
 
   return (
     <SectionEditContext.Provider value={api}>
+      <div className="sr-only" role="status" aria-live="polite">
+        {save.status === "saving" ? "Saving" : save.status === "saved" ? "Saved" : save.status === "error" ? (save.error ?? "Couldn't save") : ""}
+      </div>
       <EditingBar api={api} />
       {children}
       <MobileSheet api={api} />
@@ -478,7 +580,7 @@ export function SectionEditProvider({
   )
 }
 
-/** Pencil for one section. Hidden until hover from the `lg` breakpoint up; always visible below that. */
+/** Pencil for one section. Always visible while editing, and on touch. A fine pointer may reveal it on hover. */
 export function SectionPencilSlot({ id }: { id: SectionId }) {
   const api = useSectionEdit()
   if (!api) return null
@@ -487,7 +589,7 @@ export function SectionPencilSlot({ id }: { id: SectionId }) {
       type="button"
       aria-label={`Edit ${SECTION_LABELS[id]}`}
       onClick={() => api.open(id)}
-      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground opacity-100 transition hover:bg-secondary hover:text-foreground lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
+      className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground opacity-100 transition hover:bg-secondary hover:text-foreground ${api.editingAll ? "" : "[@media(hover:hover)]:lg:opacity-0 [@media(hover:hover)]:lg:group-hover:opacity-100 [@media(hover:hover)]:lg:focus-visible:opacity-100"}`}
     >
       <Pencil className="h-3.5 w-3.5" aria-hidden />
       <span className="hidden sm:inline">Edit</span>

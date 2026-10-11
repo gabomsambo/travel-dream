@@ -3,13 +3,14 @@ import { getPlaceWithRelations } from '@/lib/db-queries'
 import { getExploreCollections, getExplorePlacesInCity } from '@/lib/explore/queries'
 import { PlacePage } from '@/components/places/place-view/place-page'
 import { getCurrentUser } from '@/lib/auth-helpers'
+import { initialPlaceMode } from '@/lib/place-view/edit-link'
 
 export default async function PlaceRoute({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ edit?: string | string[] }>
+  searchParams: Promise<{ edit?: string | string[]; editor?: string | string[] }>
 }) {
   const user = await getCurrentUser()
   if (!user) {
@@ -19,6 +20,8 @@ export default async function PlaceRoute({
   const { id } = await params
   const query = await searchParams
   const edit = Array.isArray(query.edit) ? query.edit[0] : query.edit
+  const editor = Array.isArray(query.editor) ? query.editor[0] : query.editor
+  const mode = initialPlaceMode(edit, editor)
   const place = await getPlaceWithRelations(id, user.id)
 
   if (!place) {
@@ -32,7 +35,7 @@ export default async function PlaceRoute({
     place.city ? getExplorePlacesInCity(user.id, place.city, place.country, place.id) : Promise.resolve([]),
   ])
 
-  return <PlacePage place={place} trips={trips} alsoIn={alsoIn} startInEdit={edit === '1'} />
+  return <PlacePage place={place} trips={trips} alsoIn={alsoIn} startInEdit={mode === 'postcard'} startClassic={mode === 'classic'} />
 }
 
 export async function generateMetadata({

@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ArchiveClient } from '@/components/archive/archive-client'
+import { ArchiveGallery } from '@/components/archive/archive-gallery'
 import { ArchiveToolbar, ARCHIVE_SHORTCUTS } from '@/components/archive/archive-toolbar'
 import { ActiveFilterChips } from '@/components/library/active-filter-chips'
 import type { ArchivePlace } from '@/lib/archive/view'
@@ -181,6 +182,20 @@ describe('ArchiveClient', () => {
       body: JSON.stringify({ action: 'delete', placeIds: ['plc_rich'] }),
     }))
     resolveFetch({ ok: true, json: async () => ({ result: { updatedCount: 1 } }) })
+  })
+
+  it('shows a set-aside date and a saved date on gallery cards', () => {
+    render(
+      <ArchiveGallery
+        places={[rich, sparse]}
+        selected={new Set()}
+        onToggle={() => {}}
+        onRestore={() => {}}
+        onDelete={() => {}}
+      />
+    )
+    expect(screen.getByText('Set aside 12 Mar 2026')).toBeInTheDocument()
+    expect(screen.getByText('Saved 2 Nov 2024')).toBeInTheDocument()
   })
 
   it('gives a gallery card a menu of Restore and Delete', async () => {

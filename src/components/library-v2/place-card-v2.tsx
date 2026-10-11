@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/adapters/dropdown-menu"
 import type { PlaceWithCover, LibraryPlaceWithCover } from "@/lib/library-adapters"
+import { setAsideLine } from "@/lib/archive/view"
 import { FavoriteManager, parsePriceLevel, formatPriceSymbols } from "@/lib/place-card-helpers"
 import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
@@ -152,6 +153,9 @@ export function PlaceCardV2({ place, onClick, className, onRestore, onDelete, tr
             </span>
           </div>
           )}
+          <p className="text-xs text-muted-foreground">
+            {setAsideLine(place.archivedAt, place.createdAt)}
+          </p>
           {trips && trips.length > 0 && (
             <p className="flex flex-wrap gap-x-3 gap-y-0.5">
               {trips.map((trip) => (

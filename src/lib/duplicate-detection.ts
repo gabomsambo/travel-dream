@@ -42,8 +42,8 @@ export const DUPLICATE_POSSIBLE_SCORE = 0.6;
 
 /**
  * Applied only when both places have coordinates, and never on top of a
- * same-Google-place match. Past 2 km the pair should leave the page;
- * 500 m–2 km only leaves the main queue.
+ * same-Google-place match. Farther than `farKm` subtracts `farPenalty`;
+ * above `midKm` up to `farKm` subtracts `midPenalty`.
  */
 export const DUPLICATE_DISTANCE_PENALTIES = {
   farKm: 2,
@@ -52,7 +52,10 @@ export const DUPLICATE_DISTANCE_PENALTIES = {
   midPenalty: 0.05,
 } as const;
 
-/** Same pin, different name: Possible only, and only with both guards. */
+/**
+ * Same-spot flag thresholds. The flag also requires the kinds to agree.
+ * `duplicatePageBand` keeps a flagged pair in Possible.
+ */
 export const SAME_SPOT_MAX_KM = 0.05;
 export const SAME_SPOT_NAME_BELOW = 0.5;
 

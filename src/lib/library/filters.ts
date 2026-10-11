@@ -336,6 +336,55 @@ export function facetCounts(items: LibraryItem[], f: LibraryFilterState, ctx: Fi
   return counts;
 }
 
+const SUGGESTION_FACETS = ['countries', 'cities', 'kinds', 'tags', 'vibes'] as const;
+type SuggestionFacetKey = (typeof SUGGESTION_FACETS)[number];
+
+/**
+ * How many places Enter on a search suggestion would leave on the page.
+ * Enter clears the search and adds the value to the shelf and filters already
+ * on, so the count is that result. With nothing else narrowing the page, it is
+ * the whole library.
+ */
+export function suggestionCounts(
+  items: LibraryItem[],
+  f: LibraryFilterState,
+  ctx: FilterContext,
+): Record<SuggestionFacetKey, Array<[string, number]>> {
+  const noSearch: LibraryFilterState = { ...f, search: '' };
+  const base: FilterContext = { ...ctx, searchIds: null };
+  const out = {
+    countries: [] as Array<[string, number]>,
+    cities: [] as Array<[string, number]>,
+    kinds: [] as Array<[string, number]>,
+    tags: [] as Array<[string, number]>,
+    vibes: [] as Array<[string, number]>,
+  };
+  for (const facet of SUGGESTION_FACETS) {
+    const selected = noSearch[facet];
+    const pool: LibraryItem[] = [];
+    for (const p of items) {
+      if (matches(p, noSearch, base, facet)) pool.push(p);
+    }
+    const counts = new Map<string, number>();
+    if (selected.size === 0) {
+      for (const p of pool) {
+        for (const v of new Set(facetValues(p, facet))) counts.set(v, (counts.get(v) ?? 0) + 1);
+      }
+    } else {
+      const values = new Set<string>();
+      for (const p of pool) for (const v of facetValues(p, facet)) values.add(v);
+      for (const value of values) {
+        const next: LibraryFilterState = { ...noSearch, [facet]: new Set([...selected, value]) };
+        let n = 0;
+        for (const p of pool) if (matches(p, next, base)) n++;
+        if (n > 0) counts.set(value, n);
+      }
+    }
+    out[facet] = [...counts].sort((a, b) => b[1] - a[1]);
+  }
+  return out;
+}
+
 const ts = (s: string) => new Date(s).getTime();
 
 export function sortItems(items: LibraryItem[], sort: string): LibraryItem[] {

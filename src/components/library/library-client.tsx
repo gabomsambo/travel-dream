@@ -23,7 +23,7 @@ import { cityGroupLabel } from "@/lib/city-names"
 import { flagFor } from "@/lib/explore/geo"
 import { buildChapters, GROUP_MODES } from "@/lib/library/chapters"
 import {
-  DEFAULT_SORT, EMPTY_FILTERS, MONTH_NAMES, RECENT_DAYS, buildExportScope, describeFilters, facetCounts, filterItems,
+  DEFAULT_SORT, EMPTY_FILTERS, MONTH_NAMES, RECENT_DAYS, buildExportScope, describeFilters, facetCounts, filterItems, suggestionCounts,
   hasActiveFilters, isPlanningSoon, isRecentlyAdded, parseFilters, parseGroup, parseView, shelfOf, smartOf, sortItems,
   toSearchParams, withShelf, withSmart, type Facet, type FilterContext, type LibraryFilterState, type Shelf, type SmartShelf,
 } from "@/lib/library/filters"
@@ -219,21 +219,28 @@ function LibraryPage({ data }: { data: LibraryData }) {
   }, [items])
   const countsFor = React.useCallback((facet: Facet) => facetCounts(items, filters, ctx, facet), [items, filters, ctx])
 
-  // Suggestions for the command bar: every value with its count across the whole library, most saved first.
-  const facetOptions = React.useMemo<FacetOptions>(() => {
-    const tally = (values: string[]) => {
-      const m = new Map<string, number>()
-      for (const v of values) m.set(v, (m.get(v) ?? 0) + 1)
-      return [...m].sort((a, b) => b[1] - a[1])
-    }
-    return {
-      countries: tally(items.map((p) => p.country?.trim()).filter((c): c is string => !!c)),
-      cities: tally(items.map((p) => (p.city?.trim() ? cityGroupLabel(p.city) : null)).filter((c): c is string => !!c)),
-      kinds: tally(items.map((p) => p.kind)),
-      tags: tally(items.flatMap((p) => p.tags)),
-      vibes: tally(items.flatMap((p) => p.vibes)),
-    }
-  }, [items])
+  const suggestionScope = React.useMemo(
+    () => ({ ...filters, search: "" }),
+    [
+      filters.kinds,
+      filters.countries,
+      filters.cities,
+      filters.tags,
+      filters.vibes,
+      filters.months,
+      filters.rating,
+      filters.visitStatus,
+      filters.photo,
+      filters.hearts,
+      filters.soonWeeks,
+      filters.addedDays,
+      filters.uncollected,
+    ],
+  )
+  const facetOptions = React.useMemo<FacetOptions>(
+    () => suggestionCounts(items, suggestionScope, ctx),
+    [items, suggestionScope, ctx.hearts, ctx.collected, ctx.now],
+  )
 
   const smartCounts = React.useMemo<Record<SmartShelf, number>>(() => {
     const weeks = filters.soonWeeks || 8

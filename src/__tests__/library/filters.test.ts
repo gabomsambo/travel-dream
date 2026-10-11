@@ -6,6 +6,7 @@ import {
   describeFilters,
   facetCounts,
   filterItems,
+  suggestionCounts,
   hasActiveFilters,
   isPlanningSoon,
   parseFilters,
@@ -104,6 +105,26 @@ describe('facetCounts', () => {
     expect(Object.fromEntries(facetCounts(places, EMPTY_FILTERS, ctx(), 'countries'))).toEqual({ Japan: 2, Italy: 1 });
     const lisbon = [item({ id: 'l1', city: 'Lisboa', country: 'Portugal' }), item({ id: 'l2', city: 'Lisbon', country: 'Portugal' })];
     expect(Object.fromEntries(facetCounts(lisbon, EMPTY_FILTERS, ctx(), 'cities'))).toEqual({ Lisbon: 2 });
+  });
+});
+
+describe('suggestionCounts', () => {
+  it('counts what Enter would show: the shelf and filters, not the search and not the whole library', () => {
+    const cafes = [
+      item({ id: 'h', kind: 'cafe', country: 'Italy' }),
+      ...Array.from({ length: 11 }, (_, i) => item({ id: `c${i}`, kind: 'cafe' })),
+    ];
+    // The hearted cafe is outside the search ids, which Enter is about to clear.
+    const onHearts = suggestionCounts(
+      cafes,
+      f({ hearts: true, search: 'cafe' }),
+      ctx({ hearts: new Set(['h']), searchIds: new Set(['c0']) }),
+    );
+    expect(onHearts.kinds).toEqual([['cafe', 1]]);
+
+    // Enter adds Italy alongside Japan, so the row counts both.
+    const widened = suggestionCounts(places, f({ countries: new Set(['Japan']), search: 'italy' }), ctx({ searchIds: new Set() }));
+    expect(Object.fromEntries(widened.countries)).toEqual({ Italy: 3, Japan: 2 });
   });
 });
 

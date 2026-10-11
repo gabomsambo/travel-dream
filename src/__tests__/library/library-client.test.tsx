@@ -49,6 +49,21 @@ function heldResponse() {
   return { gate, release }
 }
 
+/** Holds every hearts POST so a test can see which writes are in flight. */
+function holdHeartPosts() {
+  const pending: Array<{ body: { placeIds: string[]; on: boolean }; held: ReturnType<typeof heldResponse> }> = []
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    if (url === '/api/library/hearts') {
+      const held = heldResponse()
+      pending.push({ body, held })
+      return held.gate
+    }
+    return json({ status: 'success' })
+  })
+  return pending
+}
+
 /** A small fake of the API: hearts echo the ids they were sent, the rest answer success. */
 function routeFetch(overrides: Record<string, (body: unknown) => unknown> = {}) {
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
@@ -332,6 +347,110 @@ describe('hearts, saved to the account', () => {
     expect(notify.error).not.toHaveBeenCalled()
   })
 
+  it('applies a heart made during replay after the queued un-heart, not before it', async () => {
+    localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_3: true, plc_7: false }))
+    const pending = holdHeartPosts()
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await waitFor(() => expect(pending.map((p) => p.body)).toEqual([
+      { placeIds: ['plc_3'], on: true },
+      { placeIds: ['plc_7'], on: false },
+    ]))
+    await user.click(screen.getByRole('button', { name: 'Heart Place 7' }))
+    expect(pending).toHaveLength(2)
+    await act(async () => {
+      pending[0].held.release({ status: 'success', placeIds: ['plc_3'] })
+      pending[1].held.release({ status: 'success', placeIds: ['plc_7'] })
+    })
+    await waitFor(() => expect(pending).toHaveLength(3))
+    expect(pending[2].body).toEqual({ placeIds: ['plc_7'], on: true })
+    await act(async () => {
+      pending[2].held.release({ status: 'success', placeIds: ['plc_7'] })
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove heart from Place 7' })).toHaveAttribute('aria-pressed', 'true'))
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('plc_7')
+  })
+
+  it('does not let a later queued batch overwrite a heart changed while an earlier batch is still saving', async () => {
+    const extras = Array.from({ length: 500 }, (_, i) => `x${i}`)
+    localStorage.setItem('td:hearts-pending:v1', JSON.stringify(Object.fromEntries([...extras, 'plc_2'].map((id) => [id, true]))))
+    const pending = holdHeartPosts()
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await waitFor(() => expect(pending).toHaveLength(2))
+    expect(pending[0].body.placeIds).toHaveLength(500)
+    expect(pending[1].body).toEqual({ placeIds: ['plc_2'], on: true })
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    expect(pending).toHaveLength(2)
+    await act(async () => {
+      pending[0].held.release({ status: 'success', placeIds: pending[0].body.placeIds })
+      pending[1].held.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(pending).toHaveLength(3))
+    expect(pending[2].body).toEqual({ placeIds: ['plc_2'], on: true })
+    await act(async () => {
+      pending[2].held.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(pending).toHaveLength(4))
+    expect(pending[3].body).toEqual({ placeIds: ['plc_2'], on: false })
+    await act(async () => {
+      pending[3].held.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false'))
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('plc_2')
+  })
+
+  it('does not keep a heart on screen when hearting and un-hearting both fail', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string) => {
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return first.gate
+        return json({ status: 'error' }, 500)
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    await act(async () => {
+      first.release({ status: 'error' }, 500)
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Heart Place 2' })).toHaveAttribute('aria-pressed', 'false'))
+    expect(notify.error).toHaveBeenCalledWith("Couldn't remove that heart. Try again in a moment.")
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).not.toContain('plc_2')
+  })
+
+  it('keeps a heart the server stored when later toggles of it fail', async () => {
+    const first = heldResponse()
+    let heartsPosts = 0
+    fetchMock.mockImplementation((url: string) => {
+      if (url === '/api/library/hearts') {
+        heartsPosts += 1
+        if (heartsPosts === 1) return first.gate
+        return json({ status: 'error' }, 500)
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(heartsPosts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 2' }))
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    expect(heartsPosts).toBe(1)
+    await act(async () => {
+      first.release({ status: 'success', placeIds: ['plc_2'] })
+    })
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment."))
+    expect(screen.getByRole('button', { name: 'Remove heart from Place 2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toContain('plc_2')
+  })
+
   it('shows a Hearts shelf once there is a heart, and narrows to them', async () => {
     const user = userEvent.setup()
     const { rerender } = render(<LibraryClient data={data} />)
@@ -380,6 +499,26 @@ describe('command-bar search', () => {
     input.blur()
     await user.keyboard('/')
     expect(input).toHaveFocus()
+  })
+
+  it('counts a filter suggestion for the shelf in view, not the whole library', async () => {
+    const cafes = Array.from({ length: 12 }, (_, i) =>
+      item({ id: `cafe_${i}`, name: `Spot ${i}`, kind: 'cafe', country: 'Italy', city: 'Rome', photos: [photo] }),
+    )
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, items: cafes, collections: [], heartIds: ['cafe_0'] }} />)
+    const input = screen.getByRole('combobox', { name: 'Search your library' })
+    await user.click(input)
+    await user.type(input, 'cafe')
+    expect(within(await screen.findByRole('listbox', { name: 'Search results' })).getByRole('option', { name: /Kind · Cafe/ })).toHaveTextContent('Filter to 12 places')
+    await user.click(screen.getByRole('button', { name: /^Hearts\s*1/ }))
+    await user.click(input)
+    const suggestion = within(await screen.findByRole('listbox', { name: 'Search results' })).getByRole('option', { name: /Kind · Cafe/ })
+    expect(suggestion).toHaveTextContent('Filter to 1 place')
+    expect(suggestion).not.toHaveTextContent('12')
+    await user.click(within(suggestion).getByText('Cafe'))
+    expect(screen.getAllByRole('button', { name: /^Spot 0,/ }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /^Spot 1,/ })).not.toBeInTheDocument()
   })
 
   it('counts the places on the page when a shelf narrows the search', async () => {

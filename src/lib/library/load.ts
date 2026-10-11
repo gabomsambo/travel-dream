@@ -1,5 +1,6 @@
 import { searchLibraryPlaces } from '@/lib/db-queries';
 import { getExploreCollections, getExplorePlaces } from '@/lib/explore/queries';
+import { getHeartIds, listSavedViews } from './store';
 import type { LibraryData, LibraryItem } from './types';
 
 function strings(v: unknown): string[] {
@@ -9,17 +10,20 @@ function strings(v: unknown): string[] {
 /**
  * Everything the Library page renders, for one user.
  *
- * Composes three queries that are each scoped to `userId` on their own
- * (`searchLibraryPlaces` filters on `places.user_id`; the Explore loaders go
- * through `forUser`), so no row of another tenant can enter the join. The
+ * Composes queries that are each scoped to `userId` on their own
+ * (`searchLibraryPlaces` filters on `places.user_id`; the Explore loaders and
+ * the hearts and saved views go through `forUser`), so no row of another
+ * tenant can enter the join. The
  * library rows decide membership — Explore's list also holds Inbox places, and
  * those are only counted, never shown.
  */
 export async function loadLibrary(userId: string): Promise<LibraryData> {
-  const [rows, explore, collections] = await Promise.all([
+  const [rows, explore, collections, heartIds, savedViews] = await Promise.all([
     searchLibraryPlaces({ userId, status: 'library' }),
     getExplorePlaces(userId),
     getExploreCollections(userId),
+    getHeartIds(userId),
+    listSavedViews(userId),
   ]);
 
   const byId = new Map(explore.map((p) => [p.id, p]));
@@ -42,5 +46,5 @@ export async function loadLibrary(userId: string): Promise<LibraryData> {
   const libraryIds = new Set(rows.map((r) => r.id));
   const inboxCount = explore.filter((p) => !libraryIds.has(p.id)).length;
 
-  return { items, collections, inboxCount };
+  return { userId, items, collections, inboxCount, heartIds, savedViews };
 }

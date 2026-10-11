@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
-import { bulkConfirmPlaces, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces } from '@/lib/db-mutations';
+import { bulkConfirmPlaces, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces, batchSetVisitStatus } from '@/lib/db-mutations';
 import { getOwnedPlaceIds } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
@@ -9,18 +9,24 @@ export const runtime = 'nodejs';
 export const maxDuration = 60; // 1 minute for bulk operations
 
 const BulkActionSchema = z.object({
-  action: z.enum(['confirm', 'archive', 'restore', 'delete'], {
+  action: z.enum(['confirm', 'archive', 'restore', 'delete', 'set-visit-status'], {
     required_error: 'Action is required',
-    invalid_type_error: 'Action must be one of: "confirm", "archive", "restore", or "delete"'
+    invalid_type_error: 'Action must be one of: "confirm", "archive", "restore", "delete" or "set-visit-status"'
   }),
+  // Only for "set-visit-status": the Library's Dreaming / Planned / Been.
+  visitStatus: z.enum(['not_visited', 'planned', 'visited']).optional(),
   placeIds: z.array(z.string().min(1, 'Place ID cannot be empty'), {
     required_error: 'Place IDs are required',
     invalid_type_error: 'Place IDs must be an array of strings'
   }).min(1, 'At least one place ID is required').max(500, 'Cannot process more than 500 places at once')
+}).refine((b) => b.action !== 'set-visit-status' || b.visitStatus !== undefined, {
+  message: 'visitStatus is required for "set-visit-status"',
+  path: ['visitStatus'],
 });
 
 interface BulkActionRequest {
-  action: 'confirm' | 'archive' | 'restore' | 'delete';
+  action: 'confirm' | 'archive' | 'restore' | 'delete' | 'set-visit-status';
+  visitStatus?: 'not_visited' | 'planned' | 'visited';
   placeIds: string[];
 }
 
@@ -55,7 +61,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { action, placeIds } = validation.data;
+    const { action, placeIds, visitStatus } = validation.data;
 
     // Remove duplicates and validate place IDs
     const uniquePlaceIds = [...new Set(placeIds)];
@@ -95,6 +101,9 @@ export async function POST(request: NextRequest) {
         case 'delete':
           updatedCount = await batchDeletePlaces(uniquePlaceIds, user.id);
           console.log(`Permanently deleted ${updatedCount} places`);
+          break;
+        case 'set-visit-status':
+          updatedCount = await batchSetVisitStatus(uniquePlaceIds, visitStatus!, user.id);
           break;
         default:
           return NextResponse.json(
@@ -154,7 +163,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (isPartialSuccess) {
-      const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : 'deleted';
+      const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : 'deleted';
       return NextResponse.json(
         {
           status: 'partial_success',
@@ -167,7 +176,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Full success
-    const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : 'permanently deleted';
+    const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : 'permanently deleted';
     return NextResponse.json(
       {
         status: 'success',
@@ -220,14 +229,16 @@ export async function GET() {
         method: 'POST',
         description: 'Perform bulk operations on multiple places',
         requestBody: {
-          action: 'confirm | archive | restore | delete',
-          placeIds: 'string[] (1-500 items)'
+          action: 'confirm | archive | restore | delete | set-visit-status',
+          placeIds: 'string[] (1-500 items)',
+          visitStatus: 'not_visited | planned | visited (set-visit-status only)'
         },
         actions: {
           confirm: 'Move places from inbox to library',
           archive: 'Move places to archived status',
           restore: 'Restore archived places back to library',
-          delete: 'Permanently delete places from database'
+          delete: 'Permanently delete places from database',
+          'set-visit-status': 'Set Dreaming / Planned / Been on places'
         },
         responses: {
           200: 'Operation successful (full or partial)',

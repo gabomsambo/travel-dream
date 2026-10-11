@@ -9,6 +9,7 @@ import type { Place } from '@/types/database';
  * not override keys.
  */
 export const MERGE_OVERRIDE_FIELDS = [
+  'name',
   'description',
   'address',
   'coords',
@@ -75,6 +76,7 @@ function isEmptyOverrideValue(field: MergeOverrideField, place: Place): boolean 
       return !hasValidCoords(place.coords);
     case 'hours':
       return isEmptyHours(place.hours);
+    case 'name':
     case 'description':
     case 'address':
     case 'website':
@@ -88,18 +90,11 @@ function isEmptyOverrideValue(field: MergeOverrideField, place: Place): boolean 
     case 'kind':
     case 'googlePlaceId':
       return isBlankText(place[field]);
-    default:
-      return true;
+    default: {
+      const unexpected: never = field;
+      throw new Error(`Unexpected merge field ${unexpected}`);
+    }
   }
-}
-
-function fillText(
-  current: string | null | undefined,
-  incoming: string | null | undefined
-): string | null | undefined {
-  if (!isBlankText(current)) return current;
-  if (!isBlankText(incoming)) return incoming;
-  return current ?? null;
 }
 
 /**
@@ -145,13 +140,15 @@ function takeHigher(current: number | null | undefined, incoming: number | null 
  *
  * Sources are applied in array order (the order the user chose). Empty
  * single-value fields on the kept place are filled from the first source that
- * has them. Arrays are unioned. Notes are concatenated. Confidence and
- * personal rating keep the higher value. `googlePlaceId` is copied only when
- * the kept place has none. If any place is in Library, the survivor is too.
+ * has them, including a blank name. Other place names are unioned into
+ * altNames. Arrays are unioned. Notes are concatenated. Confidence and
+ * personal rating keep the higher value. If any place is in Library, the
+ * survivor is too.
  *
  * `fieldOverrides` replaces a conflicting single-value field with the named
- * place's value. The place id must be the kept place or one of the sources,
- * and the chosen value must be non-empty.
+ * place's value. A name override swaps which name is primary. The place id
+ * must be the kept place or one of the sources, and the chosen value must be
+ * non-empty.
  */
 export function mergePlaceFields(
   target: Place,
@@ -162,24 +159,10 @@ export function mergePlaceFields(
   merged.altNames = unionStrings([target.name], target.altNames);
 
   for (const source of sources) {
-    merged.description = fillText(merged.description, source.description) ?? null;
-    merged.address = fillText(merged.address, source.address) ?? null;
-    merged.website = fillText(merged.website, source.website) ?? null;
-    merged.phone = fillText(merged.phone, source.phone) ?? null;
-    merged.price_level = fillText(merged.price_level, source.price_level) ?? null;
-    merged.best_time = fillText(merged.best_time, source.best_time) ?? null;
-    merged.practicalInfo = fillText(merged.practicalInfo, source.practicalInfo) ?? null;
-    merged.admin = fillText(merged.admin, source.admin) ?? null;
-    merged.city = fillText(merged.city, source.city) ?? null;
-    merged.country = fillText(merged.country, source.country) ?? null;
-    merged.kind = fillText(merged.kind, source.kind) || merged.kind;
-    merged.googlePlaceId = fillText(merged.googlePlaceId, source.googlePlaceId) ?? null;
-
-    if (!hasValidCoords(merged.coords) && hasValidCoords(source.coords)) {
-      merged.coords = source.coords;
-    }
-    if (isEmptyHours(merged.hours) && !isEmptyHours(source.hours)) {
-      merged.hours = source.hours;
+    for (const field of MERGE_OVERRIDE_FIELDS) {
+      if (isEmptyOverrideValue(field, merged) && !isEmptyOverrideValue(field, source)) {
+        assignOverride(merged, field, source);
+      }
     }
 
     merged.notes = appendNote(merged.notes, source.notes);
@@ -216,6 +199,9 @@ export function mergePlaceFields(
 
 function assignOverride(merged: Place, field: MergeOverrideField, chosen: Place): void {
   switch (field) {
+    case 'name':
+      merged.name = chosen.name;
+      break;
     case 'description':
       merged.description = chosen.description;
       break;
@@ -258,8 +244,10 @@ function assignOverride(merged: Place, field: MergeOverrideField, chosen: Place)
     case 'googlePlaceId':
       merged.googlePlaceId = chosen.googlePlaceId;
       break;
-    default:
-      break;
+    default: {
+      const unexpected: never = field;
+      throw new Error(`Unexpected merge field ${unexpected}`);
+    }
   }
 }
 

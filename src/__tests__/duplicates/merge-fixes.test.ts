@@ -24,7 +24,7 @@ jest.mock('@vercel/blob', () => ({
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { bulkMergePlaces, createPlacesFromPipeline } from '@/lib/db-mutations';
 import { computeMergedPlace } from '@/lib/duplicate-target-selector';
-import { pickMergedPlaceFields, type MergeFieldOverrides } from '@/lib/place-merge';
+import { MERGE_OVERRIDE_FIELDS, pickMergedPlaceFields, type MergeFieldOverrides, type MergeOverrideField } from '@/lib/place-merge';
 import type { Place } from '@/types/database';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
 
@@ -489,5 +489,158 @@ describe('duplicate merge fixes', () => {
       'SELECT place_id FROM sources_to_places WHERE source_id = ?',
       ['src_old']
     )).toBe('plc_old_archive');
+  });
+
+  describe('single-value field picks', () => {
+    const keptFilled = {
+      name: 'Kept Name',
+      kind: 'cafe',
+      city: 'Lisbon',
+      country: 'Portugal',
+      admin: 'Lisboa',
+      address: '1 Kept Street',
+      coords: { lat: 38.71, lon: -9.14 },
+      website: 'https://kept.example',
+      phone: '+351111111',
+      hours: { monday: '9-17' },
+      price_level: '$',
+      best_time: 'morning',
+      practicalInfo: 'Kept practical',
+      description: 'Kept description',
+      googlePlaceId: 'ChIJ_kept',
+    } satisfies Record<MergeOverrideField, unknown>;
+
+    const absorbedFilled = {
+      name: 'Absorbed Name',
+      kind: 'restaurant',
+      city: 'Porto',
+      country: 'Spain',
+      admin: 'Porto',
+      address: '2 Absorb Street',
+      coords: { lat: 41.15, lon: -8.61 },
+      website: 'https://absorb.example',
+      phone: '+351222222',
+      hours: { tuesday: '10-22' },
+      price_level: '$$$',
+      best_time: 'evening',
+      practicalInfo: 'Absorb practical',
+      description: 'Absorbed description',
+      googlePlaceId: 'ChIJ_absorb',
+    } satisfies Record<MergeOverrideField, unknown>;
+
+    const keptEmpty = {
+      name: '',
+      kind: '',
+      city: null,
+      country: null,
+      admin: null,
+      address: null,
+      coords: null,
+      website: null,
+      phone: null,
+      hours: null,
+      price_level: null,
+      best_time: null,
+      practicalInfo: null,
+      description: null,
+      googlePlaceId: null,
+    } satisfies Record<MergeOverrideField, unknown>;
+
+    async function mergePair(
+      kept: Record<string, unknown>,
+      absorbed: Record<string, unknown>,
+      fieldOverrides?: MergeFieldOverrides
+    ): Promise<{ saved: Place; preview: Place }> {
+      const target = await insertPlace({
+        id: 'plc_keep',
+        status: 'inbox',
+        altNames: [],
+        tags: [],
+        vibes: [],
+        activities: [],
+        cuisine: [],
+        amenities: [],
+        notes: null,
+        confidence: 0.5,
+        ratingSelf: 1,
+        ...kept,
+      });
+      const source = await insertPlace({
+        id: 'plc_absorb',
+        status: 'inbox',
+        altNames: [],
+        tags: [],
+        vibes: [],
+        activities: [],
+        cuisine: [],
+        amenities: [],
+        notes: null,
+        confidence: 0.5,
+        ratingSelf: 1,
+        ...absorbed,
+      });
+      const preview = computeMergedPlace(target, [source], fieldOverrides);
+      const result = await bulkMergePlaces(
+        [{
+          targetId: target.id,
+          sourceIds: [source.id],
+          confidence: 0.8,
+          fieldOverrides,
+        }],
+        ALICE.id
+      );
+      expect(result.success).toBe(1);
+      expect(result.failed).toBe(0);
+
+      const database = await db();
+      const { places, eq } = {
+        ...(require('@/db/schema') as typeof import('@/db/schema')),
+        ...(require('drizzle-orm') as typeof import('drizzle-orm')),
+      };
+      const [saved] = await database.select().from(places).where(eq(places.id, target.id));
+      return { saved: saved as Place, preview };
+    }
+
+    function expectEachScalar(
+      saved: Place,
+      preview: Place,
+      winner: Record<MergeOverrideField, unknown>
+    ) {
+      expect(pickMergedPlaceFields(saved)).toEqual(pickMergedPlaceFields(preview));
+      for (const field of MERGE_OVERRIDE_FIELDS) {
+        expect(preview[field]).toEqual(winner[field]);
+        expect(saved[field]).toEqual(winner[field]);
+      }
+    }
+
+    it('fills every empty single-value field, including a blank name, the way the preview shows', async () => {
+      const { saved, preview } = await mergePair(keptEmpty, absorbedFilled);
+
+      expectEachScalar(saved, preview, absorbedFilled);
+      expect(saved.name).toBe('Absorbed Name');
+      expect(saved.altNames).toEqual(['Absorbed Name']);
+      expect(preview.altNames).toEqual(saved.altNames);
+    });
+
+    it('keeps each single-value field when both places have one, and stores the other name as an alt name', async () => {
+      const { saved, preview } = await mergePair(keptFilled, absorbedFilled);
+
+      expectEachScalar(saved, preview, keptFilled);
+      expect(saved.name).toBe('Kept Name');
+      expect(saved.altNames).toEqual(['Kept Name', 'Absorbed Name']);
+      expect(preview.altNames).toEqual(saved.altNames);
+    });
+
+    it('persists an overridden pick for every single-value field the way the preview shows', async () => {
+      const fieldOverrides = Object.fromEntries(
+        MERGE_OVERRIDE_FIELDS.map((field) => [field, 'plc_absorb'])
+      ) as MergeFieldOverrides;
+      const { saved, preview } = await mergePair(keptFilled, absorbedFilled, fieldOverrides);
+
+      expectEachScalar(saved, preview, absorbedFilled);
+      expect(saved.name).toBe('Absorbed Name');
+      expect(saved.altNames).toEqual(['Kept Name', 'Absorbed Name']);
+      expect(preview.altNames).toEqual(saved.altNames);
+    });
   });
 });

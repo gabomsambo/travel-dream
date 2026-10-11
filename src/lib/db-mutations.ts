@@ -1018,6 +1018,7 @@ export async function bulkMergePlaces(
 
           await tx.update(places)
             .set({
+              name: merged.name,
               kind: merged.kind,
               city: merged.city,
               country: merged.country,

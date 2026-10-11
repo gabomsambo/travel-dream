@@ -24,6 +24,42 @@ interface FieldComparison {
   overrideField?: MergeOverrideField;
 }
 
+const SCALAR_COMPARISONS = {
+  name: { label: 'Name', type: 'text' },
+  kind: { label: 'Kind', type: 'text' },
+  city: { label: 'City', type: 'text' },
+  admin: { label: 'Region', type: 'text' },
+  country: { label: 'Country', type: 'text' },
+  address: { label: 'Address', type: 'text' },
+  coords: { label: 'Coordinates', type: 'coords' },
+  website: { label: 'Website', type: 'text' },
+  phone: { label: 'Phone', type: 'text' },
+  hours: { label: 'Hours', type: 'text' },
+  price_level: { label: 'Price level', type: 'text' },
+  best_time: { label: 'Best time', type: 'text' },
+  practicalInfo: { label: 'Practical info', type: 'text' },
+  description: { label: 'Description', type: 'text' },
+  googlePlaceId: { label: 'Google place id', type: 'text' },
+} as const satisfies Record<MergeOverrideField, { label: string; type: 'text' | 'coords' }>;
+
+function formatHours(hours: Place['hours']): string {
+  if (hours == null || typeof hours !== 'object') return '';
+  const entries = Object.entries(hours).sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return '';
+  return entries.map(([day, time]) => `${day}: ${time}`).join(', ');
+}
+
+function comparisonValue(place: Place, field: MergeOverrideField): FieldValue {
+  switch (field) {
+    case 'hours':
+      return formatHours(place.hours);
+    case 'coords':
+      return place.coords;
+    default:
+      return place[field];
+  }
+}
+
 function formatCoords(coords: Place['coords']): string {
   if (!coords || typeof coords !== 'object') return '';
   if ('lat' in coords && 'lon' in coords && coords.lat !== null && coords.lon !== null) {
@@ -131,13 +167,16 @@ export function DuplicateComparisonPanel({
   onPickField,
 }: DuplicateComparisonPanelProps) {
   const fields: FieldComparison[] = [
-    { label: 'Name', targetValue: target.name, compareValue: compareTo.name, type: 'text' },
-    { label: 'Kind', targetValue: target.kind, compareValue: compareTo.kind, type: 'text', overrideField: 'kind' },
-    { label: 'City', targetValue: target.city, compareValue: compareTo.city, type: 'text', overrideField: 'city' },
-    { label: 'Country', targetValue: target.country, compareValue: compareTo.country, type: 'text', overrideField: 'country' },
-    { label: 'Address', targetValue: target.address, compareValue: compareTo.address, type: 'text', overrideField: 'address' },
-    { label: 'Coordinates', targetValue: target.coords, compareValue: compareTo.coords, type: 'coords', overrideField: 'coords' },
-    { label: 'Description', targetValue: target.description, compareValue: compareTo.description, type: 'text', overrideField: 'description' },
+    ...(Object.keys(SCALAR_COMPARISONS) as MergeOverrideField[]).map((field) => {
+      const row = SCALAR_COMPARISONS[field];
+      return {
+        label: row.label,
+        targetValue: comparisonValue(target, field),
+        compareValue: comparisonValue(compareTo, field),
+        type: row.type,
+        overrideField: field,
+      };
+    }),
     { label: 'Tags', targetValue: target.tags, compareValue: compareTo.tags, type: 'array' },
     { label: 'Vibes', targetValue: target.vibes, compareValue: compareTo.vibes, type: 'array' },
     { label: 'Activities', targetValue: target.activities, compareValue: compareTo.activities, type: 'array' },

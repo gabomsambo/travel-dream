@@ -29,6 +29,13 @@
       "when": 1791734442724,
       "tag": "20261011160042_add_place_hearts_and_saved_views",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791752000000,
+      "tag": "20261011211500_add_places_archived_at",
+      "breakpoints": true
     }
   ]
 }

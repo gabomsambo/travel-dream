@@ -125,7 +125,7 @@ CREATE TABLE `places` (
 	`confidence` real DEFAULT 0,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
-, price_level TEXT, best_time TEXT, activities TEXT, cuisine TEXT, amenities TEXT, description TEXT, `website` text, `phone` text, `email` text, `hours` text, `visit_status` text DEFAULT 'not_visited', `priority` integer DEFAULT 0, `last_visited` text, `planned_visit` text, `recommended_by` text, `companions` text, `practical_info` text, google_place_id TEXT, user_id text REFERENCES users(id) ON DELETE CASCADE);
+, price_level TEXT, best_time TEXT, activities TEXT, cuisine TEXT, amenities TEXT, description TEXT, `website` text, `phone` text, `email` text, `hours` text, `visit_status` text DEFAULT 'not_visited', `priority` integer DEFAULT 0, `last_visited` text, `planned_visit` text, `recommended_by` text, `companions` text, `practical_info` text, google_place_id TEXT, user_id text REFERENCES users(id) ON DELETE CASCADE, `archived_at` text);
 
 -- [table] places_to_collections
 CREATE TABLE `places_to_collections` (

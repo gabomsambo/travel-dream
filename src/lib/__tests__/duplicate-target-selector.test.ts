@@ -31,6 +31,7 @@ const createMockPlace = (overrides: Partial<Place> = {}): Place => ({
   amenities: [],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
+  archivedAt: null,
   website: null,
   phone: null,
   email: null,

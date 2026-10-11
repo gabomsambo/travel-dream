@@ -29,6 +29,7 @@ function createMockPlace(id: string, overrides: Partial<Place> = {}): Place {
     amenities: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    archivedAt: null,
     website: null,
     phone: null,
     email: null,

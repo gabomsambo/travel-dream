@@ -8,6 +8,7 @@ import { forUser } from './tenant-db';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId, NotFoundError } from './db-utils';
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
 import { isClaimableNow } from './mass-upload/queue-sql';
+import { archivedAtForStatus } from './place-status';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
 import type { ExtractedPlace, ExtractionResult, ExtractionMetadata } from '@/types/llm-extraction';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
@@ -35,10 +36,17 @@ export async function updatePlace(
   userId: string
 ): Promise<Place> {
   return withErrorHandling(async () => {
-    const updateData = {
-      ...data,
-      updatedAt: new Date().toISOString(),
+    const now = new Date().toISOString();
+    // A caller cannot stamp or clear the archive clock on its own. It moves
+    // only when status moves: archived stamps now, anything else clears it.
+    const { archivedAt: _ignored, ...rest } = data;
+    const updateData: Partial<Omit<NewPlace, 'id' | 'createdAt'>> = {
+      ...rest,
+      updatedAt: now,
     };
+    if (data.status) {
+      updateData.archivedAt = archivedAtForStatus(data.status, now);
+    }
 
     const [updated] = await db.update(places)
       .set(updateData)
@@ -638,12 +646,14 @@ export async function bulkUpdatePlaceStatus(
     const CHUNK_SIZE = 50;
     let totalUpdated = 0;
 
+    const now = new Date().toISOString();
     for (let i = 0; i < placeIds.length; i += CHUNK_SIZE) {
       const chunk = placeIds.slice(i, i + CHUNK_SIZE);
       const result = await db.update(places)
         .set({
           status,
-          updatedAt: new Date().toISOString(),
+          updatedAt: now,
+          archivedAt: archivedAtForStatus(status, now),
         })
         .where(and(inArray(places.id, chunk), eq(places.userId, userId)));
 
@@ -1189,7 +1199,11 @@ export async function bulkMergePlaces(
           }
 
           await tx.update(places)
-            .set({ status: 'archived', updatedAt })
+            .set({
+              status: 'archived',
+              archivedAt: updatedAt,
+              updatedAt,
+            })
             .where(inArray(places.id, orderedSourceIds));
 
           const mergedData = {
@@ -1276,6 +1290,7 @@ export async function undoMerge(mergeLogId: string, userId: string): Promise<voi
         await tx.insert(places).values({
           ...snapshot,
           status: 'library',
+          archivedAt: null,
         });
       }
 

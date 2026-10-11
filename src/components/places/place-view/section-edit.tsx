@@ -325,7 +325,7 @@ function usePlaceAutosave(
           }
         }
         nameRestoreRef.current = null
-      } else if (sentName && trimmedDraft === sentName) {
+      } else if (sentName && trimmedDraft) {
         lastAcceptedNameRef.current = sentName
         nameRestoreRef.current = null
       } else if (trimmedDraft) {
@@ -617,7 +617,12 @@ export function SectionEditProvider({
     if (!handlesRef) return
     handlesRef.current = {
       flush: save.flush,
-      withDraft: (target) => placeWithDraft(target, draftRef.current, dirtyRef.current),
+      withDraft: (target) => {
+        const seeded = placeWithDraft(target, draftRef.current, dirtyRef.current)
+        if (!retractedNameRef.current) return seeded
+        const accepted = lastAcceptedNameRef.current.trim()
+        return accepted ? { ...seeded, name: accepted } : seeded
+      },
     }
     return () => {
       handlesRef.current = null

@@ -10,17 +10,18 @@ import { storedCitiesMatching } from '@/lib/city-names';
 import type { Place, Source, Collection } from '@/types/database';
 
 /**
- * Narrowed row shape for the /library route.
+ * Narrowed row shape for the /library and /archive routes.
  *
  * Drops 13 columns vs Place that are not used by:
- *   - PlaceCardV2 (cover card) and PlaceListView (list row) on /archive
  *   - loadLibrary (src/lib/library/load.ts), which joins these rows with
  *     Explore's projection for /library's tags, search and export fields
+ *   - loadArchive (src/lib/archive/load.ts): the archive list, gallery
+ *     (PlaceCardV2) and journal
  *   - search-service.ts Fuse index keys
  *
  * Saves ~470B/row × N rows off the RSC payload + Fuse index memory.
  *
- * If a future field on /library needs a dropped column, add it back here AND
+ * If /library or /archive needs a dropped column, add it back here AND
  * to the projection in searchLibraryPlaces() — both must move together.
  */
 export type LibraryPlace = {
@@ -255,9 +256,9 @@ export async function searchPlaces(query: {
 /**
  * Narrow-projected fetch for the /library and /archive routes.
  *
- * Returns ~470B/row less than searchPlaces. Use ONLY when downstream consumers
- * are confined to PlaceCardV2 + PlaceListView + Fuse index + LibraryClient
- * filters (the /library and /archive page surfaces).
+ * Returns ~470B/row less than searchPlaces. Use ONLY when the caller stays
+ * inside this projection: loadLibrary, loadArchive (list, gallery, journal),
+ * and the Fuse index. A caller that needs a dropped column uses a wider query.
  */
 export async function searchLibraryPlaces(query: {
   userId: string;

@@ -50,9 +50,11 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
 
   // Read once per mount: the effect below must see the list this page loaded with.
   const initial = React.useRef(heartIds)
+  const deviceAtStartRef = React.useRef<Set<string> | null>(null)
   React.useEffect(() => {
     let cancelled = false
     const deviceAtStart = readDreams()
+    if (deviceAtStartRef.current === null) deviceAtStartRef.current = deviceAtStart
     const seqAtStart = heartSeqSnapshot()
     void (async () => {
       const key = heartsSyncedKey(userId)
@@ -74,7 +76,7 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
           if (!account.has(id) && !offSet.has(id) && !seen.has(id)) onIds.push(id)
         }
       }
-      const baseline = (id: string) => account.has(id)
+      const baseline = (id: string) => account.has(id) || deviceAtStart.has(id)
       const onWrite = queueHeartWrites(onIds, true, { baseline, requeue: new Set(pendingOn) })
       const offWrite = queueHeartWrites(off, false, { baseline, requeue: new Set(off) })
       const floor = new Map(seqAtStart)
@@ -138,7 +140,16 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
         const result = await write.done
         if (result.ok) return true
         const revert = new Map<string, boolean>()
-        for (const id of result.rejected) revert.set(id, heartRollbackValue(id))
+        let synced = false
+        try {
+          synced = localStorage.getItem(heartsSyncedKey(userId)) === "1"
+        } catch {
+          synced = false
+        }
+        const deviceAtStart = deviceAtStartRef.current
+        for (const id of result.rejected) {
+          revert.set(id, heartRollbackValue(id, !synced && (deviceAtStart?.has(id) ?? false)))
+        }
         if (revert.size) {
           setHearts((prev) => {
             const next = new Set(prev)
@@ -156,7 +167,7 @@ export function useLibraryHearts({ userId, heartIds }: { userId: string; heartId
         for (const [id, seq] of write.seqs) if (owns(id, seq)) inflight.current.delete(id)
       }
     },
-    [hearts]
+    [hearts, userId]
   )
 
   return { hearts, setHearts: setMany }

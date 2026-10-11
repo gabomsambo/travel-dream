@@ -271,10 +271,11 @@ export function queueHeartWrites(
 }
 
 /** Last value a write actually applied, or the pre-write value when none have landed. */
-export function heartRollbackValue(id: string): boolean {
+export function heartRollbackValue(id: string, preserveUnsyncedDeviceHeart = false): boolean {
   const lane = lanes.get(id);
-  if (!lane) return false;
-  return lane.committed ?? lane.baseline;
+  if (!lane) return preserveUnsyncedDeviceHeart;
+  if (lane.committed !== undefined) return lane.committed;
+  return lane.baseline || preserveUnsyncedDeviceHeart;
 }
 
 /** The intent of `seq` while that write is still the latest one for the place. */

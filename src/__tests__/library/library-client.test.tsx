@@ -220,6 +220,35 @@ describe('hearts, saved to the account', () => {
     expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
   })
 
+  it('keeps a device heart when the sync and a later heart click both fail, and retries it on the next load', async () => {
+    localStorage.removeItem('td:hearts-synced:v1:usr_test')
+    localStorage.setItem('travel-dreams-favorites', JSON.stringify(['plc_2']))
+    fetchMock.mockImplementation(() => json({ status: 'error' }, 503))
+    const user = userEvent.setup()
+    const { unmount } = render(<LibraryClient data={data} />)
+    await waitFor(() => expect(callsTo('/api/library/hearts').length).toBe(1))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Couldn't save that heart. Try again in a moment."))
+    expect(callsTo('/api/library/hearts').map((c) => c.body)).toEqual([
+      { placeIds: ['plc_2'], on: true },
+      { placeIds: ['plc_2'], on: true },
+    ])
+    expect(localStorage.getItem('td:hearts-synced:v1:usr_test')).toBeNull()
+    expect(JSON.parse(localStorage.getItem('travel-dreams-favorites') ?? '[]')).toEqual(['plc_2'])
+    unmount()
+
+    fetchMock.mockClear()
+    render(<LibraryClient data={data} />)
+    await waitFor(() =>
+      expect(callsTo('/api/library/hearts')).toEqual([
+        { url: '/api/library/hearts', method: 'POST', body: { placeIds: ['plc_2'], on: true } },
+      ])
+    )
+  })
+
   it('replays a heart a dropped request left queued', async () => {
     localStorage.setItem('td:hearts-pending:v1', JSON.stringify({ plc_3: true, plc_7: false }))
     render(<LibraryClient data={{ ...data, heartIds: ['plc_7'] }} />)

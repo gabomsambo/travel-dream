@@ -5,6 +5,7 @@ import { sources, places, collections, sourcesToPlaces, placesToCollections, att
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling } from './db-utils';
 import { isClaimableNow } from './mass-upload/queue-sql';
+import { forUser } from '@/lib/tenant-db';
 import type { Place, Source, Collection, PlaceWithSources } from '@/types/database';
 
 /**
@@ -941,6 +942,26 @@ export async function getReservationsForPlace(placeId: string, userId: string) {
   }, 'getReservationsForPlace');
 }
 
+/**
+ * The trips a place belongs to, for one user. `places_to_collections` is a
+ * derived table owned transitively through `collections`, so the read goes
+ * through `forUser` rather than a hand-written predicate.
+ */
+export async function getCollectionsForPlace(placeId: string, userId: string): Promise<Collection[]> {
+  return withErrorHandling(async () => {
+    const tdb = forUser(userId);
+    const links = await tdb.selectFieldsVia(
+      placesToCollections,
+      { collectionId: placesToCollections.collectionId },
+      eq(placesToCollections.placeId, placeId)
+    );
+    if (links.length === 0) return [];
+    const ids = links.map((l) => l.collectionId);
+    const rows = await tdb.select(collections, inArray(collections.id, ids));
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }, 'getCollectionsForPlace');
+}
+
 export async function getPlaceWithRelations(placeId: string, userId: string) {
   return withErrorHandling(async () => {
     const { places, sourcesCurrentSchema } = await import('@/db/schema');
@@ -957,11 +978,12 @@ export async function getPlaceWithRelations(placeId: string, userId: string) {
       return null;
     }
 
-    const [attachments, links, reservations, sources] = await Promise.all([
+    const [attachments, links, reservations, sources, collections] = await Promise.all([
       getAttachmentsForPlace(placeId, userId),
       getLinksForPlace(placeId, userId),
       getReservationsForPlace(placeId, userId),
       getSourcesForPlace(placeId, userId),
+      getCollectionsForPlace(placeId, userId),
     ]);
 
     return {
@@ -970,6 +992,7 @@ export async function getPlaceWithRelations(placeId: string, userId: string) {
       links,
       reservations,
       sources,
+      collections,
     };
   }, 'getPlaceWithRelations');
 }

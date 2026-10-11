@@ -7,9 +7,12 @@ import { CalendarHeart, Coins, ImagePlus, MapPin, PenLine, Plus, Quote, Sunrise,
 import { formatDateOnly } from "@/lib/place-view/format"
 import { notify } from "@/lib/notify"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
+import type { ExploreCollection, ExplorePlace } from "@/lib/explore/types"
 import { PlaceHero } from "./place-hero"
 import { About, GoodToKnow, Links, Photos, RecordInfo, SectionHeader, Sources, WhyItsHere } from "./place-sections"
 import { OnTheGround, YourPlan } from "./place-rail"
+import { AlsoInCity } from "./also-in-city"
+import { MobileActionBar } from "./mobile-action-bar"
 
 const PhotoLightbox = dynamic(
   () => import("@/components/ui-custom/photo-lightbox").then((mod) => ({ default: mod.PhotoLightbox })),
@@ -106,12 +109,16 @@ export function PlaceView({
   onPrefetchEdit,
   onPhotoAttached,
   handlesRef,
+  trips,
+  alsoIn,
 }: {
   place: PlaceWithRelations
   onEdit: () => void
   onPrefetchEdit?: () => void
   onPhotoAttached: () => void
   handlesRef?: React.MutableRefObject<PlaceViewHandles | null>
+  trips: ExploreCollection[]
+  alsoIn: ExplorePlace[]
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -207,7 +214,7 @@ export function PlaceView({
         </div>
         <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1" aria-label="Plan and practical details">
           <div className="space-y-4 lg:sticky lg:top-6">
-            <YourPlan place={displayPlace} onEdit={onEdit} onStatusChange={setVisitStatus} />
+            <YourPlan place={displayPlace} onEdit={onEdit} onStatusChange={setVisitStatus} trips={trips} onTripsChanged={() => router.refresh()} />
             <OnTheGround place={place} onEdit={onEdit} />
           </div>
         </aside>
@@ -220,6 +227,10 @@ export function PlaceView({
           <RecordInfo place={place} />
         </div>
       </div>
+
+      {place.city && <AlsoInCity city={place.city} places={alsoIn} />}
+
+      <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} />
 
       {photos.length > 0 && (
         <PhotoLightbox photos={photos} open={lightbox !== null} index={lightbox ?? 0} onClose={() => setLightbox(null)} />

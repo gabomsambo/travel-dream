@@ -95,6 +95,7 @@ export function PlaceDetailsDialogEnhanced({
             links: data.links || [],
             reservations: data.reservations || [],
             sources: data.sources || [],
+            collections: data.collections || [],
           })
         }
       } catch (err) {
@@ -157,6 +158,7 @@ export function PlaceDetailsDialogEnhanced({
           links: data.links || [],
           reservations: data.reservations || [],
           sources: data.sources || [],
+          collections: data.collections || [],
         })
       }
     } catch (err) {

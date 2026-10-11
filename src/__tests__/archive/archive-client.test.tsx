@@ -107,6 +107,10 @@ describe('ArchiveClient', () => {
 
     await user.click(screen.getByRole('radio', { name: 'Gallery' }))
     expect(screen.getByRole('heading', { name: 'Miradouro da Senhora do Monte' })).toBeInTheDocument()
+    const stillOn = screen.getByRole('link', { name: 'Still on Lisbon in 5 days' })
+    expect(stillOn).toHaveAttribute('href', '/collections/col_lisbon')
+    await user.click(stillOn)
+    expect(mockPush).not.toHaveBeenCalledWith('/place/plc_rich')
     await user.click(screen.getByRole('heading', { name: 'TeamLab Borderless' }))
     expect(mockPush).toHaveBeenCalledWith('/place/plc_museum')
 

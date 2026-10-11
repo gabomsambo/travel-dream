@@ -59,6 +59,7 @@ export function ArchiveGallery({
               archivedAt: place.archivedAt,
               coverUrl: place.coverUrl ?? undefined,
             }}
+            trips={place.trips}
             onClick={() => router.push(`/place/${place.id}`)}
             onRestore={() => onRestore(place.id)}
             onDelete={() => onDelete(place.id)}

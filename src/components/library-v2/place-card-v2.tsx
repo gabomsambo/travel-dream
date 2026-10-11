@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { MapPin, Star, Heart, MoreVertical, RotateCcw, Trash2 } from "lucide-react"
 import {
   DropdownMenu,
@@ -23,9 +24,10 @@ interface PlaceCardV2Props {
   /** Archive keeps the kebab. Restore and Delete are the only actions. */
   onRestore?: () => void
   onDelete?: () => void
+  trips?: { id: string; name: string }[]
 }
 
-export function PlaceCardV2({ place, onClick, className, onRestore, onDelete }: PlaceCardV2Props) {
+export function PlaceCardV2({ place, onClick, className, onRestore, onDelete, trips }: PlaceCardV2Props) {
   const [isFavorited, setIsFavorited] = React.useState(
     FavoriteManager.isFavorited(place.id)
   )
@@ -149,6 +151,19 @@ export function PlaceCardV2({ place, onClick, className, onRestore, onDelete }: 
               {[place.city, place.country].filter(Boolean).join(", ")}
             </span>
           </div>
+          )}
+          {trips && trips.length > 0 && (
+            <p className="flex flex-wrap gap-x-3 gap-y-0.5">
+              {trips.map((trip) => (
+                <Link
+                  key={trip.id}
+                  href={`/collections/${trip.id}`}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Still on {trip.name}
+                </Link>
+              ))}
+            </p>
           )}
         </div>
 

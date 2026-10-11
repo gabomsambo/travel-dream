@@ -1,0 +1,11 @@
+theme=classic url=http://localhost:3210 captured=2026-10-11T17:05:05Z
+library data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+settings data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+inbox data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+archive data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+collections data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+duplicates data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+export data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+review data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+mass-upload data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem
+map data-theme=none primary=221.2 83.2% 53.3% radius=0.5rem

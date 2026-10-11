@@ -1,0 +1,11 @@
+theme=tropical url=http://localhost:3210 captured=2026-10-11T16:58:48Z
+library data-theme=tropical primary=178 55% 36% radius=1rem
+settings data-theme=tropical primary=178 55% 36% radius=1rem
+inbox data-theme=tropical primary=178 55% 36% radius=1rem
+archive data-theme=tropical primary=178 55% 36% radius=1rem
+collections data-theme=tropical primary=178 55% 36% radius=1rem
+duplicates data-theme=tropical primary=178 55% 36% radius=1rem
+export data-theme=tropical primary=178 55% 36% radius=1rem
+review data-theme=tropical primary=178 55% 36% radius=1rem
+mass-upload data-theme=tropical primary=178 55% 36% radius=1rem
+map data-theme=tropical primary=178 55% 36% radius=1rem

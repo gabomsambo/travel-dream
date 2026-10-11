@@ -4,6 +4,7 @@ import type { Place } from '@/types/database'
 import {
   calculateDuplicateScore,
   calculateNameSimilarity,
+  batchDetectDuplicates,
   detectDuplicates,
   DUPLICATE_MAIN_SCORE,
   duplicatePageBand,
@@ -574,6 +575,45 @@ describe('duplicate score table', () => {
       DUPLICATE_MAIN_SCORE,
     )
     expect(clusters).toHaveLength(0)
+  })
+
+  it('keeps the Hotel Astra / Zenith trio in one main-queue group in every input order', async () => {
+    const astra = pinned('Hotel Astra Suites', 'Lisbon', 'Portugal', 'hotel', { id: 'astra' })
+    const zenith = pinned('Hotel Zenith', 'Lisbon', 'Portugal', 'hotel', { id: 'zenith-pin' })
+    const zenithAway = pinned('Hotel Zenith', 'Lisbon', 'Portugal', 'hotel', {
+      id: 'zenith-away',
+      coords: atKm(PIN, 0.1),
+    })
+
+    const sameSpot = calculateDuplicateScore(astra, zenith)
+    const astraToAway = calculateDuplicateScore(astra, zenithAway)
+    const zenithToAway = calculateDuplicateScore(zenith, zenithAway)
+
+    expect(sameSpot.factors.nameScore).toBeLessThan(0.5)
+    expect(sameSpot.flags).toContain('same spot, different name')
+    expect(duplicatePageBand(sameSpot.score, sameSpot.flags)).toBe('Possible')
+    expect(astraToAway.flags).not.toContain('same spot, different name')
+    expect(duplicatePageBand(astraToAway.score, astraToAway.flags)).toBe('Main')
+    expect(duplicatePageBand(zenithToAway.score, zenithToAway.flags)).toBe('Main')
+
+    const orders = [
+      [astra, zenith, zenithAway],
+      [astra, zenithAway, zenith],
+      [zenith, astra, zenithAway],
+      [zenith, zenithAway, astra],
+      [zenithAway, astra, zenith],
+      [zenithAway, zenith, astra],
+    ]
+    const expectedIds = ['astra', 'zenith-away', 'zenith-pin']
+    const mainAverage = (astraToAway.score + zenithToAway.score) / 2
+
+    for (const order of orders) {
+      const results = await batchDetectDuplicates(order)
+      const clusters = findDuplicateClusters(results, 2, DUPLICATE_MAIN_SCORE)
+      expect(clusters).toHaveLength(1)
+      expect(clusters[0].places.map((place) => place.id)).toEqual(expectedIds)
+      expect(clusters[0].avgConfidence).toBeCloseTo(mainAverage, 5)
+    }
   })
 
   it('keeps Sé de Lisboa and Lisbon Cathedral in the main queue at a name score of 0.5', () => {

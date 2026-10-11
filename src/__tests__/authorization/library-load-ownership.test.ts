@@ -146,8 +146,10 @@ describe('the Library store', () => {
     let n = 0;
     uuid.mockImplementation(() => `00000000-0000-4000-8000-${String(n++).padStart(12, '0')}`);
     const { client } = require('@/db') as {
-      execute: (...args: unknown[]) => Promise<unknown>;
-      transaction: (...args: unknown[]) => Promise<{ execute: (...args: unknown[]) => Promise<unknown> }>;
+      client: {
+        execute: (...args: unknown[]) => Promise<unknown>;
+        transaction: (...args: unknown[]) => Promise<{ execute: (...args: unknown[]) => Promise<unknown> }>;
+      };
     };
     const originalExecute = client.execute.bind(client);
     const originalTransaction = client.transaction.bind(client);
@@ -197,7 +199,7 @@ describe('the Library store', () => {
       expect(textOf(thrown)).toContain('heart write failed');
       expect(new Set(await getHeartIds(ALICE.id))).toEqual(before);
     } finally {
-      await exec(`DELETE FROM places WHERE id LIKE 'plc_atomic_%'`);
+      await exec(`DELETE FROM places WHERE id LIKE 'plc_atomic_%'`, []);
     }
   });
 

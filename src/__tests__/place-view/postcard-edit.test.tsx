@@ -410,6 +410,94 @@ describe('Postcard edit mode', () => {
     expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
   })
 
+  it('writes the last saved name back when a cleared hero name save succeeds', async () => {
+    const resolvers: Array<(value: ReturnType<typeof jsonResponse>) => void> = []
+    const fetchMock = jest.fn().mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { rerender } = render(<PlacePage place={place} startInEdit />)
+
+    const name = screen.getByRole('textbox', { name: 'Place name' })
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Cafe Luna')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 2000 })
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ name: 'Cafe Luna' })
+
+    await userEvent.clear(name)
+    expect(name).toHaveValue('')
+
+    await act(async () => {
+      resolvers[0](jsonResponse(true))
+    })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ name: place.name })
+    expect(mockRefresh).not.toHaveBeenCalled()
+    expect(name).toHaveValue('')
+
+    await act(async () => {
+      resolvers[1](jsonResponse(true))
+    })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    expect(name).toHaveValue('')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    expect(screen.getAllByText('Place name is required').length).toBeGreaterThan(0)
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: place.name })).not.toBeInTheDocument()
+
+    rerender(<PlacePage place={{ ...place }} startInEdit />)
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)) as Record<string, unknown>)
+    expect(bodies.filter((body) => 'name' in body)).toEqual([{ name: 'Cafe Luna' }, { name: place.name }])
+  })
+
+  it('writes back a hero name that saved while it was still on screen', async () => {
+    const resolvers: Array<(value: ReturnType<typeof jsonResponse>) => void> = []
+    const fetchMock = jest.fn().mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    global.fetch = fetchMock as unknown as typeof fetch
+    render(<PlacePage place={place} startInEdit />)
+
+    const name = screen.getByRole('textbox', { name: 'Place name' })
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Cafe Luna')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 2000 })
+
+    await act(async () => {
+      resolvers[0](jsonResponse(true))
+    })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    expect(name).toHaveValue('Cafe Luna')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    mockRefresh.mockClear()
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Cafe Luna X')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 2000 })
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ name: 'Cafe Luna X' })
+
+    await userEvent.clear(name)
+    expect(name).toHaveValue('')
+    expect(mockRefresh).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolvers[1](jsonResponse(true))
+    })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({ name: 'Cafe Luna' })
+    expect(mockRefresh).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolvers[2](jsonResponse(true))
+    })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    expect(name).toHaveValue('')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByRole('textbox', { name: 'Place name' })).toHaveValue('')
+    expect(screen.getAllByText('Place name is required').length).toBeGreaterThan(0)
+    expect(screen.getByText('Changes save as you type')).toBeInTheDocument()
+  })
+
   it('moves focus to the section row when a focused add row unmounts', async () => {
     setMobile(true)
     const fetchMock = jest.fn().mockResolvedValue(jsonResponse(true))

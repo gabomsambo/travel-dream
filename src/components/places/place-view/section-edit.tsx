@@ -208,6 +208,7 @@ function restoreFailedSave(
   snapshot: Record<string, unknown>,
   pending: Record<string, unknown>,
   draft: PlaceDraft | null,
+  restoreName: string | null,
 ): Record<string, unknown> {
   const restored = { ...snapshot }
   if (draft) {
@@ -215,7 +216,11 @@ function restoreFailedSave(
     const trimmed = draft.name.trim()
     if ("name" in restored && (trimmed === "" || restored.name !== trimmed)) delete restored.name
   }
-  return { ...restored, ...pending }
+  const merged = { ...restored, ...pending }
+  if (restoreName && draft && draft.name.trim() === "" && typeof merged.name !== "string") {
+    merged.name = restoreName
+  }
+  return merged
 }
 
 function focusSectionRow(returnTo: HTMLElement) {
@@ -252,7 +257,12 @@ function useMobileSheet(): boolean {
   return mobile
 }
 
-function usePlaceAutosave(placeId: string, onSaved: () => void, draftRef: React.RefObject<PlaceDraft>) {
+function usePlaceAutosave(
+  placeId: string,
+  onSaved: () => void,
+  draftRef: React.RefObject<PlaceDraft>,
+  lastAcceptedNameRef: React.MutableRefObject<string>,
+) {
   const [status, setStatus] = React.useState<SaveStatus>("idle")
   const [error, setError] = React.useState<string | null>(null)
   const pendingRef = React.useRef<Record<string, unknown>>({})
@@ -260,6 +270,7 @@ function usePlaceAutosave(placeId: string, onSaved: () => void, draftRef: React.
   const chainRef = React.useRef<Promise<boolean>>(Promise.resolve(true))
   const inFlightRef = React.useRef<Promise<boolean> | null>(null)
   const idleTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const nameRestoreRef = React.useRef<string | null>(null)
   const onSavedRef = React.useRef(onSaved)
   React.useEffect(() => {
     onSavedRef.current = onSaved
@@ -280,16 +291,45 @@ function usePlaceAutosave(placeId: string, onSaved: () => void, draftRef: React.
     }
     setStatus("saving")
     setError(null)
-    try {
+    const sendPatch = async (payload: Record<string, unknown>) => {
       const response = await fetch(`/api/places/${placeId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => null)
         const message = data && typeof data.message === "string" ? data.message : "Couldn't save"
         throw new Error(message)
+      }
+    }
+    try {
+      await sendPatch(body)
+      const sentName = typeof body.name === "string" ? body.name : undefined
+      const trimmedDraft = draftRef.current?.name.trim() ?? ""
+      if (sentName && trimmedDraft === "") {
+        const revertTo = lastAcceptedNameRef.current.trim()
+        if (revertTo && revertTo !== sentName) {
+          nameRestoreRef.current = revertTo
+          try {
+            await sendPatch({ name: revertTo })
+          } catch (revertErr) {
+            if (typeof pendingRef.current.name !== "string") {
+              pendingRef.current = { ...pendingRef.current, name: revertTo }
+            }
+            if (generation === generationRef.current) {
+              setStatus("error")
+              setError(revertErr instanceof Error ? revertErr.message : "Couldn't save")
+            }
+            return false
+          }
+        }
+        nameRestoreRef.current = null
+      } else if (sentName && trimmedDraft === sentName) {
+        lastAcceptedNameRef.current = sentName
+        nameRestoreRef.current = null
+      } else if (trimmedDraft) {
+        nameRestoreRef.current = null
       }
       if (generation !== generationRef.current) return true
       setStatus("saved")
@@ -299,14 +339,14 @@ function usePlaceAutosave(placeId: string, onSaved: () => void, draftRef: React.
       }, 2000)
       return true
     } catch (err) {
-      pendingRef.current = restoreFailedSave(body, pendingRef.current, draftRef.current)
+      pendingRef.current = restoreFailedSave(body, pendingRef.current, draftRef.current, nameRestoreRef.current)
       if (generation === generationRef.current) {
         setStatus("error")
         setError(err instanceof Error ? err.message : "Couldn't save")
       }
       return false
     }
-  }, [placeId, draftRef])
+  }, [placeId, draftRef, lastAcceptedNameRef])
 
   const runSave = React.useCallback(() => {
     const save = chainRef.current.then(() => handleSave())
@@ -321,7 +361,11 @@ function usePlaceAutosave(placeId: string, onSaved: () => void, draftRef: React.
   const debounced = useDebouncedCallback(runSave, 800)
 
   const update = React.useCallback((partial: FieldPatch) => {
-    for (const key of partial.drop) delete pendingRef.current[key]
+    for (const key of partial.drop) {
+      if (key === "name" && nameRestoreRef.current && pendingRef.current.name === nameRestoreRef.current) continue
+      delete pendingRef.current[key]
+    }
+    if (typeof partial.set.name === "string" && partial.set.name.trim()) nameRestoreRef.current = null
     if (Object.keys(partial.set).length > 0) {
       pendingRef.current = { ...pendingRef.current, ...partial.set }
     }
@@ -519,7 +563,8 @@ export function SectionEditProvider({
   const [active, setActive] = React.useState<SectionId | null>(null)
   const [draft, setDraft] = React.useState<PlaceDraft>(() => draftFrom(place))
   const draftRef = React.useRef(draft)
-  const save = usePlaceAutosave(place.id, onRefresh, draftRef)
+  const lastAcceptedNameRef = React.useRef((place.name ?? "").trim())
+  const save = usePlaceAutosave(place.id, onRefresh, draftRef, lastAcceptedNameRef)
   const placeIdRef = React.useRef(place.id)
   const dirtyRef = React.useRef(new Set<keyof PlaceDraft>())
   const retractedNameRef = React.useRef(false)
@@ -542,12 +587,17 @@ export function SectionEditProvider({
       placeIdRef.current = place.id
       dirty.clear()
       retractedNameRef.current = false
+      lastAcceptedNameRef.current = fresh.name.trim()
       draftRef.current = fresh
       setDraft(fresh)
       setActive(null)
       return
     }
     const current = draftRef.current
+    const serverName = fresh.name.trim()
+    if (!retractedNameRef.current && (!dirty.has("name") || current.name.trim() === serverName)) {
+      lastAcceptedNameRef.current = serverName
+    }
     const next: PlaceDraft = { ...fresh }
     dirty.forEach((key) => {
       if (sameValue(fresh[key], current[key])) {

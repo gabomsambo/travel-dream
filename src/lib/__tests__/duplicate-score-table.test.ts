@@ -1,9 +1,11 @@
 import { createMockPlace } from '@/__tests__/helpers/mass-upload-helpers'
+import { citiesMatch } from '@/lib/city-names'
 import type { Place } from '@/types/database'
 import {
   calculateDuplicateScore,
   calculateNameSimilarity,
   detectDuplicates,
+  DUPLICATE_MAIN_SCORE,
   duplicatePageBand,
   findDuplicateClusters,
   type DuplicateFlag,
@@ -125,6 +127,7 @@ const rows: ScoreRow[] = [
     }),
     score: 0.791,
     band: 'Main',
+    nameScore: 0.5,
   },
   {
     label: 'Sé de Lisboa vs Lisbon Cathedral, identical pin',
@@ -132,6 +135,7 @@ const rows: ScoreRow[] = [
     b: pinned('Lisbon Cathedral', 'Lisbon', 'Portugal'),
     score: 0.8,
     band: 'Main',
+    nameScore: 0.5,
   },
   {
     label: 'Kölner Dom vs Cologne Cathedral, same pin',
@@ -550,5 +554,76 @@ describe('duplicate score table', () => {
     const { factors } = calculateDuplicateScore(secret!.a, secret!.b)
     expect(factors.cityMatch).toBe(false)
     expect(factors.countryMatch).toBe(false)
+  })
+
+  it('keeps Hotel Astra Suites and Hotel Zenith in Possible and out of the main queue', () => {
+    const a = pinned('Hotel Astra Suites', 'Lisbon', 'Portugal', 'hotel')
+    const b = pinned('Hotel Zenith', 'Lisbon', 'Portugal', 'hotel')
+    const { score, factors, flags } = calculateDuplicateScore(a, b)
+
+    expect(factors.nameScore).toBeLessThan(0.5)
+    expect(flags).toContain('same spot, different name')
+    expect(score).toBeGreaterThanOrEqual(DUPLICATE_MAIN_SCORE)
+    expect(duplicatePageBand(score, flags)).toBe('Possible')
+
+    const detected = detectDuplicates(a, [a, b])
+    expect(detected.potentialDuplicates).toHaveLength(1)
+    const clusters = findDuplicateClusters(
+      new Map([[a.id, detected]]),
+      2,
+      DUPLICATE_MAIN_SCORE,
+    )
+    expect(clusters).toHaveLength(0)
+  })
+
+  it('keeps Sé de Lisboa and Lisbon Cathedral in the main queue at a name score of 0.5', () => {
+    const row = rows.find((entry) => entry.label === 'Sé de Lisboa vs Lisbon Cathedral, identical pin')
+    expect(row).toBeDefined()
+    const { score, factors, flags } = calculateDuplicateScore(row!.a, row!.b)
+
+    expect(factors.nameScore).toBe(0.5)
+    expect(flags).not.toContain('same spot, different name')
+    expect(score).toBeGreaterThanOrEqual(DUPLICATE_MAIN_SCORE)
+    expect(duplicatePageBand(score, flags)).toBe('Main')
+
+    const detected = detectDuplicates(row!.a, [row!.a, row!.b])
+    const clusters = findDuplicateClusters(
+      new Map([[row!.a.id, detected]]),
+      2,
+      DUPLICATE_MAIN_SCORE,
+    )
+    expect(clusters).toHaveLength(1)
+  })
+
+  it('scores an exact stored alternate name like the same primary name when coordinates are missing', () => {
+    const shared = { kind: 'beach' as const, city: null, country: null, coords: null }
+    const byAlt = calculateDuplicateScore(
+      place({ name: 'X', altNames: ['Secret Beach'], ...shared }),
+      place({ name: 'Secret Beach', ...shared }),
+    )
+    const byPrimary = calculateDuplicateScore(
+      place({ name: 'Secret Beach', ...shared }),
+      place({ name: 'Secret Beach', ...shared }),
+    )
+
+    expect(byAlt.factors.nameScore).toBe(1)
+    expect(byPrimary.factors.nameScore).toBe(1)
+    expect(byAlt.score).toBe(byPrimary.score)
+    expect(byAlt.score).toBeGreaterThanOrEqual(DUPLICATE_MAIN_SCORE)
+    expect(duplicatePageBand(byAlt.score, byAlt.flags)).toBe('Main')
+    expect(duplicatePageBand(byPrimary.score, byPrimary.flags)).toBe('Main')
+  })
+
+  it('uses citiesMatch for the city factor and withholds it when the country differs', () => {
+    const lisbon = calculateDuplicateScore(
+      pinned('Lisbon', 'Lisbon', 'Portugal'),
+      pinned('Lisboa', 'Lisboa', 'Portugal'),
+    )
+    expect(citiesMatch('Lisbon', 'Lisboa')).toBe(true)
+    expect(lisbon.factors.cityMatch).toBe(citiesMatch('Lisbon', 'Lisboa'))
+
+    const rome = calculateDuplicateScore(romeGeorgia, romaItaly)
+    expect(citiesMatch('Rome', 'Roma')).toBe(true)
+    expect(rome.factors.cityMatch).toBe(false)
   })
 })

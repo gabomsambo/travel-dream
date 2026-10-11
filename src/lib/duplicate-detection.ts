@@ -1,5 +1,5 @@
 import type { Place } from '@/types/database';
-import { citiesMatchInCountry } from '@/lib/city-names';
+import { citiesMatch } from '@/lib/city-names';
 
 // Configuration for duplicate detection
 export interface DuplicateDetectionConfig {
@@ -299,10 +299,7 @@ export function calculateLocationSimilarity(
 }
 
 function placesShareCity(place1: Place, place2: Place): boolean {
-  return citiesMatchInCountry(
-    { city: place1.city, country: place1.country },
-    { city: place2.city, country: place2.country }
-  );
+  return cityFactorMatch(place1, place2);
 }
 
 function hasText(value: string | null | undefined): value is string {
@@ -318,6 +315,20 @@ function countriesMatch(
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+/**
+ * City factor. The city strings go through `citiesMatch` (exonyms and accents).
+ * A blank country matches only a blank country, so Rome, Georgia does not
+ * match Roma, Italy.
+ */
+function cityFactorMatch(
+  a: { city?: string | null; country?: string | null },
+  b: { city?: string | null; country?: string | null },
+): boolean {
+  const countryA = a.country ? a.country : null;
+  const countryB = b.country ? b.country : null;
+  return citiesMatch(a.city, b.city) && countryA === countryB;
+}
+
 function sameGooglePlace(place1: Place, place2: Place): boolean {
   const id1 = place1.googlePlaceId?.trim();
   const id2 = place2.googlePlaceId?.trim();
@@ -326,17 +337,17 @@ function sameGooglePlace(place1: Place, place2: Place): boolean {
 
 /**
  * Where a pair sits on the duplicates page.
- * The same-spot flag keeps a pair in Possible when the score would otherwise
- * fall off the page. It never lifts that pair into the main queue.
+ * A guarded same-spot, different-name pair is Possible only, including when
+ * the score would otherwise be Main. The flag also keeps a pair on the page
+ * when the score would fall below the Possible floor.
  */
 export function duplicatePageBand(
   score: number,
   flags: readonly DuplicateFlag[] = []
 ): DuplicatePageBand {
+  if (flags.includes('same spot, different name')) return 'Possible';
   if (score >= DUPLICATE_MAIN_SCORE) return 'Main';
-  if (score >= DUPLICATE_POSSIBLE_SCORE || flags.includes('same spot, different name')) {
-    return 'Possible';
-  }
+  if (score >= DUPLICATE_POSSIBLE_SCORE) return 'Possible';
   return 'No';
 }
 
@@ -348,8 +359,8 @@ export function duplicatePageBand(
  * weight. When both cities are present and they are not the same city, the
  * location weight is not redistributed at all.
  *
- * City equality is country-scoped (`citiesMatchInCountry`): Lisbon matches
- * Lisboa in Portugal, and Rome, Georgia does not match Roma, Italy.
+ * City equality and the city factor both use `citiesMatch`, scoped to one
+ * country: Lisbon matches Lisboa, and Rome, Georgia does not match Roma, Italy.
  * The name rule is unchanged, including one-letter word matches.
  */
 export function calculateDuplicateScore(
@@ -370,10 +381,7 @@ export function calculateDuplicateScore(
       ? calculateLocationSimilarity(place1.coords, place2.coords, config.locationThresholdKm)
       : 0,
     kindMatch: place1.kind === place2.kind,
-    cityMatch: citiesMatchInCountry(
-      { city: place1.city, country: place1.country },
-      { city: place2.city, country: place2.country }
-    ),
+    cityMatch: cityFactorMatch(place1, place2),
     countryMatch: countriesMatch(place1.country, place2.country)
   };
 
@@ -402,15 +410,12 @@ export function calculateDuplicateScore(
     }
   }
 
-  // Alt-name credit uses the base name weight, matching the previous boost in
-  // detectDuplicates, so a stored alternate name moves the score the same way.
   let score =
-    primaryNameScore * effectiveWeights.name +
+    nameScore * effectiveWeights.name +
     factors.locationScore * effectiveWeights.location +
     (factors.kindMatch ? 1 : 0) * effectiveWeights.kind +
     (factors.cityMatch ? 1 : 0) * effectiveWeights.city +
-    (factors.countryMatch ? 1 : 0) * effectiveWeights.country +
-    (nameScore - primaryNameScore) * config.weights.name;
+    (factors.countryMatch ? 1 : 0) * effectiveWeights.country;
 
   const flags: DuplicateFlag[] = [];
 
@@ -548,7 +553,7 @@ export function detectDuplicates(
     const { score, factors, flags } = calculateDuplicateScore(targetPlace, candidate, config);
 
     // Same-spot pairs stay visible in Possible even under the detector floor.
-    // The score itself is not raised, so they do not enter the main queue.
+    // The main queue reads duplicatePageBand, so the flag cannot enter it.
     const keep =
       score >= config.minConfidenceScore || flags.includes('same spot, different name');
 
@@ -604,6 +609,23 @@ export async function batchDetectDuplicatesUnoptimized(
 }
 
 export { optimizedBatchDetectDuplicates as batchDetectDuplicates } from './duplicate-optimization';
+
+/**
+ * A pair joins a cluster only at or above `minConfidence`. At or above the
+ * main-queue score, it also has to sit in the Main band, so a guarded
+ * same-spot pair does not connect two places by itself.
+ */
+function admittedToCluster(
+  confidence: number,
+  flags: readonly DuplicateFlag[] | undefined,
+  minConfidence: number,
+): boolean {
+  if (confidence < minConfidence) return false;
+  if (minConfidence >= DUPLICATE_MAIN_SCORE) {
+    return duplicatePageBand(confidence, flags ?? []) === 'Main';
+  }
+  return true;
+}
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}\0${b}` : `${b}\0${a}`;
@@ -708,7 +730,7 @@ function buildGroupEdge(
     a: placeA.id,
     b: placeB.id,
     score,
-    included: score >= minConfidence,
+    included: admittedToCluster(score, flags, minConfidence),
     distanceM: rawMetres === null ? null : Math.round(rawMetres),
     factors: {
       name: scored.factors.nameScore,
@@ -724,10 +746,12 @@ function buildGroupEdge(
 }
 
 /**
- * Groups are connected components of main edges (score >= `minConfidence`).
- * The id is the member ids sorted and joined with `+`, so it does not depend
- * on database row order. Every pair inside the component is kept, including
- * pairs under the threshold.
+ * Groups are connected components of main edges. At or above the main-queue
+ * score, only a Main-band pair is an edge, so a guarded same-spot pair does
+ * not join two places by itself. Those places can still share a cluster
+ * through other Main edges. The id is the member ids sorted and joined with
+ * `+`, so it does not depend on database row order. Every pair inside the
+ * component is kept, including pairs under the threshold.
  *
  * `leftOut` and `mergedOn` are present for the clusters contract. The distance
  * split and the merge-log date are not applied here.
@@ -740,6 +764,7 @@ export function findDuplicateClusters(
 ): DuplicateCluster[] {
   const placesById = new Map<string, Place>();
   const storedScore = new Map<string, number>();
+  const storedFlags = new Map<string, DuplicateFlag[]>();
 
   for (const [, result] of duplicateResults) {
     placesById.set(result.originalPlace.id, result.originalPlace);
@@ -753,6 +778,7 @@ export function findDuplicateClusters(
       const previous = storedScore.get(key);
       if (previous === undefined || duplicate.confidence > previous) {
         storedScore.set(key, duplicate.confidence);
+        storedFlags.set(key, duplicate.flags ?? []);
       }
     }
   }
@@ -782,7 +808,7 @@ export function findDuplicateClusters(
   };
 
   for (const [key, score] of storedScore) {
-    if (score < minConfidence) continue;
+    if (!admittedToCluster(score, storedFlags.get(key), minConfidence)) continue;
     const [a, b] = key.split('\0');
     union(a, b);
   }

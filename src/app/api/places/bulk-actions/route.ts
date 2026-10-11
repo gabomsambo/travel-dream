@@ -233,6 +233,7 @@ export async function GET() {
         responses: {
           200: 'Operation successful (full or partial)',
           400: 'Invalid request data',
+          404: 'One or more places were not found',
           500: 'Operation failed'
         },
         examples: {

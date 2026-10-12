@@ -20,10 +20,33 @@ const ADD_BATCH = 100
 // place page's "Add to trip": an entry is dropped as deleted only once the
 // collection list has shown it and then lost it — before the refresh lands, a
 // missing collection just means "not shown yet".
-const halfBuilt = new Map<string, { id: string; seen: boolean }>()
+type HalfBuiltEntry = { id: string; seen: boolean; added: Set<string> }
+
+/** Keyed by the selected place ids so a retry reuses the collection even if the name changed. */
+const halfBuiltByPlaces = new Map<string, HalfBuiltEntry>()
+
+function placesSelectionKey(placeIds: string[]): string {
+  return placeIds.join("\u0000")
+}
 
 export function resetHalfBuiltCollectionsForTests() {
-  halfBuilt.clear()
+  halfBuiltByPlaces.clear()
+}
+
+function memberIds(collectionId: string, collections: ExploreCollection[]): Set<string> {
+  return new Set(collections.find((c) => c.id === collectionId)?.placeIds ?? [])
+}
+
+/** Places from this selection not yet in the collection or recorded as added locally. */
+export function freshPlacesForHalfBuilt(
+  collectionId: string,
+  placeIds: string[],
+  collections: ExploreCollection[],
+  entry: HalfBuiltEntry | undefined
+): string[] {
+  const members = memberIds(collectionId, collections)
+  const local = entry?.added ?? new Set<string>()
+  return placeIds.filter((id) => !members.has(id) && !local.has(id))
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<{ status: number; body: T | null }> {
@@ -122,7 +145,7 @@ export function AddToCollectionDialog({
   const searchRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
-    for (const entry of halfBuilt.values()) if (collections.some((c) => c.id === entry.id)) entry.seen = true
+    for (const entry of halfBuiltByPlaces.values()) if (collections.some((c) => c.id === entry.id)) entry.seen = true
   }, [collections])
 
   React.useEffect(() => {
@@ -195,27 +218,33 @@ export function AddToCollectionDialog({
   const createAndAdd = async () => {
     const name = newName.trim()
     if (!name || !ids.length) return
-    const key = `${name}\u0000${ids.join(",")}`
+    const selectionKey = placesSelectionKey(ids)
     setBusy("new")
     try {
-      const entry = halfBuilt.get(key)
+      let entry = halfBuiltByPlaces.get(selectionKey)
       let id = entry?.id
       if (entry?.seen && !collections.some((c) => c.id === entry.id)) {
         // The list showed it, then lost it: it was deleted, so start over.
-        halfBuilt.delete(key)
+        halfBuiltByPlaces.delete(selectionKey)
+        entry = undefined
         id = undefined
       }
       if (!id) {
         const { body } = await postJson<{ collection: { id: string } }>("/api/collections", { name, description: null })
         if (!body?.collection?.id) throw new Error("No collection id")
         id = body.collection.id
-        halfBuilt.set(key, { id, seen: false })
+        entry = { id, seen: false, added: new Set() }
+        halfBuiltByPlaces.set(selectionKey, entry)
       }
-      const { added, failed } = await addPlaces(id, ids)
-      if (failed === 0) halfBuilt.delete(key)
-      finish(id, name, added, 0, failed)
+      const fresh = freshPlacesForHalfBuilt(id, ids, collections, entry)
+      const { added, failed } = await addPlaces(id, fresh)
+      for (const placeId of added) entry.added.add(placeId)
+      const remaining = freshPlacesForHalfBuilt(id, ids, collections, entry)
+      if (failed === 0 && remaining.length === 0) halfBuiltByPlaces.delete(selectionKey)
+      const already = ids.length - fresh.length
+      finish(id, name, added, already, failed)
     } catch {
-      const orphan = halfBuilt.get(key)
+      const orphan = halfBuiltByPlaces.get(selectionKey)
       notify.error(
         orphan ? `${name} was created, but the places didn't save to it.` : "Couldn't create that collection. Try again in a moment.",
         orphan ? { description: "Press Create again to fill it — you won't get a second copy." } : undefined

@@ -108,16 +108,6 @@ export function PlaceTile({
         <FallbackArt name={place.name} kind={place.kind} />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/15 to-transparent transition-colors duration-300 [@media(hover:hover)]:group-hover:via-black/45" />
-      {place.photos[0] &&
-        (place.photos[0].attribution?.kind !== "upload" || place.photos[0].source === "google_places") && (
-        <div className="pointer-events-none absolute bottom-3 left-3 z-[2] max-w-[calc(100%-1.5rem)]">
-          <CoverPhotoCredit
-            attribution={place.photos[0].attribution}
-            source={place.photos[0].source}
-            variant="on-photo"
-          />
-        </div>
-      )}
 
       <button
         type="button"
@@ -139,7 +129,18 @@ export function PlaceTile({
 
       {actions && <div className="absolute right-3 top-3 z-[2] flex flex-col items-center gap-1.5">{actions}</div>}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3.5">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex flex-col items-start p-3.5">
+        {place.photos[0] &&
+          ((place.photos[0].attribution && place.photos[0].attribution.kind !== "upload") ||
+            place.photos[0].source === "google_places") && (
+          <div className="pointer-events-auto mb-1.5 max-w-full">
+            <CoverPhotoCredit
+              attribution={place.photos[0].attribution}
+              source={place.photos[0].source}
+              variant="on-photo"
+            />
+          </div>
+        )}
         {location && (
           <p className="truncate text-[11px] font-medium text-white/75">
             {flagFor(place.country) && <span className="mr-1">{flagFor(place.country)}</span>}

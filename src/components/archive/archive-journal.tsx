@@ -41,27 +41,30 @@ export function ArchiveJournal({
               checked && "bg-primary/5"
             )}
           >
-            <Link
-              href={`/place/${place.id}`}
-              aria-label={`Open ${place.name}`}
-              className="group relative aspect-square overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring sm:aspect-[4/3] sm:rounded-2xl"
-            >
-              {place.coverUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={place.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" />
-              ) : (
-                <FallbackArt name={place.name} kind={place.kind} />
-              )}
+            <div className="relative min-w-0">
+              <Link
+                href={`/place/${place.id}`}
+                aria-label={`Open ${place.name}`}
+                className="group relative block aspect-square overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring sm:aspect-[4/3] sm:rounded-2xl"
+              >
+                {place.coverUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={place.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" />
+                ) : (
+                  <FallbackArt name={place.name} kind={place.kind} />
+                )}
+              </Link>
               {place.coverUrl && (
-                <div className="absolute bottom-1.5 left-1.5 right-1.5 z-[1]">
+                <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 z-[1]">
                   <CoverPhotoCredit
                     attribution={place.coverAttribution}
                     source={place.coverSource}
                     variant="on-photo"
+                    className="max-w-full [&_img]:!h-auto [&_img]:!max-w-full"
                   />
                 </div>
               )}
-            </Link>
+            </div>
             <div className="min-w-0 sm:pt-1">
               <div className="flex items-start gap-2">
                 <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">

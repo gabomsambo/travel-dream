@@ -28,12 +28,12 @@ import { Textarea } from "@/components/adapters/textarea";
 import { FolderPlus } from 'lucide-react';
 import { notify } from '@/lib/notify';
 import { useRouter } from 'next/navigation';
-import type { Collection } from '@/types/database';
+import type { CollectionCardModel, CoverCreditUpdate } from './collection-card';
 
 type SortOption = "recent" | "most-places" | "last-edited";
 
 interface CollectionsClientProps {
-  initialCollections: (Collection & { placeCount?: number })[];
+  initialCollections: (CollectionCardModel & { placeCount?: number })[];
 }
 
 export function CollectionsClient({ initialCollections }: CollectionsClientProps) {
@@ -46,7 +46,7 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
   // Delete confirmation and undo state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<string | null>(null);
-  const [deletedCollection, setDeletedCollection] = useState<(Collection & { placeCount?: number }) | null>(null);
+  const [deletedCollection, setDeletedCollection] = useState<(CollectionCardModel & { placeCount?: number }) | null>(null);
   const [deleteTimeout, setDeleteTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Form state
@@ -180,11 +180,21 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
     setDeleteTimeout(null);
   };
 
-  const handleCoverChange = async (collectionId: string, coverUrl: string | null) => {
-    // Optimistic update
-    setCollections(prev => prev.map(c =>
-      c.id === collectionId ? { ...c, coverImageUrl: coverUrl } : c
-    ));
+  const handleCoverChange = async (
+    collectionId: string,
+    coverUrl: string | null,
+    credit?: CoverCreditUpdate,
+  ) => {
+    setCollections(prev => prev.map(c => {
+      if (c.id !== collectionId) return c;
+      if (coverUrl === null) return { ...c, coverImageUrl: null };
+      return {
+        ...c,
+        coverImageUrl: coverUrl,
+        coverAttribution: credit?.attribution ?? null,
+        coverSource: credit?.source ?? null,
+      };
+    }));
 
     try {
       if (coverUrl === null) {

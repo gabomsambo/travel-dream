@@ -54,16 +54,6 @@ export function ArchiveList({
                   ) : (
                     <FallbackArt name={place.name} kind={place.kind} />
                   )}
-                  {place.coverUrl && (
-                    <div className="absolute bottom-0.5 left-0.5 right-0.5">
-                      <CoverPhotoCredit
-                        attribution={place.coverAttribution}
-                        source={place.coverSource}
-                        variant="on-photo"
-                        className="scale-[0.85] origin-bottom-left"
-                      />
-                    </div>
-                  )}
                 </Link>
                 <div className="min-w-0 flex-1">
                   <Link
@@ -75,6 +65,14 @@ export function ArchiveList({
                   <p className="mt-0.5 truncate text-sm text-muted-foreground">
                     {[where, kindLabel(place.kind)].filter(Boolean).join(" · ")}
                   </p>
+                  {place.coverUrl && (
+                    <CoverPhotoCredit
+                      attribution={place.coverAttribution}
+                      source={place.coverSource}
+                      variant="inline"
+                      className="mt-1"
+                    />
+                  )}
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {setAsideLine(place.archivedAt, place.createdAt)}
                   </p>

@@ -1,19 +1,13 @@
 'use client';
 
-import { CollectionCard } from './collection-card';
+import { CollectionCard, type CollectionCardModel, type CoverCreditUpdate } from './collection-card';
 import { EmptyState } from './empty-state';
 import { FolderHeart } from 'lucide-react';
-import type { Collection } from '@/types/database';
 
 interface CollectionsGridProps {
-  collections: (Collection & {
-    placeCount?: number;
-    places?: Array<{ coverUrl?: string | null }>;
-    coverAttribution?: import('@/db/schema/attachments').AttributionMeta | null;
-    coverSource?: string | null;
-  })[];
+  collections: (CollectionCardModel & { placeCount?: number })[];
   onDelete?: (collectionId: string) => void;
-  onCoverChange?: (collectionId: string, coverUrl: string | null) => void;
+  onCoverChange?: (collectionId: string, coverUrl: string | null, credit?: CoverCreditUpdate) => void;
   onCreateClick?: () => void;
 }
 

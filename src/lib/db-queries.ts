@@ -8,6 +8,7 @@ import { isClaimableNow } from './mass-upload/queue-sql';
 import { forUser } from '@/lib/tenant-db';
 import { storedCitiesMatching } from '@/lib/city-names';
 import type { Place, Source, Collection } from '@/types/database';
+import type { AttributionMeta } from '@/db/schema/attachments';
 
 /**
  * Narrowed row shape for the /library and /archive routes.
@@ -922,6 +923,8 @@ export async function getCollectionAvailableImages(
   thumbnailUri: string | null;
   placeId: string;
   placeName: string;
+  attribution: AttributionMeta | null;
+  source: string;
 }>> {
   return withErrorHandling(async () => {
     const { attachments, placesToCollections } = await import('@/db/schema');
@@ -952,6 +955,8 @@ export async function getCollectionAvailableImages(
           thumbnailUri: attachments.thumbnailUri,
           placeId: attachments.placeId,
           placeName: places.name,
+          attribution: attachments.attribution,
+          source: attachments.source,
         })
         .from(attachments)
         .innerJoin(places, eq(attachments.placeId, places.id))
@@ -974,6 +979,8 @@ export async function getCollectionAvailableImages(
           thumbnailUri: attachments.thumbnailUri,
           placeId: attachments.placeId,
           placeName: places.name,
+          attribution: attachments.attribution,
+          source: attachments.source,
         })
         .from(attachments)
         .innerJoin(places, eq(attachments.placeId, places.id))

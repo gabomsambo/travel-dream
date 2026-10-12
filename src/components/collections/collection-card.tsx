@@ -19,15 +19,28 @@ import { CoverPhotoCredit } from '@/components/attribution/cover-photo-credit';
 import type { AttributionMeta } from '@/db/schema/attachments';
 import { CoverImagePickerDialog } from './cover-image-picker-dialog';
 
+export type CollectionCardPlace = {
+  coverUrl?: string | null;
+  coverAttribution?: AttributionMeta | null;
+  coverSource?: string | null;
+};
+
+export type CoverCreditUpdate = {
+  attribution: AttributionMeta | null;
+  source: string | null;
+} | null;
+
+export type CollectionCardModel = Collection & {
+  places?: CollectionCardPlace[];
+  coverAttribution?: AttributionMeta | null;
+  coverSource?: string | null;
+};
+
 interface CollectionCardProps {
-  collection: Collection & {
-    places?: Array<{ coverUrl?: string | null }>;
-    coverAttribution?: AttributionMeta | null;
-    coverSource?: string | null;
-  };
+  collection: CollectionCardModel;
   placeCount?: number;
   onDelete?: (collectionId: string) => void;
-  onCoverChange?: (collectionId: string, coverUrl: string | null) => void;
+  onCoverChange?: (collectionId: string, coverUrl: string | null, credit?: CoverCreditUpdate) => void;
 }
 
 export function CollectionCard({
@@ -39,10 +52,14 @@ export function CollectionCard({
   const router = useRouter();
   const [showCoverPicker, setShowCoverPicker] = useState(false);
 
-  // Priority: custom cover > first place cover > null (icon fallback)
-  const coverUrl = collection.coverImageUrl || collection.places?.[0]?.coverUrl;
-  const coverAttribution = collection.coverImageUrl ? null : collection.coverAttribution;
-  const coverSource = collection.coverImageUrl ? null : collection.coverSource;
+  const fallbackPlace = collection.places?.[0];
+  const coverUrl = collection.coverImageUrl || fallbackPlace?.coverUrl;
+  const coverAttribution = collection.coverImageUrl
+    ? (collection.coverAttribution ?? null)
+    : (fallbackPlace?.coverAttribution ?? collection.coverAttribution ?? null);
+  const coverSource = collection.coverImageUrl
+    ? (collection.coverSource ?? null)
+    : (fallbackPlace?.coverSource ?? collection.coverSource ?? null);
 
   const handleCardClick = () => {
     router.push(`/collections/${collection.id}`);
@@ -163,7 +180,7 @@ export function CollectionCard({
         collectionId={collection.id}
         open={showCoverPicker}
         onOpenChange={setShowCoverPicker}
-        onCoverChange={(coverUrl) => onCoverChange?.(collection.id, coverUrl)}
+        onCoverChange={(coverUrl, credit) => onCoverChange?.(collection.id, coverUrl, credit)}
       />
     </Card>
   );

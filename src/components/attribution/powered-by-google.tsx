@@ -2,48 +2,42 @@ import { cn } from '@/lib/utils';
 
 interface PoweredByGoogleProps {
   className?: string;
-  /** Use the light-on-dark asset (e.g. over photos). Default follows app color scheme. */
+  /** Light wordmark for dark photos. Default follows the app color scheme. */
   onPhoto?: boolean;
+  /** Dark wordmark for a fixed light chip. Ignores the app color scheme. */
+  onLightSurface?: boolean;
 }
 
 const LOGO_CLASS = 'h-[18px] w-auto max-w-none';
+const LIGHT_LOGO = '/attribution/powered-by-google-light.svg';
+const DARK_LOGO = '/attribution/powered-by-google-dark.svg';
 
-export function PoweredByGoogle({ className, onPhoto = false }: PoweredByGoogleProps) {
+function Logo({ src, className }: { src: string; className?: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt="" className={cn(LOGO_CLASS, className)} width={120} height={14} />
+  );
+}
+
+export function PoweredByGoogle({
+  className,
+  onPhoto = false,
+  onLightSurface = false,
+}: PoweredByGoogleProps) {
   const cls = cn('inline-flex shrink-0 items-center', className);
 
-  if (onPhoto) {
+  if (onLightSurface || onPhoto) {
     return (
       <span className={cls} aria-label="Powered by Google">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/attribution/powered-by-google-dark.svg"
-          alt=""
-          className={LOGO_CLASS}
-          width={120}
-          height={14}
-        />
+        <Logo src={onLightSurface ? LIGHT_LOGO : DARK_LOGO} />
       </span>
     );
   }
 
   return (
     <span className={cls} aria-label="Powered by Google">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/attribution/powered-by-google-light.svg"
-        alt=""
-        className={cn(LOGO_CLASS, 'dark:hidden')}
-        width={120}
-        height={14}
-      />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/attribution/powered-by-google-dark.svg"
-        alt=""
-        className={cn(LOGO_CLASS, 'hidden dark:block')}
-        width={120}
-        height={14}
-      />
+      <Logo src={LIGHT_LOGO} className="dark:hidden" />
+      <Logo src={DARK_LOGO} className="hidden dark:block" />
     </span>
   );
 }

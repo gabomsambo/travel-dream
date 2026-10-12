@@ -18,6 +18,8 @@ import {
   coverBlobPathname,
   IMAGE_TYPE_REJECTED_MESSAGE,
 } from '@/lib/image-upload';
+import type { AttributionMeta } from '@/db/schema/attachments';
+import type { CoverCreditUpdate } from './collection-card';
 
 interface AvailableImage {
   id: string;
@@ -25,13 +27,15 @@ interface AvailableImage {
   thumbnailUri: string | null;
   placeId: string;
   placeName: string;
+  attribution: AttributionMeta | null;
+  source: string | null;
 }
 
 interface CoverImagePickerDialogProps {
   collectionId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCoverChange: (coverUrl: string | null) => void;
+  onCoverChange: (coverUrl: string | null, credit?: CoverCreditUpdate) => void;
 }
 
 export function CoverImagePickerDialog({
@@ -122,7 +126,7 @@ export function CoverImagePickerDialog({
       }
 
       const data = await response.json();
-      onCoverChange(data.coverImageUrl);
+      onCoverChange(data.coverImageUrl, null);
       onOpenChange(false);
     } catch (error) {
       console.error('Upload error:', error);
@@ -172,7 +176,11 @@ export function CoverImagePickerDialog({
         throw new Error(data.message || 'Failed to set cover');
       }
 
-      onCoverChange(selectedImage);
+      const image = images.find((item) => item.uri === selectedImage);
+      onCoverChange(selectedImage, {
+        attribution: image?.attribution ?? null,
+        source: image?.source ?? null,
+      });
       onOpenChange(false);
     } catch (error) {
       console.error('Error setting cover:', error);

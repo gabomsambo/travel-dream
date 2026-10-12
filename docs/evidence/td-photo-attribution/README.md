@@ -1,20 +1,12 @@
 # Photo attribution UI — before / after
 
-Live captures from headless Chromium (`chrome-devtools-axi`, session `td-photo-attribution`) against `next dev` on `127.0.0.1:3522`, signed in as `explorer@local.test` on `file:/home/gabo/firstmate/data/td-photo-attribution/local.db` (seed + Pexels/Google sample covers). Never Turso. Desktop 1440×900, phone 390×844, classic theme.
+Live captures from headless Chromium against `next dev` on `127.0.0.1:3524`, signed in as `explorer@local.test` on a throwaway copy of `file:/home/gabo/firstmate/data/td-photo-attribution/local.db`. Never Turso. Desktop 1440×900, phone 390×844, classic theme. Dark frames set `localStorage.theme` to `dark` (`html` class `dark`).
 
-**Verified live:** library tile credits, collection card fallback cover credit, place-page lightbox captions (YARL Captions plugin), Powered by Google wordmark on place hero (light/dark).
+**Verified live:**
 
-**Reasoned only:** Explore rails outside Library tiles, tropical theme variant (same tokens as classic).
+- Library place grid (Japan tiles), not the atlas header. After frames show the Wikimedia caption above the place name. Before frames are the same scroll with that caption layer hidden, so the pair shows the caption itself. Desktop and phone, light and dark; each pair’s files differ.
+- Collection card. Before is Kyoto in autumn on the fallback Pexels cover (Pixabay). After sets a custom cover to the Kiyomizu Google photo; the card credits Jane Doe and shows the Google wordmark. Desktop and phone, light.
+- Lightbox. After light and after dark are different files. The dark frame is the Kiyomizu photo with “Photo by Jane Doe on Google” and the Google wordmark. Before frames hide that caption; the caption-less lightbox chrome is the same in both themes, so those two before files match.
+- Place hero, dark and light. The fixed white chip uses the light-background Google asset (`powered-by-google-light.svg`, one image) so the wordmark stays dark on that chip.
 
-| Surface | Before | After |
-|---|---|---|
-| Library card (desktop light) | `before-library-card-desktop-light.png` | `after-library-card-desktop-light.png` |
-| Library card (desktop dark) | `before-library-card-desktop-dark.png` | `after-library-card-desktop-dark.png` |
-| Library card (phone light) | `before-library-card-phone-light.png` | `after-library-card-phone-light.png` |
-| Library card (phone dark) | `before-library-card-phone-dark.png` | `after-library-card-phone-dark.png` |
-| Collection card (desktop light) | `before-collection-card-desktop-light.png` | `after-collection-card-desktop-light.png` |
-| Collection card (phone light) | `before-collection-card-phone-light.png` | `after-collection-card-phone-light.png` |
-| Lightbox (desktop light) | `before-lightbox-desktop-light.png` | `after-lightbox-desktop-light.png` |
-| Lightbox (desktop dark) | `before-lightbox-desktop-dark.png` | `after-lightbox-desktop-dark.png` |
-| Powered by Google (desktop light) | `before-powered-by-google-desktop-light.png` | `after-powered-by-google-desktop-light.png` |
-| Powered by Google (desktop dark) | `before-powered-by-google-desktop-dark.png` | `after-powered-by-google-desktop-dark.png` |
+**Reasoned only:** tropical theme (same tokens as classic). Explore rails outside the library tiles were not recaptured; library tiles are the shared `PlaceTile`.

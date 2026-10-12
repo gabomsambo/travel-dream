@@ -2,7 +2,7 @@ import type { Place } from '@/types/database';
 import type { AttributionMeta } from '@/db/schema/attachments';
 import type { LibraryPlace } from './db-queries';
 import { attachments, placesToCollections } from '@/db/schema';
-import { inArray, eq, and } from 'drizzle-orm';
+import { inArray, eq, and, or } from 'drizzle-orm';
 import { forUser } from '@/lib/tenant-db';
 
 export interface CoverPhotoMeta {
@@ -87,6 +87,96 @@ export async function getCoverImagesForPlaces(
       },
     ])
   );
+}
+
+export interface CoverCredit {
+  attribution: AttributionMeta | null;
+  source: string | null;
+}
+
+export function attachmentIdFromCoverUrl(coverUrl: string): string | null {
+  const match = /\/api\/photos\/resolve\/([^/?#]+)/.exec(coverUrl);
+  return match?.[1] ?? null;
+}
+
+export async function getCreditsForCoverUrls(
+  coverUrls: Array<string | null | undefined>,
+  userId: string,
+): Promise<Map<string, CoverCredit>> {
+  const urls = [...new Set(coverUrls.filter((url): url is string => Boolean(url)))];
+  const result = new Map<string, CoverCredit>();
+  if (urls.length === 0) return result;
+
+  const ids = [...new Set(
+    urls.map(attachmentIdFromCoverUrl).filter((id): id is string => Boolean(id)),
+  )];
+  const where = ids.length > 0
+    ? or(
+        inArray(attachments.uri, urls),
+        inArray(attachments.thumbnailUri, urls),
+        inArray(attachments.id, ids),
+      )
+    : or(inArray(attachments.uri, urls), inArray(attachments.thumbnailUri, urls));
+
+  const rows = await forUser(userId).selectFieldsVia(
+    attachments,
+    {
+      id: attachments.id,
+      uri: attachments.uri,
+      thumbnailUri: attachments.thumbnailUri,
+      attribution: attachments.attribution,
+      source: attachments.source,
+    },
+    where,
+  );
+
+  for (const url of urls) {
+    const id = attachmentIdFromCoverUrl(url);
+    const row =
+      rows.find((candidate) => candidate.uri === url) ??
+      rows.find((candidate) => candidate.thumbnailUri === url) ??
+      (id ? rows.find((candidate) => candidate.id === id) : undefined);
+    if (!row) continue;
+    result.set(url, {
+      attribution: row.attribution ?? null,
+      source: row.source,
+    });
+  }
+
+  return result;
+}
+
+export function collectionCoverForCard(
+  coverImageUrl: string | null | undefined,
+  fallback: CollectionCardCover | undefined,
+  customCredit: CoverCredit | undefined,
+): {
+  coverAttribution: AttributionMeta | null;
+  coverSource: string | null;
+  places:
+    | Array<{
+        coverUrl: string;
+        coverAttribution: AttributionMeta | null;
+        coverSource: string | null;
+      }>
+    | undefined;
+} {
+  const useCustomCover = Boolean(coverImageUrl);
+  return {
+    coverAttribution: useCustomCover
+      ? (customCredit?.attribution ?? null)
+      : (fallback?.coverAttribution ?? null),
+    coverSource: useCustomCover
+      ? (customCredit?.source ?? null)
+      : (fallback?.coverSource ?? null),
+    places: fallback?.coverUrl
+      ? [{
+          coverUrl: fallback.coverUrl,
+          coverAttribution: fallback.coverAttribution,
+          coverSource: fallback.coverSource,
+        }]
+      : undefined,
+  };
 }
 
 /**

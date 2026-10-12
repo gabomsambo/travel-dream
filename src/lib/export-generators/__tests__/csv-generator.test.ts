@@ -5,7 +5,7 @@ import type { FieldDefinition } from '@/types/export';
 
 const createMockPlace = (overrides: Partial<Place> = {}): Place => ({
   id: 'plc_test',
-  userId: null,
+  userId: 'user_test',
   googlePlaceId: null,
   name: 'Test Place',
   kind: 'restaurant',

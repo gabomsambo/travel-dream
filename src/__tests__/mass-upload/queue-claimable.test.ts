@@ -53,6 +53,7 @@ async function applyMigrations(): Promise<void> {
 async function queueSource(id: string, nextAttemptAt: string | null): Promise<void> {
   await testDb!.insert(sourcesCurrentSchema).values({
     id,
+    userId: 'user_queue',
     type: 'screenshot',
     uri: `https://store.public.blob.vercel-storage.com/${id}.jpg`,
     processingStatus: 'queued',
@@ -69,6 +70,9 @@ const leaseCutoff = () => new Date(Date.now() - QUEUE_CONFIG.leaseTtlMs).toISOSt
 beforeAll(async () => {
   client = createClient({ url: ':memory:' });
   await applyMigrations();
+  await client.execute(
+    `INSERT INTO users (id, email, created_at, updated_at) VALUES ('user_queue', 'queue@example.com', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`
+  );
   testDb = drizzle(client, { schema });
 });
 

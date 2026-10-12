@@ -178,15 +178,15 @@ export function preparePlacesForImport(
   parsedRows: ParsedRow[],
   options: ImportOptions,
   confirmedRowIndices?: Set<number>
-): Array<{ data: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>; rowNumber: number; toLibrary: boolean }> {
-  const places: Array<{ data: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>; rowNumber: number; toLibrary: boolean }> = [];
+): Array<{ data: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt' | 'userId'>; rowNumber: number; toLibrary: boolean }> {
+  const places: Array<{ data: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt' | 'userId'>; rowNumber: number; toLibrary: boolean }> = [];
 
   for (const row of parsedRows) {
     if (!row.isValid) continue;
 
     const toLibrary = options.confidentMode && (confirmedRowIndices?.has(row.rowNumber) ?? false);
 
-    const placeData: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'> = {
+    const placeData: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       name: row.mappedData.name || 'Unnamed Place',
       kind: row.mappedData.kind || 'tip',
       status: toLibrary ? 'library' : 'inbox',

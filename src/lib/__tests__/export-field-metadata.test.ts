@@ -60,7 +60,7 @@ describe('export-field-metadata', () => {
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
       archivedAt: null,
-      userId: null,
+      userId: 'user_test',
       googlePlaceId: null,
       city: null,
       country: null,
@@ -107,7 +107,7 @@ describe('export-field-metadata', () => {
   describe('transformValue - array handling', () => {
     const mockPlace: Place = {
       id: 'plc_test',
-      userId: null,
+      userId: 'user_test',
       googlePlaceId: null,
       name: 'Test Place',
       kind: 'restaurant',
@@ -174,7 +174,7 @@ describe('export-field-metadata', () => {
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
       archivedAt: null,
-      userId: null,
+      userId: 'user_test',
       googlePlaceId: null,
       coords: { lat: 48.8566, lon: 2.3522 },
       city: null,
@@ -228,7 +228,7 @@ describe('export-field-metadata', () => {
   describe('transformValue - computed fields', () => {
     const mockPlace: Place = {
       id: 'plc_test',
-      userId: null,
+      userId: 'user_test',
       googlePlaceId: null,
       name: 'Café de Flore',
       kind: 'cafe',
@@ -297,7 +297,7 @@ describe('export-field-metadata', () => {
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
       archivedAt: null,
-      userId: null,
+      userId: 'user_test',
       googlePlaceId: null,
       city: null,
       country: null,

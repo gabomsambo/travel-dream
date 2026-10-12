@@ -90,7 +90,17 @@ export function ArchiveClient({ places: initialPlaces }: { places: ArchivePlace[
 
   const update = useCallback((patch: Partial<LibraryFilterState>) => setFilters((f) => ({ ...f, ...patch })), [])
   const clearFilters = useCallback(
-    () => setFilters((f) => ({ ...f, kinds: new Set(), tags: new Set(), vibes: new Set(), rating: 0, visitStatus: new Set(), hasPhotosOnly: false, city: "all", country: "all" })),
+    () => setFilters((f) => ({
+      ...f,
+      kinds: new Set(),
+      cities: new Set(),
+      countries: new Set(),
+      tags: new Set(),
+      vibes: new Set(),
+      rating: 0,
+      visitStatus: new Set(),
+      photo: "any",
+    })),
     []
   )
 
@@ -202,7 +212,7 @@ export function ArchiveClient({ places: initialPlaces }: { places: ArchivePlace[
     return () => window.removeEventListener("keydown", onKey)
   }, [selected, selectAll, selectNone, askRestore, askDelete])
 
-  const filtering = Boolean(filters.search.trim()) || filters.kinds.size > 0 || filters.tags.size > 0 || filters.vibes.size > 0 || filters.rating > 0 || filters.visitStatus.size > 0 || filters.hasPhotosOnly || filters.city !== "all" || filters.country !== "all"
+  const filtering = Boolean(filters.search.trim()) || filters.kinds.size > 0 || filters.cities.size > 0 || filters.countries.size > 0 || filters.tags.size > 0 || filters.vibes.size > 0 || filters.rating > 0 || filters.visitStatus.size > 0 || filters.photo !== "any"
   const isAllSelected = selected.size === sorted.length && sorted.length > 0
   const isSomeSelected = selected.size > 0 && selected.size < sorted.length
 
@@ -214,9 +224,9 @@ export function ArchiveClient({ places: initialPlaces }: { places: ArchivePlace[
         vibes: filters.vibes,
         rating: filters.rating > 0 ? filters.rating : undefined,
         visitStatus: filters.visitStatus,
-        hasPhotosOnly: filters.hasPhotosOnly ? true : undefined,
-        city: filters.city !== "all" ? filters.city : undefined,
-        country: filters.country !== "all" ? filters.country : undefined,
+        hasPhotosOnly: filters.photo === "with" ? true : undefined,
+        city: filters.cities.size > 0 ? filters.cities : undefined,
+        country: filters.countries.size > 0 ? filters.countries : undefined,
       }}
       onRemoveFilter={(key) => {
         const reset: Record<string, Partial<LibraryFilterState>> = {
@@ -226,9 +236,9 @@ export function ArchiveClient({ places: initialPlaces }: { places: ArchivePlace[
           vibes: { vibes: new Set() },
           rating: { rating: 0 },
           visitStatus: { visitStatus: new Set() },
-          hasPhotosOnly: { hasPhotosOnly: false },
-          city: { city: "all" },
-          country: { country: "all" },
+          hasPhotosOnly: { photo: "any" },
+          city: { cities: new Set() },
+          country: { countries: new Set() },
         }
         if (reset[key]) update(reset[key])
       }}
@@ -275,10 +285,16 @@ export function ArchiveClient({ places: initialPlaces }: { places: ArchivePlace[
                   tags: filters.tags,
                   rating: filters.rating,
                   visitStatus: filters.visitStatus,
-                  hasPhotosOnly: filters.hasPhotosOnly,
+                  hasPhotosOnly: filters.photo === "with",
                 }}
                 filterOptions={filterOptions}
-                onChange={(u) => update({ ...u })}
+                onChange={(u) => {
+                  const { hasPhotosOnly, ...rest } = u
+                  update({
+                    ...rest,
+                    ...(hasPhotosOnly === undefined ? {} : { photo: hasPhotosOnly ? "with" : "any" }),
+                  })
+                }}
                 onClear={clearFilters}
               />
             }

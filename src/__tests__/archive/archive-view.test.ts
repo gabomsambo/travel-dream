@@ -52,13 +52,15 @@ describe('archive display', () => {
     expect(parseArchiveView('journal')).toBe('journal')
     expect(parseArchiveSort(null)).toBe('archived-newest')
     const qs = archiveSearchParams(
-      { ...EMPTY_FILTERS, kinds: new Set(['cafe', 'museum']), hasPhotosOnly: true },
+      { ...EMPTY_FILTERS, kinds: new Set(['cafe', 'museum']), photo: 'with', cities: new Set(['Lisbon']), countries: new Set(['Portugal']) },
       { view: 'journal', sort: 'name-az' }
     )
     expect(qs.get('kind')).toBe('cafe,museum')
     expect(qs.get('view')).toBe('journal')
     expect(qs.get('sort')).toBe('name-az')
-    expect(qs.get('hasPhotosOnly')).toBe('true')
+    expect(qs.get('photo')).toBe('with')
+    expect(qs.getAll('city')).toEqual(['Lisbon'])
+    expect(qs.getAll('country')).toEqual(['Portugal'])
     expect(archiveSearchParams(EMPTY_FILTERS, { view: 'list', sort: 'archived-newest' }).toString()).toBe('')
   })
 
@@ -70,8 +72,19 @@ describe('archive display', () => {
     ]
     const kinds = filterArchive(rows, { ...EMPTY_FILTERS, kinds: new Set(['cafe', 'museum']) }, null)
     expect(kinds.map((p) => p.id)).toEqual(['a', 'b'])
-    const photos = filterArchive(rows, { ...EMPTY_FILTERS, hasPhotosOnly: true }, null)
+    const photos = filterArchive(rows, { ...EMPTY_FILTERS, photo: 'with' }, null)
     expect(photos.map((p) => p.id)).toEqual(['a', 'c'])
+    const missing = filterArchive(rows, { ...EMPTY_FILTERS, photo: 'without' }, null)
+    expect(missing.map((p) => p.id)).toEqual(['b'])
+  })
+
+  it('keeps a place when any selected city or country matches', () => {
+    const rows = [
+      place({ id: 'a', name: 'Cafe', city: 'Lisbon', country: 'Portugal' }),
+      place({ id: 'b', name: 'Museum', city: 'Tokyo', country: 'Japan' }),
+    ]
+    expect(filterArchive(rows, { ...EMPTY_FILTERS, cities: new Set(['Lisboa', 'Kyoto']) }, null).map((p) => p.id)).toEqual(['a'])
+    expect(filterArchive(rows, { ...EMPTY_FILTERS, countries: new Set(['Japan', 'Mexico']) }, null).map((p) => p.id)).toEqual(['b'])
   })
 
   it('sorts recently set aside first and leaves undated rows at the end', () => {

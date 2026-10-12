@@ -87,13 +87,13 @@ export function archiveSearchParams(
   const p = new URLSearchParams()
   if (f.search) p.set('search', f.search)
   if (f.kinds.size) p.set('kind', [...f.kinds].join(','))
-  if (f.city !== 'all') p.set('city', f.city)
-  if (f.country !== 'all') p.set('country', f.country)
+  for (const city of f.cities) p.append('city', city)
+  for (const country of f.countries) p.append('country', country)
   if (f.tags.size) p.set('tags', [...f.tags].join(','))
   if (f.vibes.size) p.set('vibes', [...f.vibes].join(','))
   if (f.rating > 0) p.set('rating', String(f.rating))
   if (f.visitStatus.size) p.set('visitStatus', [...f.visitStatus].join(','))
-  if (f.hasPhotosOnly) p.set('hasPhotosOnly', 'true')
+  if (f.photo !== 'any') p.set('photo', f.photo)
   if (extra.view !== DEFAULT_ARCHIVE_VIEW) p.set('view', extra.view)
   if (extra.sort !== DEFAULT_ARCHIVE_SORT) p.set('sort', extra.sort)
   return p
@@ -107,13 +107,14 @@ export function filterArchive(
   return items.filter((p) => {
     if (searchIds && !searchIds.has(p.id)) return false
     if (f.kinds.size && !f.kinds.has(p.kind)) return false
-    if (f.city !== 'all' && !citiesMatch(p.city, f.city)) return false
-    if (f.country !== 'all' && p.country !== f.country) return false
+    if (f.cities.size && ![...f.cities].some((city) => citiesMatch(p.city, city))) return false
+    if (f.countries.size && !(p.country && f.countries.has(p.country.trim()))) return false
     if (f.tags.size && !p.tags.some((t) => f.tags.has(t))) return false
     if (f.vibes.size && !p.vibes.some((v) => f.vibes.has(v))) return false
     if (f.rating > 0 && p.ratingSelf < f.rating) return false
     if (f.visitStatus.size && !f.visitStatus.has(p.visitStatus || 'not_visited')) return false
-    if (f.hasPhotosOnly && !p.coverUrl) return false
+    if (f.photo === 'with' && !p.coverUrl) return false
+    if (f.photo === 'without' && p.coverUrl) return false
     return true
   })
 }

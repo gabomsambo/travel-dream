@@ -235,7 +235,10 @@ export function DuplicatesPageClient({
     const targetId = intent?.targetId ?? recommendMergeTarget(cluster.places);
     const target = cluster.places.find((place) => place.id === targetId);
     const requestedSourceIds = intent?.sourceIds ?? cluster.places.filter((place) => place.id !== targetId).map((place) => place.id);
-    const sourceIds = requestedSourceIds.filter((id) => !committedMergeIdsRef.current.has(id));
+    const committed = committedMergeIdsRef.current;
+    const sourceIds = committed.has(targetId)
+      ? requestedSourceIds.filter((id) => !committed.has(id))
+      : requestedSourceIds;
     if (!target || requestedSourceIds.length === 0) {
       notify.error('No target found for merge');
       return;
@@ -286,7 +289,8 @@ export function DuplicatesPageClient({
     sourceId: string,
     fieldOverrides?: MergeFieldOverrides,
   ) => {
-    if (committedMergeIdsRef.current.has(sourceId)) return;
+    const committed = committedMergeIdsRef.current;
+    if (committed.has(sourceId) && committed.has(targetId)) return;
     setIsLoading(true);
     const target = cluster.places.find((place) => place.id === targetId);
     const source = cluster.places.find((place) => place.id === sourceId);

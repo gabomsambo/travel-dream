@@ -1085,8 +1085,7 @@ function leftOutForGroups(
  * path is dropped and the groups are rebuilt. A same Google place id stays
  * one group. A removed place is `leftOut` on the reachable survivor whose
  * nearest geocoded member is closest, tie-broken by group id. A survivor
- * with no pin is ignored. `mergedOn` stays null until the merge-log lookup
- * ships.
+ * with no pin is ignored. The merge-log date is not applied here.
  */
 export function findDuplicateClusters(
   duplicateResults: Map<string, DuplicateDetectionResult>,

@@ -13,7 +13,7 @@ import {
 } from '../helpers/tenant-fixture';
 
 import { db } from '@/db';
-import { mergeLogs, places } from '@/db/schema';
+import { attachments, mergeLogs, places } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import {
   batchDetectDuplicates,
@@ -452,6 +452,59 @@ describe('duplicate queue certainty on local places', () => {
     );
     expect(filterDismissedClusters([review], dismissed)).toEqual([]);
     expect(possibleGroups([wide], dismissed).map((group) => group.cluster_id)).toEqual(['A+C']);
+  });
+
+  it('uses a stored thumbnail for a queue photo and the full uri when it is absent', async () => {
+    await insertPlace({ id: 'plc_thumb', name: 'Thumb' });
+    await insertPlace({ id: 'plc_full', name: 'Full' });
+    await db.insert(attachments).values([
+      {
+        id: 'att_thumb',
+        placeId: 'plc_thumb',
+        type: 'photo',
+        uri: '/api/photos/resolve/att_thumb',
+        thumbnailUri: '/api/photos/resolve/att_thumb?w=400',
+        filename: 'thumb.jpg',
+        isPrimary: 1,
+        source: 'google_places',
+      },
+      {
+        id: 'att_full',
+        placeId: 'plc_full',
+        type: 'photo',
+        uri: 'https://example.test/full.jpg',
+        thumbnailUri: null,
+        filename: 'full.jpg',
+        isPrimary: 1,
+        source: 'upload',
+      },
+      {
+        id: 'att_other',
+        placeId: 'plc_full',
+        type: 'photo',
+        uri: 'https://example.test/other.jpg',
+        thumbnailUri: 'https://example.test/other-thumb.jpg',
+        filename: 'other.jpg',
+        isPrimary: 0,
+        source: 'upload',
+      },
+    ]);
+
+    const stored = await alicePlaces();
+    const extras = await loadDuplicateQueueExtras(ALICE.id, [{
+      id: 'plc_full+plc_thumb',
+      cluster_id: 'plc_full+plc_thumb',
+      places: stored.filter((place) => place.id === 'plc_full' || place.id === 'plc_thumb'),
+      avgConfidence: 0.9,
+      weakestIncludedScore: 0.9,
+      edges: [],
+      leftOut: [],
+      mergedOn: null,
+    }], []);
+
+    const byId = new Map(extras.clusters[0].places.map((place) => [place.id, place.photoUrl]));
+    expect(byId.get('plc_thumb')).toBe('/api/photos/resolve/att_thumb?w=400');
+    expect(byId.get('plc_full')).toBe('https://example.test/full.jpg');
   });
 });
 

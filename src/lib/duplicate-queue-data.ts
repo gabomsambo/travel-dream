@@ -13,6 +13,7 @@ import {
 interface PhotoRow {
   placeId: string;
   uri: string;
+  thumbnailUri: string | null;
   isPrimary: number;
 }
 
@@ -100,6 +101,7 @@ async function photoUrlsFor(placeIds: string[]): Promise<Map<string, string>> {
   const rows = await db.select({
     placeId: attachments.placeId,
     uri: attachments.uri,
+    thumbnailUri: attachments.thumbnailUri,
     isPrimary: attachments.isPrimary,
     type: attachments.type,
   }).from(attachments).where(inArray(attachments.placeId, placeIds));
@@ -109,10 +111,15 @@ async function photoUrlsFor(placeIds: string[]): Promise<Map<string, string>> {
     if (row.type !== 'photo') continue;
     const current = best.get(row.placeId);
     if (!current || (row.isPrimary === 1 && current.isPrimary !== 1)) {
-      best.set(row.placeId, { placeId: row.placeId, uri: row.uri, isPrimary: row.isPrimary });
+      best.set(row.placeId, {
+        placeId: row.placeId,
+        uri: row.uri,
+        thumbnailUri: row.thumbnailUri,
+        isPrimary: row.isPrimary,
+      });
     }
   }
-  for (const [placeId, photo] of best) urls.set(placeId, photo.uri);
+  for (const [placeId, photo] of best) urls.set(placeId, photo.thumbnailUri || photo.uri);
   return urls;
 }
 

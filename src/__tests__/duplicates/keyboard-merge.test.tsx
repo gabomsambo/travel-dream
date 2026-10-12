@@ -754,6 +754,63 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(postedBodies('/api/places/bulk-merge', 'POST')).toHaveLength(1);
   });
 
+  it('merges a saved keeper into a later richer duplicate', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      return bulkMergeOk(init?.body);
+    });
+    const user = userEvent.setup();
+    const saved = certainCluster();
+    const survivor = saved.places[0];
+    const richer = place('arctic_c', 'Tromsø Cathedral');
+    richer.description = 'The fuller record';
+    richer.coords = { lat: 69.649, lon: 18.986 };
+    richer.city = 'Tromsø';
+    richer.country = 'Norway';
+    richer.kind = 'attraction';
+    const later = {
+      cluster_id: 'arctic_a+arctic_c',
+      avgConfidence: 0.98,
+      places: [survivor, richer],
+      edges: [edge(survivor.id, richer.id, 0.98, 10, 1)],
+      leftOut: [],
+      mergedOn: null,
+    };
+    const view = render(
+      <DuplicatesPageClient initialData={[saved]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 1 certain group'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
+
+    view.rerender(
+      <DuplicatesPageClient initialData={[later]} fetchedAt={null} fetchError={null} />
+    );
+    await screen.findByText('Tromsø Cathedral');
+
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged "Arctic Cathedral" into "Tromsø Cathedral"'));
+
+    fireEvent.keyDown(document, { key: 'm' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 2 places'));
+
+    const bodies = postedBodies('/api/places/bulk-merge', 'POST');
+    expect(bodies).toHaveLength(3);
+    expect(bodies[1].clusters).toEqual([{
+      targetId: 'arctic_c',
+      sourceIds: ['arctic_a'],
+      confidence: 0.98,
+    }]);
+    expect(bodies[2].clusters).toEqual(bodies[1].clusters);
+  });
+
   it('refreshes a skipped pair merge without a failure toast', async () => {
     const { refresh, routerSpy: spy } = spyRefresh();
     routerSpy = spy;

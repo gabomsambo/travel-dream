@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
 import { FindImageButton } from "@/components/places/find-image-button"
 
 interface PlaceCardV2Props {
@@ -60,12 +61,21 @@ export function PlaceCardV2({ place, onClick, className, onRestore, onDelete, tr
       {/* Cover Image */}
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
         {place.coverUrl ? (
-          <img
-            src={place.coverUrl}
-            alt={place.name}
-            loading="lazy"
-            className="h-full w-full object-cover transition-transform group-hover:scale-105"
-          />
+          <>
+            <img
+              src={place.coverUrl}
+              alt={place.name}
+              loading="lazy"
+              className="h-full w-full object-cover transition-transform group-hover:scale-105"
+            />
+            <div className="absolute bottom-2 left-2 right-2 z-[1]">
+              <CoverPhotoCredit
+                attribution={place.coverAttribution}
+                source={place.coverSource}
+                variant="on-photo"
+              />
+            </div>
+          </>
         ) : (
           <div className="relative flex h-full w-full items-center justify-center">
             <MapPin className="h-12 w-12 text-muted-foreground/30" />

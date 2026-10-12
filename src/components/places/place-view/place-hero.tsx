@@ -234,7 +234,7 @@ export function PlaceHero({
           <PhotoAttribution attribution={cover.attribution} className="!mt-0 !text-foreground/60" />
           {cover.source === "google_places" && (
             <span className="rounded bg-white/85 px-1.5 py-0.5">
-              <PoweredByGoogle />
+              <PoweredByGoogle onLightSurface />
             </span>
           )}
         </div>

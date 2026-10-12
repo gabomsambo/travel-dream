@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { Trash2, RotateCcw } from "lucide-react"
+import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
 import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { SelectMark } from "@/components/library/library-place-menu"
@@ -64,6 +65,14 @@ export function ArchiveList({
                   <p className="mt-0.5 truncate text-sm text-muted-foreground">
                     {[where, kindLabel(place.kind)].filter(Boolean).join(" · ")}
                   </p>
+                  {place.coverUrl && (
+                    <CoverPhotoCredit
+                      attribution={place.coverAttribution}
+                      source={place.coverSource}
+                      variant="inline"
+                      className="mt-1"
+                    />
+                  )}
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {setAsideLine(place.archivedAt, place.createdAt)}
                   </p>

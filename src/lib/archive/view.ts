@@ -3,6 +3,7 @@
  * Filtering matches the Library's rules so Has Photos, kinds, tags, vibes,
  * rating and visit status behave the same once they sit behind Filters.
  */
+import type { AttributionMeta } from '@/db/schema/attachments'
 import { citiesMatch } from '@/lib/city-names'
 import { EMPTY_FILTERS, type LibraryFilterState } from '@/lib/library/filters'
 
@@ -27,6 +28,8 @@ export interface ArchivePlace {
   visitStatus: string
   priceLevel: string | null
   coverUrl: string | null
+  coverAttribution: AttributionMeta | null
+  coverSource: string | null
   createdAt: string
   archivedAt: string | null
   trips: ArchiveTrip[]

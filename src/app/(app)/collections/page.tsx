@@ -4,6 +4,7 @@ import { CollectionsClient } from '@/components/collections/collections-client';
 import { placesToCollections } from '@/db/schema/relations';
 import { eq, sql } from 'drizzle-orm';
 import { forUser } from '@/lib/tenant-db';
+import { collectionCoverForCard, getCollectionCardCovers, getCreditsForCoverUrls } from '@/lib/library-adapters';
 import { auth } from '@/lib/auth';
 
 export const metadata: Metadata = {
@@ -41,5 +42,25 @@ export default async function CollectionsPage() {
     })
   );
 
-  return <CollectionsClient initialCollections={collectionsWithCounts} />;
+  const placeCovers = await getCollectionCardCovers(
+    collectionsWithCounts.map((c) => c.id),
+    userId
+  );
+  const customCredits = await getCreditsForCoverUrls(
+    collectionsWithCounts.map((c) => c.coverImageUrl),
+    userId
+  );
+
+  const collectionsForClient = collectionsWithCounts.map((collection) => {
+    const fallback = placeCovers.get(collection.id);
+    const custom = collection.coverImageUrl
+      ? customCredits.get(collection.coverImageUrl)
+      : undefined;
+    return {
+      ...collection,
+      ...collectionCoverForCard(collection.coverImageUrl, fallback, custom),
+    };
+  });
+
+  return <CollectionsClient initialCollections={collectionsForClient} />;
 }

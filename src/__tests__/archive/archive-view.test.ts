@@ -29,6 +29,8 @@ function place(over: Partial<ArchivePlace> & Pick<ArchivePlace, 'id' | 'name'>):
     trips: [],
     status: 'archived',
     ...over,
+    coverAttribution: over.coverAttribution ?? null,
+    coverSource: over.coverSource ?? null,
   }
 }
 

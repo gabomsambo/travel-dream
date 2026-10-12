@@ -47,7 +47,7 @@ export function HeroSection({ place, formData, updateField }: HeroSectionProps) 
             )}
             {primaryPhoto?.source === 'google_places' && (
               <div className="absolute bottom-2 right-2 bg-white/85 px-1.5 py-0.5 rounded">
-                <PoweredByGoogle />
+                <PoweredByGoogle onLightSurface />
               </div>
             )}
           </div>

@@ -1,5 +1,3 @@
-'use client';
-
 import type { AttributionMeta } from '@/db/schema/attachments';
 
 interface PhotoAttributionProps {

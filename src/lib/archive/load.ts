@@ -27,23 +27,28 @@ export async function loadArchive(userId: string): Promise<ArchivePlace[]> {
   }
   for (const list of trips.values()) list.sort((a, b) => a.name.localeCompare(b.name))
 
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    kind: row.kind,
-    city: row.city,
-    country: row.country,
-    description: row.description,
-    notes: row.notes,
-    tags: strings(row.tags),
-    vibes: strings(row.vibes),
-    ratingSelf: row.ratingSelf ?? 0,
-    visitStatus: row.visitStatus || 'not_visited',
-    priceLevel: row.price_level,
-    coverUrl: covers.get(row.id) ?? null,
-    createdAt: row.createdAt,
-    archivedAt: row.archivedAt,
-    trips: trips.get(row.id) ?? [],
-    status: 'archived',
-  }))
+  return rows.map((row) => {
+    const cover = covers.get(row.id)
+    return {
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      city: row.city,
+      country: row.country,
+      description: row.description,
+      notes: row.notes,
+      tags: strings(row.tags),
+      vibes: strings(row.vibes),
+      ratingSelf: row.ratingSelf ?? 0,
+      visitStatus: row.visitStatus || 'not_visited',
+      priceLevel: row.price_level,
+      coverUrl: cover?.uri ?? null,
+      coverAttribution: cover?.attribution ?? null,
+      coverSource: cover?.source ?? null,
+      createdAt: row.createdAt,
+      archivedAt: row.archivedAt,
+      trips: trips.get(row.id) ?? [],
+      status: 'archived',
+    }
+  })
 }

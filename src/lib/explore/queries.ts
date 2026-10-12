@@ -23,7 +23,13 @@ const PLACE_FIELDS = {
 };
 
 const PHOTO_FIELDS = {
-  placeId: attachments.placeId, uri: attachments.uri, thumb: attachments.thumbnailUri, isPrimary: attachments.isPrimary, createdAt: attachments.createdAt,
+  placeId: attachments.placeId,
+  uri: attachments.uri,
+  thumb: attachments.thumbnailUri,
+  isPrimary: attachments.isPrimary,
+  createdAt: attachments.createdAt,
+  attribution: attachments.attribution,
+  source: attachments.source,
 };
 
 interface PlaceRow {
@@ -53,6 +59,8 @@ interface PhotoRow {
   thumb: string | null;
   isPrimary: number | null;
   createdAt: string;
+  attribution: import('@/db/schema/attachments').AttributionMeta | null;
+  source: string;
 }
 
 /**
@@ -70,7 +78,12 @@ function mapExplorePlaces(rows: PlaceRow[], photos: PhotoRow[]): ExplorePlace[] 
       .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.createdAt.localeCompare(b.createdAt))
       // Both sizes travel together: rails and covers render the thumbnail, the
       // hero and the sheet render the full image.
-      .map((a) => ({ uri: a.uri, thumb: a.thumb || a.uri }))
+      .map((a) => ({
+        uri: a.uri,
+        thumb: a.thumb || a.uri,
+        attribution: a.attribution ?? null,
+        source: a.source,
+      }))
       // Pre-Blob /uploads/ rows never existed on Vercel; treat them as missing (AGENTS.md § File Storage).
       .filter((p) => !p.uri.startsWith('/uploads/'))
       .slice(0, PHOTOS_PER_PLACE);

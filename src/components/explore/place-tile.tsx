@@ -5,6 +5,7 @@ import { CalendarHeart, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ExplorePlace, RailShape } from "@/lib/explore/types"
 import { flagFor } from "@/lib/explore/geo"
+import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
 import { FallbackArt } from "./fallback-art"
 import { kindLabel } from "./kind-icon"
 
@@ -128,7 +129,18 @@ export function PlaceTile({
 
       {actions && <div className="absolute right-3 top-3 z-[2] flex flex-col items-center gap-1.5">{actions}</div>}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3.5">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex flex-col items-start p-3.5">
+        {place.photos[0] &&
+          ((place.photos[0].attribution && place.photos[0].attribution.kind !== "upload") ||
+            place.photos[0].source === "google_places") && (
+          <div className="pointer-events-auto mb-1.5 max-w-full">
+            <CoverPhotoCredit
+              attribution={place.photos[0].attribution}
+              source={place.photos[0].source}
+              variant="on-photo"
+            />
+          </div>
+        )}
         {location && (
           <p className="truncate text-[11px] font-medium text-white/75">
             {flagFor(place.country) && <span className="mr-1">{flagFor(place.country)}</span>}

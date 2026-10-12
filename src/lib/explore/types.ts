@@ -1,3 +1,4 @@
+import type { AttributionMeta } from '@/db/schema/attachments';
 import type { BestTime } from './best-time';
 
 /**
@@ -57,6 +58,8 @@ export interface ExplorePlace {
 export interface ExplorePhoto {
   thumb: string;
   uri: string;
+  attribution?: AttributionMeta | null;
+  source?: string;
 }
 
 export type RailShape = 'poster' | 'landscape' | 'hero';

@@ -1,18 +1,46 @@
-'use client';
+import { cn } from '@/lib/utils';
 
 interface PoweredByGoogleProps {
   className?: string;
+  /** Light wordmark for dark photos. Default follows the app color scheme. */
+  onPhoto?: boolean;
+  /** Dark wordmark for a fixed light chip. Ignores the app color scheme. */
+  onLightSurface?: boolean;
 }
 
-const baseClass =
-  'inline-flex items-center text-[11px] font-medium text-[#5E5E5E] tracking-wide';
+const LOGO_CLASS = 'h-[18px] w-auto max-w-none';
+const LIGHT_LOGO = '/attribution/powered-by-google-light.svg';
+const DARK_LOGO = '/attribution/powered-by-google-dark.svg';
 
-export function PoweredByGoogle({ className }: PoweredByGoogleProps) {
-  const cls = className ? `${baseClass} ${className}` : baseClass;
+function Logo({ src, className }: { src: string; className?: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt="" className={cn(LOGO_CLASS, className)} width={120} height={14} />
+  );
+}
+
+export function PoweredByGoogle({
+  className,
+  onPhoto = false,
+  onLightSurface = false,
+}: PoweredByGoogleProps) {
+  const cls = cn('inline-flex shrink-0 items-center', className);
+
+  if (onLightSurface || onPhoto) {
+    return (
+      <span className={cls} aria-label="Powered by Google">
+        <Logo
+          src={onLightSurface ? LIGHT_LOGO : DARK_LOGO}
+          className={onPhoto ? 'max-w-full object-contain object-left' : undefined}
+        />
+      </span>
+    );
+  }
+
   return (
     <span className={cls} aria-label="Powered by Google">
-      Powered by{' '}
-      <span className="ml-1 text-[#1F1F1F]">Google</span>
+      <Logo src={LIGHT_LOGO} className="dark:hidden" />
+      <Logo src={DARK_LOGO} className="hidden dark:block" />
     </span>
   );
 }

@@ -15,13 +15,32 @@ import {
 import { cn } from '@/lib/utils';
 import type { Collection } from '@/types/database';
 import { useRouter } from 'next/navigation';
+import { CoverPhotoCredit } from '@/components/attribution/cover-photo-credit';
+import type { AttributionMeta } from '@/db/schema/attachments';
 import { CoverImagePickerDialog } from './cover-image-picker-dialog';
 
+export type CollectionCardPlace = {
+  coverUrl?: string | null;
+  coverAttribution?: AttributionMeta | null;
+  coverSource?: string | null;
+};
+
+export type CoverCreditUpdate = {
+  attribution: AttributionMeta | null;
+  source: string | null;
+} | null;
+
+export type CollectionCardModel = Collection & {
+  places?: CollectionCardPlace[];
+  coverAttribution?: AttributionMeta | null;
+  coverSource?: string | null;
+};
+
 interface CollectionCardProps {
-  collection: Collection & { places?: Array<{ coverUrl?: string | null }> };
+  collection: CollectionCardModel;
   placeCount?: number;
   onDelete?: (collectionId: string) => void;
-  onCoverChange?: (collectionId: string, coverUrl: string | null) => void;
+  onCoverChange?: (collectionId: string, coverUrl: string | null, credit?: CoverCreditUpdate) => void;
 }
 
 export function CollectionCard({
@@ -33,8 +52,14 @@ export function CollectionCard({
   const router = useRouter();
   const [showCoverPicker, setShowCoverPicker] = useState(false);
 
-  // Priority: custom cover > first place cover > null (icon fallback)
-  const coverUrl = collection.coverImageUrl || collection.places?.[0]?.coverUrl;
+  const fallbackPlace = collection.places?.[0];
+  const coverUrl = collection.coverImageUrl || fallbackPlace?.coverUrl;
+  const coverAttribution = collection.coverImageUrl
+    ? (collection.coverAttribution ?? null)
+    : (fallbackPlace?.coverAttribution ?? null);
+  const coverSource = collection.coverImageUrl
+    ? (collection.coverSource ?? null)
+    : (fallbackPlace?.coverSource ?? null);
 
   const handleCardClick = () => {
     router.push(`/collections/${collection.id}`);
@@ -65,11 +90,21 @@ export function CollectionCard({
           </div>
         )}
 
-        {/* Place Count Badge */}
-        <Badge className="absolute right-3 bottom-3 bg-background/95 backdrop-blur-md shadow-lg">
-          <MapPin className="h-3 w-3 mr-1.5" />
-          {placeCount} {placeCount === 1 ? 'place' : 'places'}
-        </Badge>
+        <div className="pointer-events-none absolute inset-x-2 bottom-2 z-[1] flex items-end gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            {coverUrl ? (
+              <CoverPhotoCredit
+                attribution={coverAttribution}
+                source={coverSource}
+                variant="on-photo"
+              />
+            ) : null}
+          </div>
+          <Badge className="shrink-0 bg-background/95 backdrop-blur-md shadow-lg">
+            <MapPin className="h-3 w-3 mr-1.5" />
+            {placeCount} {placeCount === 1 ? 'place' : 'places'}
+          </Badge>
+        </div>
 
         {/* Actions Dropdown (shows on hover) */}
         {onDelete && (
@@ -146,7 +181,7 @@ export function CollectionCard({
         collectionId={collection.id}
         open={showCoverPicker}
         onOpenChange={setShowCoverPicker}
-        onCoverChange={(coverUrl) => onCoverChange?.(collection.id, coverUrl)}
+        onCoverChange={(coverUrl, credit) => onCoverChange?.(collection.id, coverUrl, credit)}
       />
     </Card>
   );

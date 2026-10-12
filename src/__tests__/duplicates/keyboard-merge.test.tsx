@@ -754,6 +754,166 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(postedBodies('/api/places/bulk-merge', 'POST')).toHaveLength(1);
   });
 
+  it('refreshes a skipped pair merge without a failure toast', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          success: 0,
+          failed: 0,
+          results: [{ clusterId: 'arctic_b', status: 'skipped' }],
+        }),
+      };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainCluster()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+
+    await waitFor(() => expect(deleteCalls()).toHaveLength(1));
+    expect(refresh).toHaveBeenCalled();
+    expect(notify.error).not.toHaveBeenCalled();
+    expect(notify.success).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a skipped open-group merge without a failure toast', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          success: 0,
+          failed: 0,
+          results: [{ clusterId: 'arctic_b', status: 'skipped' }],
+        }),
+      };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainCluster()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    fireEvent.keyDown(document, { key: 'm' });
+
+    await waitFor(() => expect(deleteCalls()).toHaveLength(1));
+    expect(refresh).toHaveBeenCalled();
+    expect(notify.error).not.toHaveBeenCalled();
+    expect(notify.success).not.toHaveBeenCalled();
+  });
+
+  it('still reports a pair merge that failed', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: 0,
+        failed: 1,
+        results: [{ clusterId: 'arctic_b', status: 'error', error: 'transaction failed' }],
+      }),
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainCluster()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('transaction failed'));
+    expect(deleteCalls()).toHaveLength(0);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('refreshes when every certain-group merge is already skipped', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      const posted = JSON.parse(init?.body ?? '{}') as { clusters?: Array<{ targetId: string }> };
+      return {
+        ok: true,
+        json: async () => ({
+          success: 0,
+          failed: 0,
+          results: (posted.clusters ?? []).map((cluster) => ({ clusterId: cluster.targetId, status: 'skipped' })),
+        }),
+      };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainPair(0)]} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    await waitFor(() => expect(deleteCalls()).toHaveLength(1));
+    expect(refresh).toHaveBeenCalled();
+    expect(notify.error).not.toHaveBeenCalled();
+    expect(notify.success).not.toHaveBeenCalled();
+  });
+
+  it('still reports a certain merge when a cluster fails beside a skip', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      const posted = JSON.parse(init?.body ?? '{}') as { clusters?: Array<{ targetId: string }> };
+      const clusters = posted.clusters ?? [];
+      return {
+        ok: true,
+        json: async () => ({
+          success: 0,
+          failed: 1,
+          results: clusters.map((cluster, index) => (
+            index === 0
+              ? { clusterId: cluster.targetId, status: 'skipped' }
+              : { clusterId: cluster.targetId, status: 'error', error: 'transaction failed' }
+          )),
+        }),
+      };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[certainPair(0), certainPair(1)]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (2)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to merge 1 groups'));
+    expect(notify.success).not.toHaveBeenCalled();
+    expect(deleteCalls()).toHaveLength(0);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it('does not refresh a certain merge that throws before anything is saved', async () => {
     const { refresh, routerSpy: spy } = spyRefresh();
     routerSpy = spy;

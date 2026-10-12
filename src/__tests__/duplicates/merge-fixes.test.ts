@@ -285,6 +285,50 @@ describe('duplicate merge fixes', () => {
     expect(await readCell('SELECT status FROM places WHERE id = ?', ['plc_absorb'])).toBe('archived');
   });
 
+  it('does not merge a live source into an already archived target', async () => {
+    await insertPlace({
+      id: 'plc_sparse',
+      name: 'Sparse',
+      kind: 'cafe',
+      status: 'library',
+      notes: 'sparse note',
+    });
+    await insertPlace({
+      id: 'plc_rich',
+      name: 'Rich',
+      kind: 'restaurant',
+      status: 'inbox',
+      notes: 'rich note',
+      description: 'rich description',
+    });
+
+    const first = await bulkMergePlaces(
+      [{ targetId: 'plc_sparse', sourceIds: ['plc_rich'], confidence: 0.91 }],
+      ALICE.id
+    );
+    expect(first.success).toBe(1);
+    const sparseNotes = await readCell('SELECT notes FROM places WHERE id = ?', ['plc_sparse']);
+    const richNotes = await readCell('SELECT notes FROM places WHERE id = ?', ['plc_rich']);
+    const richDescription = await readCell('SELECT description FROM places WHERE id = ?', ['plc_rich']);
+
+    const second = await bulkMergePlaces(
+      [{ targetId: 'plc_rich', sourceIds: ['plc_sparse'], confidence: 0.91 }],
+      ALICE.id
+    );
+
+    expect(second.success).toBe(0);
+    expect(second.failed).toBe(0);
+    expect(second.results).toEqual([
+      expect.objectContaining({ clusterId: 'plc_rich', status: 'skipped' }),
+    ]);
+    expect(await readCell('SELECT status FROM places WHERE id = ?', ['plc_rich'])).toBe('archived');
+    expect(await readCell('SELECT status FROM places WHERE id = ?', ['plc_sparse'])).toBe('library');
+    expect(await readCell('SELECT notes FROM places WHERE id = ?', ['plc_sparse'])).toBe(sparseNotes);
+    expect(await readCell('SELECT notes FROM places WHERE id = ?', ['plc_rich'])).toBe(richNotes);
+    expect(await readCell('SELECT description FROM places WHERE id = ?', ['plc_rich'])).toBe(richDescription);
+    expect(Number(await readCell('SELECT COUNT(*) FROM merge_logs'))).toBe(1);
+  });
+
   it('merges a live source and leaves an already archived source out of the notes and the log', async () => {
     await insertPlace({
       id: 'plc_keep',

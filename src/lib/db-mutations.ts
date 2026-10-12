@@ -1000,7 +1000,7 @@ export async function bulkMergePlaces(
 
     for (const cluster of clusters) {
       try {
-        let skippedArchivedSources = false;
+        let skipped = false;
         await withTransaction(async (tx) => {
           const orderedSourceIds = Array.from(new Set(
             cluster.sourceIds.filter((id) => id !== cluster.targetId)
@@ -1020,10 +1020,15 @@ export async function bulkMergePlaces(
             throw new NotFoundError('One or more source places not found or unauthorized');
           }
 
+          if (targetPlace.status === 'archived') {
+            skipped = true;
+            return;
+          }
+
           const byId = new Map<string, Place>(sourcePlaces.map((place: Place) => [place.id, place]));
           const liveSourceIds = orderedSourceIds.filter((id) => byId.get(id)!.status !== 'archived');
           if (liveSourceIds.length === 0) {
-            skippedArchivedSources = true;
+            skipped = true;
             return;
           }
           const orderedSources = liveSourceIds.map((id) => byId.get(id)!);
@@ -1258,7 +1263,7 @@ export async function bulkMergePlaces(
           });
           successCount++;
         });
-        if (skippedArchivedSources) {
+        if (skipped) {
           results.push({
             clusterId: cluster.targetId,
             status: 'skipped',

@@ -98,6 +98,18 @@ function groupHasUnmergedPlace(group: QueueCluster, committedIds: ReadonlySet<st
   return group.places.some((place) => !committedIds.has(place.id));
 }
 
+type BulkMergeResponse = {
+  message?: string;
+  success?: number;
+  failed?: number;
+  results?: Array<{ clusterId?: string; status?: string; error?: string }>;
+};
+
+function everyMergeResultSkipped(result: BulkMergeResponse): boolean {
+  const results = result.results;
+  return Array.isArray(results) && results.length > 0 && results.every((entry) => entry.status === 'skipped');
+}
+
 function pairLabel(pair: DismissedPairView): string {
   const left = pair.city1 ? `${pair.name1} (${pair.city1})` : pair.name1;
   const right = pair.city2 ? `${pair.name2} (${pair.city2})` : pair.name2;
@@ -247,9 +259,13 @@ export function DuplicatesPageClient({
         }),
       });
       if (!response.ok) throw new Error('Failed to merge cluster');
-      const result = await response.json();
-      if (result.success > 0) {
+      const result = await response.json() as BulkMergeResponse;
+      if (result.success && result.success > 0) {
         notify.success(`Merged ${sourceIds.length + 1} places`);
+        setExpandedClusterId(undefined);
+        await clearScanCache();
+        router.refresh();
+      } else if (everyMergeResultSkipped(result)) {
         setExpandedClusterId(undefined);
         await clearScanCache();
         router.refresh();
@@ -293,10 +309,13 @@ export function DuplicatesPageClient({
           }],
         }),
       });
-      const result = await response.json();
+      const result = await response.json() as BulkMergeResponse;
       if (!response.ok) throw new Error(result.message || 'Failed to merge places');
-      if (result.success > 0) {
+      if (result.success && result.success > 0) {
         notify.success(`Merged "${source.name}" into "${target.name}"`);
+        await clearScanCache();
+        router.refresh();
+      } else if (everyMergeResultSkipped(result)) {
         await clearScanCache();
         router.refresh();
       } else {
@@ -321,6 +340,7 @@ export function DuplicatesPageClient({
     let rejected = false;
     let committed = false;
     let threw = false;
+    let allSkipped = true;
     try {
       for (const batch of chunkItems(unions, BULK_MERGE_CLUSTER_LIMIT)) {
         const response = await fetch('/api/places/bulk-merge', {
@@ -339,13 +359,11 @@ export function DuplicatesPageClient({
         });
         if (!response.ok) {
           rejected = true;
+          allSkipped = false;
           continue;
         }
-        const result = await response.json() as {
-          success?: number;
-          failed?: number;
-          results?: Array<{ clusterId?: string; status?: string }>;
-        };
+        const result = await response.json() as BulkMergeResponse;
+        if (!everyMergeResultSkipped(result)) allSkipped = false;
         const succeeded = new Set(
           (result.results ?? [])
             .filter((entry) => entry.status === 'success' && entry.clusterId)
@@ -368,7 +386,7 @@ export function DuplicatesPageClient({
     }
     if (failed > 0) notify.error(`Failed to merge ${failed} groups`);
     if (rejected || threw) notify.error('Failed to merge duplicates');
-    if (success > 0 || (threw && committed)) {
+    if (success > 0 || (threw && committed) || (allSkipped && failed === 0 && !rejected && !threw)) {
       setExpandedClusterId(undefined);
       try {
         await clearScanCache();

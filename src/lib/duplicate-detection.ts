@@ -117,7 +117,10 @@ export interface DuplicateGroupEdge {
   flags: DuplicateEdgeFlag[];
 }
 
-/** A place the distance split removed from a group. */
+/**
+ * A place the 2 km split removed. `fromId` is the nearest geocoded member of
+ * the survivor that lists this place, and `distanceM` is that distance.
+ */
 export interface DuplicateLeftOut {
   id: string;
   name: string;
@@ -928,11 +931,7 @@ function weakestEdgeOnFarPath(
   return best;
 }
 
-/**
- * While two geocoded members more than 2 km apart stay connected by a path
- * that is not all same-Google edges, drop the weakest non-Google edge on one
- * such path and rebuild. A same-Google place edge stays.
- */
+/** Applies the 2 km path split described on `findDuplicateClusters`. */
 function dropFarBridges(
   memberIds: readonly string[],
   edges: readonly AdmittedEdge[],
@@ -1074,17 +1073,20 @@ function leftOutForGroups(
 }
 
 /**
- * Groups are connected components of main edges. At or above the main-queue
- * score, only a Main-band pair is an edge, so a guarded same-spot pair does
- * not join two places by itself. Those places can still share a cluster
- * through other Main edges. The id is the member ids sorted and joined with
- * `+`, so it does not depend on database row order. Every pair inside the
- * component is kept, including pairs under the threshold.
+ * Groups start as connected components of admitted edges. At or above the
+ * main-queue score, only a Main-band pair is an edge, so a guarded same-spot
+ * pair does not join two places by itself. Those places can still share a
+ * cluster through other Main edges. The id is the member ids sorted and
+ * joined with `+`, so it does not depend on database row order. Every pair
+ * that remains inside a group is listed, including pairs under the threshold.
  *
- * When two geocoded members are more than 2 km apart, the weakest edge on a
- * path between them is dropped and the component is rebuilt. A place that
- * split leaves behind is `leftOut`. `mergedOn` stays null until the merge-log
- * lookup ships.
+ * While two geocoded members more than 2 km apart stay connected by a path
+ * that is not all same-Google edges, the weakest non-Google edge on one such
+ * path is dropped and the groups are rebuilt. A same Google place id stays
+ * one group. A removed place is `leftOut` on the reachable survivor whose
+ * nearest geocoded member is closest, tie-broken by group id. A survivor
+ * with no pin is ignored. `mergedOn` stays null until the merge-log lookup
+ * ships.
  */
 export function findDuplicateClusters(
   duplicateResults: Map<string, DuplicateDetectionResult>,

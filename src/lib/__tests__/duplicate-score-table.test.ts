@@ -968,7 +968,66 @@ describe('duplicate score table', () => {
       ])
     }
   })
+
+  it('keeps a bridged pair at 1.9 km and splits the same bridge past 2 km', () => {
+    const within = metresNorth(PIN, 1900)
+    const beyond = metresNorth(PIN, 2100)
+    expect(calculateLocationDistance(PIN, within) * 1000).toBeLessThanOrEqual(2000)
+    expect(calculateLocationDistance(PIN, within) * 1000).toBeGreaterThan(1800)
+    expect(calculateLocationDistance(PIN, beyond) * 1000).toBeGreaterThan(2000)
+    expect(calculateLocationDistance(PIN, beyond) * 1000).toBeLessThan(2200)
+
+    const together = bridgedClusters(within)
+    expect(together).toHaveLength(1)
+    expect(together[0].places.map((item) => item.id).sort()).toEqual(['bridge', 'here', 'there'])
+    expect(together[0].leftOut).toEqual([])
+
+    const split = bridgedClusters(beyond)
+    const gap = apart(PIN, beyond)
+    expect(split).toHaveLength(1)
+    expect(split[0].id).toBe('bridge+here')
+    expect(split[0].places.map((item) => item.id).sort()).toEqual(['bridge', 'here'])
+    expect(split[0].leftOut).toEqual([
+      {
+        id: 'there',
+        name: 'Cafe',
+        distanceM: gap.distanceM,
+        fromId: 'here',
+        reason: gap.reason,
+      },
+    ])
+  })
 })
+
+function metresNorth(
+  origin: { lat: number; lon: number },
+  metres: number,
+): { lat: number; lon: number } {
+  const lat = origin.lat + (metres / 1000 / EARTH_RADIUS_KM) * (180 / Math.PI)
+  const draft = { lat, lon: origin.lon }
+  const measured = calculateLocationDistance(origin, draft) * 1000
+  return {
+    lat: origin.lat + (lat - origin.lat) * (metres / measured),
+    lon: origin.lon,
+  }
+}
+
+function bridgedClusters(there: { lat: number; lon: number }) {
+  const here = place({ id: 'here', name: 'Cafe', coords: PIN })
+  const away = place({ id: 'there', name: 'Cafe', coords: there })
+  const bridge = place({ id: 'bridge', name: 'Cafe', coords: null })
+  return findDuplicateClusters(
+    detectionMap(
+      [here, away, bridge],
+      [
+        ['here', 'bridge', 0.9],
+        ['there', 'bridge', 0.8],
+      ],
+    ),
+    2,
+    0.6,
+  )
+}
 
 function permutations<T>(items: T[]): T[][] {
   if (items.length <= 1) return [items]

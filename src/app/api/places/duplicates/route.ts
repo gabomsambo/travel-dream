@@ -357,8 +357,8 @@ export async function GET(request: NextRequest) {
         // Batch duplicate detection for clustering
         const duplicateResults = await batchDetectDuplicates(targetPlaces, config);
 
-        // Connected components of edges at or above the caller's threshold.
-        // The page asks for 0.7. Pairs under that stay on the group as edges.
+        // Group membership is findDuplicateClusters. The page asks for 0.7.
+        // Pairs under that stay on the group's edges.
         const allClusters = findDuplicateClusters(duplicateResults, 2, minConfidence, config);
 
         // Filter out dismissed clusters (scoped to current user)

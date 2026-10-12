@@ -229,7 +229,8 @@ export function AddToCollectionDialog({
     try {
       let entry = halfBuiltByPlaces.get(selectionKey)
       let id = entry?.id
-      if (entry?.seen && !collections.some((c) => c.id === entry.id)) {
+      const shown = entry
+      if (shown?.seen && !collections.some((c) => c.id === shown.id)) {
         // The list showed it, then lost it: it was deleted, so start over.
         halfBuiltByPlaces.delete(selectionKey)
         entry = undefined

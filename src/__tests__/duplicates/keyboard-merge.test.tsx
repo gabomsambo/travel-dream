@@ -441,6 +441,20 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(dialog).toHaveTextContent('2 places across 1 certain group');
   });
 
+  it('shows an earlier merge under the queue row that it belongs to', () => {
+    mockViewport(false);
+    render(
+      <DuplicatesPageClient
+        initialData={[{ ...certainCluster(), mergedOn: '2026-09-14T12:00:00.000Z' }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    const row = screen.getByRole('button', { name: /Arctic Cathedral/ });
+    expect(row).toHaveTextContent('Matches a place you merged on 14 Sept.');
+  });
+
   it('keeps Dismiss all on a phone and keeps Merge certain groups off it', async () => {
     mockViewport(false);
     const user = userEvent.setup();

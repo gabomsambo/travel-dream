@@ -571,15 +571,15 @@ export function DuplicatesPageClient({
   const dismissable = tab === 'review' || tab === 'possible' ? activeGroups : [];
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col gap-4">
+      <div className="flex w-full min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
           <h1 className="text-2xl font-bold">Duplicates</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 max-w-full text-sm text-muted-foreground">
             Places that might be saved more than once. Merge them into one, or tell us they are different.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           <span className="text-xs text-muted-foreground">{formatChecked(fetchedAt)}</span>
           <Button size="sm" variant="outline" onClick={handleRescan} disabled={isLoading}>
             <RefreshCw className={cn('mr-1.5 h-3 w-3', isLoading && 'animate-spin')} />
@@ -627,7 +627,7 @@ export function DuplicatesPageClient({
         </div>
       )}
 
-      <div role="tablist" aria-label="Duplicate groups" className="flex gap-1 overflow-x-auto">
+      <div role="tablist" aria-label="Duplicate groups" className="flex w-full min-w-0 gap-1 overflow-x-auto">
         {([
           ['review', 'To review', reviewSorted.length],
           ['possible', 'Possible', possibleSorted.length],
@@ -650,8 +650,8 @@ export function DuplicatesPageClient({
         ))}
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
-        <div className={cn('flex flex-col gap-2', expandedClusterId && tab !== 'dismissed' && tab !== 'merged' && 'hidden md:flex')}>
+      <div className="grid min-h-0 w-full min-w-0 flex-1 gap-4 md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
+        <div className={cn('flex w-full min-w-0 flex-col gap-2', expandedClusterId && tab !== 'dismissed' && tab !== 'merged' && 'hidden md:flex')}>
           {scanError ? (
             <div className="py-12 text-center text-muted-foreground">
               <AlertCircle className="mx-auto mb-4 h-12 w-12 text-red-500/60" />

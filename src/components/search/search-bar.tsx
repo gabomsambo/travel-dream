@@ -71,9 +71,9 @@ export function SearchBar({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
       {/* Search Input */}
-      <div className="relative flex-1 max-w-md">
+      <div className="relative min-w-0 w-full max-w-md flex-1">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input
           type="search"

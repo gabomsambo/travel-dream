@@ -49,7 +49,7 @@ export function DuplicateQueueRow({
       aria-current={selected ? 'true' : undefined}
       onClick={onOpen}
       className={cn(
-        'flex w-full items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent/40',
+        'flex w-full max-w-full min-w-0 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent/40',
         selected && 'ring-2 ring-primary',
       )}
     >
@@ -80,7 +80,7 @@ export function DuplicateQueueRow({
           </span>
         </span>
         {context && (
-          <span className="mt-1 block text-sm text-muted-foreground">{context}</span>
+          <span className="mt-1 block break-words text-sm text-muted-foreground">{context}</span>
         )}
       </span>
     </button>

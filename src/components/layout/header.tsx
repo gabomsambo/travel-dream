@@ -103,17 +103,17 @@ export function Header() {
   }
 
   return (
-    <header className="flex h-16 items-center gap-2 sm:gap-4 border-b bg-background px-3 sm:px-6">
+    <header className="flex h-16 min-w-0 items-center gap-2 border-b bg-background px-3 sm:gap-4 sm:px-6">
       <MobileNav />
 
-      <div className="flex flex-1 items-center gap-4">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
         <SearchBar
           onSearch={handleSearch}
           showFilters={false}
           placeholder="Search places, cities, tags... (⌘K for advanced)"
         />
 
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <Button
             size="sm"
             variant="outline"

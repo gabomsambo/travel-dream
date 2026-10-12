@@ -69,8 +69,8 @@ describe('getExplorePlaces', () => {
   it("attaches the caller's own photos at both sizes (positive control)", async () => {
     const [alice] = (await getExplorePlaces(ALICE.id)).filter((p) => p.id === FIXTURE.alicePlace);
     expect(alice.photos).toEqual([
-      { uri: ALICE_PHOTO, thumb: ALICE_THUMB },
-      { uri: ALICE_PHOTO_NO_THUMB, thumb: ALICE_PHOTO_NO_THUMB },
+      { uri: ALICE_PHOTO, thumb: ALICE_THUMB, attribution: null, source: 'upload' },
+      { uri: ALICE_PHOTO_NO_THUMB, thumb: ALICE_PHOTO_NO_THUMB, attribution: null, source: 'upload' },
     ]);
   });
 

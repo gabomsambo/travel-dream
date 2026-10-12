@@ -128,6 +128,8 @@ interface TenantIds {
   attachment: string;
   link: string;
   reservation: string;
+  /** A saved Library view. */
+  view: string;
 }
 type Slot = keyof TenantIds;
 /** `all` = every id the request carries is foreign; a slot = only that one. */
@@ -142,6 +144,7 @@ const BOB_IDS: TenantIds = {
   attachment: 'att_bob_photo',
   link: 'lnk_bob',
   reservation: 'rsv_bob',
+  view: 'svw_bob',
 };
 
 const ALICE_IDS: TenantIds = {
@@ -153,6 +156,7 @@ const ALICE_IDS: TenantIds = {
   attachment: 'att_alice_photo',
   link: 'lnk_alice',
   reservation: 'rsv_alice',
+  view: 'svw_alice',
 };
 
 /**
@@ -170,7 +174,8 @@ function dbExec(): Exec {
 
 /**
  * The rows the fixture does not seed: a second place each, an attachment, a
- * link, a reservation, a source-to-place edge and a dismissed pair.
+ * link, a reservation, a source-to-place edge, a dismissed pair, a heart on
+ * the first place and a saved Library view.
  */
 async function seedSweepRows(): Promise<void> {
   const ex = dbExec();
@@ -222,6 +227,11 @@ async function seedSweepRows(): Promise<void> {
       `INSERT INTO dismissed_duplicates (id,user_id,place_id_1,place_id_2,reason) VALUES (?,?,?,?,?)`,
       [`dd_${label}`, owner, ids.place, ids.place2, `${label} dismissed reason`]
     );
+    await run(`INSERT INTO place_hearts (id,user_id,place_id,created_at) VALUES (?,?,?,?)`, [`hrt_${label}`, owner, ids.place, now]);
+    await run(
+      `INSERT INTO saved_views (id,user_id,name,query,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
+      [ids.view, owner, `${label} saved view`, `search=${label}`, now, now]
+    );
   }
 }
 
@@ -233,7 +243,7 @@ async function resetWorld(): Promise<void> {
   await ex({ sql: 'PRAGMA synchronous = OFF', args: [] });
   // Rows with a no-action foreign key to `users` go first, or the fixture's
   // `DELETE FROM users` trips the constraint.
-  for (const table of ['dismissed_duplicates', 'merge_logs']) {
+  for (const table of ['dismissed_duplicates', 'merge_logs', 'place_hearts', 'saved_views']) {
     await ex({ sql: `DELETE FROM ${table}`, args: [] });
   }
   await resetTenantFixture();
@@ -302,6 +312,12 @@ async function perturbBob(): Promise<void> {
   await run(`UPDATE attachments SET is_primary = 1, caption = 'bob perturbed'
              WHERE place_id IN (SELECT id FROM places WHERE user_id = 'user_bob')`);
   await run(`UPDATE dismissed_duplicates SET reason = 'bob perturbed' WHERE user_id = 'user_bob'`);
+  await run(`INSERT INTO place_hearts (id,user_id,place_id,created_at) VALUES (?,?,?,?)`, ['hrt_bob_extra', 'user_bob', 'plc_bob_extra', now]);
+  await run(
+    `INSERT INTO saved_views (id,user_id,name,query,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
+    ['svw_bob_extra', 'user_bob', 'bob extra view', 'search=bob', now, now]
+  );
+  await run(`UPDATE saved_views SET name = name || ' (bob perturbed)', query = 'country=Bobland' WHERE user_id = 'user_bob'`);
 }
 
 /** Every row of every table, as `table:json` strings (a multiset). */
@@ -413,6 +429,44 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   },
   'blob/upload': {
     POST: { exempt: 'Mints a Vercel Blob client token for a caller-proposed key; reads and writes no tenant row.' },
+  },
+
+  // --- library (hearts and saved views) -----------------------------------
+  'library/hearts': {
+    POST: [
+      {
+        name: 'heart',
+        // place2 is not hearted yet, so the owner control writes a heart; mixed with
+        // `place` it also shows a foreign id in a list hearts only the caller's own.
+        slots: ['place', 'place2'],
+        request: (t) => ({ url: `${API}/library/hearts`, body: { placeIds: [t.place, t.place2], on: true } }),
+        refuses: [200],
+        because:
+          "setHearts keeps only ids among the caller's own places (a device's old hearts can name deleted " +
+          'places), so a foreign id is skipped: 200 with it absent from `placeIds`, and nothing written for it.',
+      },
+      {
+        name: 'un-heart',
+        slots: ['place'],
+        request: (t) => ({ url: `${API}/library/hearts`, body: { placeIds: [t.place], on: false } }),
+        refuses: [200],
+        because: "As above: the foreign id is not among the caller's places, so no heart of anyone's is removed.",
+      },
+    ],
+  },
+  'library/views': {
+    GET: { slots: [], request: () => ({ url: `${API}/library/views` }) },
+    POST: {
+      slots: [],
+      request: () => ({ url: `${API}/library/views`, body: { name: 'sweep view', query: 'country=Japan&utm=dropped' } }),
+    },
+  },
+  'library/views/[id]': {
+    PATCH: {
+      slots: ['view'],
+      request: (t) => ({ url: `${API}/library/views/${t.view}`, params: { id: t.view }, body: { name: 'renamed by sweep', query: 'kind=cafe' } }),
+    },
+    DELETE: { slots: ['view'], request: (t) => ({ url: `${API}/library/views/${t.view}`, params: { id: t.view } }) },
   },
 
   // --- collections ---------------------------------------------------------
@@ -816,6 +870,11 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         slots: ['place'],
         request: (t) => ({ url: `${API}/places/bulk-actions`, body: { action, placeIds: [t.place] } }),
       })),
+      {
+        name: 'set-visit-status',
+        slots: ['place'],
+        request: (t) => ({ url: `${API}/places/bulk-actions`, body: { action: 'set-visit-status', visitStatus: 'visited', placeIds: [t.place] } }),
+      },
     ],
     GET: { exempt: 'Returns static API documentation; reads nothing.' },
   },

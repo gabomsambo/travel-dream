@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { PlaceTile } from "@/components/explore/place-tile"
 import { captionFor } from "@/lib/library/chapters"
 import type { LibraryItem } from "@/lib/library/types"
-import { useLibraryActions } from "./library-actions"
+import { useLibraryActions, useLongPress } from "./library-actions"
 import { HeartButton, LibraryPlaceMenu, SelectMark } from "./library-place-menu"
 
 /**
@@ -25,9 +25,10 @@ export function LibraryTile({
   const a = useLibraryActions()
   const caption = captionFor(item)
   const checked = a.selected.has(item.id)
+  const press = useLongPress(() => a.select(item.id), !a.selecting)
 
   return (
-    <div className="relative">
+    <div className="relative [-webkit-touch-callout:none]" {...press}>
       <PlaceTile
         place={item}
         shape="poster"
@@ -36,13 +37,13 @@ export function LibraryTile({
         showPlanned
         compact={a.selecting ? true : "mobile"}
         selected={checked}
-        onOpen={() => a.activate(item.id, siblings)}
+        onOpen={(e) => a.activate(item.id, siblings, { shiftKey: e.shiftKey })}
         className={cn("aspect-[3/4] w-full sm:w-full", className)}
         leading={
           <SelectMark
             checked={checked}
             label={`Select ${item.name}`}
-            onToggle={() => a.toggleSelect(item.id)}
+            onToggle={(e) => a.toggleSelect(item.id, { shiftKey: e.shiftKey })}
             className={cn(
               !a.selecting &&
                 "hidden [@media(hover:hover)]:group-hover:flex [@media(hover:hover)]:group-has-[:focus-visible]:flex"

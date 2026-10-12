@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks } from '@/db/schema';
 import { appendNote, mergePlaceFields, sanitizeMergeFieldOverrides, type MergeFieldOverrides } from '@/lib/place-merge';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
+import { forUser } from './tenant-db';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId, NotFoundError } from './db-utils';
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
 import { isClaimableNow } from './mass-upload/queue-sql';
@@ -1283,6 +1284,30 @@ export async function undoMerge(mergeLogId: string, userId: string): Promise<voi
         .where(eq(mergeLogs.id, mergeLogId));
     });
   }, 'undoMerge');
+}
+
+/**
+ * Sets the visit status (Dreaming / Planned / Been) on the caller's places. Dates
+ * are left as they are, so moving a place back keeps the visit or the plan it had.
+ */
+export async function batchSetVisitStatus(
+  placeIds: string[],
+  visitStatus: 'not_visited' | 'planned' | 'visited',
+  userId: string
+): Promise<number> {
+  return withErrorHandling(async () => {
+    const tdb = forUser(userId);
+    let updated = 0;
+    for (let i = 0; i < placeIds.length; i += 50) {
+      const result = await tdb.update(
+        places,
+        { visitStatus, updatedAt: new Date().toISOString() },
+        inArray(places.id, placeIds.slice(i, i + 50))
+      );
+      updated += result.rowsAffected ?? 0;
+    }
+    return updated;
+  }, 'batchSetVisitStatus');
 }
 
 export async function batchArchivePlaces(placeIds: string[], userId: string): Promise<number> {

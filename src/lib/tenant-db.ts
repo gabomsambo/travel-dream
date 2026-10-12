@@ -44,15 +44,17 @@ import {
   attachments,
   collections,
   dismissedDuplicates,
+  placeHearts,
   places,
   placesToCollections,
+  savedViews,
   sources,
   sourcesToPlaces,
   uploadSessions,
 } from '@/db/schema';
 
 /** Tables that carry `user_id` themselves. */
-const OWNED = [places, sources, collections, uploadSessions, dismissedDuplicates] as const;
+const OWNED = [places, sources, collections, uploadSessions, dismissedDuplicates, placeHearts, savedViews] as const;
 
 /** Any table this module will scope by its own `user_id` column. */
 export type OwnedTable = (typeof OWNED)[number];
@@ -178,6 +180,15 @@ function scopedOn(exec: Executor, userId: string) {
      */
     insert<T extends OwnedTable>(table: T, values: Omit<T['$inferInsert'], 'userId'>) {
       return exec.insert(table).values({ ...values, userId } as T['$inferInsert']);
+    },
+
+    /**
+     * As `insert`, for several rows in one statement, with `user_id` forced to
+     * this user on every one of them. `values` must not be empty.
+     */
+    insertMany<T extends OwnedTable>(table: T, values: Array<Omit<T['$inferInsert'], 'userId'>>) {
+      if (!values.length) throw new Error('tenant-db: insertMany() needs at least one row');
+      return exec.insert(table).values(values.map((v) => ({ ...v, userId }) as T['$inferInsert']));
     },
   };
 }

@@ -1,5 +1,6 @@
 import React from 'react'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { LibraryMapView } from '@/components/library/library-map-view'
 import { LibraryActionsContext, type LibraryActions } from '@/components/library/library-actions'
 import type { CoverStats } from '@/components/library/library-cover'
@@ -25,6 +26,7 @@ const actions: LibraryActions = {
   openPlace: jest.fn(),
   archive: jest.fn(),
   remove: jest.fn(),
+  addToCollection: jest.fn(),
   findImage: jest.fn(),
 }
 
@@ -67,6 +69,30 @@ describe('LibraryMapView layout', () => {
     expect(chip.className).toContain('top-3')
     expect(chip.className).toContain('left-3')
     expect(chip.className).not.toContain('bottom-3')
+  })
+})
+
+describe('LibraryMapView selection', () => {
+  it('passes shift-click through so a range can be selected', async () => {
+    const user = userEvent.setup()
+    const activate = jest.fn()
+    const siblings = items.map((p) => p.id)
+    render(
+      <LibraryActionsContext.Provider value={{ ...actions, selecting: true, activate }}>
+        <LibraryMapView chapters={[{ key: 'all', title: 'All', items }]} items={items} siblings={siblings} stats={stats} />
+      </LibraryActionsContext.Provider>
+    )
+    const row = (id: string) => {
+      const el = document.querySelector<HTMLButtonElement>(`button[data-place-id="${id}"]`)
+      if (!el) throw new Error(`missing row ${id}`)
+      return el
+    }
+    await user.click(row('plc_been'))
+    await user.keyboard('{Shift>}')
+    await user.click(row('plc_dreaming'))
+    await user.keyboard('{/Shift}')
+    expect(activate).toHaveBeenNthCalledWith(1, 'plc_been', siblings, { shiftKey: false })
+    expect(activate).toHaveBeenLastCalledWith('plc_dreaming', siblings, { shiftKey: true })
   })
 })
 

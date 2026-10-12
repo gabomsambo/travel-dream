@@ -22,7 +22,7 @@ import {
   resetTenantFixture,
 } from '../helpers/tenant-fixture';
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   attachments,
   collections,
@@ -276,6 +276,19 @@ describe('forUser() confines every query to one tenant, against a real database'
 
     const asBob = await forUser(BOB.id).select(collections, eq(collections.id, 'col_alice_new'));
     expect(asBob).toEqual([]);
+  });
+
+  it('forces user_id on every row of insertMany, even one that names another user', async () => {
+    const rows = [
+      { id: 'col_many_1', name: 'One' },
+      // A smuggled userId is overwritten, not trusted (the type forbids it; cast to prove the runtime).
+      { id: 'col_many_2', name: 'Two', userId: BOB.id } as unknown as { id: string; name: string },
+    ];
+    await forUser(ALICE.id).insertMany(collections, rows);
+    const mine = await forUser(ALICE.id).select(collections, inArray(collections.id, ['col_many_1', 'col_many_2']));
+    expect(mine.map((r) => r.userId)).toEqual([ALICE.id, ALICE.id]);
+    expect(await forUser(BOB.id).select(collections, inArray(collections.id, ['col_many_1', 'col_many_2']))).toEqual([]);
+    expect(() => forUser(ALICE.id).insertMany(collections, [])).toThrow(/at least one row/);
   });
 
   it('separates "no such row" from "someone else\'s row" without disclosing it', async () => {

@@ -1,5 +1,7 @@
 # Library: "Chapters" redesign (build 1 of 2)
 
+Build 2's tools (command-bar search, filters, smart shelves, saved views, select, add to collection, account hearts) are in [`docs/evidence/td-library-tools/README.md`](../td-library-tools/README.md). The captures below are this build.
+
 Live captures from headless Chromium 152 (`chrome-devtools-axi`) against `next dev` on a
 local port, signed in as local seed users, against a throwaway copy of the scouts' enriched
 seed served by a local `libsql-server` container. Nothing pointed at production. Desktop is
@@ -35,8 +37,8 @@ Accounts:
 | ![](after-desktop-journal.jpg) | **Journal**, grouped by Collection: a collage header for each trip, the serif name, your note as an italic quote, and "✓ Been · date ★ · Tip from · Saved". |
 | ![](after-desktop-map.jpg) | **Map**: the chapters as a list beside the app's existing Mapbox map, with the passport and most-saved cities below. This machine has no `NEXT_PUBLIC_MAPBOX_TOKEN`, so the map panel shows its no-token state (as `/map` does locally). With a dummy token the react-map-gl map mounts and fails only at Mapbox's token check. |
 | ![](after-desktop-group-menu.jpg) | **Group by**: Country (default) · City · Collection · Shelf · Kind · Best month to go · Date saved · No grouping. |
-| ![](after-desktop-filters.jpg) | **Filters** is today's panel, unchanged in behaviour, behind a button in a side sheet. All 13 place types are listed (it used to cut off at 12), the types are multi-select, and "Neighborhood" no longer overlaps its neighbour. |
-| ![](after-desktop-selection.jpg) | **Select**: marks on every tile, and today's selection toolbar in the sticky bar (All/None, Archive, Delete; Add to collection is still disabled until build 2). |
+| ![](after-desktop-filters.jpg) | **Filters** in this build: the existing panel, behind a button in a side sheet. All 13 place types are listed (it used to cut off at 12), the types are multi-select, and "Neighborhood" no longer overlaps its neighbour. Build 2 replaces this panel. |
+| ![](after-desktop-selection.jpg) | **Select** in this build: marks on every tile, and a selection toolbar in the sticky bar (All/None, Archive, Delete). Add to collection is disabled in this capture; build 2 turns it on. |
 | ![](after-desktop-no-matches.jpg) | Filtered to nothing: the filters in plain words, and Clear filters. |
 | ![](after-desktop-chapters-classic-dark.jpg) | Chapters, classic dark. |
 | ![](after-desktop-chapters-tropical-dark.jpg) | Chapters, tropical dark. |

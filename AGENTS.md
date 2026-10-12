@@ -174,8 +174,8 @@ The inbox `ProcessingBanner` is in-flight only; completion belongs to the bell.
 ## Multi-Tenancy (security-critical)
 
 Every user-owned table carries a `userId` (`places`, `sources`, `collections`, `uploadSessions`,
-`dismissedDuplicates`). **Authentication is not authorization**: any handler that reads or writes a
-row by a caller-supplied id must also filter on the caller's `user.id`.
+`dismissedDuplicates`, `placeHearts`, `savedViews`). **Authentication is not authorization**: any
+handler that reads or writes a row by a caller-supplied id must also filter on the caller's `user.id`.
 
 The tables with no `user_id` of their own are owned transitively through another table, which is not
 always `places`: `attachments` via `places`, `sources_to_places` via `sources`,

@@ -1,5 +1,5 @@
 -- travel-dream PRODUCTION schema (read-only dump) — ground truth for baselining
--- captured 69 objects; NO row data included
+-- captured 69 objects (74 after the 2026-10-11 additions below); NO row data included
 --
 -- Body captured 2026-07-24 from the production Turso database, schema only, no rows.
 -- This is the reference `src/db/migrations/0000_baseline.sql` was built to reproduce.
@@ -14,6 +14,13 @@
 -- received those same ALTER statements verbatim on the same engine version
 -- (SQLite 3.47.0), and `ALTER TABLE ... ADD COLUMN` appends the column-def text
 -- unchanged, so the stored DDL matches.
+--
+-- 2026-10-11 — `place_hearts` and `saved_views` (with their three indexes) added for
+-- `src/db/migrations/20261011160042_add_place_hearts_and_saved_views.sql`. Derived
+-- without production access by the 2026-08-29 method: replaying that migration onto
+-- this file and copying back SQLite's resulting `sqlite_master.sql`. It describes
+-- production only AFTER that migration is applied there — apply it (backup first,
+-- `npm run db:migrate`) before the PR that adds it is merged or deployed.
 --
 -- Do not hand-edit. To refresh: turso db shell <db> ".schema" (read-only) and re-verify.
 
@@ -76,6 +83,16 @@ CREATE TABLE dismissed_duplicates (id text PRIMARY KEY NOT NULL, place_id_1 text
 -- [table] merge_logs
 CREATE TABLE merge_logs (id text PRIMARY KEY NOT NULL, target_id text NOT NULL, source_ids text NOT NULL, merged_data text, source_snapshots text, confidence real NOT NULL, performed_by text DEFAULT 'user' NOT NULL, performed_at text DEFAULT CURRENT_TIMESTAMP NOT NULL, undone integer DEFAULT false NOT NULL, undon_at text);
 
+-- [table] place_hearts
+CREATE TABLE `place_hearts` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`place_id` text NOT NULL,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`place_id`) REFERENCES `places`(`id`) ON UPDATE no action ON DELETE cascade
+);
+
 -- [table] place_links
 CREATE TABLE `place_links` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -137,6 +154,17 @@ CREATE TABLE `reservations` (
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	FOREIGN KEY (`place_id`) REFERENCES `places`(`id`) ON UPDATE no action ON DELETE cascade
+);
+
+-- [table] saved_views
+CREATE TABLE `saved_views` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`name` text NOT NULL,
+	`query` text NOT NULL,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 
 -- [table] sessions
@@ -251,6 +279,12 @@ CREATE INDEX merge_logs_target_idx ON merge_logs (target_id);
 -- [index] merge_logs_undone_idx
 CREATE INDEX merge_logs_undone_idx ON merge_logs (undone);
 
+-- [index] place_hearts_place_idx
+CREATE INDEX `place_hearts_place_idx` ON `place_hearts` (`place_id`);
+
+-- [index] place_hearts_user_place_idx
+CREATE UNIQUE INDEX `place_hearts_user_place_idx` ON `place_hearts` (`user_id`,`place_id`);
+
 -- [index] place_links_place_id_idx
 CREATE INDEX `place_links_place_id_idx` ON `place_links` (`place_id`);
 
@@ -323,6 +357,9 @@ CREATE INDEX `reservations_place_id_idx` ON `reservations` (`place_id`);
 
 -- [index] reservations_status_idx
 CREATE INDEX `reservations_status_idx` ON `reservations` (`status`);
+
+-- [index] saved_views_user_idx
+CREATE INDEX `saved_views_user_idx` ON `saved_views` (`user_id`);
 
 -- [index] sessions_user_idx
 CREATE INDEX sessions_user_idx ON sessions(user_id);

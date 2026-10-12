@@ -18,11 +18,22 @@ export interface LibraryItem extends ExplorePlace {
   practicalInfo: string | null;
 }
 
+/** A named Library view, as the page reads it: the saved URL query. */
+export interface SavedViewRow {
+  id: string;
+  name: string;
+  query: string;
+}
+
 export interface LibraryData {
+  userId: string;
   items: LibraryItem[];
   collections: ExploreCollection[];
   /** Places still waiting in the Inbox — the "Needs review" shelf links there. */
   inboxCount: number;
+  /** Hearted place ids, from the account. May name Inbox places, which the page never shows. */
+  heartIds: string[];
+  savedViews: SavedViewRow[];
 }
 
 /** The four ways the Library can be read. `grid` keeps its old URL value. */

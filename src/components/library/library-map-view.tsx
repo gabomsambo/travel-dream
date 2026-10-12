@@ -32,7 +32,7 @@ function Row({ p, siblings }: { p: LibraryItem; siblings: string[] }) {
       <button
         type="button"
         data-place-id={p.id}
-        onClick={() => a.activate(p.id, siblings)}
+        onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })}
         className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted sm:h-16 sm:w-16">

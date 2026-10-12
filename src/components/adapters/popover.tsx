@@ -33,4 +33,7 @@ const PopoverContent = React.forwardRef<
 })
 PopoverContent.displayName = PopoverPrimitive.Content.displayName
 
-export { Popover, PopoverTrigger, PopoverContent }
+/** Positions the popover against an element other than its trigger (both generations share Radix's Root). */
+const PopoverAnchor = PopoverPrimitive.Anchor
+
+export { Popover, PopoverTrigger, PopoverContent, PopoverAnchor }

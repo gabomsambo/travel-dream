@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { AnimatePresence, animate, motion, useMotionValue, useTransform, type PanInfo } from "framer-motion"
 import { ArrowUp, FolderPlus, Heart, Loader2, RotateCcw, Shuffle, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { isDream, setDream } from "@/lib/explore/dreams"
+import { isDream, seedAccountHearts, setDream } from "@/lib/explore/dreams"
 import { flagFor } from "@/lib/explore/geo"
 import { savedAgoLabel } from "@/lib/explore/rails"
 import {
@@ -45,13 +45,24 @@ function deckShortcutsBlocked(e: KeyboardEvent): boolean {
   return (e.key === "Enter" || e.key === " ") && !!target.closest(ACTIVATABLE)
 }
 
+const NO_HEARTS: string[] = []
+
 /**
  * Daydream mode: one full-screen card at a time. Right (or ♥, or →) keeps the
  * place in your dreams; left (or ✕, or ←) moves on; ↑ opens the full story.
- * "Dreams" reuse the Library's existing favorites store, so a heart here is a
- * heart there too.
+ * A heart here is the same account heart as on the Library.
  */
-export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref: string; deck: string[] }) {
+export function ShuffleDeck({
+  title,
+  backHref,
+  deck,
+  heartIds = NO_HEARTS,
+}: {
+  title: string
+  backHref: string
+  deck: string[]
+  heartIds?: string[]
+}) {
   const router = useRouter()
   const { places, openPlace, busy } = useExplore()
   const [activeDeck, setActiveDeck] = React.useState(deck)
@@ -63,6 +74,10 @@ export function ShuffleDeck({ title, backHref, deck }: { title: string; backHref
   const [session, setSession] = React.useState<ShuffleSession>(emptySession)
   const [coach, setCoach] = React.useState(false)
   const [exitDir, setExitDir] = React.useState<1 | -1>(1)
+
+  React.useLayoutEffect(() => {
+    seedAccountHearts(heartIds)
+  }, [heartIds])
 
   React.useEffect(() => {
     try {

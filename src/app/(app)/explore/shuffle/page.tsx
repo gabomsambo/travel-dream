@@ -2,6 +2,7 @@ import { notFound } from "next/navigation"
 import { requireAuth } from "@/lib/auth-helpers"
 import { loadExploreCached } from "@/lib/explore/load"
 import { shufflePool, weightedShuffle } from "@/lib/explore/shuffle"
+import { getHeartIds } from "@/lib/library/store"
 import { ShuffleDeck } from "@/components/explore/shuffle-deck"
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
@@ -11,7 +12,7 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
 export default async function ShufflePage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams
   const user = await requireAuth()
-  const { places } = await loadExploreCached(user.id)
+  const [{ places }, heartIds] = await Promise.all([loadExploreCached(user.id), getHeartIds(user.id)])
   const now = new Date()
   const scope = shufflePool(
     places,
@@ -22,5 +23,5 @@ export default async function ShufflePage({ searchParams }: { searchParams: Sear
   const { title, backHref, pool } = scope
   // Random per visit on purpose: a fresh deck every time you open it.
   const deck = weightedShuffle(pool, now).map((p) => p.id)
-  return <ShuffleDeck title={title} backHref={backHref} deck={deck} />
+  return <ShuffleDeck title={title} backHref={backHref} deck={deck} heartIds={heartIds} />
 }

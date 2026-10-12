@@ -9,6 +9,7 @@ export * from './dismissed-duplicates';
 export * from './attachments';
 export * from './placeLinks';
 export * from './reservations';
+export * from './library';
 
 // Re-export tables for convenience
 export { users, accounts, sessions, verificationTokens } from './auth';
@@ -21,6 +22,7 @@ export { dismissedDuplicates } from './dismissed-duplicates';
 export { attachments } from './attachments';
 export { placeLinks } from './placeLinks';
 export { reservations } from './reservations';
+export { placeHearts, savedViews } from './library';
 
 // Export all relations for Drizzle
 export {

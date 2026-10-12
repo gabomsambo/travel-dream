@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import {
   ArrowUpDown, BookOpen, Calendar, Check, ChevronDown, Download, FileSpreadsheet, FileText, Folder, Globe2,
   LayoutGrid, Layers, List, Loader2, Map, MapPin, Rows3, SquareCheck, Sun, Tag, X,
@@ -35,9 +36,10 @@ const pill =
   "inline-flex h-[30px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border bg-background px-3 text-xs font-medium outline-none transition hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
 
 /**
- * The one row of tools under the cover: how the chapters are grouped, the
- * filter panel, the active filters, sort, the four views, export and select.
- * Sticks under the app header while the chapters scroll.
+ * The tools under the cover: how the chapters are grouped, the filters, sort,
+ * the four views, export and select — then, when anything is filtered, a row
+ * of removable chips. Sticks under the app header while the chapters scroll,
+ * and publishes its height as `--library-bar-h` for the index rail.
  */
 export function LibraryViewBar({
   showGroup = true,
@@ -45,8 +47,6 @@ export function LibraryViewBar({
   onGroup,
   filtersSlot,
   chips,
-  shownCount,
-  totalCount,
   sort,
   onSort,
   view,
@@ -57,16 +57,14 @@ export function LibraryViewBar({
   onExport,
   selecting,
   onSelectToggle,
-  below,
 }: {
   /** False while the page is too small to group (the sparse grid). */
   showGroup?: boolean
   group: GroupMode
   onGroup: (g: GroupMode) => void
   filtersSlot: React.ReactNode
+  /** The removable filter chips row, shown under the tools when anything is on. */
   chips: React.ReactNode
-  shownCount: number
-  totalCount: number
   sort: string
   onSort: (s: string) => void
   view: LibraryView
@@ -77,27 +75,45 @@ export function LibraryViewBar({
   onExport: (format: ExportFormat) => void
   selecting: boolean
   onSelectToggle: () => void
-  /** Rendered inside the sticky block, under the tools (the selection toolbar). */
-  below?: React.ReactNode
 }) {
   const groupLabel = GROUP_MODES.find((g) => g.value === group)?.label ?? "Country"
   const sortLabel = SORTS.find((s) => s.value === sort)?.label ?? SORTS[0].label
   const current = VIEW_OPTIONS.find((v) => v.value === view) ?? VIEW_OPTIONS[0]
+  const ref = React.useRef<HTMLDivElement>(null)
+
+  React.useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const root = document.documentElement
+    const publish = () => root.style.setProperty("--library-bar-h", `${el.offsetHeight}px`)
+    publish()
+    const ro = new ResizeObserver(publish)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      root.style.removeProperty("--library-bar-h")
+    }
+  }, [])
 
   return (
     // The (app) <main> scrolls with 12/24px padding; the negative top pins the bar to its very top edge.
-    <div className="sticky -top-3 z-20 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:-top-6">
+    <div ref={ref} className="sticky -top-3 z-20 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:-top-6">
       <div className="flex items-center gap-2 overflow-x-auto px-4 py-2.5 hide-scrollbar sm:px-8 sm:py-3">
+        {/* The filters take what the row can spare and scroll inside it; the tools on the right never get cut off. */}
+        <div className="flex shrink-0 items-center hide-scrollbar lg:min-w-0 lg:flex-1 lg:shrink lg:overflow-x-auto">{filtersSlot}</div>
+        <span className="hidden flex-1 sm:block lg:hidden" />
+
         {showGroup && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" className={pill} aria-label={`Group by ${groupLabel}`}>
+            <button type="button" className={cn(pill, "max-sm:order-2")} aria-label={`Group by ${groupLabel}`}>
               <Layers className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Group:</span> <b className="font-semibold">{groupLabel}</b>
+              <span className="hidden 2xl:inline">Group:</span>
+              <span className="hidden lg:inline 2xl:hidden">By</span> <b className="font-semibold">{groupLabel}</b>
               <ChevronDown className="h-3 w-3 opacity-60" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-[340px] max-w-[calc(100vw-2rem)]">
+          <DropdownMenuContent align="end" className="w-[340px] max-w-[calc(100vw-2rem)]">
             <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               Group the library by
             </DropdownMenuLabel>
@@ -117,19 +133,11 @@ export function LibraryViewBar({
         </DropdownMenu>
         )}
 
-        {filtersSlot}
-        <div className="hidden min-w-0 items-center lg:flex">{chips}</div>
-
-        <span className="flex-1 max-sm:order-2" />
-        <span className="hidden whitespace-nowrap text-xs text-muted-foreground md:inline" aria-live="polite">
-          {shownCount === totalCount ? `${totalCount} places` : `${shownCount} of ${totalCount}`}
-        </span>
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" className={cn(pill, "border-transparent bg-transparent px-2 max-sm:order-5 sm:px-3")} aria-label={`Sort: ${sortLabel}`}>
+            <button type="button" className={cn(pill, "border-transparent bg-transparent px-2 max-sm:order-4 sm:px-3")} aria-label={`Sort: ${sortLabel}`}>
               <ArrowUpDown className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{sortLabel}</span>
+              <span className="hidden sm:max-lg:inline 2xl:inline">{sortLabel}</span>
               <ChevronDown className="h-3 w-3 opacity-60" />
             </button>
           </DropdownMenuTrigger>
@@ -184,9 +192,9 @@ export function LibraryViewBar({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" className={cn(pill, "max-sm:order-6")} disabled={exportDisabled || isExporting} aria-label={exportLabel}>
+            <button type="button" className={cn(pill, "max-sm:order-5")} disabled={exportDisabled || isExporting} aria-label={exportLabel}>
               {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">{exportLabel}</span>
+              <span className="hidden sm:max-lg:inline 2xl:inline">{exportLabel}</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -205,15 +213,17 @@ export function LibraryViewBar({
         <button
           type="button"
           aria-pressed={selecting}
+          aria-keyshortcuts="s"
+          title={selecting ? "Done selecting (Esc)" : "Select places (s)"}
           onClick={onSelectToggle}
-          className={cn(pill, "max-sm:order-4", selecting && "border-transparent bg-foreground text-background hover:bg-foreground/90")}
+          // Phones: Select sits right after Filters, so it never scrolls out of reach.
+          className={cn(pill, "max-sm:order-1", selecting && "border-transparent bg-foreground text-background hover:bg-foreground/90")}
         >
           {selecting ? <X className="h-3.5 w-3.5" /> : <SquareCheck className="h-3.5 w-3.5" />}
           {selecting ? "Done" : "Select"}
         </button>
       </div>
-      {chips && <div className="px-4 pb-2.5 empty:hidden sm:px-8 lg:hidden">{chips}</div>}
-      {below}
+      {chips}
     </div>
   )
 }

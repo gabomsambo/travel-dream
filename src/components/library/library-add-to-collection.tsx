@@ -14,13 +14,13 @@ import { LibrarySheet } from "./library-sheet"
 const ADD_BATCH = 100
 
 // A collection is created before its places go in, so a failed add leaves a
-// real, empty collection behind. Remembered per (name, places) — shared by every
-// chooser on the page and across reopenings — so a retry fills that collection
-// instead of creating a second one under the same name. The same pattern as the
-// place page's "Add to trip": an entry is dropped as deleted only once the
-// collection list has shown it and then lost it — before the refresh lands, a
-// missing collection just means "not shown yet".
-type HalfBuiltEntry = { id: string; seen: boolean; added: Set<string> }
+// real collection behind. Remembered per selected places — shared by every
+// chooser on the page and across reopenings — so a retry fills that one
+// instead of creating a second. Toasts use the name saved at create, or the
+// collection row once a refresh has it; editing the field does not rename it.
+// Dropped as deleted only once the list has shown it and then lost it —
+// before the refresh lands, a missing collection just means "not shown yet".
+type HalfBuiltEntry = { id: string; name: string; seen: boolean; added: Set<string> }
 
 /** Keyed by the selected place ids so a retry reuses the collection even if the name changed. */
 const halfBuiltByPlaces = new Map<string, HalfBuiltEntry>()
@@ -33,20 +33,26 @@ export function resetHalfBuiltCollectionsForTests() {
   halfBuiltByPlaces.clear()
 }
 
-function memberIds(collectionId: string, collections: ExploreCollection[]): Set<string> {
-  return new Set(collections.find((c) => c.id === collectionId)?.placeIds ?? [])
-}
-
-/** Places from this selection not yet in the collection or recorded as added locally. */
+/**
+ * Places from this selection still missing. Once the collection is in the
+ * snapshot, only that row's place ids count — a later undo or removal puts
+ * those places back in the batch. Until the row shows up, places recorded on
+ * this attempt stand in for the snapshot.
+ */
 export function freshPlacesForHalfBuilt(
   collectionId: string,
   placeIds: string[],
   collections: ExploreCollection[],
   entry: HalfBuiltEntry | undefined
 ): string[] {
-  const members = memberIds(collectionId, collections)
-  const local = entry?.added ?? new Set<string>()
-  return placeIds.filter((id) => !members.has(id) && !local.has(id))
+  const row = collections.find((c) => c.id === collectionId)
+  const members = new Set(row ? row.placeIds : [...(entry?.added ?? [])])
+  return placeIds.filter((id) => !members.has(id))
+}
+
+/** Name to announce: the refreshed row when we have it, otherwise the name saved at create. */
+function storedCollectionName(collectionId: string, collections: ExploreCollection[], savedName: string): string {
+  return collections.find((c) => c.id === collectionId)?.name ?? savedName
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<{ status: number; body: T | null }> {
@@ -233,20 +239,22 @@ export function AddToCollectionDialog({
         const { body } = await postJson<{ collection: { id: string } }>("/api/collections", { name, description: null })
         if (!body?.collection?.id) throw new Error("No collection id")
         id = body.collection.id
-        entry = { id, seen: false, added: new Set() }
+        entry = { id, name, seen: false, added: new Set() }
         halfBuiltByPlaces.set(selectionKey, entry)
       }
+      if (!entry) throw new Error("No collection id")
       const fresh = freshPlacesForHalfBuilt(id, ids, collections, entry)
       const { added, failed } = await addPlaces(id, fresh)
       for (const placeId of added) entry.added.add(placeId)
       const remaining = freshPlacesForHalfBuilt(id, ids, collections, entry)
       if (failed === 0 && remaining.length === 0) halfBuiltByPlaces.delete(selectionKey)
       const already = ids.length - fresh.length
-      finish(id, name, added, already, failed)
+      finish(id, storedCollectionName(id, collections, entry.name), added, already, failed)
     } catch {
       const orphan = halfBuiltByPlaces.get(selectionKey)
+      const label = orphan ? storedCollectionName(orphan.id, collections, orphan.name) : name
       notify.error(
-        orphan ? `${name} was created, but the places didn't save to it.` : "Couldn't create that collection. Try again in a moment.",
+        orphan ? `${label} was created, but the places didn't save to it.` : "Couldn't create that collection. Try again in a moment.",
         orphan ? { description: "Press Create again to fill it — you won't get a second copy." } : undefined
       )
       if (orphan) router.refresh()

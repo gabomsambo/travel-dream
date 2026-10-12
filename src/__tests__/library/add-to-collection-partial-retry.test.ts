@@ -74,14 +74,21 @@ describe('add-to-collection partial retry (API)', () => {
     const first = await postPlaces(collectionId, ['plc_retry_a', 'plc_retry_b']);
     expect(first.body.results?.successful).toEqual(['plc_retry_a', 'plc_retry_b']);
 
-    const entry = { id: collectionId, seen: false, added: new Set(['plc_retry_a', 'plc_retry_b']) };
+    const selected = ['plc_retry_a', 'plc_retry_b', 'plc_retry_c'];
+    const entry = { id: collectionId, name: 'Kyoto trip', seen: false, added: new Set(['plc_retry_a', 'plc_retry_b']) };
     const fresh = freshPlacesForHalfBuilt(
       collectionId,
-      ['plc_retry_a', 'plc_retry_b', 'plc_retry_c'],
+      selected,
       [{ id: collectionId, name: 'Kyoto trip', placeIds: ['plc_retry_a', 'plc_retry_b'] }],
       entry
     );
     expect(fresh).toEqual(['plc_retry_c']);
+    // Until the row is in the snapshot, the local record is the membership we have.
+    expect(freshPlacesForHalfBuilt(collectionId, selected, [], entry)).toEqual(['plc_retry_c']);
+    // Once the row is back without those places (undo or a removal), they are fresh again.
+    expect(
+      freshPlacesForHalfBuilt(collectionId, selected, [{ id: collectionId, name: 'Kyoto trip', placeIds: [] }], entry)
+    ).toEqual(selected);
 
     const second = await postPlaces(collectionId, fresh);
     expect(second.body.results?.successful).toEqual(['plc_retry_c']);

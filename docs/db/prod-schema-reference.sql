@@ -1,5 +1,5 @@
 -- travel-dream PRODUCTION schema (read-only dump) — ground truth for baselining
--- captured 75 objects; NO row data included
+-- captured 74 objects; NO row data included
 --
 -- Body captured 2026-07-24 from the production Turso database, schema only, no rows.
 -- This is the reference `src/db/migrations/0000_baseline.sql` was built to reproduce.
@@ -23,13 +23,13 @@
 -- `npm run db:migrate`) before the PR that adds it is merged or deployed.
 --
 -- 2026-10-12 — `user_id` is NOT NULL on `places`, `sources`, `collections`,
--- `upload_sessions` and `dismissed_duplicates`
--- (`src/db/migrations/20261012125529_user_id_not_null.sql`). SQLite rebuilds each
--- table, so this file is the full `sqlite_master` after replaying the journal,
--- not a column patched in place. `place_hearts` and `saved_views` were already
--- NOT NULL and are unchanged. It describes production only AFTER that migration
--- is applied there — apply it (backup first, `npm run db:migrate`) before the
--- reading deploy is promoted.
+-- `upload_sessions` and `dismissed_duplicates` for
+-- `src/db/migrations/20261012125529_user_id_not_null.sql`. Derived without
+-- production access by the 2026-08-29 method: replaying that migration onto
+-- this file and copying back SQLite's resulting `sqlite_master.sql`.
+-- `place_hearts` and `saved_views` were already NOT NULL and are unchanged.
+-- This file describes production after that migration is applied — apply it
+-- (backup first, `npm run db:migrate`) before the reading deploy is promoted.
 --
 -- Do not hand-edit. To refresh: turso db shell <db> ".schema" (read-only) and re-verify.
 
@@ -283,7 +283,7 @@ CREATE TABLE "upload_sessions" (
 CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text,
-	`email` text NOT NULL,
+	`email` text NOT NULL UNIQUE,
 	`email_verified` integer,
 	`image` text,
 	`hashed_password` text,
@@ -466,6 +466,3 @@ CREATE INDEX `upload_sessions_user_idx` ON `upload_sessions` (`user_id`);
 
 -- [index] users_email_idx
 CREATE INDEX `users_email_idx` ON `users` (`email`);
-
--- [index] users_email_unique
-CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);

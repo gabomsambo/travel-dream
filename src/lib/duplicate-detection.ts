@@ -986,6 +986,10 @@ function nearestGeocoded(
   return best;
 }
 
+function groupKey(ids: readonly string[]): string {
+  return [...ids].sort().join('+');
+}
+
 function leftOutForGroups(
   memberIds: readonly string[],
   survivors: readonly string[][],
@@ -1015,34 +1019,52 @@ function leftOutForGroups(
 
     const seen = new Set<string>([leftoverId]);
     const queue = [leftoverId];
-    let group: string[] | undefined;
-    while (queue.length > 0 && !group) {
+    const reached = new Map<string, { id: string; metres: number } | null>();
+    while (queue.length > 0) {
       const id = queue.shift()!;
       for (const next of adjacency.get(id) ?? []) {
-        const owner = survivorOf.get(next);
-        if (owner) {
-          group = owner;
-          break;
-        }
         if (seen.has(next)) continue;
         seen.add(next);
-        queue.push(next);
+        const owner = survivorOf.get(next);
+        if (!owner) {
+          queue.push(next);
+          continue;
+        }
+        const key = groupKey(owner);
+        let nearest = reached.get(key);
+        if (nearest === undefined) {
+          nearest = nearestGeocoded(place, owner, placesById);
+          reached.set(key, nearest);
+        }
+        if (nearest === null) queue.push(next);
       }
     }
-    if (!group) continue;
 
-    const nearest = nearestGeocoded(place, group, placesById);
-    if (!nearest) continue;
-    const key = [...group].sort().join('+');
-    const list = byGroup.get(key) ?? [];
+    let bestKey: string | null = null;
+    let best: { id: string; metres: number } | null = null;
+    for (const [key, nearest] of reached) {
+      if (!nearest) continue;
+      const closer = best === null || nearest.metres < best.metres;
+      const sameDistanceEarlierId = best !== null
+        && bestKey !== null
+        && nearest.metres === best.metres
+        && key.localeCompare(bestKey) < 0;
+      if (closer || sameDistanceEarlierId) {
+        best = nearest;
+        bestKey = key;
+      }
+    }
+    if (!best || bestKey === null) continue;
+
+    const list = byGroup.get(bestKey) ?? [];
     list.push({
       id: place.id,
       name: place.name,
-      distanceM: Math.round(nearest.metres),
-      fromId: nearest.id,
-      reason: formatDistanceApart(nearest.metres),
+      distanceM: Math.round(best.metres),
+      fromId: best.id,
+      reason: formatDistanceApart(best.metres),
     });
-    byGroup.set(key, list);
+    byGroup.set(bestKey, list);
   }
 
   for (const list of byGroup.values()) {

@@ -27,6 +27,7 @@ import {
   dismissPairsForCluster,
   distinctPlaceCount,
   emptyReviewCopy,
+  filterDismissedClusters,
   isCertainGroup,
   possibleGroups,
   queueContextLine,
@@ -397,6 +398,21 @@ describe('duplicate queue certainty on local places', () => {
     expect(recommendMergeTarget(unions[0].places)).toBe('B');
   });
 
+  it('keeps a To-review component when only its Possible chord was dismissed', () => {
+    const review = reviewCluster(
+      ['A', 'B', 'C'],
+      [['A', 'B', 0.85], ['B', 'C', 0.75], ['A', 'C', 0.65]],
+    );
+    const dismissed = new Set(['C:A']);
+
+    const kept = filterDismissedClusters([review], dismissed);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].places.map((place) => place.id)).toEqual(['A', 'B', 'C']);
+    expect(possibleGroups([review], dismissed)).toEqual([]);
+
+    expect(filterDismissedClusters([review], new Set(['A:B']))).toEqual([]);
+  });
+
   it('dismisses a Possible group by its weak edges and leaves the review pair', () => {
     const groups = possibleGroups([bandCluster(
       ['A', 'B', 'C'],
@@ -435,6 +451,17 @@ function googleEdge(a: string, b: string, score: number, sameGoogle: boolean): D
     for: [],
     against: [],
     flags: sameGoogle ? ['same Google place'] : [],
+  };
+}
+
+function reviewCluster(ids: string[], scores: Array<[string, string, number]>) {
+  const cluster = bandCluster(ids, scores);
+  return {
+    ...cluster,
+    edges: cluster.edges.map((edge) => ({
+      ...edge,
+      included: edge.score >= DUPLICATE_PAGE_BAND.reviewMin,
+    })),
   };
 }
 

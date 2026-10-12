@@ -385,6 +385,29 @@ function pairWasDismissed(dismissed: Set<string>, a: string, b: string): boolean
   return dismissed.has(`${a}:${b}`) || dismissed.has(`${b}:${a}`);
 }
 
+export function filterDismissedClusters<T extends {
+  places: Array<{ id: string }>;
+  edges?: Array<{ a: string; b: string; included: boolean }>;
+}>(
+  clusters: T[],
+  dismissed: Set<string>,
+): T[] {
+  return clusters.filter((cluster) => {
+    const included = (cluster.edges ?? []).filter((edge) => edge.included);
+    if (included.length > 0) {
+      return included.every((edge) => !pairWasDismissed(dismissed, edge.a, edge.b));
+    }
+    for (let i = 0; i < cluster.places.length; i++) {
+      for (let j = i + 1; j < cluster.places.length; j++) {
+        if (pairWasDismissed(dismissed, cluster.places[i].id, cluster.places[j].id)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+}
+
 function isPossibleScore(score: number): boolean {
   return score >= DUPLICATE_PAGE_BAND.possibleMin && score < DUPLICATE_PAGE_BAND.reviewMin;
 }

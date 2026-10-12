@@ -7,7 +7,7 @@ import {
   DEFAULT_DETECTION_CONFIG,
   type DuplicateDetectionConfig
 } from '@/lib/duplicate-detection';
-import { DUPLICATE_PAGE_BAND, possibleGroups, type QueuePlace } from '@/lib/duplicate-certainty';
+import { DUPLICATE_PAGE_BAND, filterDismissedClusters, possibleGroups, type QueuePlace } from '@/lib/duplicate-certainty';
 import { loadDuplicateQueueExtras } from '@/lib/duplicate-queue-data';
 // TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
 // Not migrated in the change that introduced the accessor: the largest of the
@@ -19,7 +19,6 @@ import { places, dismissedDuplicates } from '@/db/schema';
 import { eq, and, ne } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
-import type { Place } from '@/types/database';
 import {
   clearDuplicateScanCache,
   getDuplicateScanCache,
@@ -74,25 +73,6 @@ async function getDismissedPairsSet(userId: string): Promise<Set<string>> {
   }
 
   return dismissedSet;
-}
-
-function filterDismissedClusters<T extends { places: Place[] }>(
-  clusters: T[],
-  dismissedSet: Set<string>
-): T[] {
-  return clusters.filter(cluster => {
-    // Check if ANY pair in cluster is dismissed
-    for (let i = 0; i < cluster.places.length; i++) {
-      for (let j = i + 1; j < cluster.places.length; j++) {
-        const key1 = `${cluster.places[i].id}:${cluster.places[j].id}`;
-        const key2 = `${cluster.places[j].id}:${cluster.places[i].id}`;
-        if (dismissedSet.has(key1) || dismissedSet.has(key2)) {
-          return false;
-        }
-      }
-    }
-    return true;
-  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

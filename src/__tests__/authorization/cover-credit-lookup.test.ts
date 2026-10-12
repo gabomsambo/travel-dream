@@ -22,7 +22,7 @@ const GOOGLE_THUMB = `${GOOGLE_URI}?w=400`;
 const UPLOAD_URL = 'https://store.public.blob.vercel-storage.com/alice-upload.jpg';
 const UNKNOWN_BLOB = 'https://store.public.blob.vercel-storage.com/not-an-attachment.jpg';
 
-const pexelsAttribution = {
+const pexelsAttribution: AttributionMeta = {
   kind: 'pexels',
   photographer: 'Ada Lovelace',
   photographerUrl: 'https://www.pexels.com/@ada',

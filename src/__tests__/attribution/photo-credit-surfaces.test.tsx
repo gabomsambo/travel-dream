@@ -158,7 +158,7 @@ describe('photo credit surfaces', () => {
       reservations: [],
       sources: [],
       collections: [],
-    } as PlaceWithRelations;
+    } as unknown as PlaceWithRelations;
 
     const hero = render(
       <PlaceHero

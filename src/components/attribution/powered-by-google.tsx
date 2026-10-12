@@ -29,7 +29,10 @@ export function PoweredByGoogle({
   if (onLightSurface || onPhoto) {
     return (
       <span className={cls} aria-label="Powered by Google">
-        <Logo src={onLightSurface ? LIGHT_LOGO : DARK_LOGO} />
+        <Logo
+          src={onLightSurface ? LIGHT_LOGO : DARK_LOGO}
+          className={onPhoto ? 'max-w-full object-contain object-left' : undefined}
+        />
       </span>
     );
   }

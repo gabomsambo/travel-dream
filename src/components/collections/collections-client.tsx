@@ -187,7 +187,9 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
   ) => {
     setCollections(prev => prev.map(c => {
       if (c.id !== collectionId) return c;
-      if (coverUrl === null) return { ...c, coverImageUrl: null };
+      if (coverUrl === null) {
+        return { ...c, coverImageUrl: null, coverAttribution: null, coverSource: null };
+      }
       return {
         ...c,
         coverImageUrl: coverUrl,

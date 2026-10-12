@@ -56,10 +56,10 @@ export function CollectionCard({
   const coverUrl = collection.coverImageUrl || fallbackPlace?.coverUrl;
   const coverAttribution = collection.coverImageUrl
     ? (collection.coverAttribution ?? null)
-    : (fallbackPlace?.coverAttribution ?? collection.coverAttribution ?? null);
+    : (fallbackPlace?.coverAttribution ?? null);
   const coverSource = collection.coverImageUrl
     ? (collection.coverSource ?? null)
-    : (fallbackPlace?.coverSource ?? collection.coverSource ?? null);
+    : (fallbackPlace?.coverSource ?? null);
 
   const handleCardClick = () => {
     router.push(`/collections/${collection.id}`);
@@ -75,21 +75,12 @@ export function CollectionCard({
       {/* Cover Image Section */}
       <div className="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-primary/30 via-accent/20 to-secondary/40">
         {coverUrl ? (
-          <>
-            <img
-              src={coverUrl}
-              alt={collection.name}
-              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-              onClick={handleCardClick}
-            />
-            <div className="absolute bottom-2 left-2 right-14 z-[1]">
-              <CoverPhotoCredit
-                attribution={coverAttribution}
-                source={coverSource}
-                variant="on-photo"
-              />
-            </div>
-          </>
+          <img
+            src={coverUrl}
+            alt={collection.name}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+            onClick={handleCardClick}
+          />
         ) : (
           <div
             className="flex h-full w-full items-center justify-center"
@@ -99,11 +90,21 @@ export function CollectionCard({
           </div>
         )}
 
-        {/* Place Count Badge */}
-        <Badge className="absolute right-3 bottom-3 bg-background/95 backdrop-blur-md shadow-lg">
-          <MapPin className="h-3 w-3 mr-1.5" />
-          {placeCount} {placeCount === 1 ? 'place' : 'places'}
-        </Badge>
+        <div className="pointer-events-none absolute inset-x-2 bottom-2 z-[1] flex items-end gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            {coverUrl ? (
+              <CoverPhotoCredit
+                attribution={coverAttribution}
+                source={coverSource}
+                variant="on-photo"
+              />
+            ) : null}
+          </div>
+          <Badge className="shrink-0 bg-background/95 backdrop-blur-md shadow-lg">
+            <MapPin className="h-3 w-3 mr-1.5" />
+            {placeCount} {placeCount === 1 ? 'place' : 'places'}
+          </Badge>
+        </div>
 
         {/* Actions Dropdown (shows on hover) */}
         {onDelete && (

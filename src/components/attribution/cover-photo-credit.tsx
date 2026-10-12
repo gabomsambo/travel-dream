@@ -25,7 +25,7 @@ export function CoverPhotoCredit({
   return (
     <div
       className={cn(
-        'pointer-events-auto flex max-w-[min(100%,14rem)] flex-wrap items-center gap-1.5',
+        'pointer-events-auto flex min-w-0 max-w-[min(100%,14rem)] items-center gap-1.5 overflow-hidden',
         onPhoto &&
           'rounded-md bg-black/45 px-1.5 py-0.5 backdrop-blur-sm [@media(prefers-color-scheme:light)]:bg-black/35',
         className
@@ -35,13 +35,13 @@ export function CoverPhotoCredit({
         <PhotoAttribution
           attribution={attribution}
           className={cn(
-            '!mt-0 line-clamp-1 text-[9px] leading-tight sm:text-[10px]',
+            '!mt-0 min-w-0 overflow-hidden line-clamp-1 text-[9px] leading-tight sm:text-[10px]',
             onPhoto ? '!text-white/75 [&_a]:text-white/90 [&_a]:hover:text-white' : '!text-muted-foreground/80'
           )}
         />
       )}
       {source === 'google_places' && (
-        <PoweredByGoogle onPhoto={onPhoto} className={onPhoto ? 'shrink-0' : undefined} />
+        <PoweredByGoogle onPhoto={onPhoto} className={onPhoto ? 'min-w-0 max-w-full shrink' : undefined} />
       )}
     </div>
   );

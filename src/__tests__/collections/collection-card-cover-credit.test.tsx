@@ -119,4 +119,28 @@ describe('CollectionCard cover credit', () => {
     );
     expect(screen.getByRole('link', { name: 'Grace Hopper' })).toBeInTheDocument();
   });
+
+  it('does not keep a removed cover credit on the fallback upload', () => {
+    render(
+      <CollectionCard
+        collection={collection({
+          coverImageUrl: null,
+          coverAttribution: pexels,
+          coverSource: 'google_places',
+          places: [{
+            coverUrl: 'https://store.public.blob.vercel-storage.com/fallback.jpg',
+            coverAttribution: null,
+            coverSource: 'upload',
+          }],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('img', { name: 'Lisbon' })).toHaveAttribute(
+      'src',
+      'https://store.public.blob.vercel-storage.com/fallback.jpg',
+    );
+    expect(screen.queryByRole('link', { name: 'Ada Lovelace' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Powered by Google')).not.toBeInTheDocument();
+  });
 });

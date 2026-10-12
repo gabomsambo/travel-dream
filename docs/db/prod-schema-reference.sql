@@ -26,7 +26,9 @@
 -- `upload_sessions` and `dismissed_duplicates` for
 -- `src/db/migrations/20261012125529_user_id_not_null.sql`. Derived without
 -- production access by the 2026-08-29 method: replaying that migration onto
--- this file and copying back SQLite's resulting `sqlite_master.sql`.
+-- this file and copying back SQLite's resulting `sqlite_master.sql`, except
+-- `users.email`, which stays production's inline `UNIQUE` rather than the
+-- journal's `users_email_unique` index (`docs/db/MIGRATION_SAFETY.md`).
 -- `place_hearts` and `saved_views` were already NOT NULL and are unchanged.
 -- This file describes production after that migration is applied — apply it
 -- (backup first, `npm run db:migrate`) before the reading deploy is promoted.

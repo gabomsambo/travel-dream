@@ -425,6 +425,28 @@ describe('duplicate queue certainty on local places', () => {
       .sort();
     expect(keys).toEqual(['A:C', 'B:C']);
   });
+
+  it('dismisses a To-review group by its included edges and leaves the Possible chord', () => {
+    const wide = bandCluster(
+      ['A', 'B', 'C'],
+      [['A', 'B', 0.85], ['B', 'C', 0.75], ['A', 'C', 0.65]],
+    );
+    const review = reviewCluster(
+      ['A', 'B', 'C'],
+      [['A', 'B', 0.85], ['B', 'C', 0.75], ['A', 'C', 0.65]],
+    ) as QueueCluster;
+
+    const keys = dismissPairsForCluster(review)
+      .map((pair) => [pair.placeId1, pair.placeId2].sort().join(':'))
+      .sort();
+    expect(keys).toEqual(['A:B', 'B:C']);
+
+    const dismissed = new Set(
+      dismissPairsForCluster(review).map((pair) => `${pair.placeId1}:${pair.placeId2}`),
+    );
+    expect(filterDismissedClusters([review], dismissed)).toEqual([]);
+    expect(possibleGroups([wide], dismissed).map((group) => group.cluster_id)).toEqual(['A+C']);
+  });
 });
 
 function googlePlace(id: string, googlePlaceId: string | null) {

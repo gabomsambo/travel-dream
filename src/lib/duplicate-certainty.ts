@@ -359,7 +359,10 @@ export function dismissPairsForCluster(cluster: QueueCluster): Array<{ placeId1:
   };
 
   if (cluster.edges && cluster.edges.length > 0) {
-    for (const edge of cluster.edges) push(edge.a, edge.b);
+    for (const edge of cluster.edges) {
+      if (!edge.included) continue;
+      push(edge.a, edge.b);
+    }
     return pairs;
   }
 

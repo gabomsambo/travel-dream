@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { Button } from "@/components/adapters/button"
 import { Separator } from "@/components/adapters/separator"
 import {
@@ -39,8 +40,10 @@ const navigation = {
 
 function useToReviewCount(): number {
   const [count, setCount] = useState(0)
+  const desktop = useMediaQuery('(min-width: 768px)', false)
 
   useEffect(() => {
+    if (!desktop) return
     let cancelled = false
     const load = () => {
       fetch('/api/places/duplicates?mode=clusters&minConfidence=0.7&limit=1000&includeReasoning=false')
@@ -58,7 +61,7 @@ function useToReviewCount(): number {
       cancelled = true
       window.removeEventListener('td:duplicates-changed', load)
     }
-  }, [])
+  }, [desktop])
 
   return count
 }

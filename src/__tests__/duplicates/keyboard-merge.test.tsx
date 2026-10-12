@@ -197,6 +197,26 @@ function overlappingCertainGroups() {
   };
 }
 
+function reviewWithPossibleChord() {
+  const alpha = place('place_a', 'Alpha');
+  const beta = place('place_b', 'Beta');
+  const gamma = place('place_c', 'Gamma');
+  const chord = edge('place_a', 'place_c', 0.65, null, 0.5);
+  chord.included = false;
+  return {
+    cluster_id: 'place_a+place_b+place_c',
+    avgConfidence: 0.8,
+    places: [alpha, beta, gamma],
+    edges: [
+      edge('place_a', 'place_b', 0.85, 40, 0.9),
+      edge('place_b', 'place_c', 0.75, 80, 0.8),
+      chord,
+    ],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
 function possibleDismissGroups() {
   const alpha = place('place_a', 'Alpha');
   const beta = place('place_b', 'Beta');
@@ -380,6 +400,30 @@ describe('duplicates keyboard and bulk confirmation', () => {
       .map((pair) => [pair.placeId1, pair.placeId2].sort().join(':'))
       .sort();
     expect(keys).toEqual(['place_a:place_c', 'place_b:place_c']);
+  });
+
+  it('dismisses a To-review group without writing its Possible chord', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true }),
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[reviewWithPossibleChord()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+
+    const keys = (postedBody('/api/places/dismiss-duplicate', 'POST').pairs ?? [])
+      .map((pair) => [pair.placeId1, pair.placeId2].sort().join(':'))
+      .sort();
+    expect(keys).toEqual(['place_a:place_b', 'place_b:place_c']);
   });
 
   it('names Possible and merged work on an empty To review list', () => {

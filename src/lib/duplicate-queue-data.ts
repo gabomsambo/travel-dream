@@ -19,12 +19,10 @@ interface PhotoRow {
 /**
  * Queue fields the clusters payload did not carry yet: screenshot counts,
  * whether a photo exists, the merged-on date, the Not duplicates list, and
- * the Merged list. Place ids are the caller's own rows; every query is
- * narrowed to those ids or to `userId`.
+ * the Merged list. Merge history joins `merge_logs` to the caller's places.
  */
 export async function loadDuplicateQueueExtras(
   userId: string,
-  ownedPlaceIds: string[],
   clusters: DuplicateCluster[],
   possible: DuplicateCluster[],
 ): Promise<{
@@ -40,7 +38,7 @@ export async function loadDuplicateQueueExtras(
   const [shotCounts, photoUrls, logs, dismissed] = await Promise.all([
     screenshotCounts(userId, memberIds),
     photoUrlsFor(memberIds),
-    mergeLogsFor(ownedPlaceIds),
+    mergeLogsFor(userId),
     dismissedPairsFor(userId),
   ]);
 
@@ -60,7 +58,6 @@ export async function loadDuplicateQueueExtras(
     possible: possible.map(apply),
     dismissed,
     merged: logs
-      .filter((log) => ownedPlaceIds.includes(log.targetId))
       .map((log) => ({
         id: log.id,
         keptPlaceId: log.targetId,
@@ -125,8 +122,7 @@ interface OwnedMergeLog extends MergeLogMatch {
   sourceIds: string[];
 }
 
-async function mergeLogsFor(ownedPlaceIds: string[]): Promise<OwnedMergeLog[]> {
-  if (ownedPlaceIds.length === 0) return [];
+async function mergeLogsFor(userId: string): Promise<OwnedMergeLog[]> {
   const rows = await db.select({
     id: mergeLogs.id,
     targetId: mergeLogs.targetId,
@@ -138,7 +134,7 @@ async function mergeLogsFor(ownedPlaceIds: string[]): Promise<OwnedMergeLog[]> {
   }).from(mergeLogs)
     .innerJoin(places, eq(places.id, mergeLogs.targetId))
     .where(and(
-      inArray(mergeLogs.targetId, ownedPlaceIds),
+      eq(places.userId, userId),
       eq(mergeLogs.undone, false),
     ));
 

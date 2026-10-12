@@ -103,11 +103,15 @@ export function DuplicatesPageClient({
   const [isLoading, setIsLoading] = useState(false);
   const [rescanError, setRescanError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
+  const [desktop, setDesktop] = useState(false);
   const openIntentRef = useRef<OpenGroupMergeIntent | null>(null);
 
   const reviewSorted = useMemo(() => sortQueueGroups(review), [review]);
   const possibleSorted = useMemo(() => sortQueueGroups(possibleGroups), [possibleGroups]);
-  const certain = useMemo(() => certainGroups(reviewSorted), [reviewSorted]);
+  const certain = useMemo(
+    () => certainGroups([...reviewSorted, ...possibleSorted]),
+    [reviewSorted, possibleSorted],
+  );
   const activeGroups = tab === 'possible' ? possibleSorted : tab === 'review' ? reviewSorted : [];
   const scanError = rescanError ?? fetchError;
   const emptyCopy = emptyReviewCopy({ possibleCount: possibleSorted.length, merged });
@@ -373,6 +377,14 @@ export function DuplicatesPageClient({
   }, []);
 
   useEffect(() => {
+    const media = window.matchMedia('(min-width: 768px)');
+    const apply = () => setDesktop(media.matches);
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         document.activeElement?.tagName === 'INPUT' ||
@@ -466,17 +478,19 @@ export function DuplicatesPageClient({
             <DropdownMenuTrigger
               aria-label="More"
               disabled={isLoading}
-              className="hidden h-8 items-center justify-center rounded-md border bg-background px-2.5 shadow-xs md:inline-flex disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex h-8 items-center justify-center rounded-md border bg-background px-2.5 shadow-xs disabled:pointer-events-none disabled:opacity-50"
             >
               <MoreHorizontal className="h-4 w-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                disabled={certain.length === 0 || isLoading}
-                onSelect={() => setConfirm({ kind: 'merge-certain', groups: certain })}
-              >
-                Merge certain groups ({certain.length})
-              </DropdownMenuItem>
+              {desktop && (
+                <DropdownMenuItem
+                  disabled={certain.length === 0 || isLoading}
+                  onSelect={() => setConfirm({ kind: 'merge-certain', groups: certain })}
+                >
+                  Merge certain groups ({certain.length})
+                </DropdownMenuItem>
+              )}
               {(tab === 'review' || tab === 'possible') && (
                 <DropdownMenuItem
                   disabled={dismissable.length === 0 || isLoading}

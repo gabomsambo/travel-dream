@@ -2,6 +2,7 @@ import { citiesMatch } from '@/lib/city-names';
 import {
   calculateNameSimilarity,
   checkAlternativeNames,
+  type DuplicateCluster,
   type DuplicateGroupEdge,
   type DuplicateLeftOut,
 } from '@/lib/duplicate-detection';
@@ -212,7 +213,6 @@ export function certaintyWord(cluster: QueueCluster): CertaintyWord {
   }
   if (edge.score >= DUPLICATE_PAGE_BAND.likelyMin) return 'likely';
   if (near || altNameHit(placeA, placeB)) return 'likely';
-  if (missingPins) return 'likely';
   return 'maybe';
 }
 
@@ -242,10 +242,102 @@ export function sortQueueGroups<T extends QueueCluster>(clusters: T[]): T[] {
   });
 }
 
-/** Wide groups whose members are not already in a To-review group. */
-export function groupsOutsideReview<T extends { places: { id: string }[] }>(wide: T[], review: T[]): T[] {
-  const taken = new Set(review.flatMap((cluster) => cluster.places.map((place) => place.id)));
-  return wide.filter((cluster) => cluster.places.every((place) => !taken.has(place.id)));
+function pairWasDismissed(dismissed: Set<string>, a: string, b: string): boolean {
+  return dismissed.has(`${a}:${b}`) || dismissed.has(`${b}:${a}`);
+}
+
+function isPossibleScore(score: number): boolean {
+  return score >= DUPLICATE_PAGE_BAND.possibleMin && score < DUPLICATE_PAGE_BAND.reviewMin;
+}
+
+/**
+ * Possible groups are connected components of edges in [0.60, 0.70), after
+ * dismissed pairs are removed. A weak edge that touches a To-review member
+ * stays its own group.
+ */
+export function possibleGroups<T extends { id: string }>(
+  wide: Array<{ places: T[]; edges?: DuplicateGroupEdge[] }>,
+  dismissed: Set<string> = new Set(),
+): Array<Omit<DuplicateCluster, 'places'> & { places: T[] }> {
+  const placeById = new Map<string, T>();
+  for (const cluster of wide) {
+    for (const place of cluster.places) placeById.set(place.id, place);
+  }
+
+  const edgeByKey = new Map<string, DuplicateGroupEdge>();
+  for (const cluster of wide) {
+    for (const edge of cluster.edges ?? []) {
+      if (!isPossibleScore(edge.score) || pairWasDismissed(dismissed, edge.a, edge.b)) continue;
+      if (!placeById.has(edge.a) || !placeById.has(edge.b)) continue;
+      const key = edge.a < edge.b ? `${edge.a}\0${edge.b}` : `${edge.b}\0${edge.a}`;
+      const previous = edgeByKey.get(key);
+      if (!previous || edge.score > previous.score) edgeByKey.set(key, edge);
+    }
+  }
+
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    let root = id;
+    while ((parent.get(root) ?? root) !== root) root = parent.get(root)!;
+    let cursor = id;
+    while (cursor !== root) {
+      const next = parent.get(cursor) ?? cursor;
+      parent.set(cursor, root);
+      cursor = next;
+    }
+    return root;
+  };
+  const link = (a: string, b: string) => {
+    if (!parent.has(a)) parent.set(a, a);
+    if (!parent.has(b)) parent.set(b, b);
+    let rootA = find(a);
+    let rootB = find(b);
+    if (rootA === rootB) return;
+    if (rootA > rootB) [rootA, rootB] = [rootB, rootA];
+    parent.set(rootB, rootA);
+  };
+
+  for (const edge of edgeByKey.values()) link(edge.a, edge.b);
+
+  const components = new Map<string, string[]>();
+  for (const id of parent.keys()) {
+    const root = find(id);
+    const members = components.get(root);
+    if (members) members.push(id);
+    else components.set(root, [id]);
+  }
+
+  const groups: Array<Omit<DuplicateCluster, 'places'> & { places: T[] }> = [];
+  for (const memberIds of components.values()) {
+    if (memberIds.length < 2) continue;
+    memberIds.sort();
+    const places: T[] = [];
+    for (const id of memberIds) {
+      const place = placeById.get(id);
+      if (place) places.push(place);
+    }
+    if (places.length !== memberIds.length) continue;
+
+    const memberSet = new Set(memberIds);
+    const edges = [...edgeByKey.values()]
+      .filter((edge) => memberSet.has(edge.a) && memberSet.has(edge.b))
+      .map((edge) => ({ ...edge, included: true }));
+    if (edges.length === 0) continue;
+
+    const id = memberIds.join('+');
+    groups.push({
+      id,
+      cluster_id: id,
+      places,
+      avgConfidence: edges.reduce((sum, edge) => sum + edge.score, 0) / edges.length,
+      weakestIncludedScore: Math.min(...edges.map((edge) => edge.score)),
+      edges,
+      leftOut: [],
+      mergedOn: null,
+    });
+  }
+
+  return groups.sort((a, b) => b.avgConfidence - a.avgConfidence || a.id.localeCompare(b.id));
 }
 
 export function keptPlace(cluster: QueueCluster): QueuePlace {

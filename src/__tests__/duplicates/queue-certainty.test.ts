@@ -7,6 +7,7 @@
  */
 import {
   ALICE,
+  FIXTURE,
   assertLocalDatabase,
   resetTenantFixture,
 } from '../helpers/tenant-fixture';
@@ -18,13 +19,14 @@ import {
   batchDetectDuplicates,
   findDuplicateClusters,
   DEFAULT_DETECTION_CONFIG,
+  type DuplicateGroupEdge,
 } from '@/lib/duplicate-detection';
 import {
   certaintyWord,
   certainGroups,
   emptyReviewCopy,
-  groupsOutsideReview,
   isCertainGroup,
+  possibleGroups,
   queueContextLine,
   DUPLICATE_PAGE_BAND,
   type QueueCluster,
@@ -177,7 +179,7 @@ describe('duplicate queue certainty on local places', () => {
     });
     const review = findDuplicateClusters(detected, 2, DUPLICATE_PAGE_BAND.reviewMin) as QueueCluster[];
     const wide = findDuplicateClusters(detected, 2, DUPLICATE_PAGE_BAND.possibleMin) as QueueCluster[];
-    const possible = groupsOutsideReview(wide, review);
+    const possible = possibleGroups(wide);
 
     const sushi = byMember(review, 'plc_sushi_a');
     const arctic = byMember(review, 'plc_arctic_a');
@@ -245,6 +247,16 @@ describe('duplicate queue certainty on local places', () => {
       performedAt: '2026-10-11T15:00:00.000Z',
       undone: false,
     });
+    await db.insert(mergeLogs).values({
+      id: 'mrg_bob',
+      targetId: FIXTURE.bobPlace,
+      sourceIds: ['plc_bob_old'],
+      sourceSnapshots: [{ name: 'Secret' }],
+      confidence: 0.9,
+      performedBy: 'user',
+      performedAt: '2026-10-10T15:00:00.000Z',
+      undone: false,
+    });
 
     const places = await alicePlaces();
     const detected = await batchDetectDuplicates(places, {
@@ -253,16 +265,11 @@ describe('duplicate queue certainty on local places', () => {
     });
     const review = findDuplicateClusters(detected, 2, DUPLICATE_PAGE_BAND.reviewMin);
     const wide = findDuplicateClusters(detected, 2, DUPLICATE_PAGE_BAND.possibleMin);
-    const possible = groupsOutsideReview(wide, review);
+    const possible = possibleGroups(wide);
     expect(review.find((cluster) => cluster.places.some((place) => place.id === 'plc_fushimi_a'))).toBeUndefined();
     expect(possible.some((cluster) => cluster.places.some((place) => place.id === 'plc_fushimi_a'))).toBe(true);
 
-    const extras = await loadDuplicateQueueExtras(
-      ALICE.id,
-      places.map((place) => place.id),
-      [],
-      [],
-    );
+    const extras = await loadDuplicateQueueExtras(ALICE.id, [], []);
     const copy = emptyReviewCopy({
       possibleCount: possible.length,
       merged: extras.merged,
@@ -276,5 +283,95 @@ describe('duplicate queue certainty on local places', () => {
     expect(extras.merged).toEqual([
       expect.objectContaining({ keptName: 'Iguazu Falls', keptPlaceId: 'plc_igu', placeCount: 3 }),
     ]);
+    expect(extras.merged.map((entry) => entry.keptPlaceId)).not.toContain(FIXTURE.bobPlace);
+  });
+
+  it('keeps a 0.65 pair on Possible when another edge is already To review', () => {
+    const possible = possibleGroups([bandCluster(
+      ['A', 'B', 'C'],
+      [['A', 'B', 0.85], ['A', 'C', 0.65], ['B', 'C', 0.4]],
+    )]);
+
+    expect(possible.map((group) => group.cluster_id)).toEqual(['A+C']);
+    expect(possible[0].places.map((place) => place.id)).toEqual(['A', 'C']);
+  });
+
+  it('keeps an undismissed 0.65 pair when another pair in the wide group was dismissed', () => {
+    const possible = possibleGroups(
+      [bandCluster(
+        ['A', 'B', 'C'],
+        [['A', 'B', 0.66], ['A', 'C', 0.65]],
+      )],
+      new Set(['A:B']),
+    );
+
+    expect(possible.map((group) => group.cluster_id)).toEqual(['A+C']);
+    expect(possible[0].places.map((place) => place.id)).not.toContain('B');
+  });
+
+  it('labels an exact name with no pins under 0.80 as Maybe', () => {
+    const under = lagoonCluster(0.79);
+    const atLikely = lagoonCluster(0.91);
+
+    expect(certaintyWord(under)).toBe('maybe');
+    expect(isCertainGroup(under)).toBe(false);
+    expect(certaintyWord(atLikely)).toBe('likely');
   });
 });
+
+function bandCluster(ids: string[], scores: Array<[string, string, number]>) {
+  return {
+    places: ids.map((id) => ({ id, name: id })),
+    edges: scores.map(([a, b, score]): DuplicateGroupEdge => ({
+      a,
+      b,
+      score,
+      included: score >= DUPLICATE_PAGE_BAND.possibleMin,
+      distanceM: null,
+      factors: { name: 0.5, location: 0, kind: 1, city: 1, country: 1 },
+      for: [],
+      against: [],
+      flags: [],
+    })),
+  };
+}
+
+function lagoonCluster(score: number): QueueCluster {
+  return {
+    cluster_id: 'lagoon_a+lagoon_b',
+    avgConfidence: score,
+    places: [
+      {
+        id: 'lagoon_a',
+        name: 'Blue Lagoon',
+        kind: 'attraction',
+        city: null,
+        country: 'Iceland',
+        coords: null,
+        googlePlaceId: null,
+        altNames: [],
+      },
+      {
+        id: 'lagoon_b',
+        name: 'Blue Lagoon',
+        kind: 'attraction',
+        city: null,
+        country: null,
+        coords: null,
+        googlePlaceId: null,
+        altNames: [],
+      },
+    ] as QueueCluster['places'],
+    edges: [{
+      a: 'lagoon_a',
+      b: 'lagoon_b',
+      score,
+      included: true,
+      distanceM: null,
+      factors: { name: 1, location: 0, kind: 1, city: 0, country: 0 },
+      for: [],
+      against: [],
+      flags: [],
+    }],
+  };
+}

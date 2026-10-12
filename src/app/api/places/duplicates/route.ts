@@ -7,7 +7,7 @@ import {
   DEFAULT_DETECTION_CONFIG,
   type DuplicateDetectionConfig
 } from '@/lib/duplicate-detection';
-import { DUPLICATE_PAGE_BAND, groupsOutsideReview } from '@/lib/duplicate-certainty';
+import { DUPLICATE_PAGE_BAND, possibleGroups, type QueuePlace } from '@/lib/duplicate-certainty';
 import { loadDuplicateQueueExtras } from '@/lib/duplicate-queue-data';
 // TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
 // Not migrated in the change that introduced the accessor: the largest of the
@@ -29,13 +29,21 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutes for duplicate detection
 
+function parseQueryBoolean(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1') return true;
+  if (normalized === 'false' || normalized === '0') return false;
+  return value;
+}
+
 // Request validation schemas
 const DuplicateQuerySchema = z.object({
   placeId: z.string().nullable().optional(),
   status: z.enum(['inbox', 'library', 'archived']).nullable().optional(),
   limit: z.coerce.number().min(1).max(5000).default(1000),
   minConfidence: z.coerce.number().min(0).max(1).default(0.6),
-  includeReasoning: z.coerce.boolean().default(true),
+  includeReasoning: z.preprocess(parseQueryBoolean, z.boolean().default(true)),
   mode: z.enum(['single', 'batch', 'clusters']).default('single')
 });
 
@@ -84,6 +92,94 @@ function filterDismissedClusters<T extends { places: Place[] }>(
       }
     }
     return true;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function stripReasoning(duplicate: unknown): unknown {
+  if (!isRecord(duplicate)) return duplicate;
+  const { reasoning: _reasoning, ...rest } = duplicate;
+  return rest;
+}
+
+function presentPlace(place: QueuePlace) {
+  return {
+    id: place.id,
+    name: place.name,
+    kind: place.kind,
+    city: place.city,
+    country: place.country,
+    status: place.status,
+    coords: place.coords,
+    googlePlaceId: place.googlePlaceId,
+    altNames: place.altNames,
+    screenshotCount: place.screenshotCount ?? 0,
+    hasPhoto: place.hasPhoto ?? false,
+    photoUrl: place.photoUrl ?? null,
+  };
+}
+
+function projectClusterList(clusters: unknown): unknown {
+  if (!Array.isArray(clusters)) return clusters;
+  return clusters.map((cluster) => {
+    if (!isRecord(cluster) || !Array.isArray(cluster.places)) return cluster;
+    return {
+      ...cluster,
+      places: cluster.places.map((place) => (
+        isRecord(place) ? presentPlace(place as QueuePlace) : place
+      )),
+    };
+  });
+}
+
+function projectCachedScan(body: unknown, includeReasoning: boolean): Record<string, unknown> {
+  if (!isRecord(body) || includeReasoning) return isRecord(body) ? body : {};
+
+  if (body.mode === 'single' && isRecord(body.result) && Array.isArray(body.result.potentialDuplicates)) {
+    return {
+      ...body,
+      result: {
+        ...body.result,
+        potentialDuplicates: body.result.potentialDuplicates.map(stripReasoning),
+      },
+    };
+  }
+
+  if (body.mode === 'batch' && isRecord(body.results)) {
+    const results: Record<string, unknown> = {};
+    for (const [id, entry] of Object.entries(body.results)) {
+      if (!isRecord(entry) || !Array.isArray(entry.duplicates)) {
+        results[id] = entry;
+        continue;
+      }
+      results[id] = {
+        ...entry,
+        duplicates: entry.duplicates.map(stripReasoning),
+      };
+    }
+    return { ...body, results };
+  }
+
+  if (body.mode === 'clusters') {
+    return {
+      ...body,
+      clusters: projectClusterList(body.clusters),
+      possible: projectClusterList(body.possible),
+    };
+  }
+
+  return body;
+}
+
+function scanResponse(body: unknown, includeReasoning: boolean, cached: boolean) {
+  return NextResponse.json({
+    ...projectCachedScan(body, includeReasoning),
+    status: 'success',
+    cached,
+    timestamp: new Date().toISOString(),
   });
 }
 
@@ -155,12 +251,7 @@ export async function GET(request: NextRequest) {
     const cacheKey = getCacheKey({ userId: user.id, placeId, status, limit, config, mode });
     const cachedResult = getDuplicateScanCache(cacheKey);
     if (cachedResult) {
-      return NextResponse.json({
-        status: 'success',
-        ...cachedResult,
-        cached: true,
-        timestamp: new Date().toISOString(),
-      });
+      return scanResponse(cachedResult, includeReasoning, true);
     }
 
     // Handle different modes
@@ -219,10 +310,6 @@ export async function GET(request: NextRequest) {
           d => d.confidence >= minConfidence
         );
 
-        if (!includeReasoning) {
-          filteredDuplicates.forEach(d => delete (d as any).reasoning);
-        }
-
         const response = {
           mode: 'single',
           result: {
@@ -238,12 +325,7 @@ export async function GET(request: NextRequest) {
         };
 
         setDuplicateScanCache(cacheKey, response);
-        return NextResponse.json({
-          status: 'success',
-          ...response,
-          cached: false,
-          timestamp: new Date().toISOString(),
-        });
+        return scanResponse(response, includeReasoning, false);
       }
 
       case 'batch': {
@@ -290,10 +372,6 @@ export async function GET(request: NextRequest) {
             placesWithDuplicates++;
             totalDuplicateMatches += filteredDuplicates.length;
 
-            if (!includeReasoning) {
-              filteredDuplicates.forEach(d => delete (d as any).reasoning);
-            }
-
             formattedResults[placeId] = {
               place: result.originalPlace,
               duplicates: filteredDuplicates,
@@ -315,12 +393,7 @@ export async function GET(request: NextRequest) {
         };
 
         setDuplicateScanCache(cacheKey, response);
-        return NextResponse.json({
-          status: 'success',
-          ...response,
-          cached: false,
-          timestamp: new Date().toISOString(),
-        });
+        return scanResponse(response, includeReasoning, false);
       }
 
       case 'clusters': {
@@ -341,12 +414,7 @@ export async function GET(request: NextRequest) {
         }, 'getClusterPlaces');
 
         if (targetPlaces.length < 2) {
-          const extras = await loadDuplicateQueueExtras(
-            user.id,
-            targetPlaces.map((place) => place.id),
-            [],
-            [],
-          );
+          const extras = await loadDuplicateQueueExtras(user.id, [], []);
           return NextResponse.json({
             status: 'success',
             mode: 'clusters',
@@ -381,44 +449,17 @@ export async function GET(request: NextRequest) {
         // Filter out dismissed clusters (scoped to current user)
         const dismissedSet = await getDismissedPairsSet(user.id);
         const clusters = filterDismissedClusters(reviewClusters, dismissedSet);
-        const possibleClusters = filterDismissedClusters(
-          groupsOutsideReview(wideClusters, clusters),
-          dismissedSet,
-        );
+        const possibleClusters = possibleGroups(wideClusters, dismissedSet);
         const extras = await loadDuplicateQueueExtras(
           user.id,
-          targetPlaces.map((place) => place.id),
           clusters,
           possibleClusters,
         );
 
-        const presentPlace = (place: (typeof extras.clusters)[number]['places'][number]) => (
-          includeReasoning ? place : {
-            id: place.id,
-            name: place.name,
-            kind: place.kind,
-            city: place.city,
-            country: place.country,
-            status: place.status,
-            coords: place.coords,
-            googlePlaceId: place.googlePlaceId,
-            altNames: place.altNames,
-            screenshotCount: 'screenshotCount' in place ? place.screenshotCount : 0,
-            hasPhoto: 'hasPhoto' in place ? place.hasPhoto : false,
-            photoUrl: 'photoUrl' in place ? place.photoUrl : null,
-          }
-        );
-
         const response = {
           mode: 'clusters',
-          clusters: extras.clusters.map(cluster => ({
-            ...cluster,
-            places: cluster.places.map(presentPlace),
-          })),
-          possible: extras.possible.map(cluster => ({
-            ...cluster,
-            places: cluster.places.map(presentPlace),
-          })),
+          clusters: extras.clusters,
+          possible: extras.possible,
           dismissed: extras.dismissed,
           merged: extras.merged,
           summary: {
@@ -431,12 +472,7 @@ export async function GET(request: NextRequest) {
         };
 
         setDuplicateScanCache(cacheKey, response);
-        return NextResponse.json({
-          status: 'success',
-          ...response,
-          cached: false,
-          timestamp: new Date().toISOString(),
-        });
+        return scanResponse(response, includeReasoning, false);
       }
 
       default:

@@ -112,9 +112,46 @@ const clusters = [
   cluster('c2', ['Cafe B', 'Cafe B copy']),
 ];
 
+function mockViewport(desktop: boolean) {
+  window.matchMedia = jest.fn().mockImplementation((query: string) => ({
+    matches: desktop && query === '(min-width: 768px)',
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })) as unknown as typeof window.matchMedia;
+}
+
+function sameGooglePossible() {
+  const kept = place('chapel_a', 'Twin Chapel');
+  const other = place('chapel_b', 'Capela');
+  kept.googlePlaceId = 'ChIJ_same_chapel';
+  other.googlePlaceId = 'ChIJ_same_chapel';
+  kept.kind = 'attraction';
+  other.kind = 'attraction';
+  kept.city = 'Lisbon';
+  other.city = 'Lisbon';
+  kept.country = 'Portugal';
+  other.country = 'Portugal';
+  kept.coords = null;
+  other.coords = null;
+  return {
+    cluster_id: 'chapel_a+chapel_b',
+    avgConfidence: 0.66,
+    places: [kept, other],
+    edges: [edge(kept.id, other.id, 0.66, null, 0.4)],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
 describe('duplicates keyboard and bulk confirmation', () => {
   beforeEach(() => {
     (global.fetch as jest.Mock).mockReset();
+    mockViewport(true);
   });
 
   it('does not merge or dismiss when m or d is pressed with no group open', () => {
@@ -149,6 +186,50 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(dialog).toHaveTextContent('Merge 1 certain group?');
     expect(dialog).toHaveTextContent('2 places across 1 certain group');
     expect(dialog).not.toHaveTextContent('4 places');
+  });
+
+  it('counts a same-Google pair on Possible as certain', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[]}
+        possible={[sameGooglePossible()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Merge 1 certain group?');
+    expect(dialog).toHaveTextContent('2 places across 1 certain group');
+  });
+
+  it('keeps Dismiss all on a phone and keeps Merge certain groups off it', async () => {
+    mockViewport(false);
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    fireEvent.keyDown(document, { key: 'm' });
+    fireEvent.keyDown(document, { key: 'M' });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    expect(screen.queryByRole('menuitem', { name: /Merge certain groups/ })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (2)' }));
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Dismiss 2 groups?');
+    expect(dialog).toHaveTextContent('4 places across 2 groups');
   });
 
   it('asks how many groups and places before Dismiss all runs', async () => {

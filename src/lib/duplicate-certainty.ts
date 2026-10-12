@@ -120,15 +120,15 @@ function altNameHit(a: QueuePlace, b: QueuePlace): boolean {
   return via >= direct + 0.05 && via >= 0.8;
 }
 
-/**
- * Lightest edge on the maximum spanning tree: the weakest link the members
- * still need in order to stay one group. A redundant weaker edge does not
- * set the word.
- */
-export function bottleneckEdge(edges: DuplicateGroupEdge[]): DuplicateGroupEdge | null {
+function edgePool(edges: DuplicateGroupEdge[]): DuplicateGroupEdge[] {
   const included = edges.filter((edge) => edge.included);
-  const pool = included.length > 0 ? included : edges;
-  if (pool.length === 0) return null;
+  return included.length > 0 ? included : edges;
+}
+
+/** Edges of the maximum spanning tree, strongest first. The last one is the bottleneck. */
+function spanningTreeEdges(edges: DuplicateGroupEdge[]): DuplicateGroupEdge[] {
+  const pool = edgePool(edges);
+  if (pool.length === 0) return [];
 
   const sorted = [...pool].sort((a, b) => b.score - a.score || a.a.localeCompare(b.a) || a.b.localeCompare(b.b));
   const parent = new Map<string, string>();
@@ -160,15 +160,54 @@ export function bottleneckEdge(edges: DuplicateGroupEdge[]): DuplicateGroupEdge 
     nodes.add(edge.b);
   }
 
-  let joined = 0;
-  let bottleneck: DuplicateGroupEdge | null = null;
+  const tree: DuplicateGroupEdge[] = [];
   for (const edge of sorted) {
     if (!link(edge.a, edge.b)) continue;
-    bottleneck = edge;
-    joined += 1;
-    if (joined >= nodes.size - 1) break;
+    tree.push(edge);
+    if (tree.length >= nodes.size - 1) break;
   }
-  return bottleneck ?? sorted[0];
+  return tree;
+}
+
+/**
+ * Lightest edge on the maximum spanning tree: the weakest link the members
+ * still need in order to stay one group. A redundant weaker edge does not
+ * set the word.
+ */
+export function bottleneckEdge(edges: DuplicateGroupEdge[]): DuplicateGroupEdge | null {
+  const pool = edgePool(edges);
+  if (pool.length === 0) return null;
+  const tree = spanningTreeEdges(edges);
+  if (tree.length > 0) return tree[tree.length - 1];
+  return [...pool].sort((a, b) => b.score - a.score || a.a.localeCompare(b.a) || a.b.localeCompare(b.b))[0];
+}
+
+function sameGoogleOnEdge(
+  edge: DuplicateGroupEdge,
+  places: QueuePlace[],
+): { shares: boolean; id: string | null } {
+  const placeA = places.find((place) => place.id === edge.a);
+  const placeB = places.find((place) => place.id === edge.b);
+  const idA = placeA?.googlePlaceId?.trim() ?? '';
+  const idB = placeB?.googlePlaceId?.trim() ?? '';
+  if (idA && idB && idA !== idB) return { shares: false, id: null };
+  if (idA && idA === idB) return { shares: true, id: idA };
+  if (edge.flags.includes('same Google place')) return { shares: true, id: null };
+  return { shares: false, id: null };
+}
+
+/** True when every spanning-tree edge is the same one Google place. */
+function sharesOneGooglePlace(edges: DuplicateGroupEdge[], places: QueuePlace[]): boolean {
+  if (edges.length === 0) return false;
+  let shared: string | null = null;
+  for (const edge of edges) {
+    const match = sameGoogleOnEdge(edge, places);
+    if (!match.shares) return false;
+    if (match.id && shared && match.id !== shared) return false;
+    if (match.id) shared = match.id;
+  }
+  if (!shared) return true;
+  return edges.every((edge) => sameGoogleOnEdge(edge, places).id === shared);
 }
 
 function bandOnly(score: number): CertaintyWord {
@@ -180,10 +219,11 @@ function bandOnly(score: number): CertaintyWord {
 
 /**
  * Certainty word for one group, from its bottleneck edge, adjusted by evidence.
- * Same Google place wins. Different cities, countries, or a pin more than 2 km
- * away read "Probably not". No pin on either side plus a name that is not
- * exact reads "Maybe" even when the score is high. A close pin or an alt-name
- * hit moves a 0.70–0.80 pair up to "Likely".
+ * Same place means every spanning-tree edge shares one Google place. Different
+ * cities, countries, or a pin more than 2 km away read "Probably not". No pin
+ * on either side plus a name that is not exact reads "Maybe" even when the
+ * score is high. A close pin or an alt-name hit moves a 0.70–0.80 pair up to
+ * "Likely".
  */
 export function certaintyWord(cluster: QueueCluster): CertaintyWord {
   const edge = cluster.edges && cluster.edges.length > 0 ? bottleneckEdge(cluster.edges) : null;
@@ -193,9 +233,8 @@ export function certaintyWord(cluster: QueueCluster): CertaintyWord {
   const placeB = cluster.places.find((place) => place.id === edge.b);
   if (!placeA || !placeB) return bandOnly(edge.score);
 
-  const sameGoogle = edge.flags.includes('same Google place')
-    || Boolean(placeA.googlePlaceId && placeA.googlePlaceId === placeB.googlePlaceId);
-  if (sameGoogle) return 'same';
+  const tree = spanningTreeEdges(cluster.edges ?? []);
+  if (sharesOneGooglePlace(tree.length > 0 ? tree : [edge], cluster.places)) return 'same';
 
   if (edge.score < DUPLICATE_PAGE_BAND.reviewMin) return 'possible';
 
@@ -230,6 +269,106 @@ export function isCertainGroup(cluster: QueueCluster): boolean {
 
 export function certainGroups<T extends QueueCluster>(clusters: T[]): T[] {
   return clusters.filter(isCertainGroup);
+}
+
+export function unionGroupsSharingPlace<T extends QueueCluster>(clusters: T[]): T[] {
+  if (clusters.length <= 1) return clusters;
+
+  const parent = clusters.map((_, index) => index);
+  const find = (index: number): number => {
+    let root = index;
+    while (parent[root] !== root) root = parent[root];
+    let cursor = index;
+    while (cursor !== root) {
+      const next = parent[cursor];
+      parent[cursor] = root;
+      cursor = next;
+    }
+    return root;
+  };
+  const link = (left: number, right: number) => {
+    const rootA = find(left);
+    const rootB = find(right);
+    if (rootA === rootB) return;
+    if (rootA > rootB) parent[rootA] = rootB;
+    else parent[rootB] = rootA;
+  };
+
+  const owner = new Map<string, number>();
+  for (let index = 0; index < clusters.length; index++) {
+    for (const place of clusters[index].places) {
+      const previous = owner.get(place.id);
+      if (previous === undefined) owner.set(place.id, index);
+      else link(previous, index);
+    }
+  }
+
+  const grouped = new Map<number, number[]>();
+  for (let index = 0; index < clusters.length; index++) {
+    const root = find(index);
+    const members = grouped.get(root);
+    if (members) members.push(index);
+    else grouped.set(root, [index]);
+  }
+
+  const unions: T[] = [];
+  for (const indexes of grouped.values()) {
+    if (indexes.length === 1) {
+      unions.push(clusters[indexes[0]]);
+      continue;
+    }
+    const members = indexes.map((index) => clusters[index]);
+    const places: T['places'] = [];
+    const seen = new Set<string>();
+    for (const member of members) {
+      for (const place of member.places) {
+        if (seen.has(place.id)) continue;
+        seen.add(place.id);
+        places.push(place);
+      }
+    }
+    const clusterId = [...seen].sort().join('+');
+    unions.push({
+      ...members[0],
+      id: clusterId,
+      cluster_id: clusterId,
+      places,
+      avgConfidence: Math.min(...members.map((member) => member.avgConfidence)),
+    });
+  }
+  return unions;
+}
+
+export function distinctPlaceCount(groups: QueueCluster[]): number {
+  const ids = new Set<string>();
+  for (const cluster of groups) {
+    for (const place of cluster.places) ids.add(place.id);
+  }
+  return ids.size;
+}
+
+export function dismissPairsForCluster(cluster: QueueCluster): Array<{ placeId1: string; placeId2: string }> {
+  const pairs: Array<{ placeId1: string; placeId2: string }> = [];
+  const seen = new Set<string>();
+  const push = (placeId1: string, placeId2: string) => {
+    if (!placeId1 || !placeId2 || placeId1 === placeId2) return;
+    const key = placeId1 < placeId2 ? `${placeId1}:${placeId2}` : `${placeId2}:${placeId1}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push({ placeId1, placeId2 });
+  };
+
+  if (cluster.edges && cluster.edges.length > 0) {
+    for (const edge of cluster.edges) push(edge.a, edge.b);
+    return pairs;
+  }
+
+  for (let i = 0; i < cluster.places.length; i++) {
+    for (let j = i + 1; j < cluster.places.length; j++) {
+      push(cluster.places[i].id, cluster.places[j].id);
+    }
+  }
+  return pairs;
 }
 
 export function sortQueueGroups<T extends QueueCluster>(clusters: T[]): T[] {

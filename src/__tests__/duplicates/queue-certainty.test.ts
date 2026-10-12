@@ -24,13 +24,17 @@ import {
 import {
   certaintyWord,
   certainGroups,
+  dismissPairsForCluster,
+  distinctPlaceCount,
   emptyReviewCopy,
   isCertainGroup,
   possibleGroups,
   queueContextLine,
+  unionGroupsSharingPlace,
   DUPLICATE_PAGE_BAND,
   type QueueCluster,
 } from '@/lib/duplicate-certainty';
+import { recommendMergeTarget } from '@/lib/duplicate-target-selector';
 import { loadDuplicateQueueExtras } from '@/lib/duplicate-queue-data';
 import type { Place } from '@/types/database';
 
@@ -317,7 +321,122 @@ describe('duplicate queue certainty on local places', () => {
     expect(isCertainGroup(under)).toBe(false);
     expect(certaintyWord(atLikely)).toBe('likely');
   });
+
+  it('does not certify a group when only the bottleneck edge shares a Google place', () => {
+    const groups = possibleGroups([{
+      places: [
+        googlePlace('A', 'ChIJ_one'),
+        googlePlace('B', null),
+        googlePlace('C', 'ChIJ_one'),
+      ],
+      edges: [
+        googleEdge('A', 'C', 0.63, true),
+        googleEdge('B', 'C', 0.69, false),
+        googleEdge('A', 'B', 0.4, false),
+      ],
+    }]);
+
+    expect(groups.map((group) => group.cluster_id)).toEqual(['A+B+C']);
+    const mixed = groups[0] as QueueCluster;
+    expect(certaintyWord(mixed)).toBe('possible');
+    expect(isCertainGroup(mixed)).toBe(false);
+
+    const pair: QueueCluster = {
+      cluster_id: 'A+C',
+      avgConfidence: 0.66,
+      places: [
+        googlePlace('A', 'ChIJ_one'),
+        googlePlace('C', 'ChIJ_one'),
+      ] as QueueCluster['places'],
+      edges: [googleEdge('A', 'C', 0.66, true)],
+    };
+    expect(certaintyWord(pair)).toBe('same');
+    expect(isCertainGroup(pair)).toBe(true);
+  });
+
+  it('certifies a group when every spanning-tree edge shares one Google place', () => {
+    const groups = possibleGroups([{
+      places: [
+        googlePlace('A', 'ChIJ_one'),
+        googlePlace('B', 'ChIJ_one'),
+        googlePlace('C', 'ChIJ_one'),
+      ],
+      edges: [
+        googleEdge('A', 'C', 0.63, true),
+        googleEdge('B', 'C', 0.69, true),
+      ],
+    }]);
+
+    const group = groups[0] as QueueCluster;
+    expect(group.cluster_id).toBe('A+B+C');
+    expect(certaintyWord(group)).toBe('same');
+    expect(isCertainGroup(group)).toBe(true);
+  });
+
+  it('unions overlapping certain groups onto one keeper and counts each place once', () => {
+    const shared = googlePlace('A', 'ChIJ_one');
+    const kept = { ...googlePlace('B', 'ChIJ_one'), description: 'The fuller record' };
+    const noted = { ...googlePlace('C', 'ChIJ_one'), notes: 'A note' };
+    const review: QueueCluster = {
+      cluster_id: 'A+B',
+      avgConfidence: 0.98,
+      places: [shared, kept] as QueueCluster['places'],
+      edges: [googleEdge('A', 'B', 0.98, true)],
+    };
+    const possible: QueueCluster = {
+      cluster_id: 'A+C',
+      avgConfidence: 0.66,
+      places: [shared, noted] as QueueCluster['places'],
+      edges: [googleEdge('A', 'C', 0.66, true)],
+    };
+
+    const unions = unionGroupsSharingPlace(certainGroups([review, possible]));
+    expect(unions).toHaveLength(1);
+    expect(distinctPlaceCount(unions)).toBe(3);
+    expect(distinctPlaceCount([review, possible])).toBe(3);
+    expect(recommendMergeTarget(unions[0].places)).toBe('B');
+  });
+
+  it('dismisses a Possible group by its weak edges and leaves the review pair', () => {
+    const groups = possibleGroups([bandCluster(
+      ['A', 'B', 'C'],
+      [['A', 'B', 0.85], ['A', 'C', 0.65], ['B', 'C', 0.65]],
+    )]);
+
+    expect(groups.map((group) => group.cluster_id)).toEqual(['A+B+C']);
+    const keys = dismissPairsForCluster(groups[0] as QueueCluster)
+      .map((pair) => [pair.placeId1, pair.placeId2].sort().join(':'))
+      .sort();
+    expect(keys).toEqual(['A:C', 'B:C']);
+  });
 });
+
+function googlePlace(id: string, googlePlaceId: string | null) {
+  return {
+    id,
+    name: id,
+    googlePlaceId,
+    kind: 'attraction',
+    city: 'Lisbon',
+    country: 'Portugal',
+    coords: null,
+    altNames: [] as string[],
+  };
+}
+
+function googleEdge(a: string, b: string, score: number, sameGoogle: boolean): DuplicateGroupEdge {
+  return {
+    a,
+    b,
+    score,
+    included: score >= DUPLICATE_PAGE_BAND.possibleMin,
+    distanceM: null,
+    factors: { name: 0.4, location: 0, kind: 1, city: 1, country: 1 },
+    for: [],
+    against: [],
+    flags: sameGoogle ? ['same Google place'] : [],
+  };
+}
 
 function bandCluster(ids: string[], scores: Array<[string, string, number]>) {
   return {

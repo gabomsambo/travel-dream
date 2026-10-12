@@ -27,9 +27,12 @@ import { notify } from '@/lib/notify';
 import { recommendMergeTarget } from '@/lib/duplicate-target-selector';
 import {
   certainGroups,
+  dismissPairsForCluster,
+  distinctPlaceCount,
   emptyReviewCopy,
   formatMergedOn,
   sortQueueGroups,
+  unionGroupsSharingPlace,
   type DismissedPairView,
   type MergedGroupView,
   type QueueCluster,
@@ -109,7 +112,7 @@ export function DuplicatesPageClient({
   const reviewSorted = useMemo(() => sortQueueGroups(review), [review]);
   const possibleSorted = useMemo(() => sortQueueGroups(possibleGroups), [possibleGroups]);
   const certain = useMemo(
-    () => certainGroups([...reviewSorted, ...possibleSorted]),
+    () => unionGroupsSharingPlace(certainGroups([...reviewSorted, ...possibleSorted])),
     [reviewSorted, possibleSorted],
   );
   const activeGroups = tab === 'possible' ? possibleSorted : tab === 'review' ? reviewSorted : [];
@@ -145,19 +148,6 @@ export function DuplicatesPageClient({
     announceChange();
   }, [announceChange]);
 
-  const generatePairsFromCluster = useCallback((cluster: QueueCluster) => {
-    const pairs: Array<{ placeId1: string; placeId2: string }> = [];
-    for (let i = 0; i < cluster.places.length; i++) {
-      for (let j = i + 1; j < cluster.places.length; j++) {
-        pairs.push({
-          placeId1: cluster.places[i].id,
-          placeId2: cluster.places[j].id,
-        });
-      }
-    }
-    return pairs;
-  }, []);
-
   const dropCluster = useCallback((cluster: QueueCluster, type: ClusterAction['type']) => {
     const inPossible = possibleSorted.some((item) => item.cluster_id === cluster.cluster_id);
     startTransition(() => {
@@ -173,7 +163,7 @@ export function DuplicatesPageClient({
       const response = await fetch('/api/places/dismiss-duplicate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pairs: generatePairsFromCluster(cluster) }),
+        body: JSON.stringify({ pairs: dismissPairsForCluster(cluster) }),
       });
       if (!response.ok) throw new Error('Failed to dismiss cluster');
       setExpandedClusterId(undefined);
@@ -185,7 +175,7 @@ export function DuplicatesPageClient({
     } finally {
       setIsLoading(false);
     }
-  }, [clearScanCache, dropCluster, generatePairsFromCluster, router]);
+  }, [clearScanCache, dropCluster, router]);
 
   const handleMerge = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
     setIsLoading(true);
@@ -276,14 +266,15 @@ export function DuplicatesPageClient({
   }, [clearScanCache, router]);
 
   const handleMergeCertain = useCallback(async (groups: QueueCluster[]) => {
-    if (groups.length === 0) return;
+    const unions = unionGroupsSharingPlace(groups);
+    if (unions.length === 0) return;
     setIsLoading(true);
     try {
       const response = await fetch('/api/places/bulk-merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          clusters: groups.map((cluster) => {
+          clusters: unions.map((cluster) => {
             const targetId = recommendMergeTarget(cluster.places);
             return {
               targetId,
@@ -312,7 +303,7 @@ export function DuplicatesPageClient({
   const handleDismissGroups = useCallback(async (groups: QueueCluster[]) => {
     if (groups.length === 0) return;
     setIsLoading(true);
-    const allPairs = groups.flatMap((cluster) => generatePairsFromCluster(cluster));
+    const allPairs = groups.flatMap((cluster) => dismissPairsForCluster(cluster));
     try {
       const response = await fetch('/api/places/dismiss-duplicate', {
         method: 'POST',
@@ -329,7 +320,7 @@ export function DuplicatesPageClient({
     } finally {
       setIsLoading(false);
     }
-  }, [clearScanCache, generatePairsFromCluster, router]);
+  }, [clearScanCache, router]);
 
   const handleRescan = useCallback(async () => {
     setIsLoading(true);
@@ -457,7 +448,6 @@ export function DuplicatesPageClient({
   }, [currentIndex]);
 
   const dismissable = tab === 'review' || tab === 'possible' ? activeGroups : [];
-  const placeCount = (groups: QueueCluster[]) => groups.reduce((total, cluster) => total + cluster.places.length, 0);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -650,8 +640,8 @@ export function DuplicatesPageClient({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirm?.kind === 'dismiss'
-                ? `This marks ${placeCount(confirm.groups)} places across ${confirm.groups.length} ${confirm.groups.length === 1 ? 'group' : 'groups'} as not duplicates.`
-                : `This merges ${placeCount(confirm?.groups ?? [])} places across ${confirm?.groups.length ?? 0} certain ${(confirm?.groups.length ?? 0) === 1 ? 'group' : 'groups'}. Places you are not keeping are archived.`}
+                ? `This marks ${distinctPlaceCount(confirm.groups)} places across ${confirm.groups.length} ${confirm.groups.length === 1 ? 'group' : 'groups'} as not duplicates.`
+                : `This merges ${distinctPlaceCount(confirm?.groups ?? [])} places across ${confirm?.groups.length ?? 0} certain ${(confirm?.groups.length ?? 0) === 1 ? 'group' : 'groups'}. Places you are not keeping are archived.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -148,6 +148,82 @@ function sameGooglePossible() {
   };
 }
 
+function postedBody(url: string, method: string): {
+  pairs?: Array<{ placeId1: string; placeId2: string }>;
+  clusters?: Array<{ targetId: string; sourceIds: string[]; confidence: number }>;
+} {
+  const call = (global.fetch as jest.Mock).mock.calls.find(
+    (entry: [string, { method?: string; body?: string }]) => entry[0] === url && entry[1]?.method === method,
+  );
+  expect(call).toBeDefined();
+  return JSON.parse(call[1].body as string);
+}
+
+function sharedGooglePlace(id: string, name: string) {
+  const row = place(id, name);
+  row.googlePlaceId = 'ChIJ_overlap';
+  row.kind = 'attraction';
+  row.city = 'Lisbon';
+  row.country = 'Portugal';
+  return row;
+}
+
+function overlappingCertainGroups() {
+  const kept = sharedGooglePlace('place_b', 'Chapel copy');
+  const noted = sharedGooglePlace('place_c', 'Chapel note');
+  kept.description = 'The fuller record';
+  noted.notes = 'A note';
+  const reviewEdge = edge('place_a', 'place_b', 0.97, 20, 1);
+  reviewEdge.flags = ['same Google place'];
+  const possibleEdge = edge('place_a', 'place_c', 0.66, null, 0.4);
+  possibleEdge.flags = ['same Google place'];
+  return {
+    review: {
+      cluster_id: 'place_a+place_b',
+      avgConfidence: 0.97,
+      places: [sharedGooglePlace('place_a', 'Chapel'), kept],
+      edges: [reviewEdge],
+      leftOut: [],
+      mergedOn: null,
+    },
+    possible: {
+      cluster_id: 'place_a+place_c',
+      avgConfidence: 0.66,
+      places: [sharedGooglePlace('place_a', 'Chapel'), noted],
+      edges: [possibleEdge],
+      leftOut: [],
+      mergedOn: null,
+    },
+  };
+}
+
+function possibleDismissGroups() {
+  const alpha = place('place_a', 'Alpha');
+  const beta = place('place_b', 'Beta');
+  const gamma = place('place_c', 'Gamma');
+  return {
+    review: {
+      cluster_id: 'place_a+place_b',
+      avgConfidence: 0.85,
+      places: [alpha, beta],
+      edges: [edge('place_a', 'place_b', 0.85, 40, 0.9)],
+      leftOut: [],
+      mergedOn: null,
+    },
+    possible: {
+      cluster_id: 'place_a+place_b+place_c',
+      avgConfidence: 0.65,
+      places: [alpha, beta, gamma],
+      edges: [
+        edge('place_a', 'place_c', 0.65, null, 0.5),
+        edge('place_b', 'place_c', 0.65, null, 0.5),
+      ],
+      leftOut: [],
+      mergedOn: null,
+    },
+  };
+}
+
 describe('duplicates keyboard and bulk confirmation', () => {
   beforeEach(() => {
     (global.fetch as jest.Mock).mockReset();
@@ -244,6 +320,66 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(global.fetch).not.toHaveBeenCalled();
     expect(screen.getByRole('alertdialog')).toHaveTextContent('Dismiss 2 groups?');
     expect(screen.getByRole('alertdialog')).toHaveTextContent('4 places across 2 groups');
+  });
+
+  it('merges overlapping certain groups once and counts each place once', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: 1, failed: 0 }),
+    });
+    const user = userEvent.setup();
+    const groups = overlappingCertainGroups();
+    render(
+      <DuplicatesPageClient
+        initialData={[groups.review]}
+        possible={[groups.possible]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Merge 1 certain group?');
+    expect(dialog).toHaveTextContent('3 places across 1 certain group');
+    expect(dialog).not.toHaveTextContent('4 places');
+
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    expect(postedBody('/api/places/bulk-merge', 'POST').clusters).toEqual([{
+      targetId: 'place_b',
+      sourceIds: ['place_a', 'place_c'],
+      confidence: 0.66,
+    }]);
+  });
+
+  it('dismisses a Possible group without writing its review pair', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true }),
+    });
+    const user = userEvent.setup();
+    const groups = possibleDismissGroups();
+    render(
+      <DuplicatesPageClient
+        initialData={[groups.review]}
+        possible={[groups.possible]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'Possible (1)' }));
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+
+    const keys = (postedBody('/api/places/dismiss-duplicate', 'POST').pairs ?? [])
+      .map((pair) => [pair.placeId1, pair.placeId2].sort().join(':'))
+      .sort();
+    expect(keys).toEqual(['place_a:place_c', 'place_b:place_c']);
   });
 
   it('names Possible and merged work on an empty To review list', () => {

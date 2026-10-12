@@ -7,6 +7,8 @@ import {
   DEFAULT_DETECTION_CONFIG,
   type DuplicateDetectionConfig
 } from '@/lib/duplicate-detection';
+import { DUPLICATE_PAGE_BAND, groupsOutsideReview } from '@/lib/duplicate-certainty';
+import { loadDuplicateQueueExtras } from '@/lib/duplicate-queue-data';
 // TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
 // Not migrated in the change that introduced the accessor: the largest of the
 // group — six reads plus the duplicate-detection joins.
@@ -339,11 +341,19 @@ export async function GET(request: NextRequest) {
         }, 'getClusterPlaces');
 
         if (targetPlaces.length < 2) {
+          const extras = await loadDuplicateQueueExtras(
+            user.id,
+            targetPlaces.map((place) => place.id),
+            [],
+            [],
+          );
           return NextResponse.json({
             status: 'success',
             mode: 'clusters',
             clusters: [],
             possible: [],
+            dismissed: extras.dismissed,
+            merged: extras.merged,
             summary: {
               totalPlaces: targetPlaces.length,
               totalClusters: 0,
@@ -354,37 +364,68 @@ export async function GET(request: NextRequest) {
           });
         }
 
-        // Batch duplicate detection for clustering
-        const duplicateResults = await batchDetectDuplicates(targetPlaces, config);
+        // Detect down to the Possible floor so a 0.60–0.70 pair is not dropped
+        // before the queue can put it on its own tab. To review stays the
+        // caller's threshold (the page asks for 0.7).
+        const detectionFloor = Math.min(minConfidence, DUPLICATE_PAGE_BAND.possibleMin);
+        const detectionConfig = { ...config, minConfidenceScore: detectionFloor };
+        const duplicateResults = await batchDetectDuplicates(targetPlaces, detectionConfig);
 
         // Group membership is findDuplicateClusters. The page asks for 0.7.
-        // Pairs under that stay on the group's edges.
-        const allClusters = findDuplicateClusters(duplicateResults, 2, minConfidence, config);
+        // Pairs under that stay on the group's edges. The 2 km split fills leftOut.
+        const reviewClusters = findDuplicateClusters(duplicateResults, 2, minConfidence, config);
+        const wideClusters = detectionFloor < minConfidence
+          ? findDuplicateClusters(duplicateResults, 2, detectionFloor, config)
+          : reviewClusters;
 
         // Filter out dismissed clusters (scoped to current user)
         const dismissedSet = await getDismissedPairsSet(user.id);
-        const clusters = filterDismissedClusters(allClusters, dismissedSet);
+        const clusters = filterDismissedClusters(reviewClusters, dismissedSet);
+        const possibleClusters = filterDismissedClusters(
+          groupsOutsideReview(wideClusters, clusters),
+          dismissedSet,
+        );
+        const extras = await loadDuplicateQueueExtras(
+          user.id,
+          targetPlaces.map((place) => place.id),
+          clusters,
+          possibleClusters,
+        );
+
+        const presentPlace = (place: (typeof extras.clusters)[number]['places'][number]) => (
+          includeReasoning ? place : {
+            id: place.id,
+            name: place.name,
+            kind: place.kind,
+            city: place.city,
+            country: place.country,
+            status: place.status,
+            coords: place.coords,
+            googlePlaceId: place.googlePlaceId,
+            altNames: place.altNames,
+            screenshotCount: 'screenshotCount' in place ? place.screenshotCount : 0,
+            hasPhoto: 'hasPhoto' in place ? place.hasPhoto : false,
+            photoUrl: 'photoUrl' in place ? place.photoUrl : null,
+          }
+        );
 
         const response = {
           mode: 'clusters',
-          clusters: clusters.map(cluster => ({
+          clusters: extras.clusters.map(cluster => ({
             ...cluster,
-            places: includeReasoning ? cluster.places : cluster.places.map(p => ({
-              id: p.id,
-              name: p.name,
-              kind: p.kind,
-              city: p.city,
-              country: p.country
-            }))
+            places: cluster.places.map(presentPlace),
           })),
-          // Pairs that are not main edges live on `edges` inside a group.
-          // A separate Possible list is filled by the scoring change, not here.
-          possible: [] as const,
+          possible: extras.possible.map(cluster => ({
+            ...cluster,
+            places: cluster.places.map(presentPlace),
+          })),
+          dismissed: extras.dismissed,
+          merged: extras.merged,
           summary: {
             totalPlaces: targetPlaces.length,
-            totalClusters: clusters.length,
-            largestClusterSize: clusters.length > 0 ? Math.max(...clusters.map(c => c.places.length)) : 0,
-            avgClusterSize: clusters.length > 0 ? clusters.reduce((sum, c) => sum + c.places.length, 0) / clusters.length : 0
+            totalClusters: extras.clusters.length,
+            largestClusterSize: extras.clusters.length > 0 ? Math.max(...extras.clusters.map(c => c.places.length)) : 0,
+            avgClusterSize: extras.clusters.length > 0 ? extras.clusters.reduce((sum, c) => sum + c.places.length, 0) / extras.clusters.length : 0
           },
           config
         };

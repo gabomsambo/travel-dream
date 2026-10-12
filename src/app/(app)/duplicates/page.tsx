@@ -1,10 +1,17 @@
 import { DuplicatesPageClient } from '@/components/duplicates/duplicates-page-client';
 import { auth } from '@/lib/auth';
-import type { DuplicateCluster } from '@/lib/duplicate-detection';
+import type { DismissedPairView, MergedGroupView, QueueCluster } from '@/lib/duplicate-certainty';
 import { cookies } from 'next/headers';
 
 type DuplicatesFetchResult =
-  | { ok: true; clusters: DuplicateCluster[]; timestamp: string | null }
+  | {
+    ok: true;
+    clusters: QueueCluster[];
+    possible: QueueCluster[];
+    dismissed: DismissedPairView[];
+    merged: MergedGroupView[];
+    timestamp: string | null;
+  }
   | { ok: false; error: string };
 
 async function getDuplicateClusters(): Promise<DuplicatesFetchResult> {
@@ -33,6 +40,9 @@ async function getDuplicateClusters(): Promise<DuplicatesFetchResult> {
     return {
       ok: true,
       clusters: data.clusters || [],
+      possible: data.possible || [],
+      dismissed: data.dismissed || [],
+      merged: data.merged || [],
       timestamp: data.timestamp ?? null,
     };
   } catch (error) {
@@ -51,18 +61,13 @@ export default async function DuplicatesPage() {
   const result = await getDuplicateClusters();
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="border-b p-4">
-        <h1 className="text-2xl font-bold">Duplicate Detection</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Review and merge potential duplicate places
-        </p>
-      </div>
-      <DuplicatesPageClient
-        initialData={result.ok ? result.clusters : []}
-        fetchedAt={result.ok ? result.timestamp : null}
-        fetchError={result.ok ? null : result.error}
-      />
-    </div>
+    <DuplicatesPageClient
+      initialData={result.ok ? result.clusters : []}
+      possible={result.ok ? result.possible : []}
+      dismissed={result.ok ? result.dismissed : []}
+      merged={result.ok ? result.merged : []}
+      fetchedAt={result.ok ? result.timestamp : null}
+      fetchError={result.ok ? null : result.error}
+    />
   );
 }

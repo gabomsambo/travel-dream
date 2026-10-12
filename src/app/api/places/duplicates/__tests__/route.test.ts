@@ -226,6 +226,7 @@ describe('/api/places/duplicates', () => {
       const chain: any = {
         from: jest.fn().mockImplementation(() => chain),
         where: jest.fn().mockImplementation(() => chain),
+        innerJoin: jest.fn().mockImplementation(() => chain),
         limit: jest.fn().mockResolvedValue(mockPlaces),
         then: jest.fn().mockImplementation((resolve: any) => Promise.resolve([]).then(resolve)),
       }
@@ -269,7 +270,9 @@ describe('/api/places/duplicates', () => {
       const mockDbSelect = {
         from: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([mockPlaces[0]]) // Only one place
+        innerJoin: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue([mockPlaces[0]]),
+        then: jest.fn().mockImplementation((resolve: (value: unknown[]) => unknown) => Promise.resolve([]).then(resolve)),
       }
       ;(db as any).select = jest.fn().mockReturnValue(mockDbSelect)
 

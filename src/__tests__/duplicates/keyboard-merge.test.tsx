@@ -2,6 +2,7 @@ import '../helpers/react-optimistic';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DuplicatesPageClient } from '@/components/duplicates/duplicates-page-client';
+import type { DuplicateGroupEdge } from '@/lib/duplicate-detection';
 import type { Place } from '@/types/database';
 
 function place(id: string, name: string): Place {
@@ -54,6 +55,58 @@ function cluster(id: string, names: [string, string]) {
   };
 }
 
+function edge(a: string, b: string, score: number, distanceM: number | null, name: number): DuplicateGroupEdge {
+  return {
+    a,
+    b,
+    score,
+    included: true,
+    distanceM,
+    factors: { name, location: distanceM === null ? 0 : 0.9, kind: 1, city: 1, country: 1 },
+    for: [],
+    against: [],
+    flags: [],
+  };
+}
+
+function certainCluster() {
+  const kept = place('arctic_a', 'Arctic Cathedral');
+  const other = place('arctic_b', 'Ishavskatedralen');
+  kept.coords = { lat: 69.649, lon: 18.986 };
+  other.coords = { lat: 69.6493, lon: 18.986 };
+  kept.city = 'Tromsø';
+  other.city = 'Tromsø';
+  kept.country = 'Norway';
+  other.country = 'Norway';
+  kept.kind = 'attraction';
+  other.kind = 'attraction';
+  return {
+    cluster_id: 'arctic_a+arctic_b',
+    avgConfidence: 0.981,
+    places: [kept, other],
+    edges: [edge(kept.id, other.id, 0.981, 32, 1)],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
+function maybeCluster() {
+  const kept = place('saito', 'Sushi Saito');
+  const other = place('sato', 'Sushi Sato');
+  kept.city = 'Tokyo';
+  other.city = 'Tokyo';
+  kept.kind = 'restaurant';
+  other.kind = 'restaurant';
+  return {
+    cluster_id: 'saito+sato',
+    avgConfidence: 0.948,
+    places: [kept, other],
+    edges: [edge(kept.id, other.id, 0.948, null, 0.91)],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
 const clusters = [
   cluster('c1', ['Cafe A', 'Cafe A copy']),
   cluster('c2', ['Cafe B', 'Cafe B copy']),
@@ -78,29 +131,60 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  it('asks how many groups and places before Merge All runs', async () => {
+  it('confirms only Certain groups, and leaves the rest out of the count', async () => {
     const user = userEvent.setup();
     render(
-      <DuplicatesPageClient initialData={clusters} fetchedAt={null} fetchError={null} />
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Merge All' }));
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
 
     expect(global.fetch).not.toHaveBeenCalled();
-    expect(screen.getByRole('alertdialog')).toHaveTextContent('Merge 2 groups?');
-    expect(screen.getByRole('alertdialog')).toHaveTextContent('4 places across 2 groups');
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Merge 1 certain group?');
+    expect(dialog).toHaveTextContent('2 places across 1 certain group');
+    expect(dialog).not.toHaveTextContent('4 places');
   });
 
-  it('asks how many groups and places before Dismiss All runs', async () => {
+  it('asks how many groups and places before Dismiss all runs', async () => {
     const user = userEvent.setup();
     render(
       <DuplicatesPageClient initialData={clusters} fetchedAt={null} fetchError={null} />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Dismiss All' }));
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (2)' }));
 
     expect(global.fetch).not.toHaveBeenCalled();
     expect(screen.getByRole('alertdialog')).toHaveTextContent('Dismiss 2 groups?');
     expect(screen.getByRole('alertdialog')).toHaveTextContent('4 places across 2 groups');
+  });
+
+  it('names Possible and merged work on an empty To review list', () => {
+    render(
+      <DuplicatesPageClient
+        initialData={[]}
+        possible={[cluster('weak', ['Fushimi Inari Taisha', 'Fushimi Inari Shrine'])]}
+        merged={[{
+          id: 'mrg_igu',
+          keptPlaceId: 'plc_igu',
+          keptName: 'Iguazu Falls',
+          performedAt: '2026-10-11T00:00:00.000Z',
+          placeCount: 3,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    expect(screen.getByRole('heading', { name: "You're up to date." })).toBeInTheDocument();
+    expect(screen.getByText('1 weaker match under Possible.')).toBeInTheDocument();
+    expect(screen.getByText('Merged Iguazu Falls on 11 Oct.')).toBeInTheDocument();
+    expect(screen.queryByText(/clean/i)).not.toBeInTheDocument();
   });
 });

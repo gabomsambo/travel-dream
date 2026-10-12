@@ -50,13 +50,12 @@ Server runs on: http://localhost:3000
 Navigate to: http://localhost:3000/duplicates
 
 **Expected:**
-- Page loads with "Duplicate Detection" header
-- Shows grid of duplicate cluster cards (if any exist)
-- Each card shows:
-  - Confidence badge (green/yellow/orange/red)
-  - Number of places in cluster
-  - Place names
-  - Common metadata (city, country, kind)
+- Title is "Duplicates", with the subtitle "Places that might be saved more than once. Merge them into one, or tell us they are different."
+- The header shows when the library was last checked, and a "Check again" button. Page-wide actions are in the More menu.
+- Tabs with counts: To review, Possible, Not duplicates, Merged. On desktop, the sidebar Duplicates item shows the To-review count when it is greater than zero.
+- To review and Possible list queue rows: a photo stack, the kept place's name, the member count, a certainty word, and one context line when the score would hide something.
+- An empty To review says "You're up to date." It names what is still under Possible and what was merged. It does not say the library is clean.
+- Opening a group keeps the compare-and-merge screen.
 
 ### 3. Test Bulk Merge API
 
@@ -140,17 +139,14 @@ curl 'http://localhost:3000/api/places/duplicates?mode=clusters&status=library&p
 ## 🚀 Next Steps (Optional Enhancements)
 
 ### Not Implemented (Lower Priority):
-1. **Comparison Dialog** - Side-by-side place comparison view
-2. **Keyboard Shortcuts** - j/k navigation, m/d hotkeys
-3. **Undo UI** - Visual undo button with history
-4. **Query Optimization** - Further performance tuning for <2s
-5. **E2E Tests** - Playwright/Cypress integration tests
+1. **Undo UI** - Visual undo button with history
+2. **Query Optimization** - Further performance tuning for <2s
+3. **E2E Tests** - Playwright/Cypress integration tests
 
 ### Recommended Priority:
 1. Add real data to test with actual duplicates
 2. Fine-tune confidence thresholds based on user feedback
 3. Implement undo UI for better UX
-4. Add keyboard shortcuts for power users
 
 ## 📊 Architecture Summary
 
@@ -182,7 +178,7 @@ curl 'http://localhost:3000/api/places/duplicates?mode=clusters&status=library&p
 1. **Intelligent Detection**: Multi-signal matching (name + location + metadata)
 2. **Performance Optimized**: 5x faster with spatial indexing
 3. **Zero Data Loss**: Complete audit trail with undo capability
-4. **User-Friendly UI**: Confidence badges, bulk operations, toast feedback
+4. **Duplicates page**: queue, tabs, and empty states. What to look for is under "Test Duplicates Page" above.
 5. **Production Ready**: Transaction-safe, error handling, progress tracking
 
 ## 🎓 Technical Highlights

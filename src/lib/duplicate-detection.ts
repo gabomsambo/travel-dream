@@ -139,7 +139,10 @@ export interface DuplicateCluster {
   weakestIncludedScore: number;
   edges: DuplicateGroupEdge[];
   leftOut: DuplicateLeftOut[];
-  /** ISO timestamp when a merge alt-name explains an included edge. Null until that lookup ships. */
+  /**
+   * ISO time when a merge alt-name explains an included edge.
+   * `findDuplicateClusters` leaves this null. `loadDuplicateQueueExtras` sets it.
+   */
   mergedOn: string | null;
 }
 
@@ -1085,7 +1088,8 @@ function leftOutForGroups(
  * path is dropped and the groups are rebuilt. A same Google place id stays
  * one group. A removed place is `leftOut` on the reachable survivor whose
  * nearest geocoded member is closest, tie-broken by group id. A survivor
- * with no pin is ignored. The merge-log date is not applied here.
+ * with no pin is ignored. This function leaves `mergedOn` null;
+ * `loadDuplicateQueueExtras` sets it from merge logs.
  */
 export function findDuplicateClusters(
   duplicateResults: Map<string, DuplicateDetectionResult>,

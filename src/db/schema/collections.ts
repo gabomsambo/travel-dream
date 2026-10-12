@@ -7,8 +7,9 @@ export const collections = sqliteTable('collections', {
   // Primary key with custom prefix
   id: text('id').primaryKey().$defaultFn(() => `col_${crypto.randomUUID()}`),
 
-  // Owner of this collection (nullable for migration, enforced in application)
-  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  // Owner of this collection. NOT NULL is the database's second check that a row
+  // always has an owner; the application already required one.
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 
   // Collection information
   name: text('name').notNull(),

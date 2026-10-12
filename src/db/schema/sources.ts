@@ -12,8 +12,10 @@ export const sources = sqliteTable('sources', {
   // Primary key with custom prefix
   id: text('id').primaryKey().$defaultFn(() => `src_${crypto.randomUUID()}`),
 
-  // Owner of this source (nullable for migration, enforced in application)
-  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  // Owner of this source. NOT NULL is the database's second check that a row
+  // always has an owner; the application already required one.
+  // This copy is not the live table definition (see the file header).
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 
   // Source type: 'screenshot' | 'url' | 'note'
   type: text('type').notNull(),
@@ -92,7 +94,9 @@ export const sources = sqliteTable('sources', {
 
 export const uploadSessions = sqliteTable('upload_sessions', {
   id: text('id').primaryKey().$defaultFn(() => `session_${crypto.randomUUID()}`),
-  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  // Owner of this upload session. NOT NULL is the database's second check that a
+  // row always has an owner; the application already required one.
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   startedAt: text('started_at').notNull(),
   fileCount: integer('file_count').notNull().default(0),
   completedCount: integer('completed_count').notNull().default(0),

@@ -5,10 +5,11 @@ import { users } from './auth';
 export const dismissedDuplicates = sqliteTable('dismissed_duplicates', {
   id: text('id').primaryKey().$defaultFn(() => `dis_${crypto.randomUUID()}`),
 
-  // Owner of this dismissal (nullable for migration backfill, enforced in application).
+  // Owner of this dismissal. NOT NULL is the database's second check that a row
+  // always has an owner; the application already required one.
   // No ON DELETE action here on purpose: production's FK is a plain
   // `REFERENCES users(id)`, and the schema must mirror production exactly.
-  userId: text('user_id').references(() => users.id),
+  userId: text('user_id').notNull().references(() => users.id),
 
   placeId1: text('place_id_1').notNull(),
   placeId2: text('place_id_2').notNull(),

@@ -6,8 +6,9 @@ export const places = sqliteTable('places', {
   // Primary key with custom prefix
   id: text('id').primaryKey().$defaultFn(() => `plc_${crypto.randomUUID()}`),
 
-  // Owner of this place (nullable for migration, enforced in application)
-  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  // Owner of this place. NOT NULL is the database's second check that a row
+  // always has an owner; the application already required one.
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 
   // Basic place information
   name: text('name').notNull(),

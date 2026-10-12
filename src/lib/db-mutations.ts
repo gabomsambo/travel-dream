@@ -1,7 +1,8 @@
-import { eq, and, inArray, count, sql } from 'drizzle-orm';
+import { eq, and, inArray, count, sql, desc } from 'drizzle-orm';
 import { del } from '@vercel/blob';
 import { db } from '@/db';
-import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments } from '@/db/schema';
+import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks } from '@/db/schema';
+import { appendNote, mergePlaceFields, sanitizeMergeFieldOverrides, type MergeFieldOverrides } from '@/lib/place-merge';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId, NotFoundError } from './db-utils';
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
@@ -959,8 +960,26 @@ export async function mergePlaces(
   }, 'mergePlaces');
 }
 
+export interface MovedMergeRelations {
+  attachmentIds: string[];
+  reservationIds: string[];
+  placeLinkIds: string[];
+  sourceLinks: Array<{ sourceId: string; fromPlaceId: string; action: 'moved' | 'dropped' }>;
+  collectionLinks: Array<{
+    collectionId: string;
+    fromPlaceId: string;
+    action: 'moved' | 'note-appended';
+    absorbedNote: string | null;
+  }>;
+}
+
 export async function bulkMergePlaces(
-  clusters: Array<{ targetId: string; sourceIds: string[]; confidence: number }>,
+  clusters: Array<{
+    targetId: string;
+    sourceIds: string[];
+    confidence: number;
+    fieldOverrides?: MergeFieldOverrides;
+  }>,
   userId: string
 ): Promise<{ success: number; failed: number; results: any[] }> {
   return withErrorHandling(async () => {
@@ -971,55 +990,123 @@ export async function bulkMergePlaces(
     for (const cluster of clusters) {
       try {
         await withTransaction(async (tx) => {
+          const orderedSourceIds = Array.from(new Set(
+            cluster.sourceIds.filter((id) => id !== cluster.targetId)
+          ));
+          if (orderedSourceIds.length === 0) {
+            throw new NotFoundError('No source places to merge');
+          }
+
           // Verify ownership of all places
           const [targetPlace] = await tx.select().from(places)
             .where(and(eq(places.id, cluster.targetId), eq(places.userId, userId))).limit(1);
           const sourcePlaces = await tx.select().from(places)
-            .where(and(inArray(places.id, cluster.sourceIds), eq(places.userId, userId)));
+            .where(and(inArray(places.id, orderedSourceIds), eq(places.userId, userId)));
 
           if (!targetPlace) throw new NotFoundError('Target place not found or unauthorized');
-          if (sourcePlaces.length !== cluster.sourceIds.length) {
+          if (sourcePlaces.length !== orderedSourceIds.length) {
             throw new NotFoundError('One or more source places not found or unauthorized');
           }
 
-          const sourceSnapshots = sourcePlaces.map((p: Place) => ({ ...p }));
+          const byId = new Map<string, Place>(sourcePlaces.map((place: Place) => [place.id, place]));
+          const orderedSources = orderedSourceIds.map((id) => byId.get(id)!);
+          const sourceSnapshots = orderedSources.map((place) => ({ ...place }));
 
-          const mergedData = {
-            altNames: [...new Set([
-              targetPlace.name,
-              ...(targetPlace.altNames || []),
-              ...sourcePlaces.flatMap((p: Place) => [p.name, ...(p.altNames || [])])
-            ])],
-            tags: [...new Set([
-              ...(targetPlace.tags || []),
-              ...sourcePlaces.flatMap((p: Place) => p.tags || [])
-            ])],
-            vibes: [...new Set([
-              ...(targetPlace.vibes || []),
-              ...sourcePlaces.flatMap((p: Place) => p.vibes || [])
-            ])],
-            notes: [
-              targetPlace.notes,
-              ...sourcePlaces.map((p: Place) => p.notes)
-            ].filter(Boolean).join('\n\n---\n\n'),
-            updatedAt: new Date().toISOString()
-          };
+          const fieldOverrides = sanitizeMergeFieldOverrides(cluster.fieldOverrides);
+          const merged = mergePlaceFields(targetPlace, orderedSources, fieldOverrides);
+          const updatedAt = new Date().toISOString();
 
           await tx.update(places)
-            .set(mergedData)
+            .set({
+              name: merged.name,
+              kind: merged.kind,
+              city: merged.city,
+              country: merged.country,
+              admin: merged.admin,
+              address: merged.address,
+              coords: merged.coords,
+              website: merged.website,
+              phone: merged.phone,
+              hours: merged.hours,
+              price_level: merged.price_level,
+              best_time: merged.best_time,
+              practicalInfo: merged.practicalInfo,
+              description: merged.description,
+              googlePlaceId: merged.googlePlaceId,
+              activities: merged.activities,
+              cuisine: merged.cuisine,
+              amenities: merged.amenities,
+              tags: merged.tags,
+              vibes: merged.vibes,
+              altNames: merged.altNames,
+              notes: merged.notes,
+              confidence: merged.confidence,
+              ratingSelf: merged.ratingSelf,
+              status: merged.status,
+              updatedAt,
+            })
             .where(eq(places.id, cluster.targetId));
 
-          for (const sourceId of cluster.sourceIds) {
+          const movedRelations: MovedMergeRelations = {
+            attachmentIds: [],
+            reservationIds: [],
+            placeLinkIds: [],
+            sourceLinks: [],
+            collectionLinks: [],
+          };
+
+          for (const sourceId of orderedSourceIds) {
+            const [targetHasPrimary] = await tx.select({ id: attachments.id })
+              .from(attachments)
+              .where(and(eq(attachments.placeId, cluster.targetId), eq(attachments.isPrimary, 1)))
+              .limit(1);
+            const sourceAttachments = await tx.select({ id: attachments.id })
+              .from(attachments)
+              .where(eq(attachments.placeId, sourceId));
+            if (sourceAttachments.length > 0) {
+              movedRelations.attachmentIds.push(...sourceAttachments.map((row: { id: string }) => row.id));
+              await tx.update(attachments)
+                .set(targetHasPrimary
+                  ? { placeId: cluster.targetId, isPrimary: 0 }
+                  : { placeId: cluster.targetId })
+                .where(eq(attachments.placeId, sourceId));
+            }
+
+            const sourceReservations = await tx.select({ id: reservations.id })
+              .from(reservations)
+              .where(eq(reservations.placeId, sourceId));
+            if (sourceReservations.length > 0) {
+              movedRelations.reservationIds.push(...sourceReservations.map((row: { id: string }) => row.id));
+              await tx.update(reservations)
+                .set({ placeId: cluster.targetId, updatedAt })
+                .where(eq(reservations.placeId, sourceId));
+            }
+
+            const sourceLinks = await tx.select({ id: placeLinks.id })
+              .from(placeLinks)
+              .where(eq(placeLinks.placeId, sourceId));
+            if (sourceLinks.length > 0) {
+              movedRelations.placeLinkIds.push(...sourceLinks.map((row: { id: string }) => row.id));
+              await tx.update(placeLinks)
+                .set({ placeId: cluster.targetId })
+                .where(eq(placeLinks.placeId, sourceId));
+            }
+
             // Get existing associations for target to avoid duplicates
             const targetSourceAssocs = await tx.select({ sourceId: sourcesToPlaces.sourceId })
               .from(sourcesToPlaces)
               .where(eq(sourcesToPlaces.placeId, cluster.targetId));
             const targetSourceIds = new Set(targetSourceAssocs.map((a: { sourceId: string }) => a.sourceId));
 
-            const targetCollectionAssocs = await tx.select({ collectionId: placesToCollections.collectionId })
+            const targetCollectionAssocs = await tx.select({
+              collectionId: placesToCollections.collectionId,
+              note: placesToCollections.note,
+            })
               .from(placesToCollections)
               .where(eq(placesToCollections.placeId, cluster.targetId));
-            const targetCollectionIds = new Set(targetCollectionAssocs.map((a: { collectionId: string }) => a.collectionId));
+            const targetCollectionNotes = new Map<string, string | null>(
+              targetCollectionAssocs.map((a: { collectionId: string; note: string | null }) => [a.collectionId, a.note] as const)
+            );
 
             // Get source's associations
             const sourceSourceAssocs = await tx.select()
@@ -1038,40 +1125,105 @@ export async function bulkMergePlaces(
                     eq(sourcesToPlaces.placeId, sourceId),
                     eq(sourcesToPlaces.sourceId, assoc.sourceId)
                   ));
+                targetSourceIds.add(assoc.sourceId);
+                movedRelations.sourceLinks.push({
+                  sourceId: assoc.sourceId,
+                  fromPlaceId: sourceId,
+                  action: 'moved',
+                });
               } else {
                 await tx.delete(sourcesToPlaces)
                   .where(and(
                     eq(sourcesToPlaces.placeId, sourceId),
                     eq(sourcesToPlaces.sourceId, assoc.sourceId)
                   ));
+                movedRelations.sourceLinks.push({
+                  sourceId: assoc.sourceId,
+                  fromPlaceId: sourceId,
+                  action: 'dropped',
+                });
               }
             }
 
             for (const assoc of sourceCollectionAssocs) {
-              if (!targetCollectionIds.has(assoc.collectionId)) {
+              if (!targetCollectionNotes.has(assoc.collectionId)) {
                 await tx.update(placesToCollections)
                   .set({ placeId: cluster.targetId })
                   .where(and(
                     eq(placesToCollections.placeId, sourceId),
                     eq(placesToCollections.collectionId, assoc.collectionId)
                   ));
+                targetCollectionNotes.set(assoc.collectionId, assoc.note);
+                movedRelations.collectionLinks.push({
+                  collectionId: assoc.collectionId,
+                  fromPlaceId: sourceId,
+                  action: 'moved',
+                  absorbedNote: assoc.note ?? null,
+                });
               } else {
+                const keptNote = targetCollectionNotes.get(assoc.collectionId);
+                const combined = appendNote(keptNote, assoc.note);
+                if (combined !== keptNote) {
+                  await tx.update(placesToCollections)
+                    .set({ note: combined })
+                    .where(and(
+                      eq(placesToCollections.placeId, cluster.targetId),
+                      eq(placesToCollections.collectionId, assoc.collectionId)
+                    ));
+                  targetCollectionNotes.set(assoc.collectionId, combined);
+                }
                 await tx.delete(placesToCollections)
                   .where(and(
                     eq(placesToCollections.placeId, sourceId),
                     eq(placesToCollections.collectionId, assoc.collectionId)
                   ));
+                movedRelations.collectionLinks.push({
+                  collectionId: assoc.collectionId,
+                  fromPlaceId: sourceId,
+                  action: 'note-appended',
+                  absorbedNote: assoc.note ?? null,
+                });
               }
             }
           }
 
           await tx.update(places)
-            .set({ status: 'archived' })
-            .where(inArray(places.id, cluster.sourceIds));
+            .set({ status: 'archived', updatedAt })
+            .where(inArray(places.id, orderedSourceIds));
+
+          const mergedData = {
+            description: merged.description,
+            address: merged.address,
+            coords: merged.coords,
+            website: merged.website,
+            phone: merged.phone,
+            hours: merged.hours,
+            price_level: merged.price_level,
+            best_time: merged.best_time,
+            practicalInfo: merged.practicalInfo,
+            admin: merged.admin,
+            city: merged.city,
+            country: merged.country,
+            kind: merged.kind,
+            googlePlaceId: merged.googlePlaceId,
+            activities: merged.activities,
+            cuisine: merged.cuisine,
+            amenities: merged.amenities,
+            tags: merged.tags,
+            vibes: merged.vibes,
+            altNames: merged.altNames,
+            notes: merged.notes,
+            confidence: merged.confidence,
+            ratingSelf: merged.ratingSelf,
+            status: merged.status,
+            fieldOverrides: fieldOverrides ?? null,
+            movedRelations,
+            updatedAt,
+          };
 
           const [mergeLog] = await tx.insert(mergeLogs).values({
             targetId: cluster.targetId,
-            sourceIds: cluster.sourceIds,
+            sourceIds: orderedSourceIds,
             mergedData,
             sourceSnapshots,
             confidence: cluster.confidence,
@@ -1575,16 +1727,17 @@ export async function createPlacesFromPipeline(
         new Set(pipelinePlaces.map(p => p.name).filter((n): n is string => Boolean(n)))
       );
 
-      const byGoogleId = new Map<string, Place>();
+      const byGoogleId = new Map<string, Place[]>();
       if (googleIds.length > 0) {
         const rows = await tx.select().from(places)
           .where(and(eq(places.userId, userId), inArray(places.googlePlaceId, googleIds)));
         for (const row of rows as Place[]) {
-          if (row.googlePlaceId && !byGoogleId.has(row.googlePlaceId)) byGoogleId.set(row.googlePlaceId, row);
+          if (!row.googlePlaceId) continue;
+          rememberIdentityMatch(byGoogleId, row.googlePlaceId, row);
         }
       }
 
-      const byNameKey = new Map<string, Place>();
+      const byNameKey = new Map<string, Place[]>();
       if (names.length > 0) {
         const rows = await tx.select().from(places)
           .where(and(
@@ -1592,8 +1745,7 @@ export async function createPlacesFromPipeline(
             sql`LOWER(${places.name}) IN (${sql.join(names.map(n => sql`LOWER(${n})`), sql`, `)})`
           ));
         for (const row of rows as Place[]) {
-          const key = placeNameKey(row.name, row.city, row.country);
-          if (!byNameKey.has(key)) byNameKey.set(key, row);
+          rememberIdentityMatch(byNameKey, placeNameKey(row.name, row.city, row.country), row);
         }
       }
 
@@ -1603,14 +1755,18 @@ export async function createPlacesFromPipeline(
       for (const p of pipelinePlaces) {
         // ── Dedup check (in-memory, including places created in this batch) ─
         const nameKey = p.name ? placeNameKey(p.name, p.city ?? null, p.country ?? null) : null;
-        const existingPlace =
+        const candidates =
           (p.googlePlaceId ? byGoogleId.get(p.googlePlaceId) : undefined) ??
           (nameKey ? byNameKey.get(nameKey) : undefined);
 
-        if (existingPlace) {
-          // Duplicate found — link source to existing place, skip insert
-          sourceLinks.push({ sourceId, placeId: existingPlace.id });
-          createdPlaces.push(existingPlace);
+        if (candidates && candidates.length > 0) {
+          // A place archived by a merge still carries its Google id and name.
+          // Attach this screenshot to the survivor instead of the archived copy.
+          const linked = await resolveIdentityMatch(tx, candidates, userId);
+          sourceLinks.push({ sourceId, placeId: linked.id });
+          createdPlaces.push(linked);
+          if (p.googlePlaceId) byGoogleId.set(p.googlePlaceId, [linked]);
+          if (nameKey) byNameKey.set(nameKey, [linked]);
           continue;
         }
 
@@ -1642,8 +1798,8 @@ export async function createPlacesFromPipeline(
 
         const [place] = await tx.insert(places).values(newPlace).returning();
         createdPlaces.push(place);
-        if (place.googlePlaceId) byGoogleId.set(place.googlePlaceId, place);
-        if (nameKey) byNameKey.set(nameKey, place);
+        if (place.googlePlaceId) byGoogleId.set(place.googlePlaceId, [place]);
+        if (nameKey) byNameKey.set(nameKey, [place]);
 
         // Link source → place
         sourceLinks.push({ sourceId, placeId: place.id });
@@ -1684,6 +1840,55 @@ export async function createPlacesFromPipeline(
  */
 function placeNameKey(name: string, city: string | null, country: string | null): string {
   return [name, city ?? '', country ?? ''].map(v => v.toLowerCase()).join('\u0000');
+}
+
+function rememberIdentityMatch(map: Map<string, Place[]>, key: string, place: Place): void {
+  const matches = map.get(key);
+  if (matches) matches.push(place);
+  else map.set(key, [place]);
+}
+
+/** Prefer a live identity match; otherwise the first archived row that resolves through merge_logs. */
+async function resolveIdentityMatch(tx: any, candidates: Place[], userId: string): Promise<Place> {
+  const live = candidates.find((candidate) => candidate.status !== 'archived');
+  if (live) return live;
+
+  for (const candidate of candidates) {
+    const survivor = await survivorOfMergedArchive(tx, candidate, userId);
+    if (survivor.id !== candidate.id) return survivor;
+  }
+  return candidates[0];
+}
+
+/**
+ * Walk merge_logs from an archived place to the place that survived the merge.
+ * Stops when the row was archived for some other reason, the log was undone,
+ * or the chain would loop. The target must belong to the same user.
+ */
+async function survivorOfMergedArchive(tx: any, place: Place, userId: string): Promise<Place> {
+  let current = place;
+  const seen = new Set<string>();
+  for (let hop = 0; hop < 8 && current.status === 'archived' && !seen.has(current.id); hop++) {
+    seen.add(current.id);
+    const [log] = await tx.select({ targetId: mergeLogs.targetId })
+      .from(mergeLogs)
+      .innerJoin(places, eq(places.id, mergeLogs.targetId))
+      .where(and(
+        eq(places.userId, userId),
+        eq(mergeLogs.undone, false),
+        sql`EXISTS (SELECT 1 FROM json_each(${mergeLogs.sourceIds}) AS je WHERE je.value = ${current.id})`
+      ))
+      .orderBy(desc(mergeLogs.performedAt))
+      .limit(1);
+    if (!log?.targetId || log.targetId === current.id) break;
+
+    const [survivor] = await tx.select().from(places)
+      .where(and(eq(places.id, log.targetId), eq(places.userId, userId)))
+      .limit(1);
+    if (!survivor) break;
+    current = survivor;
+  }
+  return current;
 }
 
 // ─── Mass-upload queue: lease-based claim / release ──────────────────────────

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useOptimistic, useEffect, startTransition } from 'react';
+import { useState, useCallback, useOptimistic, useEffect, useRef, startTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { RefreshCw, AlertCircle } from 'lucide-react';
@@ -8,8 +8,20 @@ import { DuplicateClusterCard } from './duplicate-cluster-card';
 import { DuplicateReviewToolbar } from './duplicate-review-toolbar';
 import { Accordion } from '@/components/ui-v2/accordion';
 import { Button } from '@/components/ui-v2/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui-v2/alert-dialog';
 import { notify } from '@/lib/notify';
 import { recommendMergeTarget } from '@/lib/duplicate-target-selector';
+import type { MergeFieldOverrides } from '@/lib/place-merge';
+import type { OpenGroupMergeIntent } from './duplicate-expanded-view';
 import type { Place } from '@/types/database';
 
 interface DuplicateCluster {
@@ -55,6 +67,12 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isLoading, setIsLoading] = useState(false);
   const [rescanError, setRescanError] = useState<string | null>(null);
+  const [confirmBulk, setConfirmBulk] = useState<'merge' | 'dismiss' | null>(null);
+  const openIntentRef = useRef<OpenGroupMergeIntent | null>(null);
+
+  const handleIntentChange = useCallback((intent: OpenGroupMergeIntent | null) => {
+    openIntentRef.current = intent;
+  }, []);
 
   const scanError = rescanError ?? fetchError;
 
@@ -107,6 +125,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       }
 
       setExpandedClusterId(undefined);
+      await fetch('/api/places/duplicates', { method: 'DELETE' });
 
       // Move to next cluster if available
       if (currentIndex >= clusters.length - 1) {
@@ -122,13 +141,13 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
     }
   }, [generatePairsFromCluster, router, currentIndex, clusters.length]);
 
-  const handleMerge = useCallback(async (cluster: DuplicateCluster) => {
+  const handleMerge = useCallback(async (cluster: DuplicateCluster, intent?: OpenGroupMergeIntent) => {
     setIsLoading(true);
-    const targetId = recommendMergeTarget(cluster.places);
+    const targetId = intent?.targetId ?? recommendMergeTarget(cluster.places);
     const target = cluster.places.find(p => p.id === targetId);
-    const sources = cluster.places.filter(p => p.id !== targetId);
+    const sourceIds = intent?.sourceIds ?? cluster.places.filter(p => p.id !== targetId).map(p => p.id);
 
-    if (!target) {
+    if (!target || sourceIds.length === 0) {
       notify.error('No target found for merge');
       setIsLoading(false);
       return;
@@ -145,8 +164,9 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
         body: JSON.stringify({
           clusters: [{
             targetId: target.id,
-            sourceIds: sources.map(p => p.id),
+            sourceIds,
             confidence: cluster.avgConfidence,
+            fieldOverrides: intent?.fieldOverrides,
           }],
         }),
       });
@@ -178,7 +198,12 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
     }
   }, [router, currentIndex, clusters.length]);
 
-  const handleMergePair = useCallback(async (cluster: DuplicateCluster, targetId: string, sourceId: string) => {
+  const handleMergePair = useCallback(async (
+    cluster: DuplicateCluster,
+    targetId: string,
+    sourceId: string,
+    fieldOverrides?: MergeFieldOverrides
+  ) => {
     setIsLoading(true);
     const target = cluster.places.find(p => p.id === targetId);
     const source = cluster.places.find(p => p.id === sourceId);
@@ -200,6 +225,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
             targetId: target.id,
             sourceIds: [source.id],
             confidence: cluster.avgConfidence,
+            fieldOverrides,
           }],
         }),
       });
@@ -323,6 +349,7 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       }
 
       clearSelection();
+      await fetch('/api/places/duplicates', { method: 'DELETE' });
       router.refresh();
     } catch (error) {
       notify.error('Failed to dismiss duplicates');
@@ -368,20 +395,22 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
           break;
         case 'm':
           e.preventDefault();
-          if (expandedClusterId) {
+          if (!expandedClusterId) return;
+          {
             const cluster = clusters.find(c => c.cluster_id === expandedClusterId);
-            if (cluster) handleMerge(cluster);
-          } else if (clusters.length > 0) {
-            handleBulkMerge();
+            if (!cluster) return;
+            const intent = openIntentRef.current?.clusterId === expandedClusterId
+              ? openIntentRef.current
+              : undefined;
+            handleMerge(cluster, intent);
           }
           break;
         case 'd':
           e.preventDefault();
-          if (expandedClusterId) {
+          if (!expandedClusterId) return;
+          {
             const cluster = clusters.find(c => c.cluster_id === expandedClusterId);
             if (cluster) handleDismiss(cluster);
-          } else if (clusters.length > 0) {
-            handleBulkDismiss();
           }
           break;
         case 'Escape':
@@ -401,8 +430,6 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
     toggleSelection,
     handleMerge,
     handleDismiss,
-    handleBulkMerge,
-    handleBulkDismiss,
   ]);
 
   // Auto-scroll to current item
@@ -438,8 +465,8 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
       <DuplicateReviewToolbar
         selectedCount={selected.size}
         totalCount={clusters.length}
-        onMerge={handleBulkMerge}
-        onDismiss={handleBulkDismiss}
+        onMerge={() => setConfirmBulk('merge')}
+        onDismiss={() => setConfirmBulk('dismiss')}
         onClear={clearSelection}
         isLoading={isLoading}
       />
@@ -475,9 +502,10 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
                   cluster={cluster}
                   selected={selected.has(cluster.cluster_id)}
                   onSelect={() => toggleSelection(cluster.cluster_id)}
-                  onMerge={() => handleMerge(cluster)}
-                  onMergePair={(targetId, sourceId) => handleMergePair(cluster, targetId, sourceId)}
+                  onMerge={(intent) => handleMerge(cluster, intent)}
+                  onMergePair={(targetId, sourceId, fieldOverrides) => handleMergePair(cluster, targetId, sourceId, fieldOverrides)}
                   onDismiss={() => handleDismiss(cluster)}
+                  onIntentChange={handleIntentChange}
                   isLoading={isLoading}
                 />
               </div>
@@ -486,15 +514,72 @@ export function DuplicatesPageClient({ initialData, fetchedAt, fetchError }: Dup
         )}
       </div>
 
+      <BulkConfirmDialog
+        action={confirmBulk}
+        clusters={selected.size > 0 ? clusters.filter(c => selected.has(c.cluster_id)) : clusters}
+        isLoading={isLoading}
+        onCancel={() => setConfirmBulk(null)}
+        onConfirm={() => {
+          const action = confirmBulk;
+          setConfirmBulk(null);
+          if (action === 'merge') handleBulkMerge();
+          if (action === 'dismiss') handleBulkDismiss();
+        }}
+      />
+
       {/* Keyboard hints footer */}
       <div className="border-t bg-muted/50 px-4 py-2 text-xs text-muted-foreground hidden md:flex gap-4 justify-center">
         <span><kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">j</kbd> / <kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">k</kbd> Navigate</span>
         <span><kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">Enter</kbd> Expand</span>
         <span><kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">Space</kbd> Select</span>
-        <span><kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">m</kbd> Merge</span>
-        <span><kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">d</kbd> Dismiss</span>
+        <span><kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">m</kbd> Merge open group</span>
+        <span><kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">d</kbd> Dismiss open group</span>
         <span><kbd className="bg-background px-1.5 py-0.5 rounded border font-mono">Esc</kbd> Collapse</span>
       </div>
     </div>
+  );
+}
+
+function BulkConfirmDialog({
+  action,
+  clusters,
+  isLoading,
+  onCancel,
+  onConfirm,
+}: {
+  action: 'merge' | 'dismiss' | null;
+  clusters: DuplicateCluster[];
+  isLoading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const groups = clusters.length;
+  const placeCount = clusters.reduce((total, cluster) => total + cluster.places.length, 0);
+  const groupWord = groups === 1 ? 'group' : 'groups';
+  const placeWord = placeCount === 1 ? 'place' : 'places';
+
+  return (
+    <AlertDialog open={action !== null} onOpenChange={(open) => { if (!open) onCancel(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {action === 'dismiss'
+              ? `Dismiss ${groups} ${groupWord}?`
+              : `Merge ${groups} ${groupWord}?`}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {action === 'dismiss'
+              ? `This marks ${placeCount} ${placeWord} across ${groups} ${groupWord} as not duplicates.`
+              : `This merges ${placeCount} ${placeWord} across ${groups} ${groupWord}. Places you are not keeping are archived.`}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={isLoading || groups === 0} onClick={onConfirm}>
+            {action === 'dismiss' ? 'Dismiss' : 'Merge'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

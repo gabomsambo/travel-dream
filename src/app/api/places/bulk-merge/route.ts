@@ -11,7 +11,10 @@ const BulkMergeSchema = z.object({
   clusters: z.array(z.object({
     targetId: z.string().min(1),
     sourceIds: z.array(z.string().min(1)).min(1),
-    confidence: z.number().min(0).max(1)
+    confidence: z.number().min(0).max(1),
+    // Optional picks for single-value fields both places already have.
+    // The value is a place id in this cluster; unknown fields are ignored later.
+    fieldOverrides: z.record(z.string(), z.string().min(1)).optional(),
   })).min(1).max(50)
 });
 
@@ -46,7 +49,9 @@ export async function POST(request: NextRequest) {
       result.failed > 0 &&
       result.results.every((entry: { notFound?: boolean }) => entry.notFound === true);
 
-    // Invalidate cached library stats — bulk merge reduces total count.
+    // Library stats count places with status library. Absorbed rows are
+    // archived, and an Inbox survivor becomes Library when it absorbs a
+    // Library place, so the cached totals are not a simple decrement.
     if (result.success > 0) {
       revalidateTag(`library-stats:${user.id}`);
     }

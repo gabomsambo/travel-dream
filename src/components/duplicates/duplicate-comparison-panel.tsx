@@ -3,12 +3,23 @@
 import { Check, AlertTriangle, Plus, Minus } from 'lucide-react';
 import { Badge } from '@/components/adapters/badge';
 import { cn } from '@/lib/utils';
+import {
+  fieldsFilledByMerge,
+  MERGE_OVERRIDE_FIELD_LABELS,
+  mergePlaceFields,
+  scalarFieldContributor,
+  type MergeFieldOverrides,
+  type MergeOverrideField,
+} from '@/lib/place-merge';
 import type { Place } from '@/types/database';
 
 interface DuplicateComparisonPanelProps {
   target: Place;
   compareTo: Place;
   className?: string;
+  fieldOverrides?: MergeFieldOverrides;
+  onPickField?: (field: MergeOverrideField, placeId: string | null) => void;
+  mergeAllSources?: Place[];
 }
 
 type FieldValue = string | number | boolean | string[] | null | undefined | Place['coords'];
@@ -18,6 +29,45 @@ interface FieldComparison {
   targetValue: FieldValue;
   compareValue: FieldValue;
   type: 'text' | 'array' | 'coords';
+  overrideField?: MergeOverrideField;
+}
+
+const SCALAR_TYPES = {
+  name: 'text',
+  kind: 'text',
+  city: 'text',
+  admin: 'text',
+  country: 'text',
+  address: 'text',
+  coords: 'coords',
+  website: 'text',
+  phone: 'text',
+  hours: 'text',
+  price_level: 'text',
+  best_time: 'text',
+  practicalInfo: 'text',
+  description: 'text',
+  googlePlaceId: 'text',
+} as const satisfies Record<MergeOverrideField, 'text' | 'coords'>;
+
+const PAIR_WILL_ADD_LABEL = 'Will add (Merge These Two)';
+
+function formatHours(hours: Place['hours']): string {
+  if (hours == null || typeof hours !== 'object') return '';
+  const entries = Object.entries(hours).sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return '';
+  return entries.map(([day, time]) => `${day}: ${time}`).join(', ');
+}
+
+function comparisonValue(place: Place, field: MergeOverrideField): FieldValue {
+  switch (field) {
+    case 'hours':
+      return formatHours(place.hours);
+    case 'coords':
+      return place.coords;
+    default:
+      return place[field];
+  }
 }
 
 function formatCoords(coords: Place['coords']): string {
@@ -103,6 +153,39 @@ function DiffIcon({ indicator }: { indicator: DiffIndicator }) {
   }
 }
 
+function mergeAllDisagreement(args: {
+  field: MergeOverrideField | undefined;
+  target: Place;
+  compareTo: Place;
+  allSources: Place[];
+  allMerged: Place;
+  pairMerged: Place;
+  fieldOverrides?: MergeFieldOverrides;
+  mergeAllHasOtherMembers: boolean;
+}): string | null {
+  const {
+    field,
+    target,
+    compareTo,
+    allSources,
+    allMerged,
+    pairMerged,
+    fieldOverrides,
+    mergeAllHasOtherMembers,
+  } = args;
+  if (!field || !mergeAllHasOtherMembers) return null;
+
+  const contributor = scalarFieldContributor(target, allSources, field, fieldOverrides);
+  if (!contributor || contributor.id === compareTo.id) return null;
+
+  const pairValue = comparisonValue(pairMerged, field);
+  const allValue = comparisonValue(allMerged, field);
+  if (valuesMatch(pairValue, allValue, SCALAR_TYPES[field])) return null;
+
+  const name = contributor.name?.trim() || 'another place';
+  return `Merge All uses ${name}'s value`;
+}
+
 function ArrayBadges({ values, className }: { values: string[]; className?: string }) {
   if (!values || values.length === 0) {
     return <span className="text-muted-foreground text-sm italic">None</span>;
@@ -123,15 +206,24 @@ export function DuplicateComparisonPanel({
   target,
   compareTo,
   className,
+  fieldOverrides,
+  onPickField,
+  mergeAllSources,
 }: DuplicateComparisonPanelProps) {
+  const allSources = mergeAllSources ?? [compareTo];
+  const pairMerged = mergePlaceFields(target, [compareTo], fieldOverrides);
+  const allMerged = mergePlaceFields(target, allSources, fieldOverrides);
+  const pairFilled = new Set(fieldsFilledByMerge(target, pairMerged));
+  const mergeAllHasOtherMembers = allSources.some((place) => place.id !== compareTo.id);
+
   const fields: FieldComparison[] = [
-    { label: 'Name', targetValue: target.name, compareValue: compareTo.name, type: 'text' },
-    { label: 'Kind', targetValue: target.kind, compareValue: compareTo.kind, type: 'text' },
-    { label: 'City', targetValue: target.city, compareValue: compareTo.city, type: 'text' },
-    { label: 'Country', targetValue: target.country, compareValue: compareTo.country, type: 'text' },
-    { label: 'Address', targetValue: target.address, compareValue: compareTo.address, type: 'text' },
-    { label: 'Coordinates', targetValue: target.coords, compareValue: compareTo.coords, type: 'coords' },
-    { label: 'Description', targetValue: target.description, compareValue: compareTo.description, type: 'text' },
+    ...(Object.keys(SCALAR_TYPES) as MergeOverrideField[]).map((field) => ({
+      label: MERGE_OVERRIDE_FIELD_LABELS[field],
+      targetValue: comparisonValue(target, field),
+      compareValue: comparisonValue(compareTo, field),
+      type: SCALAR_TYPES[field],
+      overrideField: field,
+    })),
     { label: 'Tags', targetValue: target.tags, compareValue: compareTo.tags, type: 'array' },
     { label: 'Vibes', targetValue: target.vibes, compareValue: compareTo.vibes, type: 'array' },
     { label: 'Activities', targetValue: target.activities, compareValue: compareTo.activities, type: 'array' },
@@ -152,17 +244,43 @@ export function DuplicateComparisonPanel({
       <div className="border-t" />
 
       {fields.map((field) => {
-        const indicator = getDiffIndicator(field.targetValue, field.compareValue, field.type);
+        const rawIndicator = getDiffIndicator(field.targetValue, field.compareValue, field.type);
+        const pairWillAdd = !!(field.overrideField && pairFilled.has(field.overrideField));
+        const indicator: DiffIndicator = pairWillAdd
+          ? 'target-missing'
+          : rawIndicator === 'target-missing' && field.overrideField
+            ? 'differ'
+            : rawIndicator;
         const targetDisplay = getFieldValue(field.targetValue, field.type);
         const compareDisplay = getFieldValue(field.compareValue, field.type);
+
+        const usingCompare = !!(
+          field.overrideField && fieldOverrides?.[field.overrideField] === compareTo.id
+        );
+
+        const mergeAllNote = mergeAllDisagreement({
+          field: field.overrideField,
+          target,
+          compareTo,
+          allSources,
+          allMerged,
+          pairMerged,
+          fieldOverrides,
+          mergeAllHasOtherMembers,
+        });
+        const showPick = !!(
+          field.overrideField &&
+          onPickField &&
+          (indicator === 'differ' || usingCompare || (mergeAllNote && !isEmpty(field.compareValue, field.type)))
+        );
 
         return (
           <div
             key={field.label}
             className={cn(
               'grid grid-cols-[120px_1fr_auto_1fr] gap-2 py-2 items-start',
-              indicator === 'target-missing' && 'bg-blue-50/50 -mx-2 px-2 rounded',
-              indicator === 'differ' && 'bg-amber-50/50 -mx-2 px-2 rounded'
+              indicator === 'target-missing' && 'bg-blue-50/50 dark:bg-blue-950/40 -mx-2 px-2 rounded',
+              indicator === 'differ' && 'bg-amber-50/50 dark:bg-amber-950/40 -mx-2 px-2 rounded'
             )}
           >
             <div className="text-sm font-medium text-muted-foreground">{field.label}</div>
@@ -176,7 +294,13 @@ export function DuplicateComparisonPanel({
             </div>
 
             <div className="flex items-center justify-center w-6">
-              <DiffIcon indicator={indicator} />
+              {indicator === 'target-missing' ? (
+                <span role="img" aria-label={PAIR_WILL_ADD_LABEL}>
+                  <DiffIcon indicator={indicator} />
+                </span>
+              ) : (
+                <DiffIcon indicator={indicator} />
+              )}
             </div>
 
             <div className="text-sm">
@@ -184,6 +308,21 @@ export function DuplicateComparisonPanel({
                 <ArrayBadges values={field.compareValue as string[] || []} />
               ) : (
                 compareDisplay || <span className="text-muted-foreground italic">Empty</span>
+              )}
+              {mergeAllNote && (
+                <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">{mergeAllNote}</p>
+              )}
+              {showPick && (
+                <button
+                  type="button"
+                  className="mt-1 block text-xs underline text-primary"
+                  onClick={() => onPickField?.(
+                    field.overrideField as MergeOverrideField,
+                    usingCompare ? null : compareTo.id
+                  )}
+                >
+                  {usingCompare ? 'Using this value' : 'Use this value'}
+                </button>
               )}
             </div>
           </div>
@@ -199,7 +338,7 @@ export function DuplicateComparisonPanel({
             <AlertTriangle className="h-3 w-3 text-amber-500" /> Different
           </span>
           <span className="flex items-center gap-1">
-            <Plus className="h-3 w-3 text-blue-500" /> Will add
+            <Plus className="h-3 w-3 text-blue-500" /> {PAIR_WILL_ADD_LABEL}
           </span>
           <span className="flex items-center gap-1">
             <Minus className="h-3 w-3 text-gray-400" /> Missing

@@ -3,20 +3,62 @@
 import { MapPin, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/adapters/badge';
 import { Card } from '@/components/adapters/card';
+import {
+  fieldsFilledByMerge,
+  MERGE_OVERRIDE_FIELD_LABELS,
+  type MergeOverrideField,
+} from '@/lib/place-merge';
 import { cn } from '@/lib/utils';
 import type { Place } from '@/types/database';
 
 interface DuplicateMergePreviewProps {
   mergedPlace: Place;
+  target?: Place;
   sourceCount: number;
   className?: string;
+  willAddLabel?: 'Merge All' | 'Merge These Two';
+}
+
+function displayFilledValue(place: Place, field: MergeOverrideField): string {
+  switch (field) {
+    case 'coords': {
+      const coords = place.coords;
+      if (
+        !coords ||
+        typeof coords !== 'object' ||
+        !('lat' in coords) ||
+        !('lon' in coords) ||
+        coords.lat === null ||
+        coords.lon === null
+      ) {
+        return '';
+      }
+      return `${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`;
+    }
+    case 'hours': {
+      const hours = place.hours;
+      if (!hours || typeof hours !== 'object') return '';
+      return Object.entries(hours)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([day, time]) => `${day}: ${time}`)
+        .join(', ');
+    }
+    default: {
+      const value = place[field];
+      return value == null ? '' : String(value);
+    }
+  }
 }
 
 export function DuplicateMergePreview({
   mergedPlace,
+  target,
   sourceCount,
   className,
+  willAddLabel,
 }: DuplicateMergePreviewProps) {
+  const addedFields = target && willAddLabel ? fieldsFilledByMerge(target, mergedPlace) : [];
+
   return (
     <Card
       className={cn(
@@ -89,6 +131,19 @@ export function DuplicateMergePreview({
           </div>
         )}
       </div>
+
+      {addedFields.length > 0 && willAddLabel && (
+        <div className="mt-3 space-y-1">
+          <p className="text-xs font-medium">Will add ({willAddLabel})</p>
+          <ul className="text-sm">
+            {addedFields.map((field) => (
+              <li key={field}>
+                {MERGE_OVERRIDE_FIELD_LABELS[field]}: {displayFilledValue(mergedPlace, field)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-4 pt-3 border-t border-dashed border-primary/30">
         <p className="text-xs text-muted-foreground">

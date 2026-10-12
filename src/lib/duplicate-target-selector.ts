@@ -1,4 +1,10 @@
 import type { Place } from '@/types/database';
+import {
+  mergePlaceFields,
+  type MergeFieldOverrides,
+} from '@/lib/place-merge';
+
+export type { MergeFieldOverrides, MergeOverrideField } from '@/lib/place-merge';
 
 export interface DataCompletenessScore {
   placeId: string;
@@ -73,72 +79,12 @@ export function recommendMergeTarget(places: Place[]): string {
   return scores[0].placeId;
 }
 
-export function computeMergedPlace(target: Place, sources: Place[]): Place {
-  const merged: Place = { ...target };
-
-  for (const source of sources) {
-    // Text fields: prefer non-empty values
-    if (!merged.description?.trim() && source.description?.trim()) {
-      merged.description = source.description;
-    }
-    if (!merged.address?.trim() && source.address?.trim()) {
-      merged.address = source.address;
-    }
-    if (!merged.notes?.trim() && source.notes?.trim()) {
-      merged.notes = source.notes;
-    } else if (merged.notes?.trim() && source.notes?.trim() && merged.notes !== source.notes) {
-      // Concatenate different notes
-      merged.notes = `${merged.notes}\n\n---\n\n${source.notes}`;
-    }
-    if (!merged.price_level?.trim() && source.price_level?.trim()) {
-      merged.price_level = source.price_level;
-    }
-    if (!merged.practicalInfo?.trim() && source.practicalInfo?.trim()) {
-      merged.practicalInfo = source.practicalInfo;
-    }
-    if (!merged.best_time?.trim() && source.best_time?.trim()) {
-      merged.best_time = source.best_time;
-    }
-
-    // Coordinates: prefer if target doesn't have
-    if (!hasValidCoords(merged.coords) && hasValidCoords(source.coords)) {
-      merged.coords = source.coords;
-    }
-
-    // Array fields: merge unique values
-    merged.tags = mergeArrays(merged.tags, source.tags);
-    merged.vibes = mergeArrays(merged.vibes, source.vibes);
-    merged.activities = mergeArrays(merged.activities, source.activities);
-    merged.amenities = mergeArrays(merged.amenities, source.amenities);
-    merged.cuisine = mergeArrays(merged.cuisine, source.cuisine);
-    merged.altNames = mergeArrays(merged.altNames, source.altNames);
-
-    // Use higher confidence
-    if ((source.confidence ?? 0) > (merged.confidence ?? 0)) {
-      merged.confidence = source.confidence;
-    }
-  }
-
-  return merged;
-}
-
-function hasValidCoords(coords: Place['coords']): boolean {
-  return !!(coords && typeof coords === 'object' &&
-            'lat' in coords && 'lon' in coords &&
-            coords.lat !== null && coords.lon !== null);
-}
-
-function mergeArrays(arr1: string[] | null | undefined, arr2: string[] | null | undefined): string[] {
-  const set = new Set<string>();
-
-  if (Array.isArray(arr1)) {
-    arr1.forEach(item => set.add(item.toLowerCase().trim()));
-  }
-  if (Array.isArray(arr2)) {
-    arr2.forEach(item => set.add(item.toLowerCase().trim()));
-  }
-
-  return Array.from(set);
+export function computeMergedPlace(
+  target: Place,
+  sources: Place[],
+  fieldOverrides?: MergeFieldOverrides
+): Place {
+  return mergePlaceFields(target, sources, fieldOverrides);
 }
 
 export function getCompletionFactorLabels(): Record<keyof DataCompletenessScore['factors'], string> {

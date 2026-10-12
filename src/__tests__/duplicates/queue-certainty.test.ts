@@ -34,10 +34,12 @@ import {
   unionGroupsSharingPlace,
   DUPLICATE_PAGE_BAND,
   type QueueCluster,
+  type QueuePlace,
 } from '@/lib/duplicate-certainty';
 import { recommendMergeTarget } from '@/lib/duplicate-target-selector';
 import { loadDuplicateQueueExtras } from '@/lib/duplicate-queue-data';
 import type { Place } from '@/types/database';
+import { createMockPlace } from '../helpers/mass-upload-helpers';
 
 type Exec = { execute: (q: string | { sql: string; args?: unknown[] }) => Promise<{ rows: Record<string, unknown>[] }> };
 
@@ -502,7 +504,7 @@ describe('duplicate queue certainty on local places', () => {
       mergedOn: null,
     }], []);
 
-    const byId = new Map(extras.clusters[0].places.map((place) => [place.id, place.photoUrl]));
+    const byId = new Map(extras.clusters[0].places.map((place) => [place.id, attachedPhotoUrl(place)]));
     expect(byId.get('plc_thumb')).toBe('/api/photos/resolve/att_thumb?w=400');
     expect(byId.get('plc_full')).toBe('https://example.test/full.jpg');
   });
@@ -563,32 +565,33 @@ function bandCluster(ids: string[], scores: Array<[string, string, number]>) {
   };
 }
 
+function attachedPhotoUrl(place: Place): string | null {
+  if (!('photoUrl' in place)) return null;
+  const url = place.photoUrl;
+  return typeof url === 'string' ? url : null;
+}
+
+function lagoonPlace(id: string, country: string | null): QueuePlace {
+  return createMockPlace({
+    id,
+    name: 'Blue Lagoon',
+    kind: 'attraction',
+    city: null,
+    country,
+    coords: null,
+    googlePlaceId: null,
+    altNames: [],
+  });
+}
+
 function lagoonCluster(score: number): QueueCluster {
   return {
     cluster_id: 'lagoon_a+lagoon_b',
     avgConfidence: score,
     places: [
-      {
-        id: 'lagoon_a',
-        name: 'Blue Lagoon',
-        kind: 'attraction',
-        city: null,
-        country: 'Iceland',
-        coords: null,
-        googlePlaceId: null,
-        altNames: [],
-      },
-      {
-        id: 'lagoon_b',
-        name: 'Blue Lagoon',
-        kind: 'attraction',
-        city: null,
-        country: null,
-        coords: null,
-        googlePlaceId: null,
-        altNames: [],
-      },
-    ] as QueueCluster['places'],
+      lagoonPlace('lagoon_a', 'Iceland'),
+      lagoonPlace('lagoon_b', null),
+    ],
     edges: [{
       a: 'lagoon_a',
       b: 'lagoon_b',

@@ -6,6 +6,10 @@ import type { DuplicateGroupEdge } from '@/lib/duplicate-detection';
 import { notify } from '@/lib/notify';
 import type { Place } from '@/types/database';
 
+function accessibleName(expected: string) {
+  return (name: string) => name === expected;
+}
+
 function place(id: string, name: string): Place {
   return {
     id,
@@ -500,7 +504,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(dialog).toHaveTextContent('3 places across 1 certain group');
     expect(dialog).not.toHaveTextContent('4 places');
 
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     expect(postedBody('/api/places/bulk-merge', 'POST').clusters).toEqual([{
       targetId: 'place_b',
@@ -528,7 +532,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     await user.click(screen.getByRole('tab', { name: 'Possible (1)' }));
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Dismiss') }));
 
     const keys = (postedBody('/api/places/dismiss-duplicate', 'POST').pairs ?? [])
       .map((pair) => [pair.placeId1, pair.placeId2].sort().join(':'))
@@ -552,7 +556,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Dismiss') }));
 
     const keys = (postedBody('/api/places/dismiss-duplicate', 'POST').pairs ?? [])
       .map((pair) => [pair.placeId1, pair.placeId2].sort().join(':'))
@@ -574,7 +578,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     const bodies = postedBodies('/api/places/bulk-merge', 'POST');
     expect(bodies.map((body) => body.clusters?.length)).toEqual([50, 1]);
@@ -608,7 +612,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 50 certain groups'));
     expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates');
@@ -636,7 +640,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 50 certain groups'));
     expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates');
@@ -648,7 +652,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     const bodies = postedBodies('/api/places/bulk-merge', 'POST');
     const saved = new Set(clusterPlaceIds(bodies[0]));
@@ -676,7 +680,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 50 certain groups'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
 
@@ -712,7 +716,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (2)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 1 certain group'));
     expect(notify.error).toHaveBeenCalledWith('Failed to merge 1 groups');
@@ -720,7 +724,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     const bodies = postedBodies('/api/places/bulk-merge', 'POST');
     expect(bodies.map((body) => body.clusters?.length)).toEqual([2, 1]);
@@ -743,7 +747,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 1 certain group'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
 
@@ -785,7 +789,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 1 certain group'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
 
@@ -922,7 +926,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     await waitFor(() => expect(deleteCalls()).toHaveLength(1));
     expect(refresh).toHaveBeenCalled();
@@ -963,7 +967,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (2)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to merge 1 groups'));
     expect(notify.success).not.toHaveBeenCalled();
@@ -987,7 +991,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates'));
     expect(notify.success).not.toHaveBeenCalled();
@@ -1007,7 +1011,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Merge') }));
 
     expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates');
     expect(notify.success).not.toHaveBeenCalled();
@@ -1026,7 +1030,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (101)' }));
-    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Dismiss') }));
 
     const bodies = postedBodies('/api/places/dismiss-duplicate', 'POST');
     expect(bodies.map((body) => body.pairs?.length)).toEqual([100, 1]);
@@ -1045,7 +1049,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (1)' }));
-    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Dismiss') }));
 
     expect(notify.error).toHaveBeenCalledWith('Failed to dismiss duplicates');
     expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1);
@@ -1074,7 +1078,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (101)' }));
-    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+    await user.click(screen.getByRole('button', { name: accessibleName('Dismiss') }));
 
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to dismiss duplicates'));
     expect(postedBodies('/api/places/dismiss-duplicate', 'POST').map((body) => body.pairs?.length)).toEqual([100, 1]);

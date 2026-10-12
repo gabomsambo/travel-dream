@@ -10,12 +10,11 @@ import { recommendMergeTarget } from '@/lib/duplicate-target-selector';
 import type { Place } from '@/types/database';
 
 /**
- * Score bands for the duplicates queue.
+ * Certainty thresholds for the duplicates queue.
  *
- * A shared `duplicatePageBand` from the scoring change is not on this branch.
- * These are the one copy the queue uses: Possible is 0.60–0.70, To review
- * starts at 0.70, and Certain is a same Google place or a Very likely match
- * at 0.95 or above.
+ * The Possible and To-review floors match `DUPLICATE_POSSIBLE_SCORE` and
+ * `DUPLICATE_MAIN_SCORE`. Certain is a same Google place or a Very likely
+ * match at `certainMin` or above.
  */
 export const DUPLICATE_PAGE_BAND = {
   possibleMin: 0.6,

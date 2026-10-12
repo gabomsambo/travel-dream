@@ -94,6 +94,10 @@ function chunkItems<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+function groupHasUnmergedPlace(group: QueueCluster, committedIds: ReadonlySet<string>): boolean {
+  return group.places.some((place) => !committedIds.has(place.id));
+}
+
 function pairLabel(pair: DismissedPairView): string {
   const left = pair.city1 ? `${pair.name1} (${pair.city1})` : pair.name1;
   const right = pair.city2 ? `${pair.name2} (${pair.city2})` : pair.name2;
@@ -119,12 +123,16 @@ export function DuplicatesPageClient({
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [desktop, setDesktop] = useState(false);
   const openIntentRef = useRef<OpenGroupMergeIntent | null>(null);
+  const committedMergeIdsRef = useRef<Set<string>>(new Set());
+  const [committedMergeIds, setCommittedMergeIds] = useState<ReadonlySet<string>>(() => new Set());
 
   const reviewSorted = useMemo(() => sortQueueGroups(review), [review]);
   const possibleSorted = useMemo(() => sortQueueGroups(possibleGroups), [possibleGroups]);
   const certain = useMemo(
-    () => unionGroupsSharingPlace(certainGroups([...reviewSorted, ...possibleSorted])),
-    [reviewSorted, possibleSorted],
+    () => unionGroupsSharingPlace(certainGroups(
+      [...reviewSorted, ...possibleSorted].filter((cluster) => groupHasUnmergedPlace(cluster, committedMergeIds)),
+    )),
+    [committedMergeIds, reviewSorted, possibleSorted],
   );
   const activeGroups = tab === 'possible' ? possibleSorted : tab === 'review' ? reviewSorted : [];
   const scanError = rescanError ?? fetchError;
@@ -138,6 +146,29 @@ export function DuplicatesPageClient({
   expandedRef.current = expandedClusterId;
   const confirmRef = useRef(confirm);
   confirmRef.current = confirm;
+
+  useEffect(() => {
+    const present = new Set<string>();
+    for (const cluster of [...initialData, ...possible]) {
+      for (const place of cluster.places) present.add(place.id);
+    }
+    const current = committedMergeIdsRef.current;
+    if (current.size === 0) return;
+    const next = new Set([...current].filter((id) => present.has(id)));
+    if (next.size === current.size) return;
+    committedMergeIdsRef.current = next;
+    setCommittedMergeIds(next);
+  }, [initialData, possible]);
+
+  const rememberCommittedPlaces = useCallback((groups: QueueCluster[]) => {
+    const next = new Set(committedMergeIdsRef.current);
+    for (const group of groups) {
+      for (const place of group.places) next.add(place.id);
+    }
+    if (next.size === committedMergeIdsRef.current.size) return;
+    committedMergeIdsRef.current = next;
+    setCommittedMergeIds(next);
+  }, []);
 
   const handleIntentChange = useCallback((intent: OpenGroupMergeIntent | null) => {
     openIntentRef.current = intent;
@@ -277,7 +308,9 @@ export function DuplicatesPageClient({
   }, [clearScanCache, router]);
 
   const handleMergeCertain = useCallback(async (groups: QueueCluster[]) => {
-    const unions = unionGroupsSharingPlace(groups);
+    const unions = unionGroupsSharingPlace(
+      groups.filter((group) => groupHasUnmergedPlace(group, committedMergeIdsRef.current)),
+    );
     if (unions.length === 0) return;
     setIsLoading(true);
     let success = 0;
@@ -305,6 +338,7 @@ export function DuplicatesPageClient({
           rejected = true;
           continue;
         }
+        rememberCommittedPlaces(batch);
         committed = true;
         const result = await response.json() as { success?: number; failed?: number };
         if (typeof result.success === 'number') success += result.success;
@@ -329,7 +363,7 @@ export function DuplicatesPageClient({
       router.refresh();
     }
     setIsLoading(false);
-  }, [clearScanCache, router]);
+  }, [clearScanCache, rememberCommittedPlaces, router]);
 
   const handleDismissGroups = useCallback(async (groups: QueueCluster[]) => {
     if (groups.length === 0) return;

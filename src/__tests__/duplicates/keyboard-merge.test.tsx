@@ -177,6 +177,12 @@ function certainPair(index: number) {
   };
 }
 
+function clusterPlaceIds(body: {
+  clusters?: Array<{ targetId: string; sourceIds: string[] }>;
+}): string[] {
+  return (body.clusters ?? []).flatMap((cluster) => [cluster.targetId, ...cluster.sourceIds]);
+}
+
 function postedBody(url: string, method: string): {
   pairs?: Array<{ placeId1: string; placeId2: string }>;
   clusters?: Array<{ targetId: string; sourceIds: string[]; confidence: number }>;
@@ -589,6 +595,93 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates');
     expect(deleteCalls()).toHaveLength(1);
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it('does not merge a certain batch again while the payload still lists it', async () => {
+    const groups = Array.from({ length: 51 }, (_, index) => certainPair(index));
+    let posts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      posts += 1;
+      if (posts === 1) {
+        const body = JSON.parse(init?.body ?? '{}') as { clusters?: unknown[] };
+        return { ok: true, json: async () => ({ success: body.clusters?.length ?? 0, failed: 0 }) };
+      }
+      if (posts === 2) return { ok: false, json: async () => ({ status: 'error', message: 'Invalid request data' }) };
+      const body = JSON.parse(init?.body ?? '{}') as { clusters?: unknown[] };
+      return { ok: true, json: async () => ({ success: body.clusters?.length ?? 0, failed: 0 }) };
+    });
+    const user = userEvent.setup();
+    const view = render(
+      <DuplicatesPageClient initialData={groups} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 50 certain groups'));
+    expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates');
+
+    view.rerender(
+      <DuplicatesPageClient initialData={[...groups]} fetchedAt={null} fetchError={null} />
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    const bodies = postedBodies('/api/places/bulk-merge', 'POST');
+    const saved = new Set(clusterPlaceIds(bodies[0]));
+    const retried = clusterPlaceIds(bodies[2]);
+    expect(bodies.map((body) => body.clusters?.length)).toEqual([50, 1, 1]);
+    expect(retried).toEqual(clusterPlaceIds(bodies[1]));
+    expect(retried.every((id) => !saved.has(id))).toBe(true);
+  });
+
+  it('offers a saved certain group again once a later payload drops it', async () => {
+    const groups = Array.from({ length: 51 }, (_, index) => certainPair(index));
+    let posts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      posts += 1;
+      if (posts === 1) {
+        const body = JSON.parse(init?.body ?? '{}') as { clusters?: unknown[] };
+        return { ok: true, json: async () => ({ success: body.clusters?.length ?? 0, failed: 0 }) };
+      }
+      throw new Error('network down');
+    });
+    const user = userEvent.setup();
+    const view = render(
+      <DuplicatesPageClient initialData={groups} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 50 certain groups'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    expect(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    const saved = new Set(clusterPlaceIds(postedBodies('/api/places/bulk-merge', 'POST')[0]));
+    const stillListed = groups.filter((group) => group.places.some((place) => !saved.has(place.id)));
+    view.rerender(
+      <DuplicatesPageClient initialData={stillListed} fetchedAt={null} fetchError={null} />
+    );
+    view.rerender(
+      <DuplicatesPageClient initialData={groups} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    expect(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' })).toBeInTheDocument();
   });
 
   it('does not refresh a certain merge that throws before anything is saved', async () => {

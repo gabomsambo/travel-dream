@@ -97,6 +97,7 @@ function hasCoords(place: { coords?: { lat: number; lon: number } | null }): boo
   return Boolean(coords && typeof coords.lat === 'number' && typeof coords.lon === 'number');
 }
 
+// Maybe: any kind mismatch, per the approved certainty table.
 function kindsClash(a: QueuePlace, b: QueuePlace): boolean {
   const kindA = a.kind?.trim();
   const kindB = b.kind?.trim();

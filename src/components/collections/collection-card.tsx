@@ -15,10 +15,16 @@ import {
 import { cn } from '@/lib/utils';
 import type { Collection } from '@/types/database';
 import { useRouter } from 'next/navigation';
+import { CoverPhotoCredit } from '@/components/attribution/cover-photo-credit';
+import type { AttributionMeta } from '@/db/schema/attachments';
 import { CoverImagePickerDialog } from './cover-image-picker-dialog';
 
 interface CollectionCardProps {
-  collection: Collection & { places?: Array<{ coverUrl?: string | null }> };
+  collection: Collection & {
+    places?: Array<{ coverUrl?: string | null }>;
+    coverAttribution?: AttributionMeta | null;
+    coverSource?: string | null;
+  };
   placeCount?: number;
   onDelete?: (collectionId: string) => void;
   onCoverChange?: (collectionId: string, coverUrl: string | null) => void;
@@ -35,6 +41,8 @@ export function CollectionCard({
 
   // Priority: custom cover > first place cover > null (icon fallback)
   const coverUrl = collection.coverImageUrl || collection.places?.[0]?.coverUrl;
+  const coverAttribution = collection.coverImageUrl ? null : collection.coverAttribution;
+  const coverSource = collection.coverImageUrl ? null : collection.coverSource;
 
   const handleCardClick = () => {
     router.push(`/collections/${collection.id}`);
@@ -50,12 +58,21 @@ export function CollectionCard({
       {/* Cover Image Section */}
       <div className="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-primary/30 via-accent/20 to-secondary/40">
         {coverUrl ? (
-          <img
-            src={coverUrl}
-            alt={collection.name}
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-            onClick={handleCardClick}
-          />
+          <>
+            <img
+              src={coverUrl}
+              alt={collection.name}
+              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+              onClick={handleCardClick}
+            />
+            <div className="absolute bottom-2 left-2 right-14 z-[1]">
+              <CoverPhotoCredit
+                attribution={coverAttribution}
+                source={coverSource}
+                variant="on-photo"
+              />
+            </div>
+          </>
         ) : (
           <div
             className="flex h-full w-full items-center justify-center"

@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { Trash2, RotateCcw } from "lucide-react"
+import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
 import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { SelectMark } from "@/components/library/library-place-menu"
@@ -52,6 +53,16 @@ export function ArchiveList({
                     <img src={place.coverUrl} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <FallbackArt name={place.name} kind={place.kind} />
+                  )}
+                  {place.coverUrl && (
+                    <div className="absolute bottom-0.5 left-0.5 right-0.5">
+                      <CoverPhotoCredit
+                        attribution={place.coverAttribution}
+                        source={place.coverSource}
+                        variant="on-photo"
+                        className="scale-[0.85] origin-bottom-left"
+                      />
+                    </div>
                   )}
                 </Link>
                 <div className="min-w-0 flex-1">

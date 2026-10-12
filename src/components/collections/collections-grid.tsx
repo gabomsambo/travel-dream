@@ -6,7 +6,12 @@ import { FolderHeart } from 'lucide-react';
 import type { Collection } from '@/types/database';
 
 interface CollectionsGridProps {
-  collections: (Collection & { placeCount?: number; places?: Array<{ coverUrl?: string | null }> })[];
+  collections: (Collection & {
+    placeCount?: number;
+    places?: Array<{ coverUrl?: string | null }>;
+    coverAttribution?: import('@/db/schema/attachments').AttributionMeta | null;
+    coverSource?: string | null;
+  })[];
   onDelete?: (collectionId: string) => void;
   onCoverChange?: (collectionId: string, coverUrl: string | null) => void;
   onCreateClick?: () => void;

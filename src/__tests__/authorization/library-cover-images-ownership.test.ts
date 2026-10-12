@@ -71,7 +71,7 @@ describe('getCoverImagesForPlaces is scoped by signature, not by caller discipli
   it("still renders the caller's own cover — the /library and /archive control", async () => {
     const covers = await getCoverImagesForPlaces([FIXTURE.alicePlace], ALICE.id);
 
-    expect(covers.get(FIXTURE.alicePlace)).toBe(ALICE_COVER);
+    expect(covers.get(FIXTURE.alicePlace)?.uri).toBe(ALICE_COVER);
     // Only the primary attachment becomes the cover, not every photo.
     expect(covers.size).toBe(1);
   });
@@ -82,7 +82,9 @@ describe('getCoverImagesForPlaces is scoped by signature, not by caller discipli
       BOB.id
     );
 
-    expect([...covers.entries()]).toEqual([[FIXTURE.bobPlace, BOB_COVER]]);
+    expect([...covers.entries()].map(([id, meta]) => [id, meta.uri])).toEqual([
+      [FIXTURE.bobPlace, BOB_COVER],
+    ]);
   });
 
   it('short-circuits an empty list without querying', async () => {

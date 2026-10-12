@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { Heart, RotateCcw, Trash2 } from "lucide-react"
+import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
 import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { FindImageButton } from "@/components/places/find-image-button"
@@ -50,6 +51,15 @@ export function ArchiveJournal({
                 <img src={place.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" />
               ) : (
                 <FallbackArt name={place.name} kind={place.kind} />
+              )}
+              {place.coverUrl && (
+                <div className="absolute bottom-1.5 left-1.5 right-1.5 z-[1]">
+                  <CoverPhotoCredit
+                    attribution={place.coverAttribution}
+                    source={place.coverSource}
+                    variant="on-photo"
+                  />
+                </div>
               )}
             </Link>
             <div className="min-w-0 sm:pt-1">

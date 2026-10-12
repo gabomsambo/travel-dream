@@ -24,11 +24,15 @@ function place(over: Partial<ArchivePlace> & Pick<ArchivePlace, 'id' | 'name'>):
     visitStatus: 'not_visited',
     priceLevel: null,
     coverUrl: null,
+    coverAttribution: null,
+    coverSource: null,
     createdAt: '2024-11-02T00:00:00.000Z',
     archivedAt: null,
     trips: [],
     status: 'archived',
     ...over,
+    coverAttribution: over.coverAttribution ?? null,
+    coverSource: over.coverSource ?? null,
   }
 }
 

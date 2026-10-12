@@ -827,10 +827,111 @@ function disconnectedFarCount(
   return count;
 }
 
+function pathEdgeIndexes(
+  start: string,
+  goal: string,
+  edges: readonly AdmittedEdge[],
+): number[] | null {
+  const neighbors = new Map<string, Array<{ to: string; index: number }>>();
+  const link = (from: string, to: string, index: number) => {
+    const list = neighbors.get(from) ?? [];
+    list.push({ to, index });
+    neighbors.set(from, list);
+  };
+  for (let index = 0; index < edges.length; index++) {
+    link(edges[index].a, edges[index].b, index);
+    link(edges[index].b, edges[index].a, index);
+  }
+  for (const list of neighbors.values()) {
+    list.sort((left, right) => (
+      left.to < right.to ? -1 : left.to > right.to ? 1 : left.index - right.index
+    ));
+  }
+
+  const previous = new Map<string, { via: number; from: string }>();
+  const queue = [start];
+  const seen = new Set<string>([start]);
+  let found = false;
+  while (queue.length > 0 && !found) {
+    const id = queue.shift()!;
+    for (const next of neighbors.get(id) ?? []) {
+      if (seen.has(next.to)) continue;
+      seen.add(next.to);
+      previous.set(next.to, { via: next.index, from: id });
+      if (next.to === goal) {
+        found = true;
+        break;
+      }
+      queue.push(next.to);
+    }
+  }
+  if (!found) return null;
+
+  const path: number[] = [];
+  let cursor = goal;
+  while (cursor !== start) {
+    const step = previous.get(cursor);
+    if (!step) return null;
+    path.push(step.via);
+    cursor = step.from;
+  }
+  path.reverse();
+  return path;
+}
+
+function weakestNonGoogleOnPath(
+  edges: readonly AdmittedEdge[],
+  indexes: readonly number[],
+): { index: number; score: number; key: string } | null {
+  let best: { index: number; score: number; key: string } | null = null;
+  for (const index of indexes) {
+    const edge = edges[index];
+    if (edge.sameGooglePlace) continue;
+    const candidate = { index, score: edge.score, key: pairKey(edge.a, edge.b) };
+    const weaker = !best || candidate.score < best.score;
+    const sameScoreStableKey = best !== null
+      && candidate.score === best.score
+      && candidate.key < best.key;
+    if (weaker || sameScoreStableKey) best = candidate;
+  }
+  return best;
+}
+
 /**
- * While two geocoded members more than 2 km apart are still connected, drop
- * the weakest included edge whose removal separates a far pair. A same-Google
- * place edge stays: that match is certain even when the pins disagree.
+ * Weakest non-Google edge on one path between a far pair that is not already
+ * joined entirely by same-Google edges. Pair order does not choose the edge.
+ */
+function weakestEdgeOnFarPath(
+  memberIds: readonly string[],
+  edges: readonly AdmittedEdge[],
+  farPairs: ReadonlyArray<readonly [string, string]>,
+): { index: number; score: number; key: string } | null {
+  const roots = memberRoots(memberIds, edges);
+  const googleRoots = memberRoots(
+    memberIds,
+    edges.filter(edge => edge.sameGooglePlace),
+  );
+  let best: { index: number; score: number; key: string } | null = null;
+  for (const [a, b] of farPairs) {
+    if (roots.get(a) !== roots.get(b)) continue;
+    if (googleRoots.get(a) === googleRoots.get(b)) continue;
+    const path = pathEdgeIndexes(a, b, edges);
+    if (!path) continue;
+    const candidate = weakestNonGoogleOnPath(edges, path);
+    if (!candidate) continue;
+    const weaker = !best || candidate.score < best.score;
+    const sameScoreStableKey = best !== null
+      && candidate.score === best.score
+      && candidate.key < best.key;
+    if (weaker || sameScoreStableKey) best = candidate;
+  }
+  return best;
+}
+
+/**
+ * While two geocoded members more than 2 km apart stay connected by a path
+ * that is not all same-Google edges, drop the weakest non-Google edge on one
+ * such path and rebuild. A same-Google place edge stays.
  */
 function dropFarBridges(
   memberIds: readonly string[],
@@ -845,32 +946,9 @@ function dropFarBridges(
     const baseline = disconnectedFarCount(memberIds, current, farPairs);
     if (baseline === farPairs.length) break;
 
-    let best: { index: number; score: number; disconnected: number; key: string } | null = null;
-    for (let i = 0; i < current.length; i++) {
-      if (current[i].sameGooglePlace) continue;
-      const without = current.filter((_, index) => index !== i);
-      const disconnected = disconnectedFarCount(memberIds, without, farPairs);
-      if (disconnected <= baseline) continue;
-
-      const edge = current[i];
-      const candidate = {
-        index: i,
-        score: edge.score,
-        disconnected,
-        key: pairKey(edge.a, edge.b),
-      };
-      const weaker = !best || candidate.score < best.score;
-      const sameScoreMorePairs = best !== null
-        && candidate.score === best.score
-        && candidate.disconnected > best.disconnected;
-      const sameScoreStableKey = best !== null
-        && candidate.score === best.score
-        && candidate.disconnected === best.disconnected
-        && candidate.key < best.key;
-      if (weaker || sameScoreMorePairs || sameScoreStableKey) best = candidate;
-    }
-    if (!best) break;
-    current.splice(best.index, 1);
+    const onPath = weakestEdgeOnFarPath(memberIds, current, farPairs);
+    if (!onPath) break;
+    current.splice(onPath.index, 1);
   }
   return current;
 }

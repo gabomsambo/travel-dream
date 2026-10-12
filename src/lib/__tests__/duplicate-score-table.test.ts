@@ -781,6 +781,85 @@ describe('duplicate score table', () => {
     expect(unpinnedPair[0].leftOut).toEqual([])
   })
 
+  it('drops Gail\'s Wimbledon when two unpinned aliases each keep a path to it', async () => {
+    const bakery = place({
+      id: 'plc_gail_1',
+      name: "Gail's Bakery",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4613, lon: -0.0860 },
+    })
+    const dulwich = place({
+      id: 'plc_gail_2',
+      name: "GAIL's Bakery Dulwich",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4615, lon: -0.0857 },
+    })
+    const aliasA = place({
+      id: 'plc_gail_3',
+      name: 'Gails',
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: null,
+    })
+    const wimbledon = place({
+      id: 'plc_gail_4',
+      name: "Gail's Bakery Wimbledon",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4214, lon: -0.2064 },
+    })
+    const aliasB = place({
+      id: 'plc_gail_5',
+      name: 'Gails',
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: null,
+    })
+
+    for (const alias of [aliasA, aliasB]) {
+      for (const other of [bakery, dulwich, wimbledon]) {
+        const scored = calculateDuplicateScore(alias, other)
+        expect(duplicatePageBand(scored.score, scored.flags)).toBe('Main')
+      }
+    }
+    const aliases = calculateDuplicateScore(aliasA, aliasB)
+    expect(duplicatePageBand(aliases.score, aliases.flags)).toBe('Main')
+
+    const orders = permutations([bakery, dulwich, aliasA, aliasB, wimbledon])
+    expect(orders).toHaveLength(120)
+    for (const order of orders) {
+      const clusters = findDuplicateClusters(
+        await batchDetectDuplicates(order),
+        2,
+        DUPLICATE_MAIN_SCORE,
+      )
+      expect(clusters).toHaveLength(1)
+      expect(clusters[0].id).toBe('plc_gail_1+plc_gail_2+plc_gail_3+plc_gail_5')
+      expect(clusters[0].places.map((item) => item.id)).toEqual([
+        'plc_gail_1',
+        'plc_gail_2',
+        'plc_gail_3',
+        'plc_gail_5',
+      ])
+      expect(clusters[0].leftOut).toEqual([
+        {
+          id: 'plc_gail_4',
+          name: "Gail's Bakery Wimbledon",
+          distanceM: 9451,
+          fromId: 'plc_gail_1',
+          reason: '9.5 km apart',
+        },
+      ])
+    }
+  })
+
   it('keeps a same Google place together when the pins are more than 2 km apart', () => {
     const a = pinned('Iguazu Falls', 'Puerto Iguazu', 'Argentina', 'landmark', {
       id: 'google-a',

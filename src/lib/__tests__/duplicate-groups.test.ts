@@ -365,8 +365,6 @@ describe('duplicate groups', () => {
         country: 'Portugal',
         coords: offset(here.lat, here.lon, 3000),
       })
-      // The pair itself is under the detector floor. A third copy with no pin
-      // keeps both in one group so the far edge is still reported.
       const bridge = place({
         id: 'star-bridge',
         name: 'Starbucks',
@@ -375,16 +373,23 @@ describe('duplicate groups', () => {
         country: 'Portugal',
         coords: null,
       })
-      expect(await groupAt([left, right])).toHaveLength(0)
-      const [cluster] = await groupAt([left, right, bridge])
-      expect(cluster.places.map(item => item.id)).toEqual(['star-a', 'star-b', 'star-bridge'])
-      const pair = edge(cluster, 'star-a', 'star-b')
-      expect(pair.included).toBe(false)
+      const far = calculateDuplicateScore(left, right)
       // Location score is 0 past 500 m, so the unpenalized total is 0.70.
-      expect(pair.score).toBeCloseTo(0.7 - DUPLICATE_DISTANCE_PENALTIES.farPenalty, 2)
-      expect(pair.distanceM).toBeGreaterThan(2000)
-      expect(pair.against).toContain(`${((pair.distanceM ?? 0) / 1000).toFixed(1)} km apart`)
-      expect(pair.flags).toContain('far apart')
+      expect(far.score).toBeCloseTo(0.7 - DUPLICATE_DISTANCE_PENALTIES.farPenalty, 2)
+      expect(far.flags).toContain('far apart')
+      expect(await groupAt([left, right])).toHaveLength(0)
+
+      const [cluster] = await groupAt([left, right, bridge])
+      expect(cluster.places.map(item => item.id)).toEqual(['star-b', 'star-bridge'])
+      expect(cluster.leftOut).toEqual([
+        {
+          id: 'star-a',
+          name: 'Starbucks',
+          distanceM: 2997,
+          fromId: 'star-b',
+          reason: '3.0 km apart',
+        },
+      ])
     })
 
     it('states metres between 500 m and 2 km, applies the 0.05 penalty, and omits the far-apart flag', async () => {

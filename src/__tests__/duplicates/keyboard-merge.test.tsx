@@ -1,5 +1,5 @@
 import '../helpers/react-optimistic';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DuplicatesPageClient } from '@/components/duplicates/duplicates-page-client';
 import type { DuplicateGroupEdge } from '@/lib/duplicate-detection';
@@ -273,12 +273,41 @@ function possibleDismissGroups() {
   };
 }
 
+function spyRefresh() {
+  const refresh = jest.fn();
+  const navigation = require('next/navigation') as {
+    useRouter: () => { refresh: jest.Mock };
+  };
+  const routerSpy = jest.spyOn(navigation, 'useRouter').mockReturnValue({
+    push: jest.fn(),
+    replace: jest.fn(),
+    prefetch: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh,
+  } as ReturnType<typeof navigation.useRouter>);
+  return { refresh, routerSpy };
+}
+
+function deleteCalls(): unknown[] {
+  return (global.fetch as jest.Mock).mock.calls.filter(
+    (entry: [string, { method?: string }]) => entry[0] === '/api/places/duplicates' && entry[1]?.method === 'DELETE',
+  );
+}
+
 describe('duplicates keyboard and bulk confirmation', () => {
+  let routerSpy: jest.SpyInstance | undefined;
+
   beforeEach(() => {
     (global.fetch as jest.Mock).mockReset();
     (notify.success as jest.Mock).mockClear();
     (notify.error as jest.Mock).mockClear();
     mockViewport(true);
+  });
+
+  afterEach(() => {
+    routerSpy?.mockRestore();
+    routerSpy = undefined;
   });
 
   it('does not merge or dismiss when m or d is pressed with a modifier', async () => {
@@ -304,6 +333,30 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     fireEvent.keyDown(document, { key: 'm' });
     expect(postedBody('/api/places/bulk-merge', 'POST').clusters).toHaveLength(1);
+  });
+
+  it('does not move or open a group when j or k is pressed with a modifier', () => {
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    expect(fireEvent.keyDown(document, { key: 'k', metaKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document, { key: 'j', ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document, { key: 'k', altKey: true })).toBe(true);
+    expect(screen.queryByText('Merge These Two')).not.toBeInTheDocument();
+    expect(document.querySelector('[aria-current="true"]')).toBeNull();
+
+    expect(fireEvent.keyDown(document, { key: 'j' })).toBe(false);
+    expect(document.querySelector('[data-cluster-index="0"]')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByText('Merge These Two')).toBeInTheDocument();
+
+    expect(fireEvent.keyDown(document, { key: 'j', metaKey: true })).toBe(true);
+    expect(document.querySelector('[data-cluster-index="0"]')).toHaveAttribute('aria-current', 'true');
+    expect(document.querySelector('[data-cluster-index="1"]')).not.toHaveAttribute('aria-current');
   });
 
   it('does not merge or dismiss when m or d is pressed with no group open', () => {
@@ -504,6 +557,64 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(notify.error).not.toHaveBeenCalled();
   });
 
+  it('refreshes after a later certain-merge chunk throws', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    let posts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      posts += 1;
+      if (posts === 1) {
+        const body = JSON.parse(init?.body ?? '{}') as { clusters?: unknown[] };
+        return { ok: true, json: async () => ({ success: body.clusters?.length ?? 0, failed: 0 }) };
+      }
+      throw new Error('network down');
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={Array.from({ length: 51 }, (_, index) => certainPair(index))}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 50 certain groups'));
+    expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates');
+    expect(deleteCalls()).toHaveLength(1);
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it('does not refresh a certain merge that throws before anything is saved', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      throw new Error('network down');
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainPair(0)]} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates'));
+    expect(notify.success).not.toHaveBeenCalled();
+    expect(deleteCalls()).toHaveLength(0);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it('toasts when a certain-group merge is rejected', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: false,
@@ -558,6 +669,37 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     expect(notify.error).toHaveBeenCalledWith('Failed to dismiss duplicates');
     expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1);
+  });
+
+  it('refreshes after a later dismiss-all chunk throws', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    let posts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      posts += 1;
+      if (posts === 1) return { ok: true, json: async () => ({ status: 'success' }) };
+      throw new Error('network down');
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={Array.from({ length: 101 }, (_, index) => cluster(`p${index}`, [`Place ${index}`, `Copy ${index}`]))}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (101)' }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to dismiss duplicates'));
+    expect(postedBodies('/api/places/dismiss-duplicate', 'POST').map((body) => body.pairs?.length)).toEqual([100, 1]);
+    expect(deleteCalls()).toHaveLength(1);
+    expect(refresh).toHaveBeenCalled();
   });
 
   it('names Possible and merged work on an empty To review list', () => {

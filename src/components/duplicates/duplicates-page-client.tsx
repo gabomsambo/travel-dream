@@ -283,6 +283,8 @@ export function DuplicatesPageClient({
     let success = 0;
     let failed = 0;
     let rejected = false;
+    let committed = false;
+    let threw = false;
     try {
       for (const batch of chunkItems(unions, BULK_MERGE_CLUSTER_LIMIT)) {
         const response = await fetch('/api/places/bulk-merge', {
@@ -303,24 +305,30 @@ export function DuplicatesPageClient({
           rejected = true;
           continue;
         }
+        committed = true;
         const result = await response.json() as { success?: number; failed?: number };
         if (typeof result.success === 'number') success += result.success;
         if (typeof result.failed === 'number') failed += result.failed;
       }
-      if (success > 0) {
-        notify.success(`Merged ${success} certain ${success === 1 ? 'group' : 'groups'}`);
-        setExpandedClusterId(undefined);
-        await clearScanCache();
-        router.refresh();
-      }
-      if (failed > 0) notify.error(`Failed to merge ${failed} groups`);
-      if (rejected) notify.error('Failed to merge duplicates');
     } catch (error) {
-      notify.error('Failed to merge duplicates');
+      threw = true;
       console.error(error);
-    } finally {
-      setIsLoading(false);
     }
+    if (success > 0) {
+      notify.success(`Merged ${success} certain ${success === 1 ? 'group' : 'groups'}`);
+    }
+    if (failed > 0) notify.error(`Failed to merge ${failed} groups`);
+    if (rejected || threw) notify.error('Failed to merge duplicates');
+    if (success > 0 || (threw && committed)) {
+      setExpandedClusterId(undefined);
+      try {
+        await clearScanCache();
+      } catch (error) {
+        console.error(error);
+      }
+      router.refresh();
+    }
+    setIsLoading(false);
   }, [clearScanCache, router]);
 
   const handleDismissGroups = useCallback(async (groups: QueueCluster[]) => {
@@ -329,6 +337,7 @@ export function DuplicatesPageClient({
     const allPairs = groups.flatMap((cluster) => dismissPairsForCluster(cluster));
     let rejected = false;
     let wrote = false;
+    let threw = false;
     try {
       for (const batch of chunkItems(allPairs, DISMISS_PAIR_LIMIT)) {
         if (batch.length === 0) continue;
@@ -343,18 +352,21 @@ export function DuplicatesPageClient({
         }
         wrote = true;
       }
-      if (wrote) {
-        setExpandedClusterId(undefined);
-        await clearScanCache();
-        router.refresh();
-      }
-      if (rejected) notify.error('Failed to dismiss duplicates');
     } catch (error) {
-      notify.error('Failed to dismiss duplicates');
+      threw = true;
       console.error(error);
-    } finally {
-      setIsLoading(false);
     }
+    if (rejected || threw) notify.error('Failed to dismiss duplicates');
+    if (wrote) {
+      setExpandedClusterId(undefined);
+      try {
+        await clearScanCache();
+      } catch (error) {
+        console.error(error);
+      }
+      router.refresh();
+    }
+    setIsLoading(false);
   }, [clearScanCache, router]);
 
   const handleRescan = useCallback(async () => {
@@ -426,6 +438,7 @@ export function DuplicatesPageClient({
       switch (event.key) {
         case 'j':
         case 'k': {
+          if (event.metaKey || event.ctrlKey || event.altKey) break;
           event.preventDefault();
           if (list.length === 0) return;
           const delta = event.key === 'j' ? 1 : -1;

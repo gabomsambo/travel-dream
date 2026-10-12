@@ -140,8 +140,9 @@ export interface DuplicateCluster {
   edges: DuplicateGroupEdge[];
   leftOut: DuplicateLeftOut[];
   /**
-   * ISO time when a merge alt-name explains an included edge.
-   * `findDuplicateClusters` leaves this null. `loadDuplicateQueueExtras` sets it.
+   * Merge-log `performed_at` when an alt name explains an included edge.
+   * Null from `findDuplicateClusters`; `loadDuplicateQueueExtras` sets it.
+   * Displayed by `formatMergedOn`.
    */
   mergedOn: string | null;
 }

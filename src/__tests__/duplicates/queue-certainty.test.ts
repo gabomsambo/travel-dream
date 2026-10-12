@@ -516,6 +516,52 @@ describe('duplicate queue certainty on local places', () => {
   });
 });
 
+describe('kind mismatch stays Maybe', () => {
+  it('keeps a close high-score cafe and restaurant pair at Maybe', () => {
+    const cafe = createMockPlace({
+      id: 'cafe',
+      name: 'Café Central',
+      kind: 'cafe',
+      city: 'Vienna',
+      country: 'Austria',
+      coords: { lat: 48.21033, lon: 16.36521 },
+      googlePlaceId: null,
+      altNames: [],
+    });
+    const restaurant = createMockPlace({
+      id: 'restaurant',
+      name: 'Cafe Central',
+      kind: 'restaurant',
+      city: 'Vienna',
+      country: 'Austria',
+      coords: { lat: 48.2105, lon: 16.3654 },
+      googlePlaceId: null,
+      altNames: [],
+    });
+    const cluster: QueueCluster = {
+      cluster_id: 'cafe+restaurant',
+      avgConfidence: 0.92,
+      places: [cafe, restaurant],
+      leftOut: [],
+      edges: [{
+        a: 'cafe',
+        b: 'restaurant',
+        score: 0.92,
+        included: true,
+        distanceM: 32,
+        factors: { name: 0.95, location: 1, kind: 0, city: 1, country: 1 },
+        for: [],
+        against: ['restaurant vs cafe'],
+        flags: [],
+      }],
+    };
+
+    expect(certaintyWord(cluster)).toBe('maybe');
+    expect(isCertainGroup(cluster)).toBe(false);
+    expect(queueContextLine(cluster)).toBeNull();
+  });
+});
+
 describe('SQLite merge timestamps', () => {
   it('shows the stored UTC day on the queue line, empty state, and date labels', () => {
     expect(formatMergedOn('2026-09-14 00:30:00')).toBe('14 Sept');

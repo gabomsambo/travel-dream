@@ -606,6 +606,11 @@ export function queueSubtitle(cluster: QueueCluster): string {
   return city ? `${count} ${noun} · ${city}` : `${count} ${noun}`;
 }
 
+/**
+ * UTC calendar day ("14 Sept"). SQLite `CURRENT_TIMESTAMP` has no zone
+ * (`YYYY-MM-DD HH:MM:SS`); a value with no `T` is read as UTC. A value that
+ * already contains `T` is parsed as written.
+ */
 export function formatMergedOn(iso: string): string {
   const date = new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`);
   if (Number.isNaN(date.getTime())) return iso;

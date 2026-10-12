@@ -455,6 +455,21 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(row).toHaveTextContent('Matches a place you merged on 14 Sept.');
   });
 
+  it('shows the stored UTC day when the merge time is a SQLite timestamp', () => {
+    mockViewport(false);
+    render(
+      <DuplicatesPageClient
+        initialData={[{ ...certainCluster(), mergedOn: '2026-09-14 00:30:00' }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    const row = screen.getByRole('button', { name: /Arctic Cathedral/ });
+    expect(row).toHaveTextContent('Matches a place you merged on 14 Sept.');
+    expect(row).not.toHaveTextContent('13 Sept');
+  });
+
   it('keeps Dismiss all on a phone and keeps Merge certain groups off it', async () => {
     mockViewport(false);
     const user = userEvent.setup();

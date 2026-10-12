@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DuplicatesPageClient } from '@/components/duplicates/duplicates-page-client';
 import type { DuplicateGroupEdge } from '@/lib/duplicate-detection';
+import { notify } from '@/lib/notify';
 import type { Place } from '@/types/database';
 
 function place(id: string, name: string): Place {
@@ -148,6 +149,34 @@ function sameGooglePossible() {
   };
 }
 
+function postedBodies(url: string, method: string): Array<{
+  pairs?: Array<{ placeId1: string; placeId2: string }>;
+  clusters?: Array<{ targetId: string; sourceIds: string[]; confidence: number }>;
+}> {
+  return (global.fetch as jest.Mock).mock.calls
+    .filter((entry: [string, { method?: string; body?: string }]) => entry[0] === url && entry[1]?.method === method)
+    .map((entry: [string, { body?: string }]) => JSON.parse(entry[1].body as string));
+}
+
+function certainPair(index: number) {
+  const kept = place(`a${index}`, `Place ${index}`);
+  const other = place(`b${index}`, `Copy ${index}`);
+  kept.googlePlaceId = `g${index}`;
+  other.googlePlaceId = `g${index}`;
+  kept.kind = 'attraction';
+  other.kind = 'attraction';
+  const pair = edge(kept.id, other.id, 0.99, 20, 1);
+  pair.flags = ['same Google place'];
+  return {
+    cluster_id: `${kept.id}+${other.id}`,
+    avgConfidence: 0.99,
+    places: [kept, other],
+    edges: [pair],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
 function postedBody(url: string, method: string): {
   pairs?: Array<{ placeId1: string; placeId2: string }>;
   clusters?: Array<{ targetId: string; sourceIds: string[]; confidence: number }>;
@@ -247,7 +276,34 @@ function possibleDismissGroups() {
 describe('duplicates keyboard and bulk confirmation', () => {
   beforeEach(() => {
     (global.fetch as jest.Mock).mockReset();
+    (notify.success as jest.Mock).mockClear();
+    (notify.error as jest.Mock).mockClear();
     mockViewport(true);
+  });
+
+  it('does not merge or dismiss when m or d is pressed with a modifier', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: 1, failed: 0 }),
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    fireEvent.keyDown(document, { key: 'm', metaKey: true });
+    fireEvent.keyDown(document, { key: 'd', ctrlKey: true });
+    fireEvent.keyDown(document, { key: 'd', altKey: true });
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: 'm' });
+    expect(postedBody('/api/places/bulk-merge', 'POST').clusters).toHaveLength(1);
   });
 
   it('does not merge or dismiss when m or d is pressed with no group open', () => {
@@ -424,6 +480,84 @@ describe('duplicates keyboard and bulk confirmation', () => {
       .map((pair) => [pair.placeId1, pair.placeId2].sort().join(':'))
       .sort();
     expect(keys).toEqual(['place_a:place_b', 'place_b:place_c']);
+  });
+
+  it('chunks certain merges under the 50-cluster cap', async () => {
+    const user = userEvent.setup();
+    const groups = Array.from({ length: 51 }, (_, index) => certainPair(index));
+    (global.fetch as jest.Mock).mockImplementation(async (_url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'DELETE') return { ok: true, json: async () => ({}) };
+      const body = JSON.parse(init?.body ?? '{}') as { clusters?: unknown[] };
+      return { ok: true, json: async () => ({ success: body.clusters?.length ?? 0, failed: 0 }) };
+    });
+    render(
+      <DuplicatesPageClient initialData={groups} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    const bodies = postedBodies('/api/places/bulk-merge', 'POST');
+    expect(bodies.map((body) => body.clusters?.length)).toEqual([50, 1]);
+    expect(notify.success).toHaveBeenCalledWith('Merged 51 certain groups');
+    expect(notify.error).not.toHaveBeenCalled();
+  });
+
+  it('toasts when a certain-group merge is rejected', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      json: async () => ({ status: 'error', message: 'Invalid request data' }),
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainPair(0)]} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    expect(notify.error).toHaveBeenCalledWith('Failed to merge duplicates');
+    expect(notify.success).not.toHaveBeenCalled();
+  });
+
+  it('chunks dismiss all under the 100-pair cap', async () => {
+    const user = userEvent.setup();
+    const groups = Array.from({ length: 101 }, (_, index) => cluster(`p${index}`, [`Place ${index}`, `Copy ${index}`]));
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'success' }),
+    });
+    render(
+      <DuplicatesPageClient initialData={groups} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (101)' }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+
+    const bodies = postedBodies('/api/places/dismiss-duplicate', 'POST');
+    expect(bodies.map((body) => body.pairs?.length)).toEqual([100, 1]);
+    expect(notify.error).not.toHaveBeenCalled();
+  });
+
+  it('toasts when dismiss all is rejected', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      json: async () => ({ status: 'error', message: 'Invalid request body' }),
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[cluster('only', ['Cafe A', 'Cafe A copy'])]} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Dismiss all (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss', exact: true }));
+
+    expect(notify.error).toHaveBeenCalledWith('Failed to dismiss duplicates');
+    expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1);
   });
 
   it('names Possible and merged work on an empty To review list', () => {

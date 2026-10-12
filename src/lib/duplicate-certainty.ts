@@ -388,27 +388,115 @@ function pairWasDismissed(dismissed: Set<string>, a: string, b: string): boolean
   return dismissed.has(`${a}:${b}`) || dismissed.has(`${b}:${a}`);
 }
 
+function componentsOfEdges(edges: Array<{ a: string; b: string }>): string[][] {
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    let root = id;
+    while ((parent.get(root) ?? root) !== root) root = parent.get(root)!;
+    let cursor = id;
+    while (cursor !== root) {
+      const next = parent.get(cursor) ?? cursor;
+      parent.set(cursor, root);
+      cursor = next;
+    }
+    return root;
+  };
+  const link = (a: string, b: string) => {
+    if (!parent.has(a)) parent.set(a, a);
+    if (!parent.has(b)) parent.set(b, b);
+    let rootA = find(a);
+    let rootB = find(b);
+    if (rootA === rootB) return;
+    if (rootA > rootB) [rootA, rootB] = [rootB, rootA];
+    parent.set(rootB, rootA);
+  };
+
+  for (const edge of edges) link(edge.a, edge.b);
+
+  const components = new Map<string, string[]>();
+  for (const id of parent.keys()) {
+    const root = find(id);
+    const members = components.get(root);
+    if (members) members.push(id);
+    else components.set(root, [id]);
+  }
+
+  const groups: string[][] = [];
+  for (const memberIds of components.values()) {
+    if (memberIds.length < 2) continue;
+    memberIds.sort();
+    groups.push(memberIds);
+  }
+  groups.sort((a, b) => a.join('+').localeCompare(b.join('+')));
+  return groups;
+}
+
 export function filterDismissedClusters<T extends {
   places: Array<{ id: string }>;
-  edges?: Array<{ a: string; b: string; included: boolean }>;
+  edges?: Array<{ a: string; b: string; included: boolean; score?: number }>;
 }>(
   clusters: T[],
   dismissed: Set<string>,
 ): T[] {
-  return clusters.filter((cluster) => {
-    const included = (cluster.edges ?? []).filter((edge) => edge.included);
-    if (included.length > 0) {
-      return included.every((edge) => !pairWasDismissed(dismissed, edge.a, edge.b));
-    }
-    for (let i = 0; i < cluster.places.length; i++) {
-      for (let j = i + 1; j < cluster.places.length; j++) {
-        if (pairWasDismissed(dismissed, cluster.places[i].id, cluster.places[j].id)) {
-          return false;
+  const kept: T[] = [];
+  for (const cluster of clusters) {
+    const edges = cluster.edges ?? [];
+    const included = edges.filter((edge) => edge.included);
+    if (included.length === 0) {
+      let dismissedPair = false;
+      for (let i = 0; i < cluster.places.length && !dismissedPair; i++) {
+        for (let j = i + 1; j < cluster.places.length; j++) {
+          if (pairWasDismissed(dismissed, cluster.places[i].id, cluster.places[j].id)) {
+            dismissedPair = true;
+            break;
+          }
         }
       }
+      if (!dismissedPair) kept.push(cluster);
+      continue;
     }
-    return true;
-  });
+
+    const survivingIncluded = included.filter((edge) => !pairWasDismissed(dismissed, edge.a, edge.b));
+    if (survivingIncluded.length === included.length) {
+      kept.push(cluster);
+      continue;
+    }
+
+    const placeById = new Map(cluster.places.map((place) => [place.id, place]));
+    for (const memberIds of componentsOfEdges(survivingIncluded)) {
+      const places: T['places'] = [];
+      for (const id of memberIds) {
+        const place = placeById.get(id);
+        if (place) places.push(place);
+      }
+      if (places.length !== memberIds.length) continue;
+
+      const memberSet = new Set(memberIds);
+      const componentEdges = edges.filter((edge) => {
+        if (!memberSet.has(edge.a) || !memberSet.has(edge.b)) return false;
+        if (edge.included && pairWasDismissed(dismissed, edge.a, edge.b)) return false;
+        return true;
+      });
+      const scores = componentEdges
+        .filter((edge) => edge.included && typeof edge.score === 'number')
+        .map((edge) => edge.score as number);
+      const clusterId = memberIds.join('+');
+      kept.push({
+        ...cluster,
+        id: clusterId,
+        cluster_id: clusterId,
+        places,
+        edges: componentEdges,
+        ...(scores.length > 0
+          ? {
+              avgConfidence: scores.reduce((sum, score) => sum + score, 0) / scores.length,
+              weakestIncludedScore: Math.min(...scores),
+            }
+          : {}),
+      });
+    }
+  }
+  return kept;
 }
 
 function isPossibleScore(score: number): boolean {

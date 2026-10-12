@@ -410,7 +410,13 @@ describe('duplicate queue certainty on local places', () => {
     expect(kept[0].places.map((place) => place.id)).toEqual(['A', 'B', 'C']);
     expect(possibleGroups([review], dismissed)).toEqual([]);
 
-    expect(filterDismissedClusters([review], new Set(['A:B']))).toEqual([]);
+    const restored = filterDismissedClusters([review], new Set(['A:B']));
+    expect(restored.map((cluster) => cluster.places.map((place) => place.id))).toEqual([['B', 'C']]);
+    expect(
+      (restored[0].edges ?? [])
+        .filter((edge) => edge.included)
+        .map((edge) => [edge.a, edge.b].sort().join(':')),
+    ).toEqual(['B:C']);
   });
 
   it('dismisses a Possible group by its weak edges and leaves the review pair', () => {

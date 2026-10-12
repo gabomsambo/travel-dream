@@ -83,6 +83,17 @@ function isDesktop(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
 }
 
+const BULK_MERGE_CLUSTER_LIMIT = 50;
+const DISMISS_PAIR_LIMIT = 100;
+
+function chunkItems<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
 function pairLabel(pair: DismissedPairView): string {
   const left = pair.city1 ? `${pair.name1} (${pair.city1})` : pair.name1;
   const right = pair.city2 ? `${pair.name2} (${pair.city2})` : pair.name2;
@@ -269,29 +280,41 @@ export function DuplicatesPageClient({
     const unions = unionGroupsSharingPlace(groups);
     if (unions.length === 0) return;
     setIsLoading(true);
+    let success = 0;
+    let failed = 0;
+    let rejected = false;
     try {
-      const response = await fetch('/api/places/bulk-merge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clusters: unions.map((cluster) => {
-            const targetId = recommendMergeTarget(cluster.places);
-            return {
-              targetId,
-              sourceIds: cluster.places.filter((place) => place.id !== targetId).map((place) => place.id),
-              confidence: cluster.avgConfidence,
-            };
+      for (const batch of chunkItems(unions, BULK_MERGE_CLUSTER_LIMIT)) {
+        const response = await fetch('/api/places/bulk-merge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clusters: batch.map((cluster) => {
+              const targetId = recommendMergeTarget(cluster.places);
+              return {
+                targetId,
+                sourceIds: cluster.places.filter((place) => place.id !== targetId).map((place) => place.id),
+                confidence: cluster.avgConfidence,
+              };
+            }),
           }),
-        }),
-      });
-      const result = await response.json();
-      if (result.success > 0) {
-        notify.success(`Merged ${result.success} certain ${result.success === 1 ? 'group' : 'groups'}`);
+        });
+        if (!response.ok) {
+          rejected = true;
+          continue;
+        }
+        const result = await response.json() as { success?: number; failed?: number };
+        if (typeof result.success === 'number') success += result.success;
+        if (typeof result.failed === 'number') failed += result.failed;
+      }
+      if (success > 0) {
+        notify.success(`Merged ${success} certain ${success === 1 ? 'group' : 'groups'}`);
         setExpandedClusterId(undefined);
         await clearScanCache();
         router.refresh();
       }
-      if (result.failed > 0) notify.error(`Failed to merge ${result.failed} groups`);
+      if (failed > 0) notify.error(`Failed to merge ${failed} groups`);
+      if (rejected) notify.error('Failed to merge duplicates');
     } catch (error) {
       notify.error('Failed to merge duplicates');
       console.error(error);
@@ -304,16 +327,28 @@ export function DuplicatesPageClient({
     if (groups.length === 0) return;
     setIsLoading(true);
     const allPairs = groups.flatMap((cluster) => dismissPairsForCluster(cluster));
+    let rejected = false;
+    let wrote = false;
     try {
-      const response = await fetch('/api/places/dismiss-duplicate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pairs: allPairs }),
-      });
-      if (!response.ok) throw new Error('Failed to dismiss clusters');
-      setExpandedClusterId(undefined);
-      await clearScanCache();
-      router.refresh();
+      for (const batch of chunkItems(allPairs, DISMISS_PAIR_LIMIT)) {
+        if (batch.length === 0) continue;
+        const response = await fetch('/api/places/dismiss-duplicate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pairs: batch }),
+        });
+        if (!response.ok) {
+          rejected = true;
+          continue;
+        }
+        wrote = true;
+      }
+      if (wrote) {
+        setExpandedClusterId(undefined);
+        await clearScanCache();
+        router.refresh();
+      }
+      if (rejected) notify.error('Failed to dismiss duplicates');
     } catch (error) {
       notify.error('Failed to dismiss duplicates');
       console.error(error);
@@ -408,6 +443,7 @@ export function DuplicatesPageClient({
           break;
         }
         case 'm': {
+          if (event.metaKey || event.ctrlKey || event.altKey) break;
           event.preventDefault();
           const openId = expandedRef.current;
           if (!openId) return;
@@ -420,6 +456,7 @@ export function DuplicatesPageClient({
           break;
         }
         case 'd': {
+          if (event.metaKey || event.ctrlKey || event.altKey) break;
           event.preventDefault();
           const openId = expandedRef.current;
           if (!openId) return;

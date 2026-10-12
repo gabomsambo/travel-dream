@@ -183,6 +183,25 @@ function clusterPlaceIds(body: {
   return (body.clusters ?? []).flatMap((cluster) => [cluster.targetId, ...cluster.sourceIds]);
 }
 
+function bulkMergeOk(bodyText: string | undefined, failedIndexes: number[] = []) {
+  const posted = JSON.parse(bodyText ?? '{}') as { clusters?: Array<{ targetId: string }> };
+  const clusters = posted.clusters ?? [];
+  const failed = new Set(failedIndexes);
+  const results = clusters.map((cluster, index) => (
+    failed.has(index)
+      ? { clusterId: cluster.targetId, status: 'error', error: 'transaction failed' }
+      : { clusterId: cluster.targetId, status: 'success' }
+  ));
+  return {
+    ok: true,
+    json: async () => ({
+      success: results.filter((entry) => entry.status === 'success').length,
+      failed: failed.size,
+      results,
+    }),
+  };
+}
+
 function postedBody(url: string, method: string): {
   pairs?: Array<{ placeId1: string; placeId2: string }>;
   clusters?: Array<{ targetId: string; sourceIds: string[]; confidence: number }>;
@@ -605,10 +624,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
         return { ok: true, json: async () => ({}) };
       }
       posts += 1;
-      if (posts === 1) {
-        const body = JSON.parse(init?.body ?? '{}') as { clusters?: unknown[] };
-        return { ok: true, json: async () => ({ success: body.clusters?.length ?? 0, failed: 0 }) };
-      }
+      if (posts === 1) return bulkMergeOk(init?.body);
       if (posts === 2) return { ok: false, json: async () => ({ status: 'error', message: 'Invalid request data' }) };
       const body = JSON.parse(init?.body ?? '{}') as { clusters?: unknown[] };
       return { ok: true, json: async () => ({ success: body.clusters?.length ?? 0, failed: 0 }) };
@@ -650,10 +666,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
         return { ok: true, json: async () => ({}) };
       }
       posts += 1;
-      if (posts === 1) {
-        const body = JSON.parse(init?.body ?? '{}') as { clusters?: unknown[] };
-        return { ok: true, json: async () => ({ success: body.clusters?.length ?? 0, failed: 0 }) };
-      }
+      if (posts === 1) return bulkMergeOk(init?.body);
       throw new Error('network down');
     });
     const user = userEvent.setup();
@@ -682,6 +695,63 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'More' }));
     expect(await screen.findByRole('menuitem', { name: 'Merge certain groups (51)' })).toBeInTheDocument();
+  });
+
+  it('offers only the certain group whose cluster failed inside an ok bulk response', async () => {
+    const groups = [certainPair(0), certainPair(1)];
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      return bulkMergeOk(init?.body, [1]);
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={groups} fetchedAt={null} fetchError={null} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (2)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 1 certain group'));
+    expect(notify.error).toHaveBeenCalledWith('Failed to merge 1 groups');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+
+    const bodies = postedBodies('/api/places/bulk-merge', 'POST');
+    expect(bodies.map((body) => body.clusters?.length)).toEqual([2, 1]);
+    const failedCluster = bodies[0].clusters?.[1];
+    expect(bodies[1].clusters).toEqual([failedCluster]);
+  });
+
+  it('does not merge a saved certain group again from the open group', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      return bulkMergeOk(init?.body);
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainCluster()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Merge', exact: true }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 1 certain group'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
+
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+    fireEvent.keyDown(document, { key: 'm' });
+
+    expect(postedBodies('/api/places/bulk-merge', 'POST')).toHaveLength(1);
   });
 
   it('does not refresh a certain merge that throws before anything is saved', async () => {

@@ -246,6 +246,92 @@ describe('duplicate merge fixes', () => {
     expect(log.status).toBe('library');
   });
 
+  it('does not append notes or write another merge log when every source is already archived', async () => {
+    await insertPlace({
+      id: 'plc_keep',
+      name: 'Keep Me',
+      kind: 'cafe',
+      status: 'library',
+      notes: 'kept note',
+    });
+    await insertPlace({
+      id: 'plc_absorb',
+      name: 'Absorb Me',
+      kind: 'cafe',
+      status: 'inbox',
+      notes: 'absorb note',
+    });
+
+    const first = await bulkMergePlaces(
+      [{ targetId: 'plc_keep', sourceIds: ['plc_absorb'], confidence: 0.91 }],
+      ALICE.id
+    );
+    expect(first.success).toBe(1);
+    const notes = await readCell('SELECT notes FROM places WHERE id = ?', ['plc_keep']);
+    expect(notes).toBe('kept note\n\n---\n\nabsorb note');
+
+    const second = await bulkMergePlaces(
+      [{ targetId: 'plc_keep', sourceIds: ['plc_absorb'], confidence: 0.91 }],
+      ALICE.id
+    );
+
+    expect(second.success).toBe(0);
+    expect(second.failed).toBe(0);
+    expect(second.results).toEqual([
+      expect.objectContaining({ clusterId: 'plc_keep', status: 'skipped' }),
+    ]);
+    expect(await readCell('SELECT notes FROM places WHERE id = ?', ['plc_keep'])).toBe(notes);
+    expect(Number(await readCell('SELECT COUNT(*) FROM merge_logs'))).toBe(1);
+    expect(await readCell('SELECT status FROM places WHERE id = ?', ['plc_absorb'])).toBe('archived');
+  });
+
+  it('merges a live source and leaves an already archived source out of the notes and the log', async () => {
+    await insertPlace({
+      id: 'plc_keep',
+      name: 'Keep Me',
+      kind: 'cafe',
+      status: 'library',
+      notes: 'kept note',
+    });
+    await insertPlace({
+      id: 'plc_absorb',
+      name: 'Absorb Me',
+      kind: 'cafe',
+      status: 'inbox',
+      notes: 'absorb note',
+    });
+    await bulkMergePlaces(
+      [{ targetId: 'plc_keep', sourceIds: ['plc_absorb'], confidence: 0.91 }],
+      ALICE.id
+    );
+    await insertPlace({
+      id: 'plc_fresh',
+      name: 'Fresh',
+      kind: 'cafe',
+      status: 'inbox',
+      notes: 'fresh note',
+    });
+
+    const result = await bulkMergePlaces(
+      [{ targetId: 'plc_keep', sourceIds: ['plc_absorb', 'plc_fresh'], confidence: 0.91 }],
+      ALICE.id
+    );
+
+    expect(result.success).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(await readCell('SELECT notes FROM places WHERE id = ?', ['plc_keep'])).toBe(
+      'kept note\n\n---\n\nabsorb note\n\n---\n\nfresh note'
+    );
+    expect(await readCell('SELECT status FROM places WHERE id = ?', ['plc_fresh'])).toBe('archived');
+    const listed = await client().execute('SELECT source_ids FROM merge_logs');
+    const sourceLists = listed.rows.map((row) => {
+      const value = row.source_ids;
+      return Array.isArray(value) ? value : JSON.parse(String(value));
+    });
+    expect(sourceLists).toEqual(expect.arrayContaining([['plc_absorb'], ['plc_fresh']]));
+    expect(sourceLists).toHaveLength(2);
+  });
+
   it('persists a field override the same way the preview shows it', async () => {
     const target = await insertPlace({
       id: 'plc_keep',

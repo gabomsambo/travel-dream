@@ -220,15 +220,17 @@ export function DuplicatesPageClient({
   }, [clearScanCache, dropCluster, router]);
 
   const handleMerge = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
-    setIsLoading(true);
     const targetId = intent?.targetId ?? recommendMergeTarget(cluster.places);
     const target = cluster.places.find((place) => place.id === targetId);
-    const sourceIds = intent?.sourceIds ?? cluster.places.filter((place) => place.id !== targetId).map((place) => place.id);
-    if (!target || sourceIds.length === 0) {
+    const requestedSourceIds = intent?.sourceIds ?? cluster.places.filter((place) => place.id !== targetId).map((place) => place.id);
+    const sourceIds = requestedSourceIds.filter((id) => !committedMergeIdsRef.current.has(id));
+    if (!target || requestedSourceIds.length === 0) {
       notify.error('No target found for merge');
-      setIsLoading(false);
       return;
     }
+    if (sourceIds.length === 0) return;
+
+    setIsLoading(true);
 
     dropCluster(cluster, 'merge');
     try {
@@ -268,6 +270,7 @@ export function DuplicatesPageClient({
     sourceId: string,
     fieldOverrides?: MergeFieldOverrides,
   ) => {
+    if (committedMergeIdsRef.current.has(sourceId)) return;
     setIsLoading(true);
     const target = cluster.places.find((place) => place.id === targetId);
     const source = cluster.places.find((place) => place.id === sourceId);
@@ -338,9 +341,21 @@ export function DuplicatesPageClient({
           rejected = true;
           continue;
         }
-        rememberCommittedPlaces(batch);
-        committed = true;
-        const result = await response.json() as { success?: number; failed?: number };
+        const result = await response.json() as {
+          success?: number;
+          failed?: number;
+          results?: Array<{ clusterId?: string; status?: string }>;
+        };
+        const succeeded = new Set(
+          (result.results ?? [])
+            .filter((entry) => entry.status === 'success' && entry.clusterId)
+            .map((entry) => entry.clusterId as string),
+        );
+        const mergedGroups = batch.filter((cluster) => succeeded.has(recommendMergeTarget(cluster.places)));
+        if (mergedGroups.length > 0) {
+          rememberCommittedPlaces(mergedGroups);
+          committed = true;
+        }
         if (typeof result.success === 'number') success += result.success;
         if (typeof result.failed === 'number') failed += result.failed;
       }

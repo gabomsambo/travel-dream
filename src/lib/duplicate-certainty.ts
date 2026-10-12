@@ -432,9 +432,49 @@ function componentsOfEdges(edges: Array<{ a: string; b: string }>): string[][] {
   return groups;
 }
 
+function leftOutAnchoredOn(
+  entries: readonly DuplicateLeftOut[] | undefined,
+  memberIds: ReadonlySet<string>,
+): DuplicateLeftOut[] {
+  if (!entries) return [];
+  return entries.filter((entry) => memberIds.has(entry.fromId));
+}
+
+function sameMemberSet(
+  places: readonly { id: string }[],
+  memberIds: ReadonlySet<string>,
+): boolean {
+  if (places.length !== memberIds.size) return false;
+  const seen = new Set<string>();
+  for (const place of places) {
+    if (!memberIds.has(place.id) || seen.has(place.id)) return false;
+    seen.add(place.id);
+  }
+  return true;
+}
+
+function leftOutFromMatchingCluster(
+  wide: ReadonlyArray<{ places: readonly { id: string }[]; leftOut?: DuplicateLeftOut[] }>,
+  memberIds: readonly string[],
+): DuplicateLeftOut[] {
+  const memberSet = new Set(memberIds);
+  const seen = new Set<string>();
+  const copied: DuplicateLeftOut[] = [];
+  for (const cluster of wide) {
+    if (!sameMemberSet(cluster.places, memberSet)) continue;
+    for (const entry of leftOutAnchoredOn(cluster.leftOut, memberSet)) {
+      if (seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      copied.push(entry);
+    }
+  }
+  return copied;
+}
+
 export function filterDismissedClusters<T extends {
   places: Array<{ id: string }>;
   edges?: Array<{ a: string; b: string; included: boolean; score?: number }>;
+  leftOut?: DuplicateLeftOut[];
 }>(
   clusters: T[],
   dismissed: Set<string>,
@@ -494,6 +534,9 @@ export function filterDismissedClusters<T extends {
               weakestIncludedScore: Math.min(...scores),
             }
           : {}),
+        ...(Array.isArray(cluster.leftOut)
+          ? { leftOut: leftOutAnchoredOn(cluster.leftOut, memberSet) }
+          : {}),
       });
     }
   }
@@ -510,7 +553,7 @@ function isPossibleScore(score: number): boolean {
  * stays its own group.
  */
 export function possibleGroups<T extends { id: string }>(
-  wide: Array<{ places: T[]; edges?: DuplicateGroupEdge[] }>,
+  wide: Array<{ places: T[]; edges?: DuplicateGroupEdge[]; leftOut?: DuplicateLeftOut[] }>,
   dismissed: Set<string> = new Set(),
 ): Array<Omit<DuplicateCluster, 'places'> & { places: T[] }> {
   const placeById = new Map<string, T>();
@@ -586,7 +629,7 @@ export function possibleGroups<T extends { id: string }>(
       avgConfidence: edges.reduce((sum, edge) => sum + edge.score, 0) / edges.length,
       weakestIncludedScore: Math.min(...edges.map((edge) => edge.score)),
       edges,
-      leftOut: [],
+      leftOut: leftOutFromMatchingCluster(wide, memberIds),
       mergedOn: null,
     });
   }

@@ -462,6 +462,64 @@ describe('duplicate queue certainty on local places', () => {
     expect(possibleGroups([wide], dismissed).map((group) => group.cluster_id)).toEqual(['A+C']);
   });
 
+  it('keeps a left-out member only when the dismiss split still contains their anchor', () => {
+    const anchoredOnC = {
+      id: 'E',
+      name: 'Far E',
+      distanceM: 2500,
+      fromId: 'C',
+      reason: '2.5 km apart',
+    };
+    const cluster = {
+      ...reviewCluster(
+        ['A', 'B', 'C'],
+        [['A', 'B', 0.9], ['B', 'C', 0.8]],
+      ),
+      leftOut: [
+        { id: 'D', name: 'Far D', distanceM: 3000, fromId: 'A', reason: '3 km apart' },
+        anchoredOnC,
+      ],
+    };
+
+    const kept = filterDismissedClusters([cluster], new Set(['A:B']));
+
+    expect(kept.map((group) => group.places.map((place) => place.id))).toEqual([['B', 'C']]);
+    expect(kept[0].leftOut).toEqual([anchoredOnC]);
+    expect(queueContextLine(kept[0] as QueueCluster)).toBe('Left out Far E, 2.5 km away.');
+  });
+
+  it('shows a left-out member on the Possible survivor and not on a weaker subset', () => {
+    const far = {
+      id: 'Far',
+      name: 'Far Cafe',
+      distanceM: 3000,
+      fromId: 'A',
+      reason: '3 km apart',
+    };
+    const survivor = possibleGroups([{
+      ...bandCluster(['A', 'B'], [['A', 'B', 0.65]]),
+      leftOut: [
+        far,
+        { id: 'Z', name: 'Elsewhere', distanceM: 4000, fromId: 'Z', reason: '4 km apart' },
+      ],
+    }]);
+
+    expect(survivor.map((group) => group.cluster_id)).toEqual(['A+B']);
+    expect(survivor[0].leftOut).toEqual([far]);
+    expect(queueContextLine(survivor[0] as QueueCluster)).toBe('Left out Far Cafe, 3 km away.');
+
+    const chord = possibleGroups([{
+      ...bandCluster(
+        ['A', 'B', 'C'],
+        [['A', 'B', 0.85], ['A', 'C', 0.65]],
+      ),
+      leftOut: [far],
+    }]);
+
+    expect(chord.map((group) => group.cluster_id)).toEqual(['A+C']);
+    expect(chord[0].leftOut).toEqual([]);
+  });
+
   it('uses a stored thumbnail for a queue photo and the full uri when it is absent', async () => {
     await insertPlace({ id: 'plc_thumb', name: 'Thumb' });
     await insertPlace({ id: 'plc_full', name: 'Full' });

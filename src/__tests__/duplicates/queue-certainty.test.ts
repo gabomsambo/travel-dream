@@ -141,12 +141,16 @@ describe('duplicate queue certainty on local places', () => {
       kind: 'attraction',
       status: 'inbox',
     });
+    // Same pin keeps the name score in To review. The cities still clash, so the
+    // word is Probably not. Without pins this pair scores 0.55 and is not a group.
+    const centralPin = { lat: 48.2082, lon: 16.3738 };
     await insertPlace({
       id: 'plc_central_a',
       name: 'Café Central',
       kind: 'cafe',
       city: 'Vienna',
       country: 'Austria',
+      coords: centralPin,
       status: 'library',
     });
     await insertPlace({
@@ -155,6 +159,7 @@ describe('duplicate queue certainty on local places', () => {
       kind: 'cafe',
       city: 'Madrid',
       country: 'Spain',
+      coords: centralPin,
       status: 'inbox',
     });
     await insertPlace({

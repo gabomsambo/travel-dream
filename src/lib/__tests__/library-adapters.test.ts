@@ -29,7 +29,7 @@ import type { Place } from '@/types/database';
 
 const mockPlace: Place = {
   id: 'plc_test123',
-  userId: null,
+  userId: 'user_test',
   googlePlaceId: null,
   name: 'Test Restaurant',
   kind: 'restaurant',

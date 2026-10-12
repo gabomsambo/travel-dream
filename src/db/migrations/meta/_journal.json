@@ -36,6 +36,13 @@
       "when": 1791752000000,
       "tag": "20261011211500_add_places_archived_at",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791809729139,
+      "tag": "20261012125529_user_id_not_null",
+      "breakpoints": true
     }
   ]
 }

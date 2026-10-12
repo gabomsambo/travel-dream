@@ -15,7 +15,7 @@ import type { PipelinePlace } from '@/types/extraction-pipeline';
 
 // Place mutations
 export async function createPlace(
-  data: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>,
+  data: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt' | 'userId'>,
   userId: string
 ): Promise<Place> {
   return withErrorHandling(async () => {
@@ -89,7 +89,7 @@ export async function deletePlace(id: string, userId: string): Promise<void> {
 
 // Source mutations
 export async function createSource(
-  data: Omit<NewSource, 'id' | 'createdAt' | 'updatedAt'>,
+  data: Omit<NewSource, 'id' | 'createdAt' | 'updatedAt' | 'userId'>,
   userId: string
 ): Promise<Source> {
   return withErrorHandling(async () => {
@@ -215,7 +215,7 @@ export async function clearAllScreenshots(userId: string): Promise<{ deleted: nu
 
 // Collection mutations
 export async function createCollection(
-  data: Omit<NewCollection, 'id' | 'createdAt' | 'updatedAt'>,
+  data: Omit<NewCollection, 'id' | 'createdAt' | 'updatedAt' | 'userId'>,
   userId: string
 ): Promise<Collection> {
   return withErrorHandling(async () => {
@@ -594,8 +594,8 @@ export async function updateDayNote(
 // Batch operations
 export async function createPlacesFromSources(
   sourcesData: Array<{
-    source: Omit<NewSource, 'id' | 'createdAt' | 'updatedAt'>;
-    place: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>;
+    source: Omit<NewSource, 'id' | 'createdAt' | 'updatedAt' | 'userId'>;
+    place: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt' | 'userId'>;
   }>,
   userId: string
 ): Promise<Array<{ source: Source; place: Place }>> {
@@ -1672,7 +1672,7 @@ export async function batchDeletePlaces(placeIds: string[], userId: string): Pro
 }
 
 export async function batchCreatePlaces(
-  placesData: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt'>[],
+  placesData: Omit<NewPlace, 'id' | 'createdAt' | 'updatedAt' | 'userId'>[],
   userId: string,
   options?: {
     collectionId?: string;

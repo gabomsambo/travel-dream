@@ -5,7 +5,7 @@ import type { Place } from '@/types/database';
 export function createMockPlace(overrides: Partial<Place> = {}): Place {
   return {
     id: `plc_${Math.random().toString(36).slice(2)}`,
-    userId: null,
+    userId: 'user_test',
     name: 'Test Place',
     kind: 'restaurant',
     city: null,

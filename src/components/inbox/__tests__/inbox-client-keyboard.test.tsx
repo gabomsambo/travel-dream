@@ -86,7 +86,7 @@ jest.mock('@/lib/notify', () => ({
 }))
 
 const basePlaceFields = {
-  userId: null,
+  userId: 'user_test',
   googlePlaceId: null,
   description: null,
   price_level: null,

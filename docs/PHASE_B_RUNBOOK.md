@@ -5,10 +5,10 @@ The dangerous statement is the `DELETE FROM __drizzle_migrations` in **§5, "Ste
 the ledger"**. Re-running it would *un-record* migrations that are already applied, and the next
 `db:migrate` would then replay them and die on `duplicate column name`. (§4 is read-only and safe
 to re-run. **§6 is not**: its `SELECT` is read-only, but the step then runs `npm run db:migrate`
-against production — a write, which is a no-op today only because everything is applied. Its
-"expect exactly 1 row" is likewise historical; the ledger now holds one row per entry in
-`src/db/migrations/meta/_journal.json`, so it is not a live pass criterion — see §4 for the
-derived version.)
+against production — a write. It is a no-op only when the ledger already matches the journal
+(§4's live criterion). Its "expect exactly 1 row" is historical; the ledger holds one row per
+entry in `src/db/migrations/meta/_journal.json`, so that count is not a live pass criterion —
+see §4.)
 
 **§7's rollback is now obsolete for the same reason.** It runs the identical `DELETE` and then
 restores the 15 pre-baseline rows; after that the next `db:migrate` replays the baseline and dies
@@ -260,7 +260,7 @@ Finally, smoke-test the app:
 
 - [ ] Sign in works (touches `users` / `accounts` / `sessions`).
 - [ ] Inbox and library load (touches `places`, `sources`).
-- [ ] Creating a place and a collection succeeds (write path, nullable `user_id`).
+- [ ] Creating a place and a collection succeeds (write path).
 
 ---
 
@@ -305,9 +305,11 @@ become ordinary migrations once the ledger is reconciled:
 - Rename `merge_logs.undon_at` → `undone_at` (the typo is preserved in the baseline on purpose).
 - Add the missing foreign keys / `ON DELETE` action on `dismissed_duplicates.user_id`
   (production has a plain `REFERENCES users(id)`; the baseline mirrors that).
-- Decide whether `user_id` should become `NOT NULL`. Production has zero nulls, so a
-  backfill is not required — but the app still writes nullable, so this needs a code change
-  in the same migration.
+
+`user_id` NOT NULL on `places`, `sources`, `collections`, `upload_sessions`, and
+`dismissed_duplicates` is done: `src/db/migrations/20261012125529_user_id_not_null.sql`.
+`place_hearts` and `saved_views` already were. Apply-before-read is
+`docs/db/MIGRATION_SAFETY.md`; the post-apply schema is `docs/db/prod-schema-reference.sql`.
 
 ## 9. Keeping drift from coming back
 

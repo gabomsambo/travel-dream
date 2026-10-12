@@ -1,5 +1,5 @@
 -- travel-dream PRODUCTION schema (read-only dump) — ground truth for baselining
--- captured 69 objects (74 after the 2026-10-11 additions below); NO row data included
+-- captured 74 objects; NO row data included
 --
 -- Body captured 2026-07-24 from the production Turso database, schema only, no rows.
 -- This is the reference `src/db/migrations/0000_baseline.sql` was built to reproduce.
@@ -22,6 +22,17 @@
 -- production only AFTER that migration is applied there — apply it (backup first,
 -- `npm run db:migrate`) before the PR that adds it is merged or deployed.
 --
+-- 2026-10-12 — `user_id` is NOT NULL on `places`, `sources`, `collections`,
+-- `upload_sessions` and `dismissed_duplicates` for
+-- `src/db/migrations/20261012125529_user_id_not_null.sql`. Derived without
+-- production access by the 2026-08-29 method: replaying that migration onto
+-- this file and copying back SQLite's resulting `sqlite_master.sql`, except
+-- `users.email`, which stays production's inline `UNIQUE` rather than the
+-- journal's `users_email_unique` index (`docs/db/MIGRATION_SAFETY.md`).
+-- `place_hearts` and `saved_views` were already NOT NULL and are unchanged.
+-- This file describes production after that migration is applied — apply it
+-- (backup first, `npm run db:migrate`) before the reading deploy is promoted.
+--
 -- Do not hand-edit. To refresh: turso db shell <db> ".schema" (read-only) and re-verify.
 
 -- [table] __drizzle_migrations
@@ -32,21 +43,21 @@ CREATE TABLE "__drizzle_migrations" (
 		);
 
 -- [table] accounts
-CREATE TABLE accounts (
-      user_id text NOT NULL,
-      type text NOT NULL,
-      provider text NOT NULL,
-      provider_account_id text NOT NULL,
-      refresh_token text,
-      access_token text,
-      expires_at integer,
-      token_type text,
-      scope text,
-      id_token text,
-      session_state text,
-      PRIMARY KEY(provider, provider_account_id),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+CREATE TABLE `accounts` (
+	`user_id` text NOT NULL,
+	`type` text NOT NULL,
+	`provider` text NOT NULL,
+	`provider_account_id` text NOT NULL,
+	`refresh_token` text,
+	`access_token` text,
+	`expires_at` integer,
+	`token_type` text,
+	`scope` text,
+	`id_token` text,
+	`session_state` text,
+	PRIMARY KEY(`provider`, `provider_account_id`),
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
 
 -- [table] attachments
 CREATE TABLE `attachments` (
@@ -63,25 +74,53 @@ CREATE TABLE `attachments` (
 	`caption` text,
 	`taken_at` text,
 	`is_primary` integer DEFAULT 0 NOT NULL,
-	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL, `source` text DEFAULT 'upload' NOT NULL, `source_id` text, `attribution` text,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`source` text DEFAULT 'upload' NOT NULL,
+	`source_id` text,
+	`attribution` text,
 	FOREIGN KEY (`place_id`) REFERENCES `places`(`id`) ON UPDATE no action ON DELETE cascade
 );
 
 -- [table] collections
-CREATE TABLE `collections` (
+CREATE TABLE "collections" (
 	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
 	`name` text NOT NULL,
 	`description` text,
 	`filters` text,
+	`cover_image_url` text,
+	`transport_mode` text DEFAULT 'drive' NOT NULL,
+	`day_buckets` text DEFAULT '[]' NOT NULL,
+	`unscheduled_place_ids` text DEFAULT '[]' NOT NULL,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
-, transport_mode TEXT DEFAULT 'drive' NOT NULL, day_buckets TEXT DEFAULT '[]' NOT NULL, unscheduled_place_ids TEXT DEFAULT '[]' NOT NULL, cover_image_url TEXT, user_id text REFERENCES users(id) ON DELETE CASCADE);
+	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
 
 -- [table] dismissed_duplicates
-CREATE TABLE dismissed_duplicates (id text PRIMARY KEY NOT NULL, place_id_1 text NOT NULL, place_id_2 text NOT NULL, reason text, dismissed_at text DEFAULT CURRENT_TIMESTAMP NOT NULL, `user_id` text REFERENCES users(id));
+CREATE TABLE "dismissed_duplicates" (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`place_id_1` text NOT NULL,
+	`place_id_2` text NOT NULL,
+	`reason` text,
+	`dismissed_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
+);
 
 -- [table] merge_logs
-CREATE TABLE merge_logs (id text PRIMARY KEY NOT NULL, target_id text NOT NULL, source_ids text NOT NULL, merged_data text, source_snapshots text, confidence real NOT NULL, performed_by text DEFAULT 'user' NOT NULL, performed_at text DEFAULT CURRENT_TIMESTAMP NOT NULL, undone integer DEFAULT false NOT NULL, undon_at text);
+CREATE TABLE `merge_logs` (
+	`id` text PRIMARY KEY NOT NULL,
+	`target_id` text NOT NULL,
+	`source_ids` text NOT NULL,
+	`merged_data` text,
+	`source_snapshots` text,
+	`confidence` real NOT NULL,
+	`performed_by` text DEFAULT 'user' NOT NULL,
+	`performed_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`undone` integer DEFAULT false NOT NULL,
+	`undon_at` text
+);
 
 -- [table] place_hearts
 CREATE TABLE `place_hearts` (
@@ -107,8 +146,9 @@ CREATE TABLE `place_links` (
 );
 
 -- [table] places
-CREATE TABLE `places` (
+CREATE TABLE "places" (
 	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
 	`name` text NOT NULL,
 	`kind` text NOT NULL,
 	`city` text,
@@ -116,22 +156,44 @@ CREATE TABLE `places` (
 	`admin` text,
 	`coords` text,
 	`address` text,
+	`google_place_id` text,
 	`alt_names` text DEFAULT '[]',
+	`description` text,
 	`tags` text DEFAULT '[]',
 	`vibes` text DEFAULT '[]',
 	`rating_self` integer DEFAULT 0,
 	`notes` text,
 	`status` text DEFAULT 'inbox' NOT NULL,
 	`confidence` real DEFAULT 0,
+	`price_level` text,
+	`best_time` text,
+	`activities` text,
+	`cuisine` text,
+	`amenities` text,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
-, price_level TEXT, best_time TEXT, activities TEXT, cuisine TEXT, amenities TEXT, description TEXT, `website` text, `phone` text, `email` text, `hours` text, `visit_status` text DEFAULT 'not_visited', `priority` integer DEFAULT 0, `last_visited` text, `planned_visit` text, `recommended_by` text, `companions` text, `practical_info` text, google_place_id TEXT, user_id text REFERENCES users(id) ON DELETE CASCADE, `archived_at` text);
+	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`archived_at` text,
+	`website` text,
+	`phone` text,
+	`email` text,
+	`hours` text,
+	`visit_status` text DEFAULT 'not_visited',
+	`priority` integer DEFAULT 0,
+	`last_visited` text,
+	`planned_visit` text,
+	`recommended_by` text,
+	`companions` text,
+	`practical_info` text,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
 
 -- [table] places_to_collections
 CREATE TABLE `places_to_collections` (
 	`place_id` text NOT NULL,
 	`collection_id` text NOT NULL,
-	`order_index` integer DEFAULT 0 NOT NULL, is_pinned INTEGER DEFAULT 0 NOT NULL, note TEXT,
+	`order_index` integer DEFAULT 0 NOT NULL,
+	`is_pinned` integer DEFAULT 0 NOT NULL,
+	`note` text,
 	PRIMARY KEY(`place_id`, `collection_id`),
 	FOREIGN KEY (`place_id`) REFERENCES `places`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`collection_id`) REFERENCES `collections`(`id`) ON UPDATE no action ON DELETE cascade
@@ -168,16 +230,17 @@ CREATE TABLE `saved_views` (
 );
 
 -- [table] sessions
-CREATE TABLE sessions (
-      session_token text PRIMARY KEY NOT NULL,
-      user_id text NOT NULL,
-      expires integer NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+CREATE TABLE `sessions` (
+	`session_token` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`expires` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
 
 -- [table] sources
-CREATE TABLE `sources` (
+CREATE TABLE "sources" (
 	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
 	`type` text NOT NULL,
 	`uri` text NOT NULL,
 	`hash` text,
@@ -185,8 +248,16 @@ CREATE TABLE `sources` (
 	`lang` text DEFAULT 'en',
 	`meta` text,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
-, user_id text REFERENCES users(id) ON DELETE CASCADE, processing_status text DEFAULT 'pending', processing_attempts integer DEFAULT 0, processing_error text, processing_started_at text, `processing_interruptions` integer DEFAULT 0, `processing_lease_id` text, `next_attempt_at` text);
+	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`processing_status` text DEFAULT 'pending',
+	`processing_attempts` integer DEFAULT 0,
+	`processing_interruptions` integer DEFAULT 0,
+	`processing_error` text,
+	`processing_started_at` text,
+	`processing_lease_id` text,
+	`next_attempt_at` text,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
 
 -- [table] sources_to_places
 CREATE TABLE `sources_to_places` (
@@ -198,38 +269,40 @@ CREATE TABLE `sources_to_places` (
 );
 
 -- [table] upload_sessions
-CREATE TABLE `upload_sessions` (
+CREATE TABLE "upload_sessions" (
 	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
 	`started_at` text NOT NULL,
 	`file_count` integer DEFAULT 0 NOT NULL,
 	`completed_count` integer DEFAULT 0 NOT NULL,
 	`failed_count` integer DEFAULT 0 NOT NULL,
 	`status` text DEFAULT 'active' NOT NULL,
-	`meta` text
-, user_id text REFERENCES users(id) ON DELETE CASCADE);
+	`meta` text,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
 
 -- [table] users
-CREATE TABLE users (
-      id text PRIMARY KEY NOT NULL,
-      name text,
-      email text NOT NULL UNIQUE,
-      email_verified integer,
-      image text,
-      hashed_password text,
-      created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-      updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
-    );
+CREATE TABLE `users` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text,
+	`email` text NOT NULL UNIQUE,
+	`email_verified` integer,
+	`image` text,
+	`hashed_password` text,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
 
 -- [table] verification_tokens
-CREATE TABLE verification_tokens (
-      identifier text NOT NULL,
-      token text NOT NULL,
-      expires integer NOT NULL,
-      PRIMARY KEY(identifier, token)
-    );
+CREATE TABLE `verification_tokens` (
+	`identifier` text NOT NULL,
+	`token` text NOT NULL,
+	`expires` integer NOT NULL,
+	PRIMARY KEY(`identifier`, `token`)
+);
 
 -- [index] accounts_user_idx
-CREATE INDEX accounts_user_idx ON accounts(user_id);
+CREATE INDEX `accounts_user_idx` ON `accounts` (`user_id`);
 
 -- [index] attachments_created_at_idx
 CREATE INDEX `attachments_created_at_idx` ON `attachments` (`created_at`);
@@ -259,10 +332,10 @@ CREATE INDEX `collections_created_at_idx` ON `collections` (`created_at`);
 CREATE INDEX `collections_name_idx` ON `collections` (`name`);
 
 -- [index] collections_user_idx
-CREATE INDEX collections_user_idx ON collections(user_id);
+CREATE INDEX `collections_user_idx` ON `collections` (`user_id`);
 
 -- [index] dismissed_duplicates_pair_idx
-CREATE INDEX dismissed_duplicates_pair_idx ON dismissed_duplicates (place_id_1, place_id_2);
+CREATE INDEX `dismissed_duplicates_pair_idx` ON `dismissed_duplicates` (`place_id_1`,`place_id_2`);
 
 -- [index] dismissed_duplicates_user_idx
 CREATE INDEX `dismissed_duplicates_user_idx` ON `dismissed_duplicates` (`user_id`);
@@ -271,13 +344,13 @@ CREATE INDEX `dismissed_duplicates_user_idx` ON `dismissed_duplicates` (`user_id
 CREATE INDEX `dismissed_duplicates_user_pair_idx` ON `dismissed_duplicates` (`user_id`,`place_id_1`,`place_id_2`);
 
 -- [index] merge_logs_performed_at_idx
-CREATE INDEX merge_logs_performed_at_idx ON merge_logs (performed_at);
+CREATE INDEX `merge_logs_performed_at_idx` ON `merge_logs` (`performed_at`);
 
 -- [index] merge_logs_target_idx
-CREATE INDEX merge_logs_target_idx ON merge_logs (target_id);
+CREATE INDEX `merge_logs_target_idx` ON `merge_logs` (`target_id`);
 
 -- [index] merge_logs_undone_idx
-CREATE INDEX merge_logs_undone_idx ON merge_logs (undone);
+CREATE INDEX `merge_logs_undone_idx` ON `merge_logs` (`undone`);
 
 -- [index] place_hearts_place_idx
 CREATE INDEX `place_hearts_place_idx` ON `place_hearts` (`place_id`);
@@ -327,15 +400,6 @@ CREATE INDEX `places_status_idx` ON `places` (`status`);
 -- [index] places_status_kind_idx
 CREATE INDEX `places_status_kind_idx` ON `places` (`status`,`kind`);
 
--- [index] places_user_idx
-CREATE INDEX places_user_idx ON places(user_id);
-
--- [index] places_user_status_idx
-CREATE INDEX places_user_status_idx ON places(user_id, status);
-
--- [index] places_visit_status_idx
-CREATE INDEX `places_visit_status_idx` ON `places` (`visit_status`);
-
 -- [index] places_to_collections_collection_idx
 CREATE INDEX `places_to_collections_collection_idx` ON `places_to_collections` (`collection_id`);
 
@@ -343,11 +407,19 @@ CREATE INDEX `places_to_collections_collection_idx` ON `places_to_collections` (
 CREATE INDEX `places_to_collections_order_idx` ON `places_to_collections` (`collection_id`,`order_index`);
 
 -- [index] places_to_collections_pinned_idx
-CREATE INDEX places_to_collections_pinned_idx
-      ON places_to_collections(collection_id, is_pinned);
+CREATE INDEX `places_to_collections_pinned_idx` ON `places_to_collections` (`collection_id`,`is_pinned`);
 
 -- [index] places_to_collections_place_idx
 CREATE INDEX `places_to_collections_place_idx` ON `places_to_collections` (`place_id`);
+
+-- [index] places_user_idx
+CREATE INDEX `places_user_idx` ON `places` (`user_id`);
+
+-- [index] places_user_status_idx
+CREATE INDEX `places_user_status_idx` ON `places` (`user_id`,`status`);
+
+-- [index] places_visit_status_idx
+CREATE INDEX `places_visit_status_idx` ON `places` (`visit_status`);
 
 -- [index] reservations_date_idx
 CREATE INDEX `reservations_date_idx` ON `reservations` (`reservation_date`);
@@ -362,13 +434,19 @@ CREATE INDEX `reservations_status_idx` ON `reservations` (`status`);
 CREATE INDEX `saved_views_user_idx` ON `saved_views` (`user_id`);
 
 -- [index] sessions_user_idx
-CREATE INDEX sessions_user_idx ON sessions(user_id);
+CREATE INDEX `sessions_user_idx` ON `sessions` (`user_id`);
 
 -- [index] sources_created_at_idx
 CREATE INDEX `sources_created_at_idx` ON `sources` (`created_at`);
 
 -- [index] sources_processing_status_idx
-CREATE INDEX sources_processing_status_idx ON sources (processing_status, user_id);
+CREATE INDEX `sources_processing_status_idx` ON `sources` (`processing_status`,`user_id`);
+
+-- [index] sources_to_places_place_idx
+CREATE INDEX `sources_to_places_place_idx` ON `sources_to_places` (`place_id`);
+
+-- [index] sources_to_places_source_idx
+CREATE INDEX `sources_to_places_source_idx` ON `sources_to_places` (`source_id`);
 
 -- [index] sources_type_idx
 CREATE INDEX `sources_type_idx` ON `sources` (`type`);
@@ -377,13 +455,7 @@ CREATE INDEX `sources_type_idx` ON `sources` (`type`);
 CREATE INDEX `sources_uri_idx` ON `sources` (`uri`);
 
 -- [index] sources_user_idx
-CREATE INDEX sources_user_idx ON sources(user_id);
-
--- [index] sources_to_places_place_idx
-CREATE INDEX `sources_to_places_place_idx` ON `sources_to_places` (`place_id`);
-
--- [index] sources_to_places_source_idx
-CREATE INDEX `sources_to_places_source_idx` ON `sources_to_places` (`source_id`);
+CREATE INDEX `sources_user_idx` ON `sources` (`user_id`);
 
 -- [index] upload_sessions_started_at_idx
 CREATE INDEX `upload_sessions_started_at_idx` ON `upload_sessions` (`started_at`);
@@ -392,8 +464,7 @@ CREATE INDEX `upload_sessions_started_at_idx` ON `upload_sessions` (`started_at`
 CREATE INDEX `upload_sessions_status_idx` ON `upload_sessions` (`status`);
 
 -- [index] upload_sessions_user_idx
-CREATE INDEX upload_sessions_user_idx ON upload_sessions(user_id);
+CREATE INDEX `upload_sessions_user_idx` ON `upload_sessions` (`user_id`);
 
 -- [index] users_email_idx
-CREATE INDEX users_email_idx ON users(email);
-
+CREATE INDEX `users_email_idx` ON `users` (`email`);

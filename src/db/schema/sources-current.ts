@@ -7,8 +7,9 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
   // Primary key with custom prefix
   id: text('id').primaryKey().$defaultFn(() => `src_${crypto.randomUUID()}`),
 
-  // Owner of this source (nullable for migration, enforced in application)
-  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  // Owner of this source. NOT NULL is the database's second check that a row
+  // always has an owner; the application already required one.
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 
   // Source type: 'screenshot' | 'url' | 'note'
   type: text('type').notNull(),

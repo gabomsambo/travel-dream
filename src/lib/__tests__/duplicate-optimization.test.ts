@@ -9,7 +9,7 @@ import type { Place } from '@/types/database';
 function createMockPlace(id: string, overrides: Partial<Place> = {}): Place {
   return {
     id,
-    userId: null,
+    userId: 'user_test',
     name: `Place ${id}`,
     kind: 'landmark',
     city: 'Barcelona',

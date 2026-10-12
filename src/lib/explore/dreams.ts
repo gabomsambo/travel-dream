@@ -6,13 +6,21 @@ const SAVE_FAILED = "Couldn't save that heart. Try again in a moment.";
 const REMOVE_FAILED = "Couldn't remove that heart. Try again in a moment.";
 const BATCH = 1000;
 
-type Lane = { confirmed: boolean; desired: boolean; busy: boolean; clicks: number; snapshot: boolean | null; failedClick: number };
+type Lane = {
+  confirmed: boolean;
+  desired: boolean;
+  busy: boolean;
+  clicks: number;
+  snapshot: boolean | null;
+  /** Click stamps whose save attempt failed; a later failure must not clear an earlier one. */
+  failedStamps: Set<number>;
+};
 const lanes = new Map<string, Lane>();
 let generation = 0;
 let refreshUi: (() => void) | null = null;
 let tail: Promise<void> = Promise.resolve();
 
-const fresh = (on: boolean): Lane => ({ confirmed: on, desired: on, busy: false, clicks: 0, snapshot: null, failedClick: 0 });
+const fresh = (on: boolean): Lane => ({ confirmed: on, desired: on, busy: false, clicks: 0, snapshot: null, failedStamps: new Set() });
 const publish = () => refreshUi?.();
 
 export function resetHeartWriterForTests(): void {
@@ -93,9 +101,9 @@ async function send(ids: string[], on: boolean, gen: number, started: Map<string
     if (applied.has(id)) {
       row.confirmed = on;
       row.snapshot = null;
-      row.failedClick = 0;
+      row.failedStamps.delete(stamp);
     } else {
-      row.failedClick = stamp;
+      row.failedStamps.add(stamp);
       if (row.clicks === stamp) {
         if (row.snapshot !== null) row.confirmed = row.snapshot;
         row.snapshot = null;
@@ -152,7 +160,8 @@ export function writeHearts(ids: string[], on: boolean): Promise<boolean> {
   return run.then(() =>
     unique.every((id) => {
       const row = lanes.get(id);
-      return !!row && row.failedClick !== stamps.get(id) && row.confirmed === on && row.desired === on;
+      const stamp = stamps.get(id);
+      return !!row && stamp !== undefined && !row.failedStamps.has(stamp) && row.confirmed === on && row.desired === on;
     })
   );
 }

@@ -682,9 +682,11 @@ describe('Add to collection', () => {
     await user.click(screen.getByRole('button', { name: 'Add to collection' }))
     const dialog = await screen.findByRole('dialog', { name: /Add 101 places to a collection/ })
     expect(within(dialog).getByLabelText('New collection name')).toHaveValue('Kyoto trip')
+    await user.clear(within(dialog).getByLabelText('New collection name'))
+    await user.type(within(dialog).getByLabelText('New collection name'), 'Autumn in Kyoto')
     await user.click(within(dialog).getByRole('button', { name: 'Create' }))
-    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Added 100 to Kyoto trip', expect.anything()))
-    const [, opts] = (notify.warning as jest.Mock).mock.calls.find(([m]) => m === 'Added 100 to Kyoto trip')!
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Added 100 to Autumn in Kyoto', expect.anything()))
+    const [, opts] = (notify.warning as jest.Mock).mock.calls.find(([m]) => m === 'Added 100 to Autumn in Kyoto')!
     expect(opts.description).toBe("100 added · 1 couldn't be added")
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
@@ -692,9 +694,88 @@ describe('Add to collection', () => {
     const again = await screen.findByRole('dialog', { name: /Add 101 places to a collection/ })
     expect(within(again).getByLabelText('New collection name')).toHaveValue('Kyoto trip')
     await user.click(within(again).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Added 1 to Autumn in Kyoto', expect.anything()))
+    expect(calls().filter((c) => c.url === '/api/collections' && c.method === 'POST')).toEqual([
+      { url: '/api/collections', method: 'POST', body: { name: 'Autumn in Kyoto', description: null } },
+    ])
+    expect(calls().filter((c) => c.url === '/api/collections/col_new/places' && c.method === 'POST')).toHaveLength(3)
+    const retryBodies = calls()
+      .filter((c) => c.url === '/api/collections/col_new/places' && c.method === 'POST')
+      .map((c) => (c.body as { placeIds: string[] }).placeIds)
+    expect(retryBodies[2]).toHaveLength(1)
+  })
+
+  it('re-adds places a refreshed collection no longer holds, and keeps that collection', async () => {
+    const many = Array.from({ length: 101 }, (_, i) =>
+      item({ id: `bulk_${i}`, name: `Bulk ${i}`, country: 'Japan', city: 'Kyoto', photos: [photo] })
+    )
+    let placePosts = 0
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/collections' && init?.method === 'POST') return json({ collection: { id: 'col_new' } }, 201)
+      if (url === '/api/collections/col_new/places' && init?.method === 'POST') {
+        placePosts += 1
+        if (placePosts === 2) return json({ status: 'error' }, 503)
+        return json({ results: { successful: (body as { placeIds: string[] }).placeIds, failed: [] } })
+      }
+      return json({ status: 'success' })
+    })
+    const user = userEvent.setup()
+    const { rerender } = render(<LibraryClient data={{ ...data, items: many }} />)
+    await user.keyboard('{Control>}a{/Control}')
+    await user.click(screen.getByRole('button', { name: 'Add to collection' }))
+    const dialog = await screen.findByRole('dialog', { name: /Add 101 places to a collection/ })
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Added 100 to Kyoto trip', expect.anything()))
+
+    rerender(<LibraryClient data={{
+      ...data,
+      items: many,
+      collections: [...data.collections, { id: 'col_new', name: 'Kyoto trip', placeIds: [] }],
+    }} />)
+    await user.click(screen.getByRole('button', { name: 'Add to collection' }))
+    const again = await screen.findByRole('dialog', { name: /Add 101 places to a collection/ })
+    await user.click(within(again).getByRole('button', { name: 'Create' }))
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Added 101 to Kyoto trip', expect.anything()))
-    expect(calls().filter((c) => c.url === '/api/collections' && c.method === 'POST')).toHaveLength(1)
-    expect(calls().filter((c) => c.url === '/api/collections/col_new/places' && c.method === 'POST')).toHaveLength(4)
+    const [, retryOpts] = (notify.success as jest.Mock).mock.calls.find(([m]) => m === 'Added 101 to Kyoto trip')!
+    expect(retryOpts.description).toBe('101 added')
+
+    const placeAdds = () => calls().filter((c) => c.url === '/api/collections/col_new/places' && c.method === 'POST')
+    const collectionCreates = () => calls().filter((c) => c.url === '/api/collections' && c.method === 'POST')
+    expect(placeAdds().slice(2).reduce((n, c) => n + (c.body as { placeIds: string[] }).placeIds.length, 0)).toBe(101)
+    expect(collectionCreates()).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Add to collection' }))
+    const third = await screen.findByRole('dialog', { name: /Add 101 places to a collection/ })
+    await user.click(within(third).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(placeAdds()).toHaveLength(6))
+    expect(collectionCreates()).toHaveLength(1)
+  })
+
+  it('reuses the half-built collection when the name changes on retry, and announces the saved name', async () => {
+    const user = userEvent.setup()
+    let failAdd = true
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url === '/api/collections' && init?.method === 'POST') return json({ collection: { id: 'col_new' } }, 201)
+      if (url === '/api/collections/col_new/places' && init?.method === 'POST') {
+        return failAdd ? json({ status: 'error' }, 500) : json({ results: { successful: (body as { placeIds: string[] }).placeIds, failed: [] } })
+      }
+      return json({ status: 'success', placeIds: [] })
+    })
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'More for Place 2' }))
+    await user.click(await screen.findByRole('menuitem', { name: /Add to collection/ }))
+    const dialog = await screen.findByRole('dialog', { name: /Add Place 2 to a collection/ })
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('City 2 trip was created, but the places didn\'t save to it.', expect.anything()))
+    failAdd = false
+    await user.clear(within(dialog).getByLabelText('New collection name'))
+    await user.type(within(dialog).getByLabelText('New collection name'), 'Renamed trip')
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Added 1 to City 2 trip', expect.anything()))
+    const creates = calls().filter((c) => c.url === '/api/collections' && c.method === 'POST')
+    expect(creates).toEqual([{ url: '/api/collections', method: 'POST', body: { name: 'City 2 trip', description: null } }])
   })
 })
 

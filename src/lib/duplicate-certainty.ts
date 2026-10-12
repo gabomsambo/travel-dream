@@ -607,7 +607,7 @@ export function queueSubtitle(cluster: QueueCluster): string {
 }
 
 export function formatMergedOn(iso: string): string {
-  const date = new Date(iso);
+  const date = new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`);
   if (Number.isNaN(date.getTime())) return iso;
   return new Intl.DateTimeFormat('en-GB', {
     day: 'numeric',

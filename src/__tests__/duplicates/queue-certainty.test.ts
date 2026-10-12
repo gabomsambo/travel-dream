@@ -27,6 +27,7 @@ import {
   dismissPairsForCluster,
   distinctPlaceCount,
   emptyReviewCopy,
+  formatMergedOn,
   filterDismissedClusters,
   isCertainGroup,
   possibleGroups,
@@ -512,6 +513,36 @@ describe('duplicate queue certainty on local places', () => {
     const byId = new Map(extras.clusters[0].places.map((place) => [place.id, attachedPhotoUrl(place)]));
     expect(byId.get('plc_thumb')).toBe('/api/photos/resolve/att_thumb?w=400');
     expect(byId.get('plc_full')).toBe('https://example.test/full.jpg');
+  });
+});
+
+describe('SQLite merge timestamps', () => {
+  it('shows the stored UTC day on the queue line, empty state, and date labels', () => {
+    expect(formatMergedOn('2026-09-14 00:30:00')).toBe('14 Sept');
+    expect(formatMergedOn('2026-09-14 18:00:00')).toBe('14 Sept');
+    expect(formatMergedOn('2026-09-14T12:00:00.000Z')).toBe('14 Sept');
+    expect(`Marked not duplicates on ${formatMergedOn('2026-09-14 00:30:00')}`).toBe(
+      'Marked not duplicates on 14 Sept',
+    );
+
+    expect(queueContextLine({
+      cluster_id: 'a+b',
+      places: [],
+      avgConfidence: 0.9,
+      leftOut: [],
+      mergedOn: '2026-09-14 00:30:00',
+    })).toBe('Matches a place you merged on 14 Sept.');
+
+    expect(emptyReviewCopy({
+      possibleCount: 0,
+      merged: [{
+        id: 'mrg',
+        keptPlaceId: 'a',
+        keptName: 'Arctic Cathedral',
+        performedAt: '2026-09-14 18:00:00',
+        placeCount: 2,
+      }],
+    }).lines).toEqual(['Merged Arctic Cathedral on 14 Sept.']);
   });
 });
 

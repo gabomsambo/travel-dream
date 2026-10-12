@@ -29,6 +29,7 @@ export function createMockPlace(overrides: Partial<Place> = {}): Place {
     amenities: null,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
+    archivedAt: null,
     website: null,
     phone: null,
     email: null,

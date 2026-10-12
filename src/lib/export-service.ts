@@ -2,15 +2,37 @@ import { inArray, and, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { places, placesToCollections } from '@/db/schema';
 import type { Place, Collection } from '@/types/database';
-import type { ExportRequest, ExportResult } from '@/types/export';
+import type { ExportRequest, ExportResult, FieldDefinition } from '@/types/export';
 import { getPlacesInCollection, getPlacesByStatus, searchPlaces, getCollectionById } from './db-queries';
-import { getFieldsForPreset } from './export-field-metadata';
+import { FIELD_DEFINITIONS, getFieldsForPreset } from './export-field-metadata';
 import { generateCSV } from './export-generators/csv-generator';
 import { generateXLSX } from './export-generators/xlsx-generator';
 import { generatePDF } from './export-generators/pdf-generator';
 import { generateKML } from './export-generators/kml-generator';
 import { generateFilename, getMimeType } from './export-utils';
 import { NotFoundError } from './db-utils';
+
+/**
+ * A library export that names a city, country, or kind used to search with no
+ * status, so archived places rode along. Missing status means the library.
+ */
+export function libraryExportStatus(status: string | undefined): string {
+  return status ?? 'library';
+}
+
+/**
+ * Collection export keeps archived stops (archiving does not take a place off
+ * its trip) and labels them. The Status column is how the file says so.
+ * Library export is a different path and stays limited to library rows.
+ */
+export function labelArchivedInCollectionExport(
+  fields: FieldDefinition[],
+  scopeType: string
+): FieldDefinition[] {
+  if (scopeType !== 'collection') return fields;
+  if (fields.some((f) => f.dbField === 'status')) return fields;
+  return [...fields, FIELD_DEFINITIONS.status];
+}
 
 export async function exportData(request: ExportRequest, userId: string): Promise<ExportResult> {
   let results: Place[] = [];
@@ -62,7 +84,7 @@ export async function exportData(request: ExportRequest, userId: string): Promis
           kind: request.scope.filters.kind,
           tags: request.scope.filters.tags,
           vibes: request.scope.filters.vibes,
-          status: request.scope.filters.status,
+          status: libraryExportStatus(request.scope.filters.status),
           minRating: request.scope.filters.minRating,
           hasCoords: request.scope.filters.hasCoords
         });
@@ -99,9 +121,9 @@ export async function exportData(request: ExportRequest, userId: string): Promis
     throw new NotFoundError('No places found to export');
   }
 
-  const fieldDefs = getFieldsForPreset(
-    request.preset,
-    request.options?.customFields
+  const fieldDefs = labelArchivedInCollectionExport(
+    getFieldsForPreset(request.preset, request.options?.customFields),
+    request.scope.type
   );
 
   const filename = request.options?.filename || generateFilename(baseName, request.format);

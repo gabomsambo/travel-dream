@@ -10,17 +10,18 @@ import { storedCitiesMatching } from '@/lib/city-names';
 import type { Place, Source, Collection } from '@/types/database';
 
 /**
- * Narrowed row shape for the /library route.
+ * Narrowed row shape for the /library and /archive routes.
  *
  * Drops 13 columns vs Place that are not used by:
- *   - PlaceCardV2 (cover card) and PlaceListView (list row) on /archive
  *   - loadLibrary (src/lib/library/load.ts), which joins these rows with
  *     Explore's projection for /library's tags, search and export fields
+ *   - loadArchive (src/lib/archive/load.ts): the archive list, gallery
+ *     (PlaceCardV2) and journal
  *   - search-service.ts Fuse index keys
  *
  * Saves ~470B/row × N rows off the RSC payload + Fuse index memory.
  *
- * If a future field on /library needs a dropped column, add it back here AND
+ * If /library or /archive needs a dropped column, add it back here AND
  * to the projection in searchLibraryPlaces() — both must move together.
  */
 export type LibraryPlace = {
@@ -47,6 +48,8 @@ export type LibraryPlace = {
   practicalInfo: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Null when the place was archived before this column existed. */
+  archivedAt: string | null;
 };
 
 // Place queries
@@ -195,8 +198,13 @@ export async function searchPlaces(query: {
       conditions.push(eq(places.country, query.country));
     }
 
-    if (query.kind) {
-      conditions.push(eq(places.kind, query.kind));
+    if (query.kind && query.kind !== 'all') {
+      const kinds = query.kind.split(',').map((k) => k.trim()).filter((k) => k && k !== 'all');
+      if (kinds.length === 1) {
+        conditions.push(eq(places.kind, kinds[0]));
+      } else if (kinds.length > 1) {
+        conditions.push(inArray(places.kind, kinds));
+      }
     }
 
     if (query.status) {
@@ -248,9 +256,9 @@ export async function searchPlaces(query: {
 /**
  * Narrow-projected fetch for the /library and /archive routes.
  *
- * Returns ~470B/row less than searchPlaces. Use ONLY when downstream consumers
- * are confined to PlaceCardV2 + PlaceListView + Fuse index + LibraryClient
- * filters (the /library and /archive page surfaces).
+ * Returns ~470B/row less than searchPlaces. Use ONLY when the caller stays
+ * inside this projection: loadLibrary, loadArchive (list, gallery, journal),
+ * and the Fuse index. A caller that needs a dropped column uses a wider query.
  */
 export async function searchLibraryPlaces(query: {
   userId: string;
@@ -282,6 +290,7 @@ export async function searchLibraryPlaces(query: {
         practicalInfo: places.practicalInfo,
         createdAt: places.createdAt,
         updatedAt: places.updatedAt,
+        archivedAt: places.archivedAt,
       })
       .from(places)
       .where(and(eq(places.userId, query.userId), eq(places.status, query.status)))
@@ -394,6 +403,7 @@ export async function getPlacesInCollection(collectionId: string, userId: string
       recommendedBy: places.recommendedBy,
       companions: places.companions,
       practicalInfo: places.practicalInfo,
+      archivedAt: places.archivedAt,
       orderIndex: placesToCollections.orderIndex,
       isPinned: placesToCollections.isPinned,
       note: placesToCollections.note,
@@ -404,6 +414,32 @@ export async function getPlacesInCollection(collectionId: string, userId: string
       .where(and(eq(placesToCollections.collectionId, collectionId), eq(collections.userId, userId)))
       .orderBy(asc(placesToCollections.orderIndex), asc(places.name));
   }, 'getPlacesInCollection');
+}
+
+/**
+ * Trips that still hold an archived place. Archiving does not remove the stop;
+ * the Archive row links it. Both tables are filtered on the caller.
+ */
+export async function getArchivedTripMemberships(userId: string): Promise<Array<{
+  placeId: string;
+  collectionId: string;
+  name: string;
+}>> {
+  return withErrorHandling(async () => {
+    return await db.select({
+      placeId: placesToCollections.placeId,
+      collectionId: collections.id,
+      name: collections.name,
+    })
+      .from(placesToCollections)
+      .innerJoin(collections, eq(placesToCollections.collectionId, collections.id))
+      .innerJoin(places, eq(placesToCollections.placeId, places.id))
+      .where(and(
+        eq(collections.userId, userId),
+        eq(places.userId, userId),
+        eq(places.status, 'archived'),
+      ));
+  }, 'getArchivedTripMemberships');
 }
 
 export async function getCollectionWithPlaces(
@@ -469,6 +505,7 @@ export async function getDayPlaces(
       recommendedBy: places.recommendedBy,
       companions: places.companions,
       practicalInfo: places.practicalInfo,
+      archivedAt: places.archivedAt,
       orderIndex: placesToCollections.orderIndex,
       isPinned: placesToCollections.isPinned,
       note: placesToCollections.note,
@@ -687,6 +724,7 @@ export async function getSourcesWithPlaces(sourceIds: string[], userId: string):
       recommendedBy: places.recommendedBy,
       companions: places.companions,
       practicalInfo: places.practicalInfo,
+      archivedAt: places.archivedAt,
       userId: places.userId,
     })
       .from(sourcesToPlaces)

@@ -140,7 +140,7 @@ export function ItineraryMap({
                   fontWeight="600"
                   className="pointer-events-none"
                 >
-                  {place.name}
+                  {place.status === 'archived' ? `${place.name} (archived)` : place.name}
                 </text>
               )}
             </g>

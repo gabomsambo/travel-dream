@@ -5,9 +5,8 @@ import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import type { LibraryPlace } from "@/lib/db-queries"
 
-// Minimal shape PlaceListView reads. Both LibraryPlace and Place satisfy this,
-// so library-client (LibraryPlaceWithCover) and archive-client (PlaceWithCover)
-// can pass their own types without losing inference.
+// Minimal shape this table reads. LibraryPlace and Place both satisfy it, so a
+// wider row can be passed without losing inference.
 type PlaceListItem = Pick<
   LibraryPlace,
   "id" | "name" | "city" | "country" | "kind" | "ratingSelf" | "visitStatus"

@@ -79,6 +79,13 @@ export function PlaceFiltersSidebar({
     onChange({ vibes: newVibes })
   }
 
+  const toggleTag = (tag: string) => {
+    const newTags = filters.tags instanceof Set ? new Set(filters.tags) : new Set<string>()
+    if (newTags.has(tag)) newTags.delete(tag)
+    else newTags.add(tag)
+    onChange({ tags: newTags })
+  }
+
   const toggleVisitStatus = (status: string) => {
     const newStatus = filters.visitStatus instanceof Set ? new Set(filters.visitStatus) : new Set<string>()
     if (newStatus.has(status)) {
@@ -92,6 +99,7 @@ export function PlaceFiltersSidebar({
   const activeFilterCount =
     (filters.kinds instanceof Set ? filters.kinds.size : 0) +
     (filters.vibes instanceof Set ? filters.vibes.size : 0) +
+    (filters.tags instanceof Set ? filters.tags.size : 0) +
     (filters.rating > 0 ? 1 : 0) +
     (filters.visitStatus instanceof Set ? filters.visitStatus.size : 0) +
     (filters.hasPhotosOnly ? 1 : 0)
@@ -147,6 +155,27 @@ export function PlaceFiltersSidebar({
                     onClick={() => toggleVibe(vibe)}
                   >
                     {vibe}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <Separator />
+          </>
+        )}
+
+        {filterOptions.tags.length > 0 && (
+          <>
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm">Tags</h4>
+              <div className="flex flex-wrap gap-2">
+                {filterOptions.tags.map((tag) => (
+                  <Badge
+                    key={tag}
+                    variant={filters.tags instanceof Set && filters.tags.has(tag) ? "default" : "outline"}
+                    className="cursor-pointer"
+                    onClick={() => toggleTag(tag)}
+                  >
+                    {tag}
                   </Badge>
                 ))}
               </div>

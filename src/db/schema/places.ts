@@ -67,6 +67,9 @@ export const places = sqliteTable('places', {
   // Timestamps
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  // When the place was set aside. Null on rows archived before this column
+  // existed, and cleared again on restore. No backfill — see the migration.
+  archivedAt: text('archived_at'),
 
   // Contact & Practical Information
   website: text('website'),

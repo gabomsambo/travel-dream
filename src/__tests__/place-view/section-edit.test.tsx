@@ -51,6 +51,7 @@ const place = {
   status: 'library',
   createdAt: '2024-04-14T09:00:00.000Z',
   updatedAt: '2026-09-30T10:00:00.000Z',
+  archivedAt: null,
   id: 'plc_fushimi',
   name: 'Fushimi Inari-taisha',
   kind: 'landmark',

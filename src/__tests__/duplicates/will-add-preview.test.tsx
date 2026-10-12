@@ -31,6 +31,7 @@ function place(id: string, name: string, phone: string | null, confidence: numbe
     amenities: [],
     createdAt: '2026-10-11T00:00:00.000Z',
     updatedAt: '2026-10-11T00:00:00.000Z',
+    archivedAt: null,
     website: null,
     phone,
     email: null,

@@ -10,17 +10,30 @@ export interface ActiveFilterChipsProps {
   className?: string
 }
 
+const FILTER_LABELS: Record<string, string> = {
+  kinds: 'Kinds',
+  kind: 'Kinds',
+  tags: 'Tags',
+  vibes: 'Vibes',
+  visitStatus: 'Visit status',
+  hasPhotosOnly: 'Has photos',
+  rating: 'Rating',
+  city: 'City',
+  country: 'Country',
+  search: 'Search',
+}
+
 export function ActiveFilterChips({
   filters,
   onRemoveFilter,
   className
 }: ActiveFilterChipsProps) {
   const activeFilters = Object.entries(filters).filter(([key, value]) => {
+    if (value instanceof Set) return value.size > 0
+    if (typeof value === 'boolean') return value
     if (key === 'search') return value !== ''
-    if (key === 'tags' || key === 'vibes' || key === 'visitStatus') {
-      return value instanceof Set && value.size > 0
-    }
-    return value !== 'all' && value !== null && value !== undefined
+    if (key === 'rating') return typeof value === 'number' && value > 0
+    return value !== 'all' && value !== null && value !== undefined && value !== ''
   })
 
   if (activeFilters.length === 0) {
@@ -28,19 +41,13 @@ export function ActiveFilterChips({
   }
 
   const formatFilterLabel = (key: string): string => {
-    return key.charAt(0).toUpperCase() + key.slice(1)
+    return FILTER_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1)
   }
 
   const formatFilterValue = (key: string, value: any): string => {
-    if (key === 'tags' || key === 'vibes' || key === 'visitStatus') {
-      if (value instanceof Set) {
-        return Array.from(value).join(', ')
-      }
-      if (Array.isArray(value)) {
-        return value.join(', ')
-      }
-      return ''
-    }
+    if (value instanceof Set) return Array.from(value).join(', ')
+    if (Array.isArray(value)) return value.join(', ')
+    if (key === 'hasPhotosOnly') return 'yes'
     return String(value)
   }
 

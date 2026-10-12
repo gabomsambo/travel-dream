@@ -53,6 +53,7 @@ const mockPlace: Place = {
   amenities: ['WiFi', 'Outdoor seating'],
   createdAt: '2025-10-12T00:00:00.000Z',
   updatedAt: '2025-10-12T00:00:00.000Z',
+  archivedAt: null,
   website: 'https://example.com',
   phone: '+34123456789',
   email: null,

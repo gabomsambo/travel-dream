@@ -130,6 +130,7 @@ describe('searchLibraryPlaces', () => {
       'practicalInfo',
       'createdAt',
       'updatedAt',
+      'archivedAt',
     ];
     for (const field of required) {
       expect(projection).toHaveProperty(field);
@@ -188,6 +189,7 @@ describe('LibraryPlace type — compile-time field coverage', () => {
       practicalInfo: 'cash only',
       createdAt: '2026-04-25T00:00:00Z',
       updatedAt: '2026-04-25T00:00:00Z',
+      archivedAt: null,
     };
 
     expect(example.id).toBe('plc_test');

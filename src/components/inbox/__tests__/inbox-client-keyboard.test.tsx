@@ -127,6 +127,7 @@ const mockPlaces: Place[] = [
     confidence: 0.95,
     createdAt: '2025-09-27T00:00:00Z',
     updatedAt: '2025-09-27T00:00:00Z',
+    archivedAt: null,
   },
   {
     ...basePlaceFields,
@@ -147,6 +148,7 @@ const mockPlaces: Place[] = [
     confidence: 0.88,
     createdAt: '2025-09-26T00:00:00Z',
     updatedAt: '2025-09-26T00:00:00Z',
+    archivedAt: null,
   },
   {
     ...basePlaceFields,
@@ -167,6 +169,7 @@ const mockPlaces: Place[] = [
     confidence: 0.92,
     createdAt: '2025-09-25T00:00:00Z',
     updatedAt: '2025-09-25T00:00:00Z',
+    archivedAt: null,
   },
 ]
 

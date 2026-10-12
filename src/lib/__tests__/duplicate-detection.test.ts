@@ -526,25 +526,30 @@ describe('Duplicate Detection Utils', () => {
 
   describe('Bug Fix: Configurable cluster threshold', () => {
     it('should use provided minConfidence threshold for clustering', async () => {
-      // Create places with similar (but not identical) names and different kinds
+      // Similar names and different kinds, in the same city. The score sits
+      // between the detector floor and 0.99, so the cluster threshold is what
+      // decides whether they group. Alt names are cleared so a shared mock
+      // alt name is not what produces the match.
       const placesWithSimilarNames: Place[] = [
         {
           ...mockPlaces[0],
           id: 'similar-1',
           name: 'Seychelles Beach Resort',
-          coords: null,
+          coords: { lat: -4.62, lon: 55.45 },
           kind: 'hotel',
           city: 'Victoria',
-          country: null,
+          country: 'Seychelles',
+          altNames: [],
         },
         {
           ...mockPlaces[0],
           id: 'similar-2',
           name: 'Seychelles',
-          coords: null,
+          coords: { lat: -4.62, lon: 55.45 },
           kind: 'beach',
           city: 'Victoria',
-          country: null,
+          country: 'Seychelles',
+          altNames: [],
         },
       ]
 
@@ -650,7 +655,7 @@ describe('Duplicate Detection Utils', () => {
       expect(scoreSameKind).toBeGreaterThan(scoreDiffKind)
     })
 
-    it('does not treat blank cities as the same city', () => {
+    it('does not treat a missing city or country as a match', () => {
       const place1: Place = {
         ...mockPlaces[0],
         id: 'city-null-1',
@@ -675,7 +680,7 @@ describe('Duplicate Detection Utils', () => {
       const { factors } = calculateDuplicateScore(place1, place2)
       expect(factors.cityMatch).toBe(false)
       expect(calculateDuplicateScore(emptyCity, whitespaceCity).factors.cityMatch).toBe(false)
-      expect(factors.countryMatch).toBe(true)
+      expect(factors.countryMatch).toBe(false)
     })
 
     it('should maintain normal behavior when coords are present', () => {

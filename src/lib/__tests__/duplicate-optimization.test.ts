@@ -1,5 +1,9 @@
 import { optimizedBatchDetectDuplicates } from '../duplicate-optimization';
-import { batchDetectDuplicatesUnoptimized, DEFAULT_DETECTION_CONFIG } from '../duplicate-detection';
+import {
+  batchDetectDuplicatesUnoptimized,
+  DEFAULT_DETECTION_CONFIG,
+  duplicatePageBand,
+} from '../duplicate-detection';
 import type { Place } from '@/types/database';
 
 function createMockPlace(id: string, overrides: Partial<Place> = {}): Place {
@@ -189,5 +193,110 @@ describe('Duplicate Detection Performance Optimization', () => {
       expect(optimizedResults.size).toBe(unoptimizedResults.size);
       expect(optimizedResults.size).toBe(200);
     }, 60000);
+  });
+});
+
+describe('exonym city candidate index', () => {
+  it('scores Lisbon with Lisboa when there are no coordinates and no shared name prefix', async () => {
+    const hidden = createMockPlace('hidden-beach', {
+      name: 'X',
+      altNames: ['Secret Beach'],
+      kind: 'beach',
+      city: 'Lisbon',
+      country: 'Portugal',
+      coords: null,
+    });
+    const beach = createMockPlace('secret-beach', {
+      name: 'Secret Beach',
+      kind: 'beach',
+      city: 'Lisboa',
+      country: 'Portugal',
+      coords: null,
+    });
+
+    const beachResults = await optimizedBatchDetectDuplicates([hidden, beach], DEFAULT_DETECTION_CONFIG);
+    const byAlt = beachResults.get('hidden-beach')!.potentialDuplicates.find((d) => d.place.id === 'secret-beach');
+    const byPrimary = beachResults.get('secret-beach')!.potentialDuplicates.find((d) => d.place.id === 'hidden-beach');
+    expect(byAlt).toBeDefined();
+    expect(byPrimary).toBeDefined();
+    expect(byAlt!.confidence).toBeCloseTo(1, 5);
+    expect(duplicatePageBand(byAlt!.confidence, byAlt!.flags)).toBe('Main');
+    expect(duplicatePageBand(byPrimary!.confidence, byPrimary!.flags)).toBe('Main');
+
+    const cathedral = createMockPlace('cathedral', {
+      name: 'Lisbon Cathedral',
+      kind: 'landmark',
+      city: 'Lisbon',
+      country: 'Portugal',
+      coords: null,
+    });
+    const se = createMockPlace('se', {
+      name: 'Sé de Lisboa',
+      kind: 'landmark',
+      city: 'Lisboa',
+      country: 'Portugal',
+      coords: null,
+    });
+    const cathedralResults = await optimizedBatchDetectDuplicates([cathedral, se], DEFAULT_DETECTION_CONFIG);
+    const fromLisbon = cathedralResults.get('cathedral')!.potentialDuplicates.find((d) => d.place.id === 'se');
+    const fromLisboa = cathedralResults.get('se')!.potentialDuplicates.find((d) => d.place.id === 'cathedral');
+    expect(fromLisbon).toBeDefined();
+    expect(fromLisboa).toBeDefined();
+    expect(fromLisbon!.confidence).toBeCloseTo(0.714, 2);
+    expect(duplicatePageBand(fromLisbon!.confidence, fromLisbon!.flags)).toBe('Main');
+    expect(duplicatePageBand(fromLisboa!.confidence, fromLisboa!.flags)).toBe('Main');
+  });
+
+  it('keeps blank cities in their own bucket, apart from a named city', async () => {
+    const missing = createMockPlace('missing-city', {
+      name: 'X',
+      kind: 'beach',
+      city: null,
+      country: null,
+      coords: null,
+    });
+    const whitespace = createMockPlace('whitespace-city', {
+      name: 'Qwerty',
+      kind: 'beach',
+      city: '   ',
+      country: null,
+      coords: null,
+    });
+    const lisbon = createMockPlace('lisbon-only', {
+      name: 'Zzxxyy',
+      kind: 'beach',
+      city: 'Lisbon',
+      country: 'Portugal',
+      coords: null,
+    });
+
+    const blankResults = await optimizedBatchDetectDuplicates([missing, whitespace], DEFAULT_DETECTION_CONFIG);
+    expect(blankResults.get('missing-city')!.totalCandidates).toBe(1);
+    expect(blankResults.get('whitespace-city')!.totalCandidates).toBe(1);
+    expect(blankResults.get('missing-city')!.potentialDuplicates).toHaveLength(0);
+
+    const separated = await optimizedBatchDetectDuplicates([missing, lisbon], DEFAULT_DETECTION_CONFIG);
+    expect(separated.get('missing-city')!.totalCandidates).toBe(0);
+    expect(separated.get('lisbon-only')!.totalCandidates).toBe(0);
+
+    const secret = createMockPlace('secret', {
+      name: 'Secret Beach',
+      kind: 'beach',
+      city: null,
+      country: 'United States',
+      coords: null,
+    });
+    const harris = createMockPlace('harris', {
+      name: 'Harris Beach',
+      kind: 'beach',
+      city: null,
+      country: 'United States',
+      coords: null,
+    });
+    const recalled = await optimizedBatchDetectDuplicates([secret, harris], DEFAULT_DETECTION_CONFIG);
+    const match = recalled.get('secret')!.potentialDuplicates.find((d) => d.place.id === 'harris');
+    expect(match).toBeDefined();
+    expect(match!.factors.cityMatch).toBe(false);
+    expect(duplicatePageBand(match!.confidence, match!.flags)).toBe('Possible');
   });
 });

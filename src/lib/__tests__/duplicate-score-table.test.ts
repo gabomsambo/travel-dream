@@ -3,22 +3,23 @@ import { citiesMatch } from '@/lib/city-names'
 import type { Place } from '@/types/database'
 import {
   calculateDuplicateScore,
+  calculateLocationDistance,
   calculateNameSimilarity,
   batchDetectDuplicates,
   detectDuplicates,
   DUPLICATE_MAIN_SCORE,
   duplicatePageBand,
   findDuplicateClusters,
+  type DuplicateDetectionResult,
   type DuplicateFlag,
   type DuplicatePageBand,
 } from '../duplicate-detection'
 
 /**
  * Measured pairs from the duplicates scoring report.
- * The component split (drop the weakest edge between two geocoded members
- * more than 2 km apart) is not applied here: the grouping change was not on
- * main when this branch started, so that split belongs to whichever of the
- * two PRs lands second.
+ * Grouping is on main, so a component also drops the weakest edge on a path
+ * between two geocoded members more than 2 km apart. The Gail's Wimbledon
+ * case covers that split.
  *
  * Two rows differ from the report's proposed column because the 500 m–2 km
  * penalty of 0.05 was accepted after that column was filled: Starbucks at
@@ -703,4 +704,390 @@ describe('duplicate score table', () => {
     expect(rome.factors.cityMatch).toBe(false)
     expect(duplicatePageBand(rome.score, rome.flags)).toBe('No')
   })
+
+  it('drops the unpinned bridge that pulls Gail\'s Wimbledon into the Dulwich group', async () => {
+    const bakery = place({
+      id: 'plc_gail_1',
+      name: "Gail's Bakery",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4613, lon: -0.0860 },
+    })
+    const dulwich = place({
+      id: 'plc_gail_2',
+      name: "GAIL's Bakery Dulwich",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4615, lon: -0.0857 },
+    })
+    const gails = place({
+      id: 'plc_gail_3',
+      name: 'Gails',
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: null,
+    })
+    const wimbledon = place({
+      id: 'plc_gail_4',
+      name: "Gail's Bakery Wimbledon",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4214, lon: -0.2064 },
+    })
+
+    const bridge = calculateDuplicateScore(gails, wimbledon)
+    expect(duplicatePageBand(bridge.score, bridge.flags)).toBe('Main')
+    const direct = calculateDuplicateScore(bakery, wimbledon)
+    expect(duplicatePageBand(direct.score, direct.flags)).toBe('No')
+
+    const orders = permutations([bakery, dulwich, gails, wimbledon])
+    expect(orders).toHaveLength(24)
+    for (const order of orders) {
+      const clusters = findDuplicateClusters(
+        await batchDetectDuplicates(order),
+        2,
+        DUPLICATE_MAIN_SCORE,
+      )
+      expect(clusters).toHaveLength(1)
+      expect(clusters[0].id).toBe('plc_gail_1+plc_gail_2+plc_gail_3')
+      expect(clusters[0].places.map((item) => item.id)).toEqual([
+        'plc_gail_1',
+        'plc_gail_2',
+        'plc_gail_3',
+      ])
+      expect(clusters[0].leftOut).toEqual([
+        {
+          id: 'plc_gail_4',
+          name: "Gail's Bakery Wimbledon",
+          distanceM: 9451,
+          fromId: 'plc_gail_1',
+          reason: '9.5 km apart',
+        },
+      ])
+    }
+
+    const unpinnedPair = findDuplicateClusters(
+      await batchDetectDuplicates([gails, wimbledon]),
+      2,
+      DUPLICATE_MAIN_SCORE,
+    )
+    expect(unpinnedPair).toHaveLength(1)
+    expect(unpinnedPair[0].places.map((item) => item.id).sort()).toEqual([
+      'plc_gail_3',
+      'plc_gail_4',
+    ])
+    expect(unpinnedPair[0].leftOut).toEqual([])
+  })
+
+  it('drops Gail\'s Wimbledon when two unpinned aliases each keep a path to it', async () => {
+    const bakery = place({
+      id: 'plc_gail_1',
+      name: "Gail's Bakery",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4613, lon: -0.0860 },
+    })
+    const dulwich = place({
+      id: 'plc_gail_2',
+      name: "GAIL's Bakery Dulwich",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4615, lon: -0.0857 },
+    })
+    const aliasA = place({
+      id: 'plc_gail_3',
+      name: 'Gails',
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: null,
+    })
+    const wimbledon = place({
+      id: 'plc_gail_4',
+      name: "Gail's Bakery Wimbledon",
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: { lat: 51.4214, lon: -0.2064 },
+    })
+    const aliasB = place({
+      id: 'plc_gail_5',
+      name: 'Gails',
+      kind: 'cafe',
+      city: 'London',
+      country: 'United Kingdom',
+      coords: null,
+    })
+
+    for (const alias of [aliasA, aliasB]) {
+      for (const other of [bakery, dulwich, wimbledon]) {
+        const scored = calculateDuplicateScore(alias, other)
+        expect(duplicatePageBand(scored.score, scored.flags)).toBe('Main')
+      }
+    }
+    const aliases = calculateDuplicateScore(aliasA, aliasB)
+    expect(duplicatePageBand(aliases.score, aliases.flags)).toBe('Main')
+
+    const orders = permutations([bakery, dulwich, aliasA, aliasB, wimbledon])
+    expect(orders).toHaveLength(120)
+    for (const order of orders) {
+      const clusters = findDuplicateClusters(
+        await batchDetectDuplicates(order),
+        2,
+        DUPLICATE_MAIN_SCORE,
+      )
+      expect(clusters).toHaveLength(1)
+      expect(clusters[0].id).toBe('plc_gail_1+plc_gail_2+plc_gail_3+plc_gail_5')
+      expect(clusters[0].places.map((item) => item.id)).toEqual([
+        'plc_gail_1',
+        'plc_gail_2',
+        'plc_gail_3',
+        'plc_gail_5',
+      ])
+      expect(clusters[0].leftOut).toEqual([
+        {
+          id: 'plc_gail_4',
+          name: "Gail's Bakery Wimbledon",
+          distanceM: 9451,
+          fromId: 'plc_gail_1',
+          reason: '9.5 km apart',
+        },
+      ])
+    }
+  })
+
+  it('keeps a same Google place together when the pins are more than 2 km apart', () => {
+    const a = pinned('Iguazu Falls', 'Puerto Iguazu', 'Argentina', 'landmark', {
+      id: 'google-a',
+      googlePlaceId: 'ChIJ_far',
+    })
+    const b = pinned('Cataratas do Iguaçu', 'Foz do Iguaçu', 'Brazil', 'landmark', {
+      id: 'google-b',
+      googlePlaceId: 'ChIJ_far',
+      coords: atKm(PIN, 3),
+    })
+    const { score, flags } = calculateDuplicateScore(a, b)
+    expect(score).toBe(1)
+    expect(flags).toContain('same Google place')
+
+    const detected = detectDuplicates(a, [a, b])
+    const clusters = findDuplicateClusters(
+      new Map([[a.id, detected]]),
+      2,
+      DUPLICATE_MAIN_SCORE,
+    )
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0].places.map((item) => item.id).sort()).toEqual(['google-a', 'google-b'])
+    expect(clusters[0].leftOut).toEqual([])
+  })
+
+  it('attributes a removed place to the nearer survivor, not the first edge reached', () => {
+    const nearPin = PIN
+    const removedPin = atKm(PIN, 2.5)
+    const farPin = atKm(PIN, 8)
+    const nearA = place({ id: 'near-a', name: 'Cafe North', coords: nearPin })
+    const nearB = place({ id: 'near-b', name: 'Cafe North', coords: nearPin })
+    const farA = place({ id: 'far-a', name: 'Cafe North', coords: farPin })
+    const farB = place({ id: 'far-b', name: 'Cafe North', coords: farPin })
+    const removed = place({ id: 'removed', name: 'Cafe North', coords: removedPin })
+    const places = [removed, nearA, nearB, farA, farB]
+    const nearer = apart(removedPin, nearPin)
+
+    for (const bridges of [
+      [['removed', 'far-a', 0.8], ['removed', 'near-a', 0.8]] as const,
+      [['removed', 'near-a', 0.8], ['removed', 'far-a', 0.8]] as const,
+    ]) {
+      const clusters = findDuplicateClusters(
+        detectionMap(places, [
+          ...bridges,
+          ['near-a', 'near-b', 0.95],
+          ['far-a', 'far-b', 0.95],
+        ]),
+        2,
+        0.6,
+      )
+      expect(clusters.map((cluster) => cluster.id).sort()).toEqual([
+        'far-a+far-b',
+        'near-a+near-b',
+      ])
+      expect(clusters.find((cluster) => cluster.id === 'far-a+far-b')?.leftOut).toEqual([])
+      expect(clusters.find((cluster) => cluster.id === 'near-a+near-b')?.leftOut).toEqual([
+        {
+          id: 'removed',
+          name: 'Cafe North',
+          distanceM: nearer.distanceM,
+          fromId: 'near-a',
+          reason: nearer.reason,
+        },
+      ])
+    }
+  })
+
+  it('breaks an equal left-out distance by survivor group id', () => {
+    const there = atKm(PIN, 3)
+    const aaa1 = place({ id: 'aaa-1', name: 'Cafe', coords: there })
+    const aaa2 = place({ id: 'aaa-2', name: 'Cafe', coords: there })
+    const zzz1 = place({ id: 'zzz-1', name: 'Cafe', coords: there })
+    const zzz2 = place({ id: 'zzz-2', name: 'Cafe', coords: there })
+    const removed = place({ id: 'removed', name: 'Cafe', coords: PIN })
+    const places = [removed, aaa1, aaa2, zzz1, zzz2]
+    const distance = apart(PIN, there)
+
+    for (const bridges of [
+      [['removed', 'zzz-1', 0.8], ['removed', 'aaa-1', 0.8]] as const,
+      [['removed', 'aaa-1', 0.8], ['removed', 'zzz-1', 0.8]] as const,
+    ]) {
+      const clusters = findDuplicateClusters(
+        detectionMap(places, [
+          ...bridges,
+          ['aaa-1', 'aaa-2', 0.95],
+          ['zzz-1', 'zzz-2', 0.95],
+        ]),
+        2,
+        0.6,
+      )
+      expect(clusters.map((cluster) => cluster.id).sort()).toEqual([
+        'aaa-1+aaa-2',
+        'zzz-1+zzz-2',
+      ])
+      expect(clusters.find((cluster) => cluster.id === 'zzz-1+zzz-2')?.leftOut).toEqual([])
+      expect(clusters.find((cluster) => cluster.id === 'aaa-1+aaa-2')?.leftOut).toEqual([
+        {
+          id: 'removed',
+          name: 'Cafe',
+          distanceM: distance.distanceM,
+          fromId: 'aaa-1',
+          reason: distance.reason,
+        },
+      ])
+    }
+  })
+
+  it('keeps a bridged pair at 1.9 km and splits the same bridge past 2 km', () => {
+    const within = metresNorth(PIN, 1900)
+    const beyond = metresNorth(PIN, 2100)
+    expect(calculateLocationDistance(PIN, within) * 1000).toBeLessThanOrEqual(2000)
+    expect(calculateLocationDistance(PIN, within) * 1000).toBeGreaterThan(1800)
+    expect(calculateLocationDistance(PIN, beyond) * 1000).toBeGreaterThan(2000)
+    expect(calculateLocationDistance(PIN, beyond) * 1000).toBeLessThan(2200)
+
+    const together = bridgedClusters(within)
+    expect(together).toHaveLength(1)
+    expect(together[0].places.map((item) => item.id).sort()).toEqual(['bridge', 'here', 'there'])
+    expect(together[0].leftOut).toEqual([])
+
+    const split = bridgedClusters(beyond)
+    const gap = apart(PIN, beyond)
+    expect(split).toHaveLength(1)
+    expect(split[0].id).toBe('bridge+here')
+    expect(split[0].places.map((item) => item.id).sort()).toEqual(['bridge', 'here'])
+    expect(split[0].leftOut).toEqual([
+      {
+        id: 'there',
+        name: 'Cafe',
+        distanceM: gap.distanceM,
+        fromId: 'here',
+        reason: gap.reason,
+      },
+    ])
+  })
 })
+
+function metresNorth(
+  origin: { lat: number; lon: number },
+  metres: number,
+): { lat: number; lon: number } {
+  const lat = origin.lat + (metres / 1000 / EARTH_RADIUS_KM) * (180 / Math.PI)
+  const draft = { lat, lon: origin.lon }
+  const measured = calculateLocationDistance(origin, draft) * 1000
+  return {
+    lat: origin.lat + (lat - origin.lat) * (metres / measured),
+    lon: origin.lon,
+  }
+}
+
+function bridgedClusters(there: { lat: number; lon: number }) {
+  const here = place({ id: 'here', name: 'Cafe', coords: PIN })
+  const away = place({ id: 'there', name: 'Cafe', coords: there })
+  const bridge = place({ id: 'bridge', name: 'Cafe', coords: null })
+  return findDuplicateClusters(
+    detectionMap(
+      [here, away, bridge],
+      [
+        ['here', 'bridge', 0.9],
+        ['there', 'bridge', 0.8],
+      ],
+    ),
+    2,
+    0.6,
+  )
+}
+
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items]
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i++) {
+    const rest = items.filter((_, index) => index !== i)
+    for (const perm of permutations(rest)) out.push([items[i], ...perm])
+  }
+  return out
+}
+
+function apart(
+  from: { lat: number; lon: number },
+  to: { lat: number; lon: number },
+): { distanceM: number; reason: string } {
+  const metres = calculateLocationDistance(from, to) * 1000
+  const reason = metres > 2000
+    ? `${(metres / 1000).toFixed(1)} km apart`
+    : `${Math.round(metres)} m apart`
+  return { distanceM: Math.round(metres), reason }
+}
+
+function detectionMap(
+  places: Place[],
+  edges: ReadonlyArray<readonly [string, string, number]>,
+): Map<string, DuplicateDetectionResult> {
+  const byId = new Map(places.map((item) => [item.id, item]))
+  const outgoing = new Map<string, Array<{ id: string; score: number }>>()
+  for (const item of places) outgoing.set(item.id, [])
+  for (const [from, to, score] of edges) {
+    const list = outgoing.get(from)
+    if (!list || !byId.has(to)) throw new Error(`missing ${from} or ${to}`)
+    list.push({ id: to, score })
+  }
+
+  const results = new Map<string, DuplicateDetectionResult>()
+  for (const item of places) {
+    const potentialDuplicates = (outgoing.get(item.id) ?? []).map(({ id, score }) => {
+      const other = byId.get(id)
+      if (!other) throw new Error(`missing ${id}`)
+      return {
+        place: other,
+        confidence: score,
+        factors: {
+          nameScore: 1,
+          locationScore: 1,
+          kindMatch: true,
+          cityMatch: true,
+          countryMatch: true,
+        },
+        reasoning: [] as string[],
+        flags: [] as DuplicateFlag[],
+      }
+    })
+    results.set(item.id, {
+      originalPlace: item,
+      potentialDuplicates,
+      hasHighConfidenceDuplicates: potentialDuplicates.some((dup) => dup.confidence > 0.8),
+      totalCandidates: places.length,
+    })
+  }
+  return results
+}

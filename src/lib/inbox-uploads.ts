@@ -20,6 +20,7 @@ import type {
   InboxUploadPlaceRow,
   InboxUploadScreenshot,
   InboxUploadSkipped,
+  InboxUploadsResponse,
 } from '@/types/inbox-uploads';
 
 // SQLite's bound-parameter limit is generous on libSQL, but stay well under it.
@@ -67,7 +68,67 @@ function placeRow(list: InboxUploadPlace[]): InboxUploadPlaceRow {
   };
 }
 
-export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[]> {
+function labelJoinedPlaces(
+  outcome: { created: string[]; linked: string[] } | null,
+  joined: string[],
+  createdByPhoto: (placeId: string) => boolean
+): { createdPlaceIds: string[]; linkedPlaceIds: string[] } {
+  if (!outcome) {
+    const createdPlaceIds = joined.filter(createdByPhoto);
+    const created = new Set(createdPlaceIds);
+    return { createdPlaceIds, linkedPlaceIds: joined.filter((id) => !created.has(id)) };
+  }
+  const joinedSet = new Set(joined);
+  const createdPlaceIds = outcome.created.filter((id) => joinedSet.has(id));
+  const named = new Set(createdPlaceIds);
+  const linkedPlaceIds: string[] = [];
+  for (const id of outcome.linked) {
+    if (!joinedSet.has(id) || named.has(id)) continue;
+    named.add(id);
+    linkedPlaceIds.push(id);
+  }
+  for (const id of joined) {
+    if (named.has(id)) continue;
+    named.add(id);
+    linkedPlaceIds.push(id);
+  }
+  return { createdPlaceIds, linkedPlaceIds };
+}
+
+function bucketPlaces(createdPlaces: InboxUploadPlace[], linkedPlaces: InboxUploadPlace[]): {
+  toReview: InboxUploadPlace[];
+  added: InboxUploadPlace[];
+  notAPlace: InboxUploadPlace[];
+  alreadyInLibrary: InboxUploadPlace[];
+} {
+  const toReview: InboxUploadPlace[] = [];
+  const added: InboxUploadPlace[] = [];
+  const notAPlace: InboxUploadPlace[] = [];
+  const alreadyInLibrary: InboxUploadPlace[] = [];
+  const take = (place: InboxUploadPlace, linked: boolean) => {
+    if (place.status === 'archived') notAPlace.push(place);
+    else if (place.status === 'library') (linked ? alreadyInLibrary : added).push(place);
+    else toReview.push(place);
+  };
+  for (const place of createdPlaces) take(place, false);
+  for (const place of linkedPlaces) take(place, true);
+  return { toReview, added, notAPlace, alreadyInLibrary };
+}
+
+function distinctToReviewPlaceIds(uploads: InboxUploadBatch[]): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const batch of uploads) {
+    for (const id of batch.rows.toReview.placeIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+export async function getInboxUploads(userId: string): Promise<Omit<InboxUploadsResponse, 'status'>> {
   const tdb = forUser(userId);
   const sessionIdOf = sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.sessionId')`;
 
@@ -94,7 +155,8 @@ export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[
   });
   const sessionsById = new Map(sessionRows.map((s) => [s.id, s]));
 
-  // ---- per-screenshot places: the recorded outcome, else derived from joins.
+  // ---- per-screenshot places: the live join, labelled by the recorded outcome.
+  // No outcome record: derived from which places carry this screenshot as a photo.
   const sourceIds = sourceRows.map((s) => s.id);
   const links = await chunked(sourceIds, (part) =>
     tdb.selectFieldsVia(
@@ -126,10 +188,11 @@ export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[
     const status = s.processingStatus ?? 'pending';
     const outcome = recorded(s.meta);
     const joined = linksBySource.get(s.id) ?? [];
-    const createdPlaceIds = outcome ? outcome.created : joined.filter((p) => photoKeys.has(`${p}\n${s.uri}`));
-    const linkedPlaceIds = outcome
-      ? outcome.linked.filter((p) => !outcome.created.includes(p))
-      : joined.filter((p) => !photoKeys.has(`${p}\n${s.uri}`));
+    const { createdPlaceIds, linkedPlaceIds } = labelJoinedPlaces(
+      outcome,
+      joined,
+      (placeId) => photoKeys.has(`${placeId}\n${s.uri}`)
+    );
     const view: InboxUploadScreenshot = {
       sourceId: s.id,
       name: s.meta?.uploadInfo?.originalName ?? s.meta?.filename ?? null,
@@ -143,7 +206,7 @@ export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[
     return { view, sessionId: String(s.sessionId), createdAt: toIso(s.createdAt), error: s.processingError };
   });
 
-  // ---- the places themselves, re-scoped: outcome ids are only JSON.
+  // ---- the places themselves, re-scoped: a joined id is not proof of ownership.
   const placeIds = screenshots.flatMap((s) => [...s.view.createdPlaceIds, ...s.view.linkedPlaceIds]);
   const placeRows = await chunked(placeIds, (part) =>
     tdb.selectFields(
@@ -153,11 +216,10 @@ export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[
     )
   );
   const placesById = new Map(placeRows.map((p) => [p.id, p]));
-  // Only echo ids that resolved to the caller's own live places. `outcome`
-  // keeps the screenshot's verdict ("places" stays "places" after a merge).
   for (const { view } of screenshots) {
     view.createdPlaceIds = view.createdPlaceIds.filter((id) => placesById.has(id));
     view.linkedPlaceIds = view.linkedPlaceIds.filter((id) => placesById.has(id));
+    view.outcome = screenshotOutcome(view.processingStatus, view.createdPlaceIds.length + view.linkedPlaceIds.length);
   }
 
   // ---- skipped re-uploads, and the earlier screenshot each one matched.
@@ -203,7 +265,7 @@ export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[
       });
     const createdPlaces = toPlaces(created);
     const linkedPlaces = toPlaces(linked);
-    const byStatus = (status: InboxPlaceStatus) => placeRow(createdPlaces.filter((p) => p.status === status));
+    const buckets = bucketPlaces(createdPlaces, linkedPlaces);
     const sourcesWith = (outcome: InboxScreenshotOutcome) =>
       own.filter((s) => s.view.outcome === outcome).map((s) => s.view.sourceId);
 
@@ -227,10 +289,10 @@ export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[
       placesRead: createdPlaces.length + linkedPlaces.length,
       newPlaces: createdPlaces.length,
       rows: {
-        toReview: { ...byStatus('inbox'), checkCount: null },
-        added: byStatus('library'),
-        notAPlace: byStatus('archived'),
-        alreadyInLibrary: placeRow(linkedPlaces),
+        toReview: { ...placeRow(buckets.toReview), checkCount: null },
+        added: placeRow(buckets.added),
+        notAPlace: placeRow(buckets.notAPlace),
+        alreadyInLibrary: placeRow(buckets.alreadyInLibrary),
         uploadedBefore: { items: skipped },
         noPlaceFound: { sourceIds: sourcesWith('noPlaceFound') },
         couldNotRead: {
@@ -251,7 +313,8 @@ export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[
     });
   }
 
-  return batches.sort(
+  const uploads = batches.sort(
     (a, b) => Date.parse(b.uploadedAt) - Date.parse(a.uploadedAt) || (a.sessionId < b.sessionId ? 1 : -1)
   );
+  return { uploads, toReviewPlaceIds: distinctToReviewPlaceIds(uploads) };
 }

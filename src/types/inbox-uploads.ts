@@ -82,7 +82,7 @@ export interface InboxUploadBatch {
   /** Of those, how many this batch created. */
   newPlaces: number;
   rows: {
-    /** Created by this batch and still in the Inbox. */
+    /** Still in the Inbox, whether this batch created the place or linked the screenshot to it. */
     toReview: InboxUploadPlaceRow & {
       /**
        * How many of these Review would mark "Check this". `null` until the
@@ -92,9 +92,9 @@ export interface InboxUploadBatch {
     };
     /** Created by this batch and since added to the Library. */
     added: InboxUploadPlaceRow;
-    /** Created by this batch and since archived ("Not a place"). */
+    /** Archived ("Not a place"), whether this batch created the place or linked the screenshot to it. */
     notAPlace: InboxUploadPlaceRow;
-    /** Places that already existed; this batch added its screenshot to them. */
+    /** Library places this batch added its screenshot to. */
     alreadyInLibrary: InboxUploadPlaceRow;
     /** Re-uploads that were skipped. */
     uploadedBefore: { items: InboxUploadSkipped[] };
@@ -112,4 +112,6 @@ export interface InboxUploadBatch {
 export interface InboxUploadsResponse {
   status: 'success';
   uploads: InboxUploadBatch[];
+  /** Inbox place ids across every batch, each id once, newest batch first. */
+  toReviewPlaceIds: string[];
 }

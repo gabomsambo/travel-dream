@@ -20,7 +20,7 @@ jest.mock('@/lib/auth-helpers', () => ({
 }));
 
 import { requireAuthForApi } from '@/lib/auth-helpers';
-import { createPlacesFromPipeline } from '@/lib/db-mutations';
+import { bulkMergePlaces, createPlacesFromPipeline, mergePlaces } from '@/lib/db-mutations';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
 import type { InboxUploadBatch, InboxUploadsResponse } from '@/types/inbox-uploads';
 
@@ -67,13 +67,17 @@ async function placeIdByName(name: string): Promise<string> {
   return result.rows[0].id;
 }
 
-async function getUploads(): Promise<InboxUploadBatch[]> {
+async function getBody(): Promise<InboxUploadsResponse> {
   const { GET } = require('@/app/api/inbox/uploads/route') as { GET: () => Promise<Response> };
   const res = await GET();
   expect(res.status).toBe(200);
   const body = (await res.json()) as InboxUploadsResponse;
   expect(body.status).toBe('success');
-  return body.uploads;
+  return body;
+}
+
+async function getUploads(): Promise<InboxUploadBatch[]> {
+  return (await getBody()).uploads;
 }
 
 const names = (row: { places: Array<{ name: string }> }) => row.places.map((p) => p.name).sort();
@@ -169,7 +173,9 @@ describe('GET /api/inbox/uploads', () => {
   });
 
   it('returns an empty list for a user with no uploads', async () => {
-    expect(await getUploads()).toEqual([]);
+    const body = await getBody();
+    expect(body.uploads).toEqual([]);
+    expect(body.toReviewPlaceIds).toEqual([]);
   });
 
   it('groups batches newest first and leaves out sessions with no mass upload in them', async () => {
@@ -273,5 +279,119 @@ describe('GET /api/inbox/uploads', () => {
       originalName: 'planted.jpg', duplicateOfSourceId: null, duplicateOfSessionId: null, duplicateOfUploadedAt: null,
     }]);
     expect(JSON.stringify(planted)).not.toMatch(/bob/i);
+  });
+
+  it('buckets a later link by the place live status and counts an inbox place once', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,city,country,google_place_id,created_at,updated_at)
+       VALUES ('plc_kept',?, 'Kept Library','cafe','library','London','United Kingdom','g-kept',?,?)`,
+      [ALICE.id, now, now]
+    );
+    await session('session_first', ALICE.id, '2026-10-18T09:00:00.000Z');
+    await source('src_first', ALICE.id, 'session_first', 'completed', '2026-10-18T09:01:00.000Z', {
+      places: [place('Inbox Twin'), place('Solo Stop', { city: 'Cusco', country: 'Peru' })],
+    });
+    await session('session_second', ALICE.id, '2026-10-18T12:00:00.000Z');
+    await source('src_second', ALICE.id, 'session_second', 'completed', '2026-10-18T12:01:00.000Z', {
+      places: [
+        place('Inbox Twin'),
+        place('Kept Library', { city: 'London', country: 'United Kingdom', googlePlaceId: 'g-kept' }),
+      ],
+    });
+    await execute(`UPDATE places SET status = 'archived' WHERE id = 'plc_kept'`);
+
+    const twin = await placeIdByName('Inbox Twin');
+    const solo = await placeIdByName('Solo Stop');
+    const body = await getBody();
+    const [second, first] = body.uploads;
+
+    expect(second.sessionId).toBe('session_second');
+    expect(second.rows.toReview.placeIds).toEqual([twin]);
+    expect(second.rows.toReview.places[0].status).toBe('inbox');
+    expect(second.rows.toReview.sourceIds).toEqual(['src_second']);
+    expect(second.rows.alreadyInLibrary.placeIds).toEqual([]);
+    expect(second.rows.added.placeIds).toEqual([]);
+    expect(second.rows.notAPlace.placeIds).toEqual(['plc_kept']);
+    expect(second.rows.notAPlace.places[0].status).toBe('archived');
+    expect(second.newPlaces).toBe(0);
+
+    expect(first.sessionId).toBe('session_first');
+    expect(first.rows.toReview.placeIds).toEqual([twin, solo]);
+    expect(first.rows.alreadyInLibrary.placeIds).toEqual([]);
+
+    expect(body.toReviewPlaceIds).toEqual([twin, solo]);
+    expect(new Set(body.uploads.flatMap((batch) => batch.rows.toReview.placeIds)).size).toBe(body.toReviewPlaceIds.length);
+  });
+
+  it('lists the library survivor after a bulk merge, not the archived place', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,city,country,created_at,updated_at)
+       VALUES ('plc_bulk_keep',?, 'Bulk Keeper','cafe','library','Oslo','Norway',?,?)`,
+      [ALICE.id, now, now]
+    );
+    await session('session_bulk', ALICE.id, '2026-10-18T11:00:00.000Z');
+    await source('src_bulk', ALICE.id, 'session_bulk', 'completed', '2026-10-18T11:01:00.000Z', {
+      places: [place('Bulk Fresh', { city: 'Quito', country: 'Ecuador' })],
+    });
+    const fresh = await placeIdByName('Bulk Fresh');
+    const merged = await bulkMergePlaces(
+      [{ targetId: 'plc_bulk_keep', sourceIds: [fresh], confidence: 0.9 }],
+      ALICE.id
+    );
+    expect(merged).toEqual(expect.objectContaining({ success: 1, failed: 0 }));
+
+    const join = (await execute(
+      'SELECT place_id AS placeId FROM sources_to_places WHERE source_id = ?',
+      ['src_bulk']
+    )) as { rows: Array<{ placeId: string }> };
+    expect(join.rows.map((row) => row.placeId)).toEqual(['plc_bulk_keep']);
+
+    const [batch] = await getUploads();
+    expect(batch.rows.notAPlace.placeIds).toEqual([]);
+    expect(batch.rows.toReview.placeIds).toEqual([]);
+    expect(batch.rows.added.placeIds).toEqual([]);
+    expect(batch.rows.alreadyInLibrary.placeIds).toEqual(['plc_bulk_keep']);
+    expect(batch.rows.alreadyInLibrary.places[0].status).toBe('library');
+    expect(batch.rows.alreadyInLibrary.sourceIds).toEqual(['src_bulk']);
+    expect(batch.screenshots[0].outcome).toBe('places');
+    expect(batch.screenshots[0].createdPlaceIds).toEqual([]);
+    expect(batch.screenshots[0].linkedPlaceIds).toEqual(['plc_bulk_keep']);
+    expect(JSON.stringify(batch)).not.toContain(fresh);
+  });
+
+  it('lists the library survivor after merge deletes the created place', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,city,country,created_at,updated_at)
+       VALUES ('plc_merge_keep',?, 'Merge Keeper','cafe','library','Bergen','Norway',?,?)`,
+      [ALICE.id, now, now]
+    );
+    await session('session_merge', ALICE.id, '2026-10-18T11:30:00.000Z');
+    await source('src_merge', ALICE.id, 'session_merge', 'completed', '2026-10-18T11:31:00.000Z', {
+      places: [place('Merge Fresh', { city: 'Quito', country: 'Ecuador' })],
+    });
+    const fresh = await placeIdByName('Merge Fresh');
+    await mergePlaces(fresh, 'plc_merge_keep', ALICE.id);
+
+    const join = (await execute(
+      'SELECT place_id AS placeId FROM sources_to_places WHERE source_id = ?',
+      ['src_merge']
+    )) as { rows: Array<{ placeId: string }> };
+    expect(join.rows.map((row) => row.placeId)).toEqual(['plc_merge_keep']);
+    const gone = (await execute('SELECT id FROM places WHERE id = ?', [fresh])) as { rows: unknown[] };
+    expect(gone.rows).toEqual([]);
+
+    const [batch] = await getUploads();
+    expect(batch.rows.notAPlace.placeIds).toEqual([]);
+    expect(batch.rows.toReview.placeIds).toEqual([]);
+    expect(batch.rows.added.placeIds).toEqual([]);
+    expect(batch.rows.alreadyInLibrary.placeIds).toEqual(['plc_merge_keep']);
+    expect(batch.rows.alreadyInLibrary.places[0].status).toBe('library');
+    expect(batch.screenshots[0].outcome).toBe('places');
+    expect(batch.screenshots[0].createdPlaceIds).toEqual([]);
+    expect(batch.screenshots[0].linkedPlaceIds).toEqual(['plc_merge_keep']);
+    expect(JSON.stringify(batch)).not.toContain(fresh);
   });
 });

@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const user = await requireAuthForApi();
-    const body: InboxUploadsResponse = { status: 'success', uploads: await getInboxUploads(user.id) };
+    const summary = await getInboxUploads(user.id);
+    const body: InboxUploadsResponse = { status: 'success', ...summary };
     return NextResponse.json(body);
   } catch (error) {
     if (isAuthError(error)) {

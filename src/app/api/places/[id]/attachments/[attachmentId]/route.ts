@@ -3,7 +3,7 @@ import { attachments } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import { del } from '@vercel/blob';
+import { releaseBlobIfUnreferenced } from '@/lib/shared-blob';
 
 export async function DELETE(
   request: NextRequest,
@@ -42,18 +42,20 @@ export async function DELETE(
     // row written.
     await tdb.deleteVia(attachments, eq(attachments.id, attachmentId));
 
-    // Try to delete the stored blobs (don't fail if they no longer exist).
-    // Legacy `/uploads/...` attachments are left on disk: that storage never
-    // existed on Vercel and those files are deliberately not migrated.
+    // Legacy `/uploads/...` paths are not blob objects and are left alone.
+    const exclusions = { excludeAttachmentIds: [attachmentId] };
     try {
-      if (attachment.uri?.startsWith('https://')) {
-        await del(attachment.uri);
+      await releaseBlobIfUnreferenced(user.id, attachment.uri, exclusions, '[DELETE attachment]');
+      if (attachment.thumbnailUri && attachment.thumbnailUri !== attachment.uri) {
+        await releaseBlobIfUnreferenced(
+          user.id,
+          attachment.thumbnailUri,
+          exclusions,
+          '[DELETE attachment]'
+        );
       }
-      if (attachment.thumbnailUri?.startsWith('https://') && attachment.thumbnailUri !== attachment.uri) {
-        await del(attachment.thumbnailUri);
-      }
-    } catch {
-      // Ignore blob deletion errors
+    } catch (cleanupError) {
+      console.warn('[DELETE attachment] Failed to release blobs:', cleanupError);
     }
 
     return NextResponse.json({ success: true });

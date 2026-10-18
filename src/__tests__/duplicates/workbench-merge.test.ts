@@ -29,6 +29,7 @@ import {
   fieldConflicts,
   linkLines,
   notesResultLine,
+  notDuplicatesBarText,
   resolvePairs,
   suggestedOut,
 } from '@/lib/duplicate-workbench';
@@ -193,6 +194,31 @@ describe('duplicates workbench on real data', () => {
     expect(written.address).toBe('Caniçal, Madeira');
   });
 
+  it('undoing a merge forgets the Not this one pairs stored with it', async () => {
+    await insertPlace({ id: 'plc_k', name: 'Kept', status: 'library' });
+    await insertPlace({ id: 'plc_s', name: 'Absorbed' });
+    await insertPlace({ id: 'plc_o', name: 'Left out' });
+    await insertPlace({ id: 'plc_x', name: 'Unrelated A' });
+    await insertPlace({ id: 'plc_y', name: 'Unrelated B' });
+
+    const dismissPairs = [
+      { placeId1: 'plc_o', placeId2: 'plc_k' },
+      { placeId1: 'plc_o', placeId2: 'plc_s' },
+    ];
+    const merged = await post('bulk-merge', {
+      clusters: [{ targetId: 'plc_k', sourceIds: ['plc_s'], confidence: 0.8, dismissPairs }],
+    });
+    expect(merged.status).toBe(200);
+    expect((await post('dismiss-duplicate', { pairs: dismissPairs })).status).toBe(200);
+    expect((await post('dismiss-duplicate', { pairs: [{ placeId1: 'plc_x', placeId2: 'plc_y' }] })).status).toBe(200);
+    expect((await post('dismiss-duplicate', { pairs: [{ placeId1: 'plc_k', placeId2: 'plc_y' }] })).status).toBe(200);
+
+    const mergeLogId = (merged.json.results as Array<{ mergeLogId: string }>)[0].mergeLogId;
+    expect((await post('undo-merge', { placeId: 'plc_k', mergeLogId })).status).toBe(200);
+    expect(await dismissedKeys()).toEqual(['plc_k|plc_y', 'plc_x|plc_y']);
+    expect((await readPlace('plc_s')).status).toBe('inbox');
+  });
+
   it('undo restores the kept place, the absorbed place, and every moved row', async () => {
     const { attachments, collections, placesToCollections, sourcesToPlaces, reservations } =
       require('@/db/schema') as typeof import('@/db/schema');
@@ -349,6 +375,12 @@ describe('duplicates workbench on real data', () => {
       edges: cluster.edges!.map((item, index) => index === 2 ? { ...item, against: ['Names differ', 'Paris vs Lyon'] } : item),
     };
     expect(compareStartsOpen(withEvidence, conflicts)).toBe(true);
+  });
+
+  it('says Not duplicates also marks the In members when someone is Out', () => {
+    expect(notDuplicatesBarText(3, [3])).toBe('Not duplicates marks these as different places. #3 stays separate too.');
+    expect(notDuplicatesBarText(4, [2, 4])).toBe('Not duplicates marks these as different places. #2 and #4 stay separate too.');
+    expect(notDuplicatesBarText(3, [])).toBe('"Not duplicates" remembers these 3 as different places.');
   });
 
   it('describes notes the way the merge writes them', () => {

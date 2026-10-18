@@ -21,6 +21,7 @@ import {
   fieldText,
   linkLines,
   notesResultLine,
+  notDuplicatesBarText,
   orderMembers,
   pairEvidence,
   resolvePairs,
@@ -159,7 +160,7 @@ export function DuplicateWorkbench({
   });
 
   const mergeCount = inIds.size;
-  const outNames = order.filter((place) => outIds.has(place.id)).map((place) => `#${number(place.id)} ${place.name}`);
+  const outNumbers = order.filter((place) => outIds.has(place.id)).map((place) => number(place.id));
   const pairKey = (edge: { a: string; b: string }) => {
     const [x, y] = [number(edge.a), number(edge.b)].sort((p, q) => p - q);
     return x * 100 + y;
@@ -494,9 +495,7 @@ export function DuplicateWorkbench({
           Not duplicates {!phone && <kbd className="text-xs opacity-70">d</kbd>}
         </Button>
         <p className="order-last w-full text-xs text-muted-foreground md:order-none md:w-auto md:flex-1">
-          {outNames.length > 0
-            ? `${outNames.join(', ')} ${outNames.length === 1 ? 'stays' : 'stay'} separate. We remember ${outNames.length === 1 ? 'it is' : 'they are'} not the same as the others.`
-            : `"Not duplicates" remembers these ${order.length} as different places.`}
+          {notDuplicatesBarText(order.length, outNumbers)}
         </p>
         <Button
           variant={notDuplicatesFirst ? 'outline' : 'default'}

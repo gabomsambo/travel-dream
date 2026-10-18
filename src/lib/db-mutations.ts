@@ -1,7 +1,7 @@
-import { eq, and, inArray, count, sql, desc } from 'drizzle-orm';
+import { eq, and, inArray, count, sql, desc, or } from 'drizzle-orm';
 import { db } from '@/db';
 import { releaseBlobIfUnreferenced, releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
-import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks } from '@/db/schema';
+import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks, dismissedDuplicates } from '@/db/schema';
 import { appendNote, MERGED_PLACE_FIELDS, mergePlaceFields, sanitizeMergeFieldOverrides, type MergeFieldOverrides } from '@/lib/place-merge';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { forUser } from './tenant-db';
@@ -988,12 +988,31 @@ export interface MovedMergeRelations {
   }>;
 }
 
+function dismissPairsForLog(pairs: unknown): Array<{ placeId1: string; placeId2: string }> {
+  if (!Array.isArray(pairs)) return [];
+  const seen = new Set<string>();
+  const kept: Array<{ placeId1: string; placeId2: string }> = [];
+  for (const pair of pairs) {
+    if (kept.length >= 100) break;
+    if (!pair || typeof pair !== 'object') continue;
+    const placeId1 = (pair as { placeId1?: unknown }).placeId1;
+    const placeId2 = (pair as { placeId2?: unknown }).placeId2;
+    if (typeof placeId1 !== 'string' || typeof placeId2 !== 'string' || !placeId1 || !placeId2 || placeId1 === placeId2) continue;
+    const key = [placeId1, placeId2].sort().join('\0');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push({ placeId1, placeId2 });
+  }
+  return kept;
+}
+
 export async function bulkMergePlaces(
   clusters: Array<{
     targetId: string;
     sourceIds: string[];
     confidence: number;
     fieldOverrides?: MergeFieldOverrides;
+    dismissPairs?: Array<{ placeId1: string; placeId2: string }>;
   }>,
   userId: string
 ): Promise<{ success: number; failed: number; results: any[] }> {
@@ -1040,6 +1059,7 @@ export async function bulkMergePlaces(
 
           const fieldOverrides = sanitizeMergeFieldOverrides(cluster.fieldOverrides);
           const merged = mergePlaceFields(targetPlace, orderedSources, fieldOverrides);
+          const dismissedPairs = dismissPairsForLog(cluster.dismissPairs);
           const updatedAt = new Date().toISOString();
 
           await tx.update(places)
@@ -1264,6 +1284,7 @@ export async function bulkMergePlaces(
             // The kept place before this merge; `undoMerge` restores it.
             targetSnapshot: { ...targetPlace },
             updatedAt,
+            ...(dismissedPairs.length > 0 ? { dismissedPairs } : {}),
           };
 
           const [mergeLog] = await tx.insert(mergeLogs).values({
@@ -1326,6 +1347,7 @@ function mergeOrderKey(log: { performedAt: string; mergedData: unknown }): strin
  * Undo the latest merge into `placeId`: the kept place goes back to how it was
  * before, every absorbed place comes back with its own fields and status, and
  * photos, reservations, links, screenshots, and collection rows move back.
+ * Pairs stored with the merge, from members left as Not this one, are removed too.
  *
  * Merges into one place are undone newest first. `mergeLogId`, when given,
  * must be that newest merge. A place that was itself merged away since must
@@ -1360,6 +1382,7 @@ export async function undoMerge(
       const data = (latest.mergedData ?? {}) as {
         targetSnapshot?: Record<string, unknown>;
         movedRelations?: MovedMergeRelations;
+        dismissedPairs?: unknown;
       };
       if (!data.targetSnapshot) {
         throw new ConflictError('This merge was made before undo was available');
@@ -1428,6 +1451,16 @@ export async function undoMerge(
             })
             .onConflictDoNothing();
         }
+      }
+
+      for (const pair of dismissPairsForLog(data.dismissedPairs)) {
+        await tx.delete(dismissedDuplicates).where(and(
+          eq(dismissedDuplicates.userId, userId),
+          or(
+            and(eq(dismissedDuplicates.placeId1, pair.placeId1), eq(dismissedDuplicates.placeId2, pair.placeId2)),
+            and(eq(dismissedDuplicates.placeId1, pair.placeId2), eq(dismissedDuplicates.placeId2, pair.placeId1)),
+          ),
+        ));
       }
 
       await tx.update(mergeLogs)

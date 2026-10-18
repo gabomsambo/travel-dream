@@ -264,7 +264,7 @@ export function DuplicatesPageClient({
       }
       if (action.pairs.length > 0) await writePairs(action.pairs, 'DELETE', { absentOk: true });
       if (lastActionRef.current === action) lastActionRef.current = null;
-      notify.success(action.kind === 'merge' ? 'Merge undone' : 'Put back in To review');
+      notify.success(action.kind === 'merge' ? 'Merge undone' : 'Put back');
       await clearScanCache();
       router.refresh();
     } catch (error) {
@@ -323,6 +323,7 @@ export function DuplicatesPageClient({
     }
     if (requestedSourceIds.length === 0 || sourceIds.length === 0) return;
 
+    const mergePairs = intent?.mergePairs ?? [];
     setIsLoading(true);
     const nextId = neighbourOf(cluster);
     dropCluster(cluster, 'merge');
@@ -336,13 +337,13 @@ export function DuplicatesPageClient({
             sourceIds,
             confidence: cluster.avgConfidence,
             fieldOverrides: intent?.fieldOverrides,
+            ...(mergePairs.length > 0 ? { dismissPairs: mergePairs } : {}),
           }],
         }),
       });
       if (!response.ok) throw new Error('Failed to merge cluster');
       const result = await response.json() as BulkMergeResponse;
       if (result.success && result.success > 0) {
-        const mergePairs = intent?.mergePairs ?? [];
         try {
           if (mergePairs.length > 0) await writePairs(mergePairs, 'POST');
         } catch {

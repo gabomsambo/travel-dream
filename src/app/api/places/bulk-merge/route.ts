@@ -15,6 +15,10 @@ const BulkMergeSchema = z.object({
     // Optional picks for single-value fields both places already have.
     // The value is a place id in this cluster; unknown fields are ignored later.
     fieldOverrides: z.record(z.string(), z.string().min(1)).optional(),
+    dismissPairs: z.array(z.object({
+      placeId1: z.string().min(1),
+      placeId2: z.string().min(1),
+    })).max(100).optional(),
   })).min(1).max(50)
 });
 

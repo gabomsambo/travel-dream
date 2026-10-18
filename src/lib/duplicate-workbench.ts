@@ -344,6 +344,18 @@ function pairsAmong(ids: string[]): Pair[] {
   return pairs;
 }
 
+export function notDuplicatesBarText(memberCount: number, outNumbers: readonly number[]): string {
+  if (outNumbers.length === 0) {
+    return `"Not duplicates" remembers these ${memberCount} as different places.`;
+  }
+  const labels = outNumbers.map((n) => `#${n}`);
+  const list = labels.length === 1
+    ? labels[0]
+    : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+  const verb = labels.length === 1 ? 'stays' : 'stay';
+  return `Not duplicates marks these as different places. ${list} ${verb} separate too.`;
+}
+
 /**
  * Pairs remembered as different when the group is resolved. Each member
  * marked Not this one is paired with every In member. "Not duplicates" also

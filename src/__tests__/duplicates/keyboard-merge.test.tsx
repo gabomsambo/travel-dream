@@ -1210,6 +1210,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
 
     expect(partButton('Harbor Other', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Not duplicates marks these as different places. #2 stays separate too.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Merge 1 into one place/ })).toBeDisabled();
 
     await user.click(screen.getByRole('button', { name: 'change' }));
@@ -1223,7 +1224,33 @@ describe('duplicates keyboard and bulk confirmation', () => {
 
     await user.click(partButton('Harbor Cafe', 'In'));
     expect(partButton('Harbor Cafe', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('"Not duplicates" remembers these 2 as different places.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Merge 2 into one place/ })).toBeEnabled();
+  });
+
+  it('says a Not duplicates undo was put back without naming a tab', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' || (url === '/api/places/duplicates' && init?.method === 'DELETE')) {
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainCluster()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith(
+      'Marked 2 places as not duplicates',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    ));
+
+    (notify.success as jest.Mock).mockClear();
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));
+    expect(notify.success).not.toHaveBeenCalledWith(expect.stringContaining('To review'));
   });
 
   it('marks members hard-against the new kept record Out', async () => {

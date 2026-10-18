@@ -32,6 +32,7 @@ export function PlaceHero({
   onPhotoAttached,
   onArchive,
   onDeleted,
+  onRestored,
 }: {
   place: PlaceWithRelations
   photos: Attachment[]
@@ -42,6 +43,7 @@ export function PlaceHero({
   onPhotoAttached: () => void
   onArchive?: () => void
   onDeleted?: () => void
+  onRestored?: () => void
 }) {
   const edit = useSectionEdit()
   const editing = Boolean(edit?.editingAll)
@@ -108,6 +110,7 @@ export function PlaceHero({
             onPrefetchClassic={onPrefetchEdit}
             onArchive={onArchive}
             onDeleted={onDeleted}
+            onRestored={onRestored}
           />
         </div>
 

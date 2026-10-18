@@ -84,6 +84,33 @@ describe('PlaceActionsMenu', () => {
     expect(mockRouter.back).not.toHaveBeenCalled()
   })
 
+  it('tells Review a restore succeeded before the refresh', async () => {
+    const order: string[] = []
+    mockRouter.refresh.mockImplementation(() => { order.push('refresh') })
+    const onRestored = jest.fn(() => { order.push('restored') })
+    render(<PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="archived" onRestored={onRestored} />)
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: /Restore to library/ }))
+
+    await waitFor(() => expect(onRestored).toHaveBeenCalledTimes(1))
+    expect(order).toEqual(['restored', 'refresh'])
+    expect(fetchMock).toHaveBeenCalledWith('/api/places/plc_fushimi', expect.objectContaining({ body: JSON.stringify({ status: 'library' }) }))
+    expect(mockRouter.back).not.toHaveBeenCalled()
+  })
+
+  it('does not tell Review to restore when the request fails', async () => {
+    const onRestored = jest.fn()
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({ message: 'Place not found' }) })
+    render(<PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="archived" onRestored={onRestored} />)
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: /Restore to library/ }))
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Place not found'))
+    expect(onRestored).not.toHaveBeenCalled()
+    expect(mockRouter.refresh).not.toHaveBeenCalled()
+    expect(mockRouter.back).not.toHaveBeenCalled()
+  })
+
   it('asks before deleting, naming the place, and Cancel deletes nothing', async () => {
     renderMenu()
     await openMenu()
@@ -179,12 +206,12 @@ describe('postcard menu inside Review', () => {
     Object.defineProperty(window.history, 'length', { configurable: true, get: () => 3 })
   })
 
-  function renderHero(onArchive: () => void, onDeleted: () => void) {
+  function renderHero(onArchive: () => void, onDeleted: () => void, onRestored?: () => void, status = 'inbox') {
     const place = {
       id: 'plc_fushimi',
       name: 'Fushimi Inari-taisha',
       kind: 'temple',
-      status: 'inbox',
+      status,
       city: 'Kyoto',
       country: 'Japan',
       vibes: [],
@@ -201,6 +228,7 @@ describe('postcard menu inside Review', () => {
         onPhotoAttached={() => {}}
         onArchive={onArchive}
         onDeleted={onDeleted}
+        onRestored={onRestored}
       />
     )
   }
@@ -223,6 +251,21 @@ describe('postcard menu inside Review', () => {
 
     await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1))
     expect(fetchMock).toHaveBeenCalledWith('/api/places/plc_fushimi', { method: 'DELETE' })
+    expect(mockRouter.back).not.toHaveBeenCalled()
+    expect(mockRouter.push).not.toHaveBeenCalled()
+  })
+
+  it('restores through the hero menu before refreshing', async () => {
+    const order: string[] = []
+    mockRouter.refresh.mockImplementation(() => { order.push('refresh') })
+    const onRestored = jest.fn(() => { order.push('restored') })
+    renderHero(jest.fn(), jest.fn(), onRestored, 'archived')
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Restore to library/ }))
+
+    await waitFor(() => expect(onRestored).toHaveBeenCalledTimes(1))
+    expect(order).toEqual(['restored', 'refresh'])
     expect(mockRouter.back).not.toHaveBeenCalled()
     expect(mockRouter.push).not.toHaveBeenCalled()
   })

@@ -32,6 +32,7 @@ export function PlaceActionsMenu({
   onPrefetchClassic,
   onArchive,
   onDeleted,
+  onRestored,
 }: {
   placeId: string
   placeName: string
@@ -41,6 +42,7 @@ export function PlaceActionsMenu({
   onPrefetchClassic?: () => void
   onArchive?: () => void
   onDeleted?: () => void
+  onRestored?: () => void
 }) {
   const router = useRouter()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
@@ -74,6 +76,7 @@ export function PlaceActionsMenu({
         })
         leave()
       } else {
+        onRestored?.()
         notify.success(`Restored “${placeName}” to your library`)
         router.refresh()
       }

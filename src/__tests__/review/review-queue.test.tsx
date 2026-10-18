@@ -8,8 +8,9 @@ import type { PlaceWithRelations, Source } from '@/types/database'
 
 const mockPush = jest.fn()
 const mockRefresh = jest.fn()
+const mockReplace = jest.fn()
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
+  useRouter: () => ({ push: mockPush, refresh: mockRefresh, replace: mockReplace }),
 }))
 jest.mock('@/components/places/place-view/place-view', () => {
   const React = require('react') as typeof import('react')
@@ -18,10 +19,12 @@ jest.mock('@/components/places/place-view/place-view', () => {
       place,
       onArchive,
       onDeleted,
+      onRestored,
     }: {
       place: PlaceWithRelations
       onArchive?: () => void
       onDeleted?: () => void
+      onRestored?: () => void
     }) => {
       const mountedId = React.useRef(place.id)
       return (
@@ -29,6 +32,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
           {place.name}
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
+          <button type="button" onClick={() => onRestored?.()}>Restore from postcard</button>
         </div>
       )
     },
@@ -437,14 +441,27 @@ describe('ReviewQueue decisions', () => {
     }
   })
 
-  it('stamps the open card as a queue url before a refresh can leave', () => {
+  it('leaves the loaded review url in place so a refresh stays in the queue', () => {
     window.history.replaceState({ __NA: true }, '', '/review?placeId=plc_one')
     const replaceSpy = jest.spyOn(window.history, 'replaceState')
-    renderQueue({ initialPlaceId: 'plc_one' })
+    const view = renderQueue({ initialPlaceId: 'plc_one' })
 
-    expect(replaceSpy).toHaveBeenCalledWith({}, '', '/review?placeId=plc_one&from=queue')
-    expect(`${window.location.pathname}${window.location.search}`).toBe('/review?placeId=plc_one&from=queue')
-    expect(replaceSpy.mock.calls.some((call) => (call[0] as { __NA?: boolean } | null)?.__NA)).toBe(false)
+    expect(replaceSpy).not.toHaveBeenCalled()
+    expect(mockReplace).not.toHaveBeenCalled()
+    expect(`${window.location.pathname}${window.location.search}`).toBe('/review?placeId=plc_one')
+
+    view.rerender(
+      <ReviewQueue
+        entries={[entries[1]]}
+        postcard={postcardFor(placeTwo)}
+        trips={[]}
+        initialPlaceId="plc_one"
+      />
+    )
+
+    expect(mockReplace).not.toHaveBeenCalled()
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
+    expect(screen.queryByText("That's everything.")).not.toBeInTheDocument()
     replaceSpy.mockRestore()
   })
 
@@ -526,19 +543,17 @@ describe('ReviewQueue decisions', () => {
     expect(screen.queryByText("That's everything.")).not.toBeInTheDocument()
   })
 
-  it('starts a fresh session on the first inbox place when the link is no longer inbox', async () => {
-    window.history.replaceState({}, '', '/review?placeId=plc_gone&from=queue')
-    const replaceSpy = jest.spyOn(window.history, 'replaceState')
+  it('sends a deep link that is not in the opening queue to the place page once', async () => {
     const gone = { ...place('plc_gone', 'Gone Cafe', source('gone')), status: 'library' as const }
     const view = renderQueue({
       postcard: postcardFor(gone),
       initialPlaceId: 'plc_gone',
     })
 
-    expect(screen.getByText(/1 of 2 from one\.jpg/)).toBeInTheDocument()
+    expect(mockReplace).toHaveBeenCalledTimes(1)
+    expect(mockReplace).toHaveBeenCalledWith('/place/plc_gone')
     expect(screen.queryByText('Gone Cafe')).not.toBeInTheDocument()
     expect(screen.queryByText('Screenshot unavailable')).not.toBeInTheDocument()
-    expect(replaceSpy).toHaveBeenCalledWith({}, '', '/review?placeId=plc_one&from=queue')
 
     const refreshed = { ...placeTwo, name: 'Two Cafe Updated' }
     view.rerender(
@@ -549,10 +564,10 @@ describe('ReviewQueue decisions', () => {
         initialPlaceId="plc_gone"
       />
     )
+    expect(mockReplace).toHaveBeenCalledTimes(1)
     fireEvent.keyDown(window, { key: 's' })
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe Updated'))
     expect(screen.queryByText('Gone Cafe')).not.toBeInTheDocument()
-    replaceSpy.mockRestore()
   })
 
   it('archives from the postcard menu like Not a place, with undo, and stays in the queue', async () => {
@@ -599,5 +614,81 @@ describe('ReviewQueue decisions', () => {
     expect(screen.getByText('removed').previousElementSibling).toHaveTextContent('1')
     expect(mockPush).not.toHaveBeenCalled()
     expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('keeps a restored place in the library when a later postcard still says inbox', async () => {
+    const user = userEvent.setup()
+    const view = renderQueue()
+
+    await user.click(screen.getAllByRole('button', { name: /Not a place/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'archived'))
+
+    await user.click(screen.getByRole('button', { name: 'Restore from postcard' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library'))
+
+    view.rerender(
+      <ReviewQueue
+        entries={[entries[1]]}
+        postcard={postcardFor({ ...placeOne, status: 'inbox' })}
+        trips={[]}
+        initialPlaceId="plc_one"
+      />
+    )
+
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library'))
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
+    expect(mockReplace).not.toHaveBeenCalled()
+
+    await user.click(screen.getAllByRole('button', { name: /Not a place/i })[0])
+    await waitFor(() => expect(notifySuccess.mock.calls.filter((call) => String(call[0]).includes('Archive')).length).toBeGreaterThan(1))
+    const archiveToasts = notifySuccess.mock.calls.filter((call) => String(call[0]).includes('Archive'))
+    const undo = (archiveToasts.at(-1)?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+
+    await waitFor(() => expect(notifySuccess).toHaveBeenLastCalledWith(expect.stringContaining('Library')))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library')
+    expect(patchCalls().at(-1)?.[1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ status: 'library' }),
+    }))
+  })
+
+  it('skips a deleted place on Previous and does not count it as skipped', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+
+    await user.click(screen.getByRole('button', { name: 'Deleted from postcard' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(screen.getByRole('button', { name: /Previous/i })).toBeDisabled()
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe')
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    expect(screen.getByText('removed').previousElementSibling).toHaveTextContent('1')
+    expect(screen.getByText('skipped for later').previousElementSibling).toHaveTextContent('1')
+    expect(screen.queryByRole('button', { name: 'One Cafe' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Two Cafe' })).toBeInTheDocument()
+  })
+
+  it('returns from the summary to the earlier place when the last card was deleted', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: 'Deleted from postcard' }))
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    expect(screen.getByText('removed').previousElementSibling).toHaveTextContent('1')
+    expect(screen.getByRole('button', { name: 'One Cafe' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Two Cafe' })).not.toBeInTheDocument()
   })
 })

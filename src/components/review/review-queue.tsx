@@ -137,6 +137,25 @@ function nextUnhandled(entries: ReviewQueueEntry[], outcomes: Record<string, Rev
   return null
 }
 
+function previousSelectableId(
+  entries: ReviewQueueEntry[],
+  outcomes: Record<string, ReviewOutcome>,
+  currentId: string | null,
+): string | null {
+  const selectable = (placeId: string) => outcomes[placeId] !== 'removed'
+  if (currentId === null) {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      if (selectable(entries[index].placeId)) return entries[index].placeId
+    }
+    return null
+  }
+  const index = entries.findIndex((entry) => entry.placeId === currentId)
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (selectable(entries[cursor].placeId)) return entries[cursor].placeId
+  }
+  return null
+}
+
 function EmptyReview() {
   return (
     <div className="mx-auto flex min-h-[65vh] max-w-xl flex-col items-center justify-center px-6 text-center">
@@ -256,17 +275,21 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   const [error, setError] = React.useState<string | null>(null)
   const current = currentId === null ? null : session.find((entry) => entry.placeId === currentId) ?? null
   const postcardMissing = Boolean(current && !current.postcard)
+  const initialQueueRef = React.useRef({ entries, initialPlaceId })
+  const didRedirectStaleLink = React.useRef(false)
 
   const commitStatus = React.useCallback((placeId: string, status: PlaceStatus) => {
     writtenStatusRef.current = { ...writtenStatusRef.current, [placeId]: status }
     setSession((prev) => withPostcardStatus(prev, placeId, status))
   }, [])
 
-  React.useLayoutEffect(() => {
-    const href = reviewHref(currentId)
-    if (`${window.location.pathname}${window.location.search}` === href) return
-    window.history.replaceState({}, '', href)
-  }, [currentId])
+  React.useEffect(() => {
+    if (didRedirectStaleLink.current) return
+    const { entries: initialEntries, initialPlaceId: requested } = initialQueueRef.current
+    if (!requested || initialEntries.some((entry) => entry.placeId === requested)) return
+    didRedirectStaleLink.current = true
+    router.replace(`/place/${encodeURIComponent(requested)}`)
+  }, [router])
 
   React.useEffect(() => {
     if (!currentId || !postcardMissing) return
@@ -323,7 +346,12 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   React.useEffect(() => {
     const written = writtenStatusRef.current
     const merged = mergeSession(sessionRef.current, entries, postcard, written)
-    setSession((prev) => mergeSession(prev, entries, postcard, writtenStatusRef.current))
+    sessionRef.current = merged
+    setSession((prev) => {
+      const next = mergeSession(prev, entries, postcard, writtenStatusRef.current)
+      sessionRef.current = next
+      return next
+    })
     if (currentIdRef.current !== null) return
     const nextId = merged.find((entry) => !outcomesRef.current[entry.placeId])?.placeId
     if (nextId) selectPlace(nextId)
@@ -342,9 +370,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
       await setPlaceStatus(entry.placeId, restoreStatus)
       commitStatus(entry.placeId, restoreStatus)
       setOutcomes((existing) => {
+        if (existing[entry.placeId] === 'removed') {
+          outcomesRef.current = existing
+          return existing
+        }
         const next = { ...existing }
         if (previousOutcome) next[entry.placeId] = previousOutcome
         else delete next[entry.placeId]
+        outcomesRef.current = next
         return next
       })
       selectPlace(placeId)
@@ -355,16 +388,18 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   }, [commitStatus, session, selectPlace])
 
   const decide = React.useCallback(async (outcome: 'added' | 'archived') => {
-    if (!current || busy) return
+    if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
     const placeId = current.placeId
-    const previousOutcome = outcomes[placeId]
+    const previousOutcome = outcomesRef.current[placeId]
     setBusy(true)
     setError(null)
     try {
       const written = OUTCOME_STATUS[outcome]
       await setPlaceStatus(placeId, written)
+      if (outcomesRef.current[placeId] === 'removed') return
       commitStatus(placeId, written)
-      const nextOutcomes = { ...outcomes, [placeId]: outcome }
+      const nextOutcomes = { ...outcomesRef.current, [placeId]: outcome }
+      outcomesRef.current = nextOutcomes
       setOutcomes(nextOutcomes)
       advance(placeId, nextOutcomes)
       notify.success(
@@ -386,20 +421,24 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     } finally {
       setBusy(false)
     }
-  }, [advance, busy, commitStatus, current, outcomes, undoDecision])
+  }, [advance, busy, commitStatus, current, undoDecision])
 
   const skip = React.useCallback(async () => {
-    if (!current || busy) return
+    if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
     const placeId = current.placeId
-    const previousOutcome = outcomes[placeId]
+    const previousOutcome = outcomesRef.current[placeId]
     setBusy(true)
     setError(null)
     try {
+      if (outcomesRef.current[placeId] === 'removed') return
       if (previousOutcome === 'added' || previousOutcome === 'archived') {
         await setPlaceStatus(placeId, 'inbox')
+        if (outcomesRef.current[placeId] === 'removed') return
         commitStatus(placeId, 'inbox')
       }
-      const nextOutcomes = { ...outcomes, [placeId]: 'skipped' as const }
+      if (outcomesRef.current[placeId] === 'removed') return
+      const nextOutcomes = { ...outcomesRef.current, [placeId]: 'skipped' as const }
+      outcomesRef.current = nextOutcomes
       setOutcomes(nextOutcomes)
       advance(placeId, nextOutcomes)
     } catch (skipError) {
@@ -409,35 +448,39 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     } finally {
       setBusy(false)
     }
-  }, [advance, busy, commitStatus, current, outcomes])
+  }, [advance, busy, commitStatus, current])
 
   const previous = React.useCallback(() => {
-    const index = currentId === null ? -1 : session.findIndex((entry) => entry.placeId === currentId)
-    if (currentId === null) {
-      selectPlace(session[session.length - 1]?.placeId ?? null)
-    } else if (index > 0) {
-      selectPlace(session[index - 1].placeId)
-    }
-  }, [currentId, session, selectPlace])
+    const target = previousSelectableId(session, outcomes, currentId)
+    if (target) selectPlace(target)
+  }, [currentId, outcomes, session, selectPlace])
 
   const resumeSkipped = React.useCallback((placeId: string) => {
-    setOutcomes((existing) => {
-      const next = { ...existing }
-      for (const [id, outcome] of Object.entries(next)) {
-        if (outcome === 'skipped') delete next[id]
-      }
-      return next
-    })
+    const next = { ...outcomesRef.current }
+    for (const [id, outcome] of Object.entries(next)) {
+      if (outcome === 'skipped') delete next[id]
+    }
+    outcomesRef.current = next
+    setOutcomes(next)
     selectPlace(placeId)
   }, [selectPlace])
 
+  const noteRestored = React.useCallback((placeId: string) => {
+    if (outcomesRef.current[placeId] === 'removed') return
+    commitStatus(placeId, 'library')
+    const nextOutcomes = { ...outcomesRef.current, [placeId]: 'added' as const }
+    outcomesRef.current = nextOutcomes
+    setOutcomes(nextOutcomes)
+  }, [commitStatus])
+
   const removeFromQueue = React.useCallback(() => {
-    if (!current) return
+    if (!current || outcomesRef.current[current.placeId] === 'removed') return
     const placeId = current.placeId
-    const nextOutcomes = { ...outcomes, [placeId]: 'removed' as const }
+    const nextOutcomes = { ...outcomesRef.current, [placeId]: 'removed' as const }
+    outcomesRef.current = nextOutcomes
     setOutcomes(nextOutcomes)
     advance(placeId, nextOutcomes)
-  }, [advance, current, outcomes])
+  }, [advance, current])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -467,6 +510,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   }
 
   const currentIndex = session.findIndex((entry) => entry.placeId === current.placeId)
+  const previousPlaceId = previousSelectableId(session, outcomes, current.placeId)
   const progress = ((currentIndex + 1) / session.length) * 100
   const screenshotIsBrokenLegacyPath = current.screenshotUrl?.startsWith('/uploads/')
 
@@ -474,7 +518,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     <div className="-m-3 min-h-full bg-muted/20 pb-36 sm:-m-6 sm:pb-32">
       <header className="sticky top-0 z-40 border-b bg-background/95 px-3 py-3 backdrop-blur sm:px-6">
         <div className="mx-auto flex max-w-[1560px] items-center gap-3">
-          <Button type="button" variant="ghost" size="sm" onClick={previous} disabled={busy || currentIndex === 0}>
+          <Button type="button" variant="ghost" size="sm" onClick={previous} disabled={busy || previousPlaceId === null}>
             <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden /> Previous
           </Button>
           <div className="min-w-0 flex-1">
@@ -504,6 +548,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
               onPhotoAttached={() => router.refresh()}
               onArchive={() => { void decide('archived') }}
               onDeleted={removeFromQueue}
+              onRestored={() => noteRestored(current.placeId)}
               showMobileActionBar={false}
             />
           ) : (

@@ -156,6 +156,9 @@ export function DuplicatesPageClient({
   const [committedMergeIds, setCommittedMergeIds] = useState<ReadonlySet<string>>(() => new Set());
   const lastActionRef = useRef<UndoableAction | null>(null);
   const undoInFlightRef = useRef(false);
+  const actionInFlightRef = useRef(false);
+  const isLoadingRef = useRef(false);
+  isLoadingRef.current = isLoading;
 
   const reviewSorted = useMemo(() => sortQueueGroups(review), [review]);
   const possibleSorted = useMemo(() => sortQueueGroups(possibleGroups), [possibleGroups]);
@@ -265,8 +268,9 @@ export function DuplicatesPageClient({
   }, []);
 
   const handleUndo = useCallback(async (action: UndoableAction | null) => {
-    if (!action || undoInFlightRef.current) return;
+    if (!action || undoInFlightRef.current || actionInFlightRef.current || isLoadingRef.current) return;
     undoInFlightRef.current = true;
+    isLoadingRef.current = true;
     setIsLoading(true);
     try {
       if (action.kind === 'merge') {
@@ -292,19 +296,24 @@ export function DuplicatesPageClient({
       notify.error(error instanceof Error ? error.message : 'Undo failed');
     } finally {
       undoInFlightRef.current = false;
+      isLoadingRef.current = false;
       setIsLoading(false);
     }
   }, [clearScanCache, router, writePairs]);
 
   const offerUndo = useCallback((message: string, action: UndoableAction) => {
-    lastActionRef.current = action;
+    const nothingNew = action.kind === 'dismiss' && action.pairs.length === 0;
+    if (!nothingNew) lastActionRef.current = action;
     notify.success(message, {
       duration: NOTIFY_DURATION.warning,
-      action: { label: 'Undo', onClick: () => handleUndo(action) },
+      ...(nothingNew ? {} : { action: { label: 'Undo', onClick: () => handleUndo(action) } }),
     });
   }, [handleUndo]);
 
   const handleDismiss = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
+    if (actionInFlightRef.current || undoInFlightRef.current || isLoadingRef.current) return;
+    actionInFlightRef.current = true;
+    isLoadingRef.current = true;
     setIsLoading(true);
     const nextId = neighbourOf(cluster);
     dropCluster(cluster, 'dismiss');
@@ -315,7 +324,16 @@ export function DuplicatesPageClient({
       const written = await writePairs(pairs, 'POST');
       if (written.failed) {
         if (written.inserted.length > 0) {
-          await writePairs(written.inserted, 'DELETE', { absentOk: true });
+          let rolledBackFailed = true;
+          try {
+            const rolledBack = await writePairs(written.inserted, 'DELETE', { absentOk: true });
+            rolledBackFailed = rolledBack.failed;
+          } catch {
+            rolledBackFailed = true;
+          }
+          if (rolledBackFailed) {
+            offerUndo(`Marked ${cluster.places.length} places as not duplicates`, { kind: 'dismiss', pairs: written.inserted });
+          }
         }
         throw new Error('Failed to dismiss cluster');
       }
@@ -327,6 +345,8 @@ export function DuplicatesPageClient({
       notify.error('Failed to dismiss cluster');
       router.refresh();
     } finally {
+      actionInFlightRef.current = false;
+      isLoadingRef.current = false;
       setIsLoading(false);
     }
   }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router, writePairs]);
@@ -344,8 +364,11 @@ export function DuplicatesPageClient({
       return;
     }
     if (requestedSourceIds.length === 0 || sourceIds.length === 0) return;
+    if (actionInFlightRef.current || undoInFlightRef.current || isLoadingRef.current) return;
 
     const mergePairs = intent?.mergePairs ?? [];
+    actionInFlightRef.current = true;
+    isLoadingRef.current = true;
     setIsLoading(true);
     const nextId = neighbourOf(cluster);
     dropCluster(cluster, 'merge');
@@ -386,6 +409,8 @@ export function DuplicatesPageClient({
       notify.error(error instanceof Error && error.message !== 'Failed to fetch' ? error.message : 'Failed to merge cluster');
       router.refresh();
     } finally {
+      actionInFlightRef.current = false;
+      isLoadingRef.current = false;
       setIsLoading(false);
     }
   }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router]);
@@ -591,6 +616,7 @@ export function DuplicatesPageClient({
         case 'm': {
           if (event.metaKey || event.ctrlKey || event.altKey) break;
           event.preventDefault();
+          if (isLoadingRef.current || actionInFlightRef.current || undoInFlightRef.current) break;
           const openId = expandedRef.current;
           if (!openId) return;
           const cluster = list.find((item) => item.cluster_id === openId)
@@ -605,6 +631,7 @@ export function DuplicatesPageClient({
         case 'd': {
           if (event.metaKey || event.ctrlKey || event.altKey) break;
           event.preventDefault();
+          if (isLoadingRef.current || actionInFlightRef.current || undoInFlightRef.current) break;
           const openId = expandedRef.current;
           if (!openId) return;
           const cluster = list.find((item) => item.cluster_id === openId)
@@ -618,6 +645,7 @@ export function DuplicatesPageClient({
         case 'u': {
           if (event.metaKey || event.ctrlKey || event.altKey) break;
           event.preventDefault();
+          if (isLoadingRef.current || actionInFlightRef.current || undoInFlightRef.current) break;
           handleUndo(lastActionRef.current);
           break;
         }

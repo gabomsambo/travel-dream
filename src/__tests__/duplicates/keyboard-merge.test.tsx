@@ -1437,6 +1437,169 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: posted[0].pairs }]);
   });
 
+  it('ignores m, d, and u while Not duplicates is in flight', async () => {
+    let releaseDismiss: () => void = () => {};
+    const dismissGate = new Promise<void>((resolve) => {
+      releaseDismiss = resolve;
+    });
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/bulk-merge') {
+        return { ok: true, json: async () => ({ success: 1, failed: 0, results: [{ status: 'success', mergeLogId: 'log_1' }] }) };
+      }
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        await dismissGate;
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
+      }
+      if (url === '/api/places/undo-merge') {
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    fireEvent.keyDown(document, { key: 'm' });
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Is this one place?' })).toHaveTextContent('Sushi Saito');
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+    });
+
+    fireEvent.keyDown(document, { key: 'd' });
+    fireEvent.keyDown(document, { key: 'd' });
+    fireEvent.keyDown(document, { key: 'm' });
+    fireEvent.keyDown(document, { key: 'u' });
+
+    expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1);
+    expect(postedBodies('/api/places/bulk-merge', 'POST')).toHaveLength(1);
+    expect(postedBodies('/api/places/undo-merge', 'POST')).toHaveLength(0);
+
+    releaseDismiss();
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith(
+        'Marked 2 places as not duplicates',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+      );
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+    });
+    const saved = postedBodies('/api/places/dismiss-duplicate', 'POST')[0]?.pairs ?? [];
+    expect(saved.length).toBeGreaterThan(0);
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));
+    expect(postedBodies('/api/places/undo-merge', 'POST')).toHaveLength(0);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: saved }]);
+  });
+
+  it('keeps an earlier undo when a later dismiss writes no new pairs', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/bulk-merge') {
+        return { ok: true, json: async () => ({ success: 1, failed: 0, results: [{ status: 'success', mergeLogId: 'log_keep' }] }) };
+      }
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        return { ok: true, json: async () => ({ status: 'success', inserted: [] }) };
+      }
+      if (url === '/api/places/undo-merge') {
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    fireEvent.keyDown(document, { key: 'm' });
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Is this one place?' })).toHaveTextContent('Sushi Saito');
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+    });
+
+    fireEvent.keyDown(document, { key: 'd' });
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith('Marked 2 places as not duplicates', { duration: expect.any(Number) });
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+    });
+    expect(notify.success).not.toHaveBeenCalledWith(
+      'Marked 2 places as not duplicates',
+      expect.objectContaining({ action: expect.anything() }),
+    );
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merge undone'));
+    const merged = postedBody('/api/places/bulk-merge', 'POST');
+    expect(postedBodies('/api/places/undo-merge', 'POST')).toEqual([{
+      placeId: merged.clusters?.[0].targetId,
+      mergeLogId: 'log_keep',
+    }]);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0);
+  });
+
+  it('keeps saved pairs undoable when a partial dismiss cannot be rolled back', async () => {
+    const places = Array.from({ length: 16 }, (_, index) => place(`part_${index}`, `Cafe ${index}`));
+    let posts = 0;
+    let deletes = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        posts += 1;
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        if (posts === 1) return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
+        return { ok: false, status: 500, json: async () => ({ message: 'failed' }) };
+      }
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'DELETE') {
+        deletes += 1;
+        if (deletes === 1) return { ok: false, status: 500, json: async () => ({ message: 'failed' }) };
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({ status: 'success' }) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: places.map((row) => row.id).sort().join('+'),
+          avgConfidence: 0.9,
+          places,
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to dismiss cluster'));
+    const saved = postedBodies('/api/places/dismiss-duplicate', 'POST')[0]?.pairs ?? [];
+    expect(saved).toHaveLength(100);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: saved }]);
+    expect(notify.success).toHaveBeenCalledWith(
+      'Marked 16 places as not duplicates',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    );
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: saved }, { pairs: saved }]);
+  });
+
   it('chunks Not duplicates past 100 pairs and undoes only the pairs the server newly wrote', async () => {
     const places = Array.from({ length: 16 }, (_, index) => place(`wide_${index}`, `Cafe ${index}`));
     (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {

@@ -153,6 +153,12 @@ export async function getInboxUploads(userId: string): Promise<InboxUploadBatch[
     )
   );
   const placesById = new Map(placeRows.map((p) => [p.id, p]));
+  // Only echo ids that resolved to the caller's own live places. `outcome`
+  // keeps the screenshot's verdict ("places" stays "places" after a merge).
+  for (const { view } of screenshots) {
+    view.createdPlaceIds = view.createdPlaceIds.filter((id) => placesById.has(id));
+    view.linkedPlaceIds = view.linkedPlaceIds.filter((id) => placesById.has(id));
+  }
 
   // ---- skipped re-uploads, and the earlier screenshot each one matched.
   const skippedBySession = new Map<string, Array<{ originalName: string; duplicateOf: string | null }>>();

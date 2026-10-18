@@ -1203,6 +1203,42 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it('does not toggle a member with 1-9 while More or a confirm dialog is open', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainCluster()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const memberIn = () => {
+      const group = screen.getByRole('group', { name: 'Is Ishavskatedralen part of this place?', hidden: true });
+      return within(group).getByRole('button', { name: /^In/, hidden: true });
+    };
+    const memberOut = () => {
+      const group = screen.getByRole('group', { name: 'Is Ishavskatedralen part of this place?', hidden: true });
+      return within(group).getByRole('button', { name: 'Not this one', hidden: true });
+    };
+
+    expect(memberIn()).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: '2' });
+    expect(memberIn()).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: '2' });
+    expect(memberIn()).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(memberIn()).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.keyDown(document, { key: '2' });
+    expect(memberOut()).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('does not merge from m with one member In, and ignores shortcuts while the kept record select is focused', async () => {
     render(
       <DuplicatesPageClient

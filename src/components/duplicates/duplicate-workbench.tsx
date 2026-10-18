@@ -148,7 +148,8 @@ export function DuplicateWorkbench({
         active?.tagName === 'INPUT' ||
         active?.tagName === 'TEXTAREA' ||
         active?.tagName === 'SELECT' ||
-        document.querySelector('[role="dialog"]')
+        active?.closest('[role="menu"]') ||
+        document.querySelector('[role="dialog"], [role="alertdialog"]')
       ) return;
       const member = order[Number(event.key) - 1];
       if (!member) return;

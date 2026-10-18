@@ -125,6 +125,11 @@ function symmetricHardAgainstGroup() {
   kept.confidence = 0.95;
   kept.description = 'The complete record';
   const near = (left: string, right: string, score: number, distanceM: number) => edge(left, right, score, distanceM, 0.95);
+  const listed = (left: string, right: string, score: number, distanceM: number) => {
+    const pair = edge(left, right, score, distanceM, 0.95);
+    pair.included = false;
+    return pair;
+  };
   const clash = edge('g4_a', 'g4_b', 0.4, 5000, 0.9);
   clash.included = false;
   clash.against = ['5 km apart'];
@@ -136,8 +141,8 @@ function symmetricHardAgainstGroup() {
       near('g4_k', 'g4_a', 0.92, 40),
       near('g4_k', 'g4_b', 0.9, 50),
       near('g4_k', 'g4_c', 0.88, 30),
-      near('g4_a', 'g4_c', 0.86, 45),
-      near('g4_b', 'g4_c', 0.84, 55),
+      listed('g4_a', 'g4_c', 0.86, 45),
+      listed('g4_b', 'g4_c', 0.84, 55),
       clash,
     ],
     leftOut: [],
@@ -1392,8 +1397,12 @@ describe('duplicates keyboard and bulk confirmation', () => {
       expect(card).not.toBeNull();
       return within(card as HTMLElement);
     };
+    expect(member(2).getByText('Matches #1 · 40 m apart')).toBeInTheDocument();
+    expect(member(3).getByText('Matches #1 · 50 m apart')).toBeInTheDocument();
     expect(member(2).getByText('5 km apart from #3')).toBeInTheDocument();
     expect(member(3).getByText('5 km apart from #2')).toBeInTheDocument();
+    expect(member(2).queryByText(/Only linked through/)).not.toBeInTheDocument();
+    expect(member(3).queryByText(/Only linked through/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Suggested out:/)).not.toBeInTheDocument();
   });
 
@@ -1406,6 +1415,46 @@ describe('duplicates keyboard and bulk confirmation', () => {
         const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
         if (posts === 1) return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
         return { ok: false, status: 500, json: async () => ({ message: 'failed' }) };
+      }
+      return { ok: true, json: async () => ({ status: 'success' }) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: places.map((row) => row.id).sort().join('+'),
+          avgConfidence: 0.9,
+          places,
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to dismiss cluster'));
+    expect(notify.success).not.toHaveBeenCalled();
+    const posted = postedBodies('/api/places/dismiss-duplicate', 'POST');
+    expect(posted.map((body) => body.pairs?.length)).toEqual([100, 20]);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: posted[0].pairs }]);
+  });
+
+  it('rolls back pairs already written when a later dismiss request drops', async () => {
+    const places = Array.from({ length: 16 }, (_, index) => place(`drop_${index}`, `Cafe ${index}`));
+    let posts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        posts += 1;
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        if (posts === 1) return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
+        throw new Error('network down');
       }
       return { ok: true, json: async () => ({ status: 'success' }) };
     });
@@ -1586,14 +1635,15 @@ describe('duplicates keyboard and bulk confirmation', () => {
     await user.click(notThisOne[notThisOne.length - 1]);
     await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
 
-    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to dismiss cluster'));
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith(
+      'Failed to dismiss cluster',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    ));
+    expect(notify.error).toHaveBeenCalledTimes(1);
     const saved = postedBodies('/api/places/dismiss-duplicate', 'POST')[0]?.pairs ?? [];
     expect(saved).toHaveLength(100);
     expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: saved }]);
-    expect(notify.success).toHaveBeenCalledWith(
-      'Marked 16 places as not duplicates',
-      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
-    );
+    expect(notify.success).not.toHaveBeenCalled();
 
     fireEvent.keyDown(document, { key: 'u' });
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));

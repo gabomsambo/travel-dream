@@ -137,9 +137,11 @@ export function cardLines(cluster: QueueCluster, order: QueuePlace[], memberId: 
   });
   const links = mine.filter((edge) => edge.included && !against.includes(edge)).sort((a, b) => b.score - a.score);
   const linkedTo = new Set(links.map(other));
+  const keptId = order[0]?.id;
+  const soleOther = links.length > 0 && linkedTo.size === 1 ? other(links[0]) : undefined;
 
-  if (links.length > 0 && linkedTo.size === 1 && against.length > 0 && order.length > 2 && memberId !== order[0]?.id) {
-    lines.push({ text: `Only linked through #${number.get(other(links[0]))}`, tone: 'weak' });
+  if (soleOther !== undefined && against.length > 0 && order.length > 2 && memberId !== keptId && soleOther !== keptId) {
+    lines.push({ text: `Only linked through #${number.get(soleOther)}`, tone: 'weak' });
   } else if (links.length > 0) {
     lines.push({ text: `Matches #${number.get(other(links[0]))} · ${pairFact(links[0])}`, tone: 'for' });
   }

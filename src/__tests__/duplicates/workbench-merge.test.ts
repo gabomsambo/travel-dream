@@ -463,6 +463,60 @@ describe('duplicates workbench on real data', () => {
     ]);
   });
 
+  it('names a kept-record match when that is the only included edge', async () => {
+    const kept = await insertPlace({ id: 'plc_solo_k', name: 'Kept Cafe', status: 'library', city: 'Lisbon', country: 'Portugal' });
+    const a = await insertPlace({ id: 'plc_solo_a', name: 'Cafe A', city: 'Lisbon', country: 'Portugal' });
+    const b = await insertPlace({ id: 'plc_solo_b', name: 'Cafe B', city: 'Lisbon', country: 'Portugal' });
+    const c = await insertPlace({ id: 'plc_solo_c', name: 'Cafe C', city: 'Lisbon', country: 'Portugal' });
+    const cluster: QueueCluster = {
+      cluster_id: 'plc_solo_a+plc_solo_b+plc_solo_c+plc_solo_k',
+      places: [kept, a, b, c],
+      avgConfidence: 0.9,
+      edges: [
+        edge('plc_solo_k', 'plc_solo_a', true, 40),
+        edge('plc_solo_k', 'plc_solo_b', true, 50),
+        edge('plc_solo_k', 'plc_solo_c', true, 30),
+        edge('plc_solo_a', 'plc_solo_c', false, 45),
+        edge('plc_solo_b', 'plc_solo_c', false, 55),
+        { ...edge('plc_solo_a', 'plc_solo_b', false, 5000), score: 0.4, against: ['5 km apart'] },
+      ],
+    };
+    const order = [kept, a, b, c];
+    expect([...suggestedOut(cluster, 'plc_solo_k').keys()]).toEqual([]);
+    expect(linkLines(cluster, order).find((line) => line.key === '2:3')).toEqual({
+      key: '2:3',
+      text: '2 and 3 · 5 km apart',
+      tone: 'against',
+    });
+    expect(cardLines(cluster, order, 'plc_solo_a')).toEqual([
+      { text: 'Matches #1 · 40 m apart', tone: 'for' },
+      { text: '5 km apart from #3', tone: 'against' },
+      { text: 'Not a direct match with #4', tone: 'weak' },
+    ]);
+    expect(cardLines(cluster, order, 'plc_solo_b')).toEqual([
+      { text: 'Matches #1 · 50 m apart', tone: 'for' },
+      { text: '5 km apart from #2', tone: 'against' },
+      { text: 'Not a direct match with #4', tone: 'weak' },
+    ]);
+
+    const bridge: QueueCluster = {
+      cluster_id: 'plc_solo_a+plc_solo_b+plc_solo_c+plc_solo_k',
+      places: [kept, a, b, c],
+      avgConfidence: 0.9,
+      edges: [
+        edge('plc_solo_k', 'plc_solo_a', true, 40),
+        edge('plc_solo_a', 'plc_solo_c', true, 45),
+        edge('plc_solo_k', 'plc_solo_c', false, 80),
+        { ...edge('plc_solo_b', 'plc_solo_c', false, 5000), score: 0.4, against: ['5 km apart'] },
+      ],
+    };
+    expect(cardLines(bridge, order, 'plc_solo_c')).toEqual([
+      { text: 'Only linked through #2', tone: 'weak' },
+      { text: '5 km apart from #3', tone: 'against' },
+      { text: 'Not a direct match with #1', tone: 'weak' },
+    ]);
+  });
+
   it('gives each hard-against edge its own reason', async () => {
     const kept = await insertPlace({ id: 'plc_mix_k', name: 'Harbor Cafe', status: 'library', city: 'Lisbon', country: 'Portugal' });
     const near = await insertPlace({ id: 'plc_mix_n', name: 'Harbor Kiosk', city: 'Porto', country: 'Portugal' });

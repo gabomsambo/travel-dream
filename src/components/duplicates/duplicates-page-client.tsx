@@ -246,23 +246,27 @@ export function DuplicatesPageClient({
     options?: { absentOk?: boolean },
   ): Promise<{ inserted: Pair[]; failed: boolean }> => {
     const inserted: Pair[] = [];
-    for (const batch of chunkItems(pairs, DISMISS_PAIR_LIMIT)) {
-      const response = await fetch('/api/places/dismiss-duplicate', {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pairs: batch }),
-      });
-      if (!response.ok) {
-        if (options?.absentOk && response.status === 404) continue;
-        return { inserted, failed: true };
+    try {
+      for (const batch of chunkItems(pairs, DISMISS_PAIR_LIMIT)) {
+        const response = await fetch('/api/places/dismiss-duplicate', {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pairs: batch }),
+        });
+        if (!response.ok) {
+          if (options?.absentOk && response.status === 404) continue;
+          return { inserted, failed: true };
+        }
+        if (method !== 'POST') continue;
+        const body = await response.json().catch(() => null) as { inserted?: unknown } | null;
+        if (Array.isArray(body?.inserted)) {
+          inserted.push(...body.inserted.filter(isPair));
+        } else {
+          inserted.push(...batch);
+        }
       }
-      if (method !== 'POST') continue;
-      const body = await response.json().catch(() => null) as { inserted?: unknown } | null;
-      if (Array.isArray(body?.inserted)) {
-        inserted.push(...body.inserted.filter(isPair));
-      } else {
-        inserted.push(...batch);
-      }
+    } catch {
+      return { inserted, failed: true };
     }
     return { inserted, failed: false };
   }, []);
@@ -332,7 +336,13 @@ export function DuplicatesPageClient({
             rolledBackFailed = true;
           }
           if (rolledBackFailed) {
-            offerUndo(`Marked ${cluster.places.length} places as not duplicates`, { kind: 'dismiss', pairs: written.inserted });
+            const action: UndoableAction = { kind: 'dismiss', pairs: written.inserted };
+            lastActionRef.current = action;
+            notify.error('Failed to dismiss cluster', {
+              action: { label: 'Undo', onClick: () => handleUndo(action) },
+            });
+            router.refresh();
+            return;
           }
         }
         throw new Error('Failed to dismiss cluster');
@@ -349,7 +359,7 @@ export function DuplicatesPageClient({
       isLoadingRef.current = false;
       setIsLoading(false);
     }
-  }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router, writePairs]);
+  }, [clearScanCache, dropCluster, handleUndo, neighbourOf, offerUndo, router, writePairs]);
 
   const handleMerge = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
     const targetId = intent?.targetId ?? recommendMergeTarget(cluster.places);

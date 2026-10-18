@@ -4,8 +4,13 @@ import { useState } from 'react'
 import { Card } from "@/components/adapters/card"
 import { Badge } from "@/components/adapters/badge"
 import { Button } from "@/components/adapters/button"
-import { Image, FileText, Clock, CheckCircle, AlertCircle, X, RefreshCw, Loader2 } from 'lucide-react'
+import { Image, FileText, Clock, CheckCircle, AlertCircle, Ban, X, RefreshCw, Loader2 } from 'lucide-react'
 import { notify } from '@/lib/notify'
+import {
+  resolveScreenshotDisplayStatus,
+  screenshotStatusLabel,
+  type ScreenshotDisplayStatus,
+} from '@/lib/inbox-screenshot-status'
 
 interface ScreenshotSource {
   id: string
@@ -13,6 +18,7 @@ interface ScreenshotSource {
   ocrText: string | null
   meta: any
   createdAt: string
+  processingStatus?: string | null
 }
 
 interface ScreenshotCardProps {
@@ -26,35 +32,51 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
   const [isRetrying, setIsRetrying] = useState(false)
 
   const uploadInfo = source.meta?.uploadInfo
-  const ocrStatus = uploadInfo?.ocrStatus || 'unknown'
+  const displayStatus = resolveScreenshotDisplayStatus(source)
   // Use thumbnailPath if available, otherwise fall back to uri (for Vercel Blob uploads)
   const thumbnailPath = uploadInfo?.thumbnailPath || source.uri
   const originalName = uploadInfo?.originalName || 'Unknown'
   const confidence = uploadInfo?.ocrConfidence
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status: ScreenshotDisplayStatus) => {
     switch (status) {
-      case 'completed':
+      case 'done':
         return <CheckCircle className="h-4 w-4 text-green-600" />
-      case 'processing':
+      case 'reading':
         return <Clock className="h-4 w-4 text-blue-600" />
       case 'failed':
         return <AlertCircle className="h-4 w-4 text-red-600" />
+      case 'needs-retry':
+        return <RefreshCw className="h-4 w-4 text-amber-600" />
+      case 'cancelled':
+        return <Ban className="h-4 w-4 text-muted-foreground" />
       default:
         return <Clock className="h-4 w-4 text-gray-400" />
     }
   }
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: ScreenshotDisplayStatus) => {
     switch (status) {
-      case 'completed':
-        return <Badge variant="default">OCR Complete</Badge>
-      case 'processing':
-        return <Badge variant="secondary">Processing</Badge>
+      case 'done':
+        return <Badge variant="default">{screenshotStatusLabel(status)}</Badge>
+      case 'reading':
+        return <Badge variant="secondary">{screenshotStatusLabel(status)}</Badge>
       case 'failed':
-        return <Badge variant="destructive">OCR Failed</Badge>
+        return <Badge variant="destructive">{screenshotStatusLabel(status)}</Badge>
+      case 'needs-retry':
+        return (
+          <Badge variant="outline" className="text-amber-600">
+            {screenshotStatusLabel(status)}
+          </Badge>
+        )
+      case 'cancelled':
+        return (
+          <Badge variant="outline" className="text-muted-foreground">
+            {screenshotStatusLabel(status)}
+          </Badge>
+        )
       default:
-        return <Badge variant="outline">Pending</Badge>
+        return <Badge variant="outline">{screenshotStatusLabel(status)}</Badge>
     }
   }
 
@@ -122,14 +144,14 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
     <Card className="p-4 hover:shadow-md transition-shadow relative group">
       {/* Action buttons */}
       <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-        {/* Retry button - only for failed status */}
-        {ocrStatus === 'failed' && (
+        {uploadInfo?.ocrStatus === 'failed' && (
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8 bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700"
             onClick={handleRetry}
             disabled={isRetrying}
+            aria-label="Retry"
           >
             {isRetrying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -170,11 +192,11 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium truncate">{originalName}</span>
-            {getStatusIcon(ocrStatus)}
+            {getStatusIcon(displayStatus)}
           </div>
 
           <div className="flex items-center gap-2">
-            {getStatusBadge(ocrStatus)}
+            {getStatusBadge(displayStatus)}
             {confidence && (
               <Badge variant="outline" className="text-xs">
                 {Math.round(confidence)}% confidence

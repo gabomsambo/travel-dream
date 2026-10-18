@@ -14,6 +14,7 @@ interface ScreenshotSource {
   ocrText: string | null
   meta: any
   createdAt: string
+  processingStatus?: string | null
 }
 
 interface ScreenshotGridProps {

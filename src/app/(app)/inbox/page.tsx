@@ -6,6 +6,7 @@ import { Badge } from "@/components/adapters/badge"
 import { Info, CloudUpload } from "lucide-react"
 import Link from "next/link"
 import { getSourcesByType, getPlacesByStatus, getInboxStats } from "@/lib/db-queries"
+import { countScreenshotStatuses } from "@/lib/inbox-screenshot-status"
 import { Suspense } from "react"
 import { auth } from "@/lib/auth"
 
@@ -26,10 +27,7 @@ export default async function InboxPage() {
   const totalPlaces = places.length
   const totalScreenshots = screenshots.length
 
-  // Screenshot stats
-  const completedOCR = screenshots.filter(s => s.meta?.uploadInfo?.ocrStatus === 'completed').length
-  const processingOCR = screenshots.filter(s => s.meta?.uploadInfo?.ocrStatus === 'processing').length
-  const failedOCR = screenshots.filter(s => s.meta?.uploadInfo?.ocrStatus === 'failed').length
+  const screenshotStatusCounts = countScreenshotStatuses(screenshots)
 
   return (
     <div className="space-y-6">
@@ -47,12 +45,12 @@ export default async function InboxPage() {
             <h2 className="text-lg font-semibold">Screenshots</h2>
             <div className="flex gap-2">
               <Badge variant="secondary">{totalScreenshots} Total</Badge>
-              <Badge variant="default">{completedOCR} Processed</Badge>
-              {processingOCR > 0 && (
-                <Badge variant="outline">{processingOCR} Processing</Badge>
+              <Badge variant="default">{screenshotStatusCounts.done} Processed</Badge>
+              {screenshotStatusCounts.reading > 0 && (
+                <Badge variant="outline">{screenshotStatusCounts.reading} Processing</Badge>
               )}
-              {failedOCR > 0 && (
-                <Badge variant="destructive">{failedOCR} Failed</Badge>
+              {screenshotStatusCounts.failed > 0 && (
+                <Badge variant="destructive">{screenshotStatusCounts.failed} Failed</Badge>
               )}
             </div>
           </div>

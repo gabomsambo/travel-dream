@@ -21,9 +21,20 @@ jest.mock('next/cache', () => ({ revalidateTag: jest.fn() }));
 
 import type { NextRequest } from 'next/server';
 import { requireAuthForApi } from '@/lib/auth-helpers';
-import { buildMergePlan, fieldConflicts, resolvePairs } from '@/lib/duplicate-workbench';
+import { loadDuplicateQueueExtras } from '@/lib/duplicate-queue-data';
+import {
+  buildMergePlan,
+  combinedScreenshotCount,
+  compareStartsOpen,
+  fieldConflicts,
+  linkLines,
+  notesResultLine,
+  resolvePairs,
+  suggestedOut,
+} from '@/lib/duplicate-workbench';
 import { pickMergedPlaceFields } from '@/lib/place-merge';
-import type { QueueCluster } from '@/lib/duplicate-certainty';
+import { recommendMergeTarget } from '@/lib/duplicate-target-selector';
+import { certaintyWord, type QueueCluster, type QueuePlace } from '@/lib/duplicate-certainty';
 import type { DuplicateGroupEdge } from '@/lib/duplicate-detection';
 import type { Place } from '@/types/database';
 
@@ -249,4 +260,139 @@ describe('duplicates workbench on real data', () => {
     expect((await readPlace('plc_1')).status).toBe('inbox');
     expect((await readPlace('plc_k')).altNames).toEqual([]);
   });
+
+  it('starts the other member of a hard-against pair Out and still remembers the pair', async () => {
+    const kept = await insertPlace({
+      id: 'plc_pair_k', name: 'Kept Cafe', status: 'library', city: 'Lisbon', country: 'Portugal',
+    });
+    const far = await insertPlace({
+      id: 'plc_pair_o', name: 'Other Cafe', city: 'Lisbon', country: 'Portugal',
+    });
+    const keptId = recommendMergeTarget([kept, far]);
+    expect(keptId).toBe('plc_pair_k');
+
+    const farCluster = pairCluster(kept, far, 6600, ['6.6 km apart']);
+    const out = suggestedOut(farCluster, keptId);
+    expect([...out.keys()]).toEqual(['plc_pair_o']);
+    expect(out.get('plc_pair_o')).toBe('Suggested out: 6.6 km apart from Kept Cafe.');
+    expect(suggestedOut(pairCluster(kept, far, 40, []), keptId).size).toBe(0);
+
+    const cityKept = await insertPlace({ id: 'plc_city_k', name: 'Paris Cafe', status: 'library', city: 'Paris', country: 'France' });
+    const cityOther = await insertPlace({ id: 'plc_city_o', name: 'Lyon Cafe', city: 'Lyon', country: 'France' });
+    const cityCluster = pairCluster(cityKept, cityOther, 600, ['600 m apart', 'Paris vs Lyon']);
+    expect(suggestedOut(cityCluster, 'plc_city_k').get('plc_city_o')).toBe('Suggested out: Paris vs Lyon with Paris Cafe.');
+    expect(linkLines(cityCluster, [cityKept, cityOther]).map((line) => line.text)).toEqual(['1 and 2 · Paris vs Lyon']);
+
+    const countryKept = await insertPlace({ id: 'plc_cty_k', name: 'Border Cafe', status: 'library', city: 'Geneva', country: 'France' });
+    const countryOther = await insertPlace({ id: 'plc_cty_o', name: 'Border Other', city: 'Geneva', country: 'Switzerland' });
+    expect(suggestedOut(pairCluster(countryKept, countryOther, 600, ['600 m apart', 'France vs Switzerland']), 'plc_cty_k').get('plc_cty_o'))
+      .toBe('Suggested out: France vs Switzerland with Border Cafe.');
+
+    const inIds = new Set(['plc_pair_k']);
+    const pairs = resolvePairs(farCluster, inIds, 'dismiss');
+    expect(pairs).toEqual([{ placeId1: 'plc_pair_o', placeId2: 'plc_pair_k' }]);
+    expect((await post('dismiss-duplicate', { pairs })).status).toBe(200);
+    expect(await dismissedKeys()).toEqual(['plc_pair_k|plc_pair_o']);
+  });
+
+  it('gives each hard-against edge its own reason', async () => {
+    const kept = await insertPlace({ id: 'plc_mix_k', name: 'Harbor Cafe', status: 'library', city: 'Lisbon', country: 'Portugal' });
+    const near = await insertPlace({ id: 'plc_mix_n', name: 'Harbor Kiosk', city: 'Porto', country: 'Portugal' });
+    const far = await insertPlace({ id: 'plc_mix_f', name: 'Harbor Other', city: 'Lisbon', country: 'Portugal' });
+    const cluster: QueueCluster = {
+      cluster_id: 'plc_mix_f+plc_mix_k+plc_mix_n',
+      places: [kept, near, far],
+      avgConfidence: 0.5,
+      edges: [
+        edge('plc_mix_k', 'plc_mix_f', true, 9500),
+        edge('plc_mix_n', 'plc_mix_f', true, 50),
+        edge('plc_mix_k', 'plc_mix_n', true, 9400),
+      ],
+    };
+    cluster.edges![0].against = ['9.5 km apart'];
+    cluster.edges![1].against = ['Lisbon vs Porto'];
+    expect(suggestedOut(cluster, 'plc_mix_k').get('plc_mix_f')).toBe(
+      'Suggested out: 9.5 km apart from Harbor Cafe and Lisbon vs Porto with Harbor Kiosk.',
+    );
+  });
+
+  it('keeps compare-all-fields closed when a Likely group only disagrees on the name', async () => {
+    const kept = await insertPlace({ id: 'plc_cmp_k', name: 'Cafe Central', city: 'Vienna', country: 'Austria', coords: { lat: 48.21, lon: 16.36 } });
+    const other = await insertPlace({ id: 'plc_cmp_o', name: 'Totally Other', city: 'Vienna', country: 'Austria', coords: { lat: 48.2102, lon: 16.3602 } });
+    const side = await insertPlace({ id: 'plc_cmp_s', name: 'Another Name', city: 'Vienna', country: 'Austria', coords: { lat: 48.2101, lon: 16.3601 } });
+    const cluster: QueueCluster = {
+      cluster_id: 'plc_cmp_k+plc_cmp_o+plc_cmp_s',
+      places: [kept, other, side],
+      avgConfidence: 0.86,
+      edges: [
+        { ...edge('plc_cmp_k', 'plc_cmp_o', true, 40), score: 0.86, against: ['Names differ'] },
+        { ...edge('plc_cmp_k', 'plc_cmp_s', true, 30), score: 0.84, against: ['Names differ'] },
+        { ...edge('plc_cmp_o', 'plc_cmp_s', false, 20), score: 0.4, against: ['Names differ'] },
+      ],
+    };
+    const conflicts = fieldConflicts(kept, [other, side]);
+    expect(conflicts.map((conflict) => conflict.field)).toEqual(['name']);
+    expect(certaintyWord(cluster)).toBe('likely');
+    expect(compareStartsOpen(cluster, conflicts)).toBe(false);
+    const withEvidence = {
+      ...cluster,
+      edges: cluster.edges!.map((item, index) => index === 2 ? { ...item, against: ['Names differ', 'Paris vs Lyon'] } : item),
+    };
+    expect(compareStartsOpen(withEvidence, conflicts)).toBe(true);
+  });
+
+  it('describes notes the way the merge writes them', () => {
+    expect(notesResultLine({ notes: null }, [{ notes: 'Bring water' }])).toEqual({ text: 'Bring water', filled: true });
+    expect(notesResultLine({ notes: 'Bring water' }, [{ notes: 'Bring water' }, { notes: '  Bring water  ' }])).toBeNull();
+    expect(notesResultLine({ notes: null }, [{ notes: 'Go early' }, { notes: 'Bring water' }])).toEqual({
+      text: 'One after the other',
+      filled: false,
+    });
+    expect(notesResultLine({ notes: 'Go early' }, [{ notes: 'Bring water' }, { notes: 'Stay late' }])).toEqual({
+      text: 'One after the other',
+      filled: false,
+    });
+  });
+
+  it('counts a screenshot linked to several members once', async () => {
+    const kept = await insertPlace({ id: 'plc_shot_k', name: 'Shared shot kept' });
+    const other = await insertPlace({ id: 'plc_shot_o', name: 'Shared shot other' });
+    for (const id of ['src_shared', 'src_only']) {
+      await sql().execute({
+        sql: `INSERT INTO sources (id,user_id,type,uri,processing_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+        args: [id, ALICE.id, 'screenshot', `https://example.test/${id}.jpg`, 'completed', now, now],
+      });
+    }
+    const { sourcesToPlaces } = require('@/db/schema') as typeof import('@/db/schema');
+    const { db } = require('@/db') as { db: { insert: (table: unknown) => { values: (rows: unknown) => Promise<unknown> } } };
+    await db.insert(sourcesToPlaces).values([
+      { sourceId: 'src_shared', placeId: 'plc_shot_k' },
+      { sourceId: 'src_shared', placeId: 'plc_shot_o' },
+      { sourceId: 'src_only', placeId: 'plc_shot_k' },
+    ]);
+
+    const extras = await loadDuplicateQueueExtras(ALICE.id, [{
+      id: 'plc_shot_k+plc_shot_o',
+      cluster_id: 'plc_shot_k+plc_shot_o',
+      places: [kept, other],
+      avgConfidence: 0.9,
+      weakestIncludedScore: 0.9,
+      edges: [],
+      leftOut: [],
+      mergedOn: null,
+    }], []);
+    const members = extras.clusters[0].places as QueuePlace[];
+    expect(members.find((place) => place.id === 'plc_shot_k')?.screenshotCount).toBe(2);
+    expect(members.find((place) => place.id === 'plc_shot_o')?.screenshotCount).toBe(1);
+    expect(combinedScreenshotCount(members)).toBe(2);
+  });
 });
+
+function pairCluster(kept: Place, other: Place, distanceM: number, against: string[]): QueueCluster {
+  return {
+    cluster_id: [kept.id, other.id].sort().join('+'),
+    places: [kept, other],
+    avgConfidence: 0.4,
+    edges: [{ ...edge(kept.id, other.id, true, distanceM), score: 0.4, against }],
+  };
+}

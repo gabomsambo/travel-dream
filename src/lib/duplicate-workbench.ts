@@ -1,7 +1,9 @@
+import { citiesMatch } from '@/lib/city-names';
 import {
   CERTAINTY_LABEL,
   certaintyWord,
   dismissPairsForCluster,
+  DUPLICATE_PAGE_BAND,
   pairHasHardAgainst,
   type CertaintyWord,
   type QueueCluster,
@@ -13,6 +15,7 @@ import {
   type DuplicateGroupEdge,
 } from '@/lib/duplicate-detection';
 import {
+  appendNote,
   hasValidCoords,
   MERGE_OVERRIDE_FIELD_LABELS,
   MERGE_OVERRIDE_FIELDS,
@@ -71,9 +74,30 @@ function pairFact(edge: DuplicateGroupEdge): string {
   return 'no location to compare';
 }
 
-function hardReason(edge: DuplicateGroupEdge): string {
-  if (edge.distanceM !== null && edge.distanceM > 500) return formatApart(edge.distanceM);
-  return edge.against.find((text) => text !== 'Names differ') ?? 'Different places';
+function clashSentences(a: QueuePlace, b: QueuePlace): string[] {
+  const sentences: string[] = [];
+  const cityA = a.city?.trim();
+  const cityB = b.city?.trim();
+  if (cityA && cityB && !citiesMatch(cityA, cityB)) sentences.push(`${cityA} vs ${cityB}`, `${cityB} vs ${cityA}`);
+  const countryA = a.country?.trim();
+  const countryB = b.country?.trim();
+  if (countryA && countryB && countryA.toLowerCase() !== countryB.toLowerCase()) {
+    sentences.push(`${countryA} vs ${countryB}`, `${countryB} vs ${countryA}`);
+  }
+  return sentences;
+}
+
+function hardReason(edge: DuplicateGroupEdge, a: QueuePlace, b: QueuePlace): string {
+  if (edge.distanceM !== null && edge.distanceM > DUPLICATE_PAGE_BAND.farMetres) return formatApart(edge.distanceM);
+  const options = clashSentences(a, b);
+  const own = edge.against.find((text) => options.includes(text));
+  if (own) return own;
+  if (options.length > 0) return options[0];
+  return edge.against.find((text) => text !== 'Names differ' && !text.endsWith('apart')) ?? 'Different places';
+}
+
+function reasonAbout(reason: string, name: string): string {
+  return `${reason} ${reason.endsWith('apart') ? 'from' : 'with'} ${name}`;
 }
 
 export type Tone = 'for' | 'weak' | 'against';
@@ -87,7 +111,7 @@ export function linkLines(cluster: QueueCluster, order: QueuePlace[]): Array<{ k
       const [first, second] = [number.get(edge.a) ?? 0, number.get(edge.b) ?? 0].sort((x, y) => x - y);
       const label = `${first} and ${second}`;
       if (pair && pairHasHardAgainst(edge, pair[0], pair[1])) {
-        return { key: `${first}:${second}`, sort: first * 100 + second, text: `${label} · ${hardReason(edge)}`, tone: 'against' as Tone };
+        return { key: `${first}:${second}`, sort: first * 100 + second, text: `${label} · ${hardReason(edge, pair[0], pair[1])}`, tone: 'against' as Tone };
       }
       const word = pairWord(cluster, edge);
       return word
@@ -118,8 +142,10 @@ export function cardLines(cluster: QueueCluster, order: QueuePlace[], memberId: 
     lines.push({ text: `Matches #${number.get(other(links[0]))} · ${pairFact(links[0])}`, tone: 'for' });
   }
   for (const edge of against) {
-    const reason = hardReason(edge);
-    lines.push({ text: `${reason} ${reason.endsWith('apart') ? 'from' : 'with'} #${number.get(other(edge))}`, tone: 'against' });
+    const pair = placesOf(cluster, edge);
+    if (!pair) continue;
+    const reason = hardReason(edge, pair[0], pair[1]);
+    lines.push({ text: reasonAbout(reason, `#${number.get(other(edge))}`), tone: 'against' });
   }
   for (const edge of mine) {
     if (edge.included || against.includes(edge)) continue;
@@ -179,13 +205,12 @@ export function pairEvidence(edge: DuplicateGroupEdge, a: QueuePlace, b: QueuePl
 }
 
 /**
- * Members that start as "Not this one": in a group of three or more, a
- * member other than the kept record with hard evidence against the kept
- * record, or against at least half the others. The reason is shown.
+ * Members that start as "Not this one": anyone other than the kept record
+ * with hard evidence against the kept record, or against at least half the
+ * others. A pair follows the same rule. Each edge keeps its own reason.
  */
 export function suggestedOut(cluster: QueueCluster, keptId: string): Map<string, string> {
   const out = new Map<string, string>();
-  if (cluster.places.length < 3) return out;
   for (const member of cluster.places) {
     if (member.id === keptId) continue;
     const against = cluster.places.filter((other) => {
@@ -195,11 +220,12 @@ export function suggestedOut(cluster: QueueCluster, keptId: string): Map<string,
     });
     const withKept = against.some((other) => other.id === keptId);
     if (!withKept && against.length * 2 < cluster.places.length - 1) continue;
-    const first = edgeFor(cluster, member.id, against[0].id)!;
-    const names = against.map((other) => other.name);
-    const joined = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-    const reason = hardReason(first);
-    out.set(member.id, `Suggested out: ${reason} ${reason.endsWith('apart') ? 'from' : 'with'} ${joined}.`);
+    const phrases = against.map((other) => {
+      const edge = edgeFor(cluster, member.id, other.id)!;
+      return reasonAbout(hardReason(edge, member, other), other.name);
+    });
+    const joined = phrases.length > 1 ? `${phrases.slice(0, -1).join(', ')} and ${phrases[phrases.length - 1]}` : phrases[0];
+    out.set(member.id, `Suggested out: ${joined}.`);
   }
   return out;
 }
@@ -373,11 +399,51 @@ export function compareRows(places: QueuePlace[]): CompareRow[] {
 
 /**
  * Compare-all-fields starts open for Maybe, Possible, and Probably not, and
- * for any group with a conflict other than the name or evidence against.
+ * for any group with a conflict other than the name or evidence against
+ * other than a differing name.
  */
 export function compareStartsOpen(cluster: QueueCluster, conflicts: FieldConflict[]): boolean {
   const word = certaintyWord(cluster);
   if (word === 'maybe' || word === 'possible' || word === 'probably-not') return true;
   if (conflicts.some((conflict) => conflict.field !== 'name')) return true;
-  return (cluster.edges ?? []).some((edge) => edge.against.length > 0);
+  return (cluster.edges ?? []).some((edge) => edge.against.some((text) => text !== 'Names differ'));
+}
+
+/** Screenshots the merge keeps. A source already linked to one In member is not copied again. */
+export function combinedScreenshotCount(
+  places: Array<Pick<QueuePlace, 'screenshotCount' | 'screenshotSourceIds'>>,
+): number {
+  const ids = new Set<string>();
+  let anonymous = 0;
+  for (const place of places) {
+    const sources = place.screenshotSourceIds;
+    if (sources) {
+      for (const id of sources) ids.add(id);
+    } else {
+      anonymous += place.screenshotCount ?? 0;
+    }
+  }
+  return ids.size + anonymous;
+}
+
+/**
+ * What the result column says about notes: a single note that fills an empty
+ * kept record, or distinct notes written one after the other. Identical notes
+ * are kept once and say nothing.
+ */
+export function notesResultLine(
+  kept: { notes?: string | null },
+  sources: Array<{ notes?: string | null }>,
+): { text: string; filled: boolean } | null {
+  let current: string | null = kept.notes ?? null;
+  let added = 0;
+  for (const source of sources) {
+    const next = appendNote(current, source.notes);
+    if ((next?.trim() ?? '') !== (current?.trim() ?? '')) added += 1;
+    current = next;
+  }
+  const mergedText = current?.trim() ?? '';
+  if (!mergedText || added === 0) return null;
+  if (added === 1 && !(kept.notes?.trim())) return { text: mergedText, filled: true };
+  return { text: 'One after the other', filled: false };
 }

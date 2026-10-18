@@ -14,11 +14,13 @@ import {
 import {
   buildMergePlan,
   cardLines,
+  combinedScreenshotCount,
   compareRows,
   compareStartsOpen,
   edgeFor,
   fieldText,
   linkLines,
+  notesResultLine,
   orderMembers,
   pairEvidence,
   resolvePairs,
@@ -141,7 +143,12 @@ export function DuplicateWorkbench({
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
       const active = document.activeElement;
-      if (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA' || document.querySelector('[role="dialog"]')) return;
+      if (
+        active?.tagName === 'INPUT' ||
+        active?.tagName === 'TEXTAREA' ||
+        active?.tagName === 'SELECT' ||
+        document.querySelector('[role="dialog"]')
+      ) return;
       const member = order[Number(event.key) - 1];
       if (!member) return;
       event.preventDefault();
@@ -161,6 +168,7 @@ export function DuplicateWorkbench({
   const rows = compareRows(order);
   const differing = rows.filter((row) => row.differs).length;
   const sources = order.filter((place) => place.id !== keptId && inIds.has(place.id));
+  const notesLine = kept ? notesResultLine(kept, sources) : null;
   const notDuplicatesFirst = word === 'probably-not';
   const panelPlace = order.find((place) => place.id === panelId) ?? null;
 
@@ -235,13 +243,15 @@ export function DuplicateWorkbench({
           );
         })}
         <dt className="text-muted-foreground">Screenshots</dt>
-        <dd className="text-right">{sources.reduce((sum, place) => sum + (place.screenshotCount ?? 0), kept.screenshotCount ?? 0)}</dd>
+        <dd className="text-right">{combinedScreenshotCount([kept, ...sources])}</dd>
         <dt className="text-muted-foreground">Photos</dt>
         <dd className="text-right">{sources.reduce((sum, place) => sum + (place.photoCount ?? 0), kept.photoCount ?? 0)}</dd>
-        {[kept, ...sources].filter((place) => place.notes?.trim()).length > 1 && (
+        {notesLine && (
           <>
             <dt className="text-muted-foreground">Notes</dt>
-            <dd className="text-right">Both, one after the other</dd>
+            <dd className="break-words text-right">
+              {notesLine.filled ? <>{notesLine.text} <span className="text-emerald-700 dark:text-emerald-300">(filled)</span></> : notesLine.text}
+            </dd>
           </>
         )}
         <dt className="text-muted-foreground">Status</dt>

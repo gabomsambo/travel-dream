@@ -1116,6 +1116,110 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it('does not merge from m with one member In, and ignores shortcuts while the kept record select is focused', async () => {
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    const user = userEvent.setup();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    fireEvent.keyDown(document, { key: 'm' });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(notify.error).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'change' }));
+    const keptRecord = screen.getByRole('combobox', { name: 'Kept record' });
+    keptRecord.focus();
+    fireEvent.keyDown(document, { key: 'm' });
+    fireEvent.keyDown(document, { key: 'd' });
+    fireEvent.keyDown(document, { key: 'j' });
+    fireEvent.keyDown(document, { key: 'k' });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    const workbench = screen.getByRole('region', { name: 'Is this one place?' });
+    expect(workbench).toHaveTextContent('Arctic Cathedral');
+    expect(workbench).not.toHaveTextContent('Sushi Saito');
+  });
+
+  it('retries u after a failed undo and finishes pair cleanup when the merge is already undone', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    let undoPosts = 0;
+    let pairDeletes = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      if (url === '/api/places/bulk-merge') {
+        return { ok: true, json: async () => ({ success: 1, failed: 0, results: [{ status: 'success', mergeLogId: 'log_1' }] }) };
+      }
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      if (url === '/api/places/undo-merge') {
+        undoPosts += 1;
+        if (undoPosts === 1) return { ok: true, json: async () => ({ status: 'success' }) };
+        return { ok: false, status: 404, json: async () => ({ status: 'error', message: 'Merge not found' }) };
+      }
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'DELETE') {
+        pairDeletes += 1;
+        if (pairDeletes === 1) return { ok: false, status: 500, json: async () => ({ message: 'no' }) };
+        return { ok: true, json: async () => ({ status: 'success', undismissed: 1 }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    const user = userEvent.setup();
+    const gamma = place('place_c', 'Gamma Cafe');
+    const alpha = place('place_a', 'Alpha Cafe');
+    const beta = place('place_b', 'Beta Cafe');
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: 'place_a+place_b+place_c',
+          avgConfidence: 0.9,
+          places: [alpha, beta, gamma],
+          edges: [
+            edge('place_a', 'place_b', 0.9, 40, 0.9),
+            edge('place_a', 'place_c', 0.88, 50, 0.9),
+            edge('place_b', 'place_c', 0.86, 30, 0.9),
+          ],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith(
+      'Merged 2 places into Alpha Cafe',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    ));
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to save the pairs'));
+    expect(undoPosts).toBe(1);
+    expect(pairDeletes).toBe(1);
+    expect(notify.success).not.toHaveBeenCalledWith('Merge undone');
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merge undone'));
+    expect(undoPosts).toBe(2);
+    expect(pairDeletes).toBe(2);
+    expect(refresh).toHaveBeenCalled();
+  });
+
   it('names Possible and merged work on an empty To review list', () => {
     render(
       <DuplicatesPageClient

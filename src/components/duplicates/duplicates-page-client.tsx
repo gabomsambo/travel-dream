@@ -147,6 +147,7 @@ export function DuplicatesPageClient({
   const committedMergeIdsRef = useRef<Set<string>>(new Set());
   const [committedMergeIds, setCommittedMergeIds] = useState<ReadonlySet<string>>(() => new Set());
   const lastActionRef = useRef<UndoableAction | null>(null);
+  const undoInFlightRef = useRef(false);
 
   const reviewSorted = useMemo(() => sortQueueGroups(review), [review]);
   const possibleSorted = useMemo(() => sortQueueGroups(possibleGroups), [possibleGroups]);
@@ -228,20 +229,26 @@ export function DuplicatesPageClient({
     });
   }, [possibleSorted, setPossibleGroups, setReview]);
 
-  const writePairs = useCallback(async (pairs: Pair[], method: 'POST' | 'DELETE') => {
+  const writePairs = useCallback(async (
+    pairs: Pair[],
+    method: 'POST' | 'DELETE',
+    options?: { absentOk?: boolean },
+  ) => {
     for (const batch of chunkItems(pairs, DISMISS_PAIR_LIMIT)) {
       const response = await fetch('/api/places/dismiss-duplicate', {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pairs: batch }),
       });
-      if (!response.ok) throw new Error('Failed to save the pairs');
+      if (response.ok) continue;
+      if (options?.absentOk && response.status === 404) continue;
+      throw new Error('Failed to save the pairs');
     }
   }, []);
 
   const handleUndo = useCallback(async (action: UndoableAction | null) => {
-    if (!action) return;
-    if (lastActionRef.current === action) lastActionRef.current = null;
+    if (!action || undoInFlightRef.current) return;
+    undoInFlightRef.current = true;
     setIsLoading(true);
     try {
       if (action.kind === 'merge') {
@@ -250,18 +257,20 @@ export function DuplicatesPageClient({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ placeId: action.placeId, mergeLogId: action.mergeLogId }),
         });
-        if (!response.ok) {
+        if (!response.ok && response.status !== 404) {
           const body = await response.json().catch(() => null) as { message?: string } | null;
           throw new Error(body?.message || 'Undo failed');
         }
       }
-      if (action.pairs.length > 0) await writePairs(action.pairs, 'DELETE');
+      if (action.pairs.length > 0) await writePairs(action.pairs, 'DELETE', { absentOk: true });
+      if (lastActionRef.current === action) lastActionRef.current = null;
       notify.success(action.kind === 'merge' ? 'Merge undone' : 'Put back in To review');
       await clearScanCache();
       router.refresh();
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Undo failed');
     } finally {
+      undoInFlightRef.current = false;
       setIsLoading(false);
     }
   }, [clearScanCache, router, writePairs]);
@@ -308,11 +317,11 @@ export function DuplicatesPageClient({
     const sourceIds = committed.has(targetId)
       ? requestedSourceIds.filter((id) => !committed.has(id))
       : requestedSourceIds;
-    if (!target || requestedSourceIds.length === 0) {
+    if (!target) {
       notify.error('No target found for merge');
       return;
     }
-    if (sourceIds.length === 0) return;
+    if (requestedSourceIds.length === 0 || sourceIds.length === 0) return;
 
     setIsLoading(true);
     const nextId = neighbourOf(cluster);
@@ -538,6 +547,7 @@ export function DuplicatesPageClient({
       if (
         document.activeElement?.tagName === 'INPUT' ||
         document.activeElement?.tagName === 'TEXTAREA' ||
+        document.activeElement?.tagName === 'SELECT' ||
         document.activeElement?.role === 'combobox' ||
         document.activeElement?.closest('[role="menu"]')
       ) {
@@ -570,6 +580,7 @@ export function DuplicatesPageClient({
             ?? possibleSorted.find((item) => item.cluster_id === openId);
           if (!cluster) return;
           const intent = openIntentRef.current?.clusterId === openId ? openIntentRef.current : undefined;
+          if (intent && intent.sourceIds.length < 1) return;
           handleMerge(cluster, intent);
           break;
         }

@@ -55,6 +55,8 @@ const WORD_RANK: Record<CertaintyWord, number> = {
 
 export interface QueuePlaceFields {
   screenshotCount: number;
+  /** Screenshot source ids behind `screenshotCount`, so a shared shot is counted once. */
+  screenshotSourceIds: string[];
   hasPhoto: boolean;
   photoUrl: string | null;
   photoCount: number;

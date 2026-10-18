@@ -194,6 +194,7 @@ export function PlaceView({
   handlesRef,
   trips,
   alsoIn,
+  showMobileActionBar = true,
 }: {
   place: PlaceWithRelations
   editing?: boolean
@@ -205,6 +206,7 @@ export function PlaceView({
   handlesRef?: React.MutableRefObject<PlaceViewHandles | null>
   trips: ExploreCollection[]
   alsoIn: ExplorePlace[]
+  showMobileActionBar?: boolean
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -312,7 +314,7 @@ export function PlaceView({
 
       {place.city && <AlsoInCity city={place.city} places={alsoIn} />}
 
-      <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} />
+      {showMobileActionBar && <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} />}
 
       {photos.length > 0 && (
         <PhotoLightbox photos={photos} open={lightbox !== null} index={lightbox ?? 0} onClose={() => setLightbox(null)} />

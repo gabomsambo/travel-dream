@@ -226,6 +226,7 @@ describe('/api/places/duplicates', () => {
       const chain: any = {
         from: jest.fn().mockImplementation(() => chain),
         where: jest.fn().mockImplementation(() => chain),
+        innerJoin: jest.fn().mockImplementation(() => chain),
         limit: jest.fn().mockResolvedValue(mockPlaces),
         then: jest.fn().mockImplementation((resolve: any) => Promise.resolve([]).then(resolve)),
       }
@@ -269,7 +270,9 @@ describe('/api/places/duplicates', () => {
       const mockDbSelect = {
         from: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([mockPlaces[0]]) // Only one place
+        innerJoin: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue([mockPlaces[0]]),
+        then: jest.fn().mockImplementation((resolve: (value: unknown[]) => unknown) => Promise.resolve([]).then(resolve)),
       }
       ;(db as any).select = jest.fn().mockReturnValue(mockDbSelect)
 
@@ -364,6 +367,60 @@ describe('/api/places/duplicates', () => {
 
       expect(data1.cached).toBe(false)
       expect(data2.cached).toBe(true)
+    })
+
+    it('keeps place fields in the cache when the sidebar asks for a slim body', async () => {
+      const chain: any = {
+        from: jest.fn().mockImplementation(() => chain),
+        where: jest.fn().mockImplementation(() => chain),
+        innerJoin: jest.fn().mockImplementation(() => chain),
+        limit: jest.fn().mockResolvedValue(mockPlaces),
+        then: jest.fn().mockImplementation((resolve: (value: unknown[]) => unknown) => Promise.resolve([]).then(resolve)),
+      }
+      ;(db as any).select = jest.fn().mockReturnValue(chain)
+      mockBatchDetectDuplicates.mockResolvedValue(new Map())
+
+      const rich = {
+        ...mockPlaces[0],
+        description: 'Basilica',
+        address: 'Carrer de Mallorca',
+        notes: 'Go early',
+        tags: ['gaudi'],
+        confidence: 0.95,
+      }
+      const other = { ...mockPlaces[1], description: 'Copy', confidence: 0.2 }
+      mockFindDuplicateClusters.mockReturnValue([{
+        id: 'cluster-1',
+        cluster_id: 'cluster-1',
+        places: [rich, other],
+        avgConfidence: 0.89,
+        weakestIncludedScore: 0.89,
+        edges: [],
+        leftOut: [],
+        mergedOn: null,
+      }])
+
+      const slimUrl = new URL('http://localhost:3000/api/places/duplicates?mode=clusters&minConfidence=0.7&limit=1000&includeReasoning=false')
+      const fullUrl = new URL('http://localhost:3000/api/places/duplicates?mode=clusters&minConfidence=0.7&limit=1000')
+
+      const slim = await GET(new NextRequest(slimUrl))
+      const slimData = await slim.json()
+      expect(slimData.cached).toBe(false)
+      expect(slimData.clusters[0].places[0].name).toBe('Sagrada Familia')
+      expect(slimData.clusters[0].places[0].description).toBeUndefined()
+      expect(slimData.clusters[0].places[0].address).toBeUndefined()
+      expect(slimData.clusters[0].places[0].notes).toBeUndefined()
+      expect(slimData.clusters[0].places[0].tags).toBeUndefined()
+      expect(slimData.clusters[0].places[0].confidence).toBeUndefined()
+
+      const full = await GET(new NextRequest(fullUrl))
+      const fullData = await full.json()
+      expect(fullData.cached).toBe(true)
+      expect(fullData.clusters[0].places[0].description).toBe('Basilica')
+      expect(fullData.clusters[0].places[0].address).toBe('Carrer de Mallorca')
+      expect(fullData.clusters[0].places[0].notes).toBe('Go early')
+      expect(fullData.clusters[0].places[0].tags).toEqual(['gaudi'])
+      expect(fullData.clusters[0].places[0].confidence).toBe(0.95)
     })
   })
 

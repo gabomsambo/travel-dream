@@ -71,7 +71,7 @@ function pairFact(edge: DuplicateGroupEdge): string {
   return 'no location to compare';
 }
 
-function hardReason(edge: DuplicateGroupEdge, a: QueuePlace, b: QueuePlace): string {
+function hardReason(edge: DuplicateGroupEdge): string {
   if (edge.distanceM !== null && edge.distanceM > 500) return formatApart(edge.distanceM);
   return edge.against.find((text) => text !== 'Names differ') ?? 'Different places';
 }
@@ -87,7 +87,7 @@ export function linkLines(cluster: QueueCluster, order: QueuePlace[]): Array<{ k
       const [first, second] = [number.get(edge.a) ?? 0, number.get(edge.b) ?? 0].sort((x, y) => x - y);
       const label = `${first} and ${second}`;
       if (pair && pairHasHardAgainst(edge, pair[0], pair[1])) {
-        return { key: `${first}:${second}`, sort: first * 100 + second, text: `${label} · ${hardReason(edge, pair[0], pair[1])}`, tone: 'against' as Tone };
+        return { key: `${first}:${second}`, sort: first * 100 + second, text: `${label} · ${hardReason(edge)}`, tone: 'against' as Tone };
       }
       const word = pairWord(cluster, edge);
       return word
@@ -118,8 +118,7 @@ export function cardLines(cluster: QueueCluster, order: QueuePlace[], memberId: 
     lines.push({ text: `Matches #${number.get(other(links[0]))} · ${pairFact(links[0])}`, tone: 'for' });
   }
   for (const edge of against) {
-    const pair = placesOf(cluster, edge)!;
-    lines.push({ text: `${hardReason(edge, pair[0], pair[1])} from #${number.get(other(edge))}`, tone: 'against' });
+    lines.push({ text: `${hardReason(edge)} from #${number.get(other(edge))}`, tone: 'against' });
   }
   for (const edge of mine) {
     if (edge.included || against.includes(edge)) continue;
@@ -198,7 +197,7 @@ export function suggestedOut(cluster: QueueCluster, keptId: string): Map<string,
     const first = edgeFor(cluster, member.id, against[0].id)!;
     const names = against.map((other) => other.name);
     const joined = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-    out.set(member.id, `Suggested out: ${hardReason(first, member, against[0])} from ${joined}.`);
+    out.set(member.id, `Suggested out: ${hardReason(first)} from ${joined}.`);
   }
   return out;
 }

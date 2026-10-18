@@ -4,7 +4,7 @@ import { useState, useCallback, useOptimistic, useEffect, useMemo, useRef, start
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { AlertCircle, MoreHorizontal, RefreshCw } from 'lucide-react';
-import { DuplicateExpandedView, type OpenGroupMergeIntent } from './duplicate-expanded-view';
+import { DuplicateWorkbench, type OpenGroupMergeIntent } from './duplicate-workbench';
 import { DuplicateQueueRow } from './duplicate-queue-row';
 import { Button } from '@/components/ui-v2/button';
 import {
@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui-v2/alert-dialog';
-import { notify } from '@/lib/notify';
+import { NOTIFY_DURATION, notify } from '@/lib/notify';
 import { recommendMergeTarget } from '@/lib/duplicate-target-selector';
 import {
   certainGroups,
@@ -37,7 +37,7 @@ import {
   type MergedGroupView,
   type QueueCluster,
 } from '@/lib/duplicate-certainty';
-import type { MergeFieldOverrides } from '@/lib/place-merge';
+import type { Pair } from '@/lib/duplicate-workbench';
 import { cn } from '@/lib/utils';
 
 interface DuplicatesPageClientProps {
@@ -102,8 +102,17 @@ type BulkMergeResponse = {
   message?: string;
   success?: number;
   failed?: number;
-  results?: Array<{ clusterId?: string; status?: string; error?: string }>;
+  results?: Array<{ clusterId?: string; status?: string; error?: string; mergeLogId?: string }>;
 };
+
+/** The last merge or "Not duplicates" from the workbench, for the toast and `u`. */
+type UndoableAction =
+  | { kind: 'merge'; placeId: string; mergeLogId?: string; pairs: Pair[] }
+  | { kind: 'dismiss'; pairs: Pair[] };
+
+function hasOpenDialog(): boolean {
+  return document.querySelector('[role="dialog"], [role="alertdialog"]') !== null;
+}
 
 function everyMergeResultSkipped(result: BulkMergeResponse): boolean {
   const results = result.results;
@@ -137,6 +146,7 @@ export function DuplicatesPageClient({
   const openIntentRef = useRef<OpenGroupMergeIntent | null>(null);
   const committedMergeIdsRef = useRef<Set<string>>(new Set());
   const [committedMergeIds, setCommittedMergeIds] = useState<ReadonlySet<string>>(() => new Set());
+  const lastActionRef = useRef<UndoableAction | null>(null);
 
   const reviewSorted = useMemo(() => sortQueueGroups(review), [review]);
   const possibleSorted = useMemo(() => sortQueueGroups(possibleGroups), [possibleGroups]);
@@ -210,16 +220,66 @@ export function DuplicatesPageClient({
     });
   }, [possibleSorted, setPossibleGroups, setReview]);
 
-  const handleDismiss = useCallback(async (cluster: QueueCluster) => {
+  const writePairs = useCallback(async (pairs: Pair[], method: 'POST' | 'DELETE') => {
+    for (const batch of chunkItems(pairs, DISMISS_PAIR_LIMIT)) {
+      const response = await fetch('/api/places/dismiss-duplicate', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairs: batch }),
+      });
+      if (!response.ok) throw new Error('Failed to save the pairs');
+    }
+  }, []);
+
+  const handleUndo = useCallback(async (action: UndoableAction | null) => {
+    if (!action) return;
+    if (lastActionRef.current === action) lastActionRef.current = null;
+    setIsLoading(true);
+    try {
+      if (action.kind === 'merge') {
+        const response = await fetch('/api/places/undo-merge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ placeId: action.placeId, mergeLogId: action.mergeLogId }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null) as { message?: string } | null;
+          throw new Error(body?.message || 'Undo failed');
+        }
+      }
+      if (action.pairs.length > 0) await writePairs(action.pairs, 'DELETE');
+      notify.success(action.kind === 'merge' ? 'Merge undone' : 'Put back in To review');
+      await clearScanCache();
+      router.refresh();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Undo failed');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [clearScanCache, router, writePairs]);
+
+  const offerUndo = useCallback((message: string, action: UndoableAction) => {
+    lastActionRef.current = action;
+    notify.success(message, {
+      duration: NOTIFY_DURATION.warning,
+      action: { label: 'Undo', onClick: () => handleUndo(action) },
+    });
+  }, [handleUndo]);
+
+  const handleDismiss = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
     setIsLoading(true);
     dropCluster(cluster, 'dismiss');
+    const pairs = intent?.clusterId === cluster.cluster_id && intent.dismissPairs
+      ? intent.dismissPairs
+      : dismissPairsForCluster(cluster);
     try {
       const response = await fetch('/api/places/dismiss-duplicate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pairs: dismissPairsForCluster(cluster) }),
+        body: JSON.stringify({ pairs }),
       });
       if (!response.ok) throw new Error('Failed to dismiss cluster');
+      offerUndo(`Marked ${cluster.places.length} places as not duplicates`, { kind: 'dismiss', pairs });
       setExpandedClusterId(undefined);
       await clearScanCache();
       router.refresh();
@@ -229,7 +289,7 @@ export function DuplicatesPageClient({
     } finally {
       setIsLoading(false);
     }
-  }, [clearScanCache, dropCluster, router]);
+  }, [clearScanCache, dropCluster, offerUndo, router]);
 
   const handleMerge = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
     const targetId = intent?.targetId ?? recommendMergeTarget(cluster.places);
@@ -264,7 +324,18 @@ export function DuplicatesPageClient({
       if (!response.ok) throw new Error('Failed to merge cluster');
       const result = await response.json() as BulkMergeResponse;
       if (result.success && result.success > 0) {
-        notify.success(`Merged ${sourceIds.length + 1} places`);
+        const mergePairs = intent?.mergePairs ?? [];
+        try {
+          if (mergePairs.length > 0) await writePairs(mergePairs, 'POST');
+        } catch {
+          notify.error('Merged, but could not remember the places marked "Not this one"');
+        }
+        offerUndo(`Merged ${sourceIds.length + 1} places into ${target.name}`, {
+          kind: 'merge',
+          placeId: target.id,
+          mergeLogId: result.results?.find((entry) => entry.status === 'success')?.mergeLogId,
+          pairs: mergePairs,
+        });
         setExpandedClusterId(undefined);
         await clearScanCache();
         router.refresh();
@@ -281,57 +352,7 @@ export function DuplicatesPageClient({
     } finally {
       setIsLoading(false);
     }
-  }, [clearScanCache, dropCluster, router]);
-
-  const handleMergePair = useCallback(async (
-    cluster: QueueCluster,
-    targetId: string,
-    sourceId: string,
-    fieldOverrides?: MergeFieldOverrides,
-  ) => {
-    const committed = committedMergeIdsRef.current;
-    if (committed.has(sourceId) && committed.has(targetId)) return;
-    setIsLoading(true);
-    const target = cluster.places.find((place) => place.id === targetId);
-    const source = cluster.places.find((place) => place.id === sourceId);
-    if (!target || !source) {
-      notify.error('Invalid places for merge');
-      setIsLoading(false);
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/places/bulk-merge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clusters: [{
-            targetId: target.id,
-            sourceIds: [source.id],
-            confidence: cluster.avgConfidence,
-            fieldOverrides,
-          }],
-        }),
-      });
-      const result = await response.json() as BulkMergeResponse;
-      if (!response.ok) throw new Error(result.message || 'Failed to merge places');
-      if (result.success && result.success > 0) {
-        notify.success(`Merged "${source.name}" into "${target.name}"`);
-        await clearScanCache();
-        router.refresh();
-      } else if (everyMergeResultSkipped(result)) {
-        await clearScanCache();
-        router.refresh();
-      } else {
-        notify.error(result.results?.[0]?.error || 'Merge failed');
-      }
-    } catch (error) {
-      notify.error(error instanceof Error ? error.message : 'Failed to merge places');
-      router.refresh();
-    } finally {
-      setIsLoading(false);
-    }
-  }, [clearScanCache, router]);
+  }, [clearScanCache, dropCluster, offerUndo, router, writePairs]);
 
   const handleMergeCertain = useCallback(async (groups: QueueCluster[]) => {
     const unions = unionGroupsSharingPlace(
@@ -485,6 +506,16 @@ export function DuplicatesPageClient({
     setExpandedClusterId(cluster.cluster_id);
   }, []);
 
+  const move = useCallback((delta: 1 | -1) => {
+    const list = groupsRef.current;
+    if (list.length === 0) return;
+    const prev = indexRef.current;
+    if (prev < 0 && delta < 0) return;
+    const next = Math.min(list.length - 1, Math.max(0, (prev < 0 ? -1 : prev) + delta));
+    setCurrentIndex(next);
+    if (isDesktop() && list[next]) setExpandedClusterId(list[next].cluster_id);
+  }, []);
+
   useEffect(() => {
     const media = window.matchMedia('(min-width: 768px)');
     const apply = () => setDesktop(media.matches);
@@ -503,7 +534,7 @@ export function DuplicatesPageClient({
       ) {
         return;
       }
-      if (confirmRef.current) return;
+      if (confirmRef.current || hasOpenDialog()) return;
 
       const list = groupsRef.current;
       switch (event.key) {
@@ -511,13 +542,7 @@ export function DuplicatesPageClient({
         case 'k': {
           if (event.metaKey || event.ctrlKey || event.altKey) break;
           event.preventDefault();
-          if (list.length === 0) return;
-          const delta = event.key === 'j' ? 1 : -1;
-          const prev = indexRef.current;
-          if (prev < 0 && delta < 0) return;
-          const next = Math.min(list.length - 1, Math.max(0, (prev < 0 ? -1 : prev) + delta));
-          setCurrentIndex(next);
-          if (isDesktop() && list[next]) setExpandedClusterId(list[next].cluster_id);
+          move(event.key === 'j' ? 1 : -1);
           break;
         }
         case 'Enter': {
@@ -547,7 +572,15 @@ export function DuplicatesPageClient({
           const cluster = list.find((item) => item.cluster_id === openId)
             ?? reviewSorted.find((item) => item.cluster_id === openId)
             ?? possibleSorted.find((item) => item.cluster_id === openId);
-          if (cluster) handleDismiss(cluster);
+          if (!cluster) return;
+          const intent = openIntentRef.current?.clusterId === openId ? openIntentRef.current : undefined;
+          handleDismiss(cluster, intent);
+          break;
+        }
+        case 'u': {
+          if (event.metaKey || event.ctrlKey || event.altKey) break;
+          event.preventDefault();
+          handleUndo(lastActionRef.current);
           break;
         }
         case 'Escape':
@@ -561,7 +594,7 @@ export function DuplicatesPageClient({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleDismiss, handleMerge, possibleSorted, reviewSorted]);
+  }, [handleDismiss, handleMerge, handleUndo, move, possibleSorted, reviewSorted]);
 
   useEffect(() => {
     const currentElement = document.querySelector(`[data-cluster-index="${currentIndex}"]`);
@@ -572,7 +605,7 @@ export function DuplicatesPageClient({
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col gap-4">
-      <div className="flex w-full min-w-0 flex-wrap items-start justify-between gap-3">
+      <div className={cn('flex w-full min-w-0 flex-wrap items-start justify-between gap-3', openCluster && 'hidden md:flex')}>
         <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
           <h1 className="text-2xl font-bold">Duplicates</h1>
           <p className="mt-1 max-w-full text-sm text-muted-foreground">
@@ -627,7 +660,7 @@ export function DuplicatesPageClient({
         </div>
       )}
 
-      <div role="tablist" aria-label="Duplicate groups" className="flex w-full min-w-0 gap-1 overflow-x-auto">
+      <div role="tablist" aria-label="Duplicate groups" className={cn('flex w-full min-w-0 gap-1 overflow-x-auto', openCluster && 'hidden md:flex')}>
         {([
           ['review', 'To review', reviewSorted.length],
           ['possible', 'Possible', possibleSorted.length],
@@ -704,6 +737,17 @@ export function DuplicatesPageClient({
                     <p className="mt-1 text-sm text-muted-foreground">
                       {formatMergedOn(entry.performedAt)} · {entry.placeCount} places → 1
                     </p>
+                    {entry.canUndo && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-3"
+                        disabled={isLoading}
+                        onClick={() => handleUndo({ kind: 'merge', placeId: entry.keptPlaceId, mergeLogId: entry.id, pairs: [] })}
+                      >
+                        Undo merge
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -726,23 +770,19 @@ export function DuplicatesPageClient({
           tab === 'dismissed' || tab === 'merged' ? 'hidden' : expandedClusterId ? 'block' : 'hidden md:block',
         )}>
           {openCluster ? (
-            <div>
-              <button
-                type="button"
-                className="mb-3 text-sm text-muted-foreground md:hidden"
-                onClick={() => setExpandedClusterId(undefined)}
-              >
-                ‹ Duplicates
-              </button>
-              <DuplicateExpandedView
-                cluster={openCluster}
-                onMerge={(intent) => handleMerge(openCluster, intent)}
-                onMergePair={(targetId, sourceId, fieldOverrides) => handleMergePair(openCluster, targetId, sourceId, fieldOverrides)}
-                onDismiss={() => handleDismiss(openCluster)}
-                onIntentChange={handleIntentChange}
-                isLoading={isLoading}
-              />
-            </div>
+            <DuplicateWorkbench
+              key={openCluster.cluster_id}
+              cluster={openCluster}
+              position={`${Math.max(1, activeGroups.findIndex((group) => group.cluster_id === openCluster.cluster_id) + 1)} of ${activeGroups.length}`}
+              phone={!desktop}
+              isLoading={isLoading}
+              onMerge={(intent) => handleMerge(openCluster, intent)}
+              onDismiss={(intent) => handleDismiss(openCluster, intent)}
+              onIntentChange={handleIntentChange}
+              onPrevious={() => move(-1)}
+              onNext={() => move(1)}
+              onBack={() => setExpandedClusterId(undefined)}
+            />
           ) : (
             <p className="hidden py-12 text-center text-sm text-muted-foreground md:block">
               Select a group to compare.
@@ -786,8 +826,10 @@ export function DuplicatesPageClient({
       <div className="hidden gap-4 border-t bg-muted/50 px-4 py-2 text-xs text-muted-foreground md:flex md:justify-center">
         <span><kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">j</kbd> / <kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">k</kbd> Move selection</span>
         <span><kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">Enter</kbd> Open</span>
+        <span><kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">1</kbd>–<kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">9</kbd> In / Not this one</span>
         <span><kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">m</kbd> Merge open group</span>
         <span><kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">d</kbd> Dismiss open group</span>
+        <span><kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">u</kbd> Undo</span>
         <span><kbd className="rounded border bg-background px-1.5 py-0.5 font-mono">Esc</kbd> Close</span>
       </div>
     </div>

@@ -12,7 +12,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
-import { del } from '@vercel/blob';
+import { releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
 
 export const runtime = 'nodejs';
 
@@ -353,25 +353,29 @@ export async function DELETE(request: NextRequest) {
             })
           );
 
-          // Clean up the stored blob. Pre-Blob records whose files lived under
-          // public/uploads are left alone: that storage never existed on Vercel,
-          // and those local files are deliberately not migrated.
-          for (const source of sourceRecords) {
-            if (source) {
-              try {
-                const uploadInfo = (source.meta as any)?.uploadInfo;
-                if (uploadInfo?.storageType === 'vercel-blob' && source.uri?.startsWith('https://')) {
-                  await del(source.uri);
-                }
-              } catch (cleanupError) {
-                console.warn(`Failed to cleanup files for source ${source.id}:`, cleanupError);
-              }
-            }
+          // Pre-Blob records whose files lived under public/uploads are left
+          // alone: that storage never existed on Vercel.
+          const cleanupSources = sourceRecords.filter(
+            (source): source is NonNullable<typeof source> => source != null
+          );
+          const blobUrls = cleanupSources.flatMap((source) => {
+            const uploadInfo = source.meta?.uploadInfo;
+            return uploadInfo?.storageType === 'vercel-blob' && source.uri?.startsWith('https://')
+              ? [source.uri]
+              : [];
+          });
+          try {
+            await releaseBlobsIfUnreferenced(
+              user.id,
+              blobUrls,
+              { excludeSourceIds: cleanupSources.map((source) => source.id) },
+              '[deleteUploadSession]'
+            );
+          } catch (cleanupError) {
+            console.warn(`Failed to cleanup files for session ${sessionId}:`, cleanupError);
           }
 
-          // Delete source records
-          for (const source of sourceRecords) {
-            if (!source) continue;
+          for (const source of cleanupSources) {
             try {
               await db.delete(sourcesCurrentSchema).where(and(
                 eq(sourcesCurrentSchema.id, source.id),

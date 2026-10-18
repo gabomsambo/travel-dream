@@ -262,6 +262,10 @@ converted yet and still derive the extension from `file.name`; copy their three-
 
 Deleting a record must only `del()` a blob that record owns — collection covers can point at a place
 photo's blob (see `isOwnedCoverBlobUrl` / `releaseOwnedCoverBlob` in `src/lib/cover-blob.ts`).
+Screenshots and the place photos made from them share one blob URL, with no copy: source and
+attachment cleanup goes through `releaseBlobIfUnreferenced` in `src/lib/shared-blob.ts`, so a URL
+still stored on another source or attachment is left in place
+(`src/__tests__/inbox/shared-blob-delete.test.ts`, `src/__tests__/inbox/shared-photo-route.test.ts`).
 
 Pre-Blob rows whose `uri` is a `/uploads/...` path are deliberately not migrated; those files never
 existed on Vercel, so treat such rows as broken-image leftovers rather than something to clean up.

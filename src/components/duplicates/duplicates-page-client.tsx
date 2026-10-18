@@ -212,6 +212,14 @@ export function DuplicatesPageClient({
     announceChange();
   }, [announceChange]);
 
+  /** The group that takes the resolved one's place in its list, so desktop moves straight on. */
+  const neighbourOf = useCallback((cluster: QueueCluster): string | undefined => {
+    const list = possibleSorted.some((item) => item.cluster_id === cluster.cluster_id) ? possibleSorted : reviewSorted;
+    const index = list.findIndex((item) => item.cluster_id === cluster.cluster_id);
+    if (index < 0 || !isDesktop()) return undefined;
+    return (list[index + 1] ?? list[index - 1])?.cluster_id;
+  }, [possibleSorted, reviewSorted]);
+
   const dropCluster = useCallback((cluster: QueueCluster, type: ClusterAction['type']) => {
     const inPossible = possibleSorted.some((item) => item.cluster_id === cluster.cluster_id);
     startTransition(() => {
@@ -268,6 +276,7 @@ export function DuplicatesPageClient({
 
   const handleDismiss = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
     setIsLoading(true);
+    const nextId = neighbourOf(cluster);
     dropCluster(cluster, 'dismiss');
     const pairs = intent?.clusterId === cluster.cluster_id && intent.dismissPairs
       ? intent.dismissPairs
@@ -280,7 +289,7 @@ export function DuplicatesPageClient({
       });
       if (!response.ok) throw new Error('Failed to dismiss cluster');
       offerUndo(`Marked ${cluster.places.length} places as not duplicates`, { kind: 'dismiss', pairs });
-      setExpandedClusterId(undefined);
+      setExpandedClusterId(nextId);
       await clearScanCache();
       router.refresh();
     } catch {
@@ -289,7 +298,7 @@ export function DuplicatesPageClient({
     } finally {
       setIsLoading(false);
     }
-  }, [clearScanCache, dropCluster, offerUndo, router]);
+  }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router]);
 
   const handleMerge = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
     const targetId = intent?.targetId ?? recommendMergeTarget(cluster.places);
@@ -306,7 +315,7 @@ export function DuplicatesPageClient({
     if (sourceIds.length === 0) return;
 
     setIsLoading(true);
-
+    const nextId = neighbourOf(cluster);
     dropCluster(cluster, 'merge');
     try {
       const response = await fetch('/api/places/bulk-merge', {
@@ -336,7 +345,7 @@ export function DuplicatesPageClient({
           mergeLogId: result.results?.find((entry) => entry.status === 'success')?.mergeLogId,
           pairs: mergePairs,
         });
-        setExpandedClusterId(undefined);
+        setExpandedClusterId(nextId);
         await clearScanCache();
         router.refresh();
       } else if (everyMergeResultSkipped(result)) {
@@ -352,7 +361,7 @@ export function DuplicatesPageClient({
     } finally {
       setIsLoading(false);
     }
-  }, [clearScanCache, dropCluster, offerUndo, router, writePairs]);
+  }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router, writePairs]);
 
   const handleMergeCertain = useCallback(async (groups: QueueCluster[]) => {
     const unions = unionGroupsSharingPlace(
@@ -604,7 +613,7 @@ export function DuplicatesPageClient({
   const dismissable = tab === 'review' || tab === 'possible' ? activeGroups : [];
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col gap-4">
+    <div className="flex min-h-full w-full min-w-0 max-w-full flex-col gap-4">
       <div className={cn('flex w-full min-w-0 flex-wrap items-start justify-between gap-3', openCluster && 'hidden md:flex')}>
         <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
           <h1 className="text-2xl font-bold">Duplicates</h1>
@@ -683,8 +692,8 @@ export function DuplicatesPageClient({
         ))}
       </div>
 
-      <div className="grid min-h-0 w-full min-w-0 flex-1 gap-4 md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
-        <div className={cn('flex w-full min-w-0 flex-col gap-2', expandedClusterId && tab !== 'dismissed' && tab !== 'merged' && 'hidden md:flex')}>
+      <div className="grid w-full min-w-0 flex-1 gap-4 md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
+        <div className={cn('flex w-full min-w-0 flex-col gap-2 md:sticky md:top-4 md:max-h-[calc(100vh-7rem)] md:self-start md:overflow-y-auto md:p-0.5', expandedClusterId && tab !== 'dismissed' && tab !== 'merged' && 'hidden md:flex')}>
           {scanError ? (
             <div className="py-12 text-center text-muted-foreground">
               <AlertCircle className="mx-auto mb-4 h-12 w-12 text-red-500/60" />

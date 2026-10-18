@@ -112,13 +112,14 @@ export function cardLines(cluster: QueueCluster, order: QueuePlace[], memberId: 
   const links = mine.filter((edge) => edge.included && !against.includes(edge)).sort((a, b) => b.score - a.score);
   const linkedTo = new Set(links.map(other));
 
-  if (links.length > 0 && linkedTo.size === 1 && against.length > 0 && order.length > 2) {
+  if (links.length > 0 && linkedTo.size === 1 && against.length > 0 && order.length > 2 && memberId !== order[0]?.id) {
     lines.push({ text: `Only linked through #${number.get(other(links[0]))}`, tone: 'weak' });
   } else if (links.length > 0) {
     lines.push({ text: `Matches #${number.get(other(links[0]))} · ${pairFact(links[0])}`, tone: 'for' });
   }
   for (const edge of against) {
-    lines.push({ text: `${hardReason(edge)} from #${number.get(other(edge))}`, tone: 'against' });
+    const reason = hardReason(edge);
+    lines.push({ text: `${reason} ${reason.endsWith('apart') ? 'from' : 'with'} #${number.get(other(edge))}`, tone: 'against' });
   }
   for (const edge of mine) {
     if (edge.included || against.includes(edge)) continue;
@@ -197,7 +198,8 @@ export function suggestedOut(cluster: QueueCluster, keptId: string): Map<string,
     const first = edgeFor(cluster, member.id, against[0].id)!;
     const names = against.map((other) => other.name);
     const joined = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-    out.set(member.id, `Suggested out: ${hardReason(first)} from ${joined}.`);
+    const reason = hardReason(first);
+    out.set(member.id, `Suggested out: ${reason} ${reason.endsWith('apart') ? 'from' : 'with'} ${joined}.`);
   }
   return out;
 }

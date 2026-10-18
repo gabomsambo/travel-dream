@@ -152,8 +152,12 @@ export function DuplicateWorkbench({
   });
 
   const mergeCount = inIds.size;
-  const outNames = order.filter((place) => outIds.has(place.id)).map((place) => place.name);
-  const pairs = cluster.edges ?? [];
+  const outNames = order.filter((place) => outIds.has(place.id)).map((place) => `#${number(place.id)} ${place.name}`);
+  const pairKey = (edge: { a: string; b: string }) => {
+    const [x, y] = [number(edge.a), number(edge.b)].sort((p, q) => p - q);
+    return x * 100 + y;
+  };
+  const pairs = [...(cluster.edges ?? [])].sort((p, q) => pairKey(p) - pairKey(q));
   const rows = compareRows(order);
   const differing = rows.filter((row) => row.differs).length;
   const sources = order.filter((place) => place.id !== keptId && inIds.has(place.id));
@@ -331,7 +335,7 @@ export function DuplicateWorkbench({
                   key={place.id}
                   data-member={index + 1}
                   className={cn(
-                    'flex w-64 shrink-0 snap-start flex-col overflow-hidden rounded-lg border bg-background',
+                    'flex w-64 shrink-0 snap-start flex-col overflow-hidden rounded-lg border bg-background md:w-auto md:min-w-[13.5rem] md:flex-1 md:basis-0',
                     isOut && 'border-dashed opacity-70',
                   )}
                 >
@@ -369,7 +373,7 @@ export function DuplicateWorkbench({
                     {reasons.get(place.id) && isOut && (
                       <p className="text-sm text-red-700 dark:text-red-300">{reasons.get(place.id)}</p>
                     )}
-                    <div className="flex items-center justify-between text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
                       <button type="button" className="text-primary underline" onClick={() => setPanelId(place.id)}>See everything</button>
                       <a href={`/place/${place.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline">
                         Open place <ExternalLink className="h-3 w-3" />

@@ -20,8 +20,15 @@ async function failureMessage(response: Response, fallback: string) {
 }
 
 /**
- * The hero's ⋯ menu: archive (or restore) and delete, through the same endpoints the
- * review, inbox and archive pages use — PATCH status and DELETE /api/places/[id].
+ * The hero's ⋯ menu. Archive and restore PATCH /api/places/[id]; delete uses
+ * DELETE on that route. Archive and delete then call leave() (back, or Library
+ * on a direct visit). Restore stays put and refreshes.
+ *
+ * onArchive skips that PATCH and leave(); the caller writes the status.
+ * onDeleted still deletes, then skips leave(). onRestored runs after a
+ * successful restore, before the refresh. Review uses all three so the queue
+ * stays mounted: Archive is Not a place, Delete advances after confirmation,
+ * and Restore counts as added.
  */
 export function PlaceActionsMenu({
   placeId,

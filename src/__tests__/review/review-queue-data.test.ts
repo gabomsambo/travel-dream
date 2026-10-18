@@ -57,22 +57,41 @@ describe('loadReviewQueue with real SQLite data', () => {
       'plc_alice_new_2',
       'plc_alice_old_1',
     ])
-    expect(queue.entries.map((entry) => entry.source?.id)).toEqual([
-      'src_alice_new',
-      'src_alice_new',
-      'src_alice_old',
+    expect(queue.entries.map((entry) => entry.screenshotUrl)).toEqual([
+      'https://example.test/alice-new.jpg',
+      'https://example.test/alice-new.jpg',
+      'https://example.test/alice-old.jpg',
     ])
     expect(queue.entries[0]).toMatchObject({
       screenshotUrl: 'https://example.test/alice-new.jpg',
       screenshotName: 'new-list.jpg',
       uploadLabel: 'new-list.jpg',
     })
-    expect(queue.entries.every((entry) => entry.userId === ALICE.id && entry.source?.userId === ALICE.id)).toBe(true)
-    expect(queue.entries.some((entry) => entry.userId === BOB.id || entry.source?.userId === BOB.id)).toBe(false)
+    expect(queue.entries.every((entry) => entry.userId === ALICE.id && !('source' in entry))).toBe(true)
+    expect(queue.entries.some((entry) => entry.userId === BOB.id)).toBe(false)
     expect(queue.postcard?.place.id).toBe('plc_alice_new_1')
     expect(queue.postcard?.place.sources.map((source) => source.id)).toEqual(['src_alice_new'])
     expect(queue.postcard?.alsoIn).toEqual([])
     expect(queue.trips.map((trip) => trip.id)).toEqual(['col_alice'])
+  })
+
+  it('keeps OCR text and extraction caches off the queue payload', async () => {
+    const execute = dbExec()
+    await execute({
+      sql: `UPDATE sources SET ocr_text = ?, meta = json_set(COALESCE(meta, '{}'), '$.massUpload.extraction', json(?)) WHERE id = ?`,
+      args: ['ocr-secret-body', JSON.stringify({ name: 'secret-gemini-place' }), 'src_alice_new'],
+    })
+
+    const queue = await loadReviewQueue(ALICE.id)
+    const payload = JSON.stringify(queue.entries)
+
+    expect(payload).not.toContain('ocr-secret-body')
+    expect(payload).not.toContain('secret-gemini-place')
+    expect(queue.entries[0]).toMatchObject({
+      screenshotName: 'new-list.jpg',
+      uploadLabel: 'new-list.jpg',
+    })
+    expect(queue.postcard?.place.id).toBe('plc_alice_new_1')
   })
 
   it('loads relations for the requested place and not once per inbox row', async () => {

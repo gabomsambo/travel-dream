@@ -20,11 +20,13 @@ jest.mock('@/components/places/place-view/place-view', () => {
       onArchive,
       onDeleted,
       onRestored,
+      onOpenClassic,
     }: {
       place: PlaceWithRelations
       onArchive?: () => void
       onDeleted?: () => void
       onRestored?: () => void
+      onOpenClassic?: () => void
     }) => {
       const mountedId = React.useRef(place.id)
       return (
@@ -33,6 +35,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
           <button type="button" onClick={() => onRestored?.()}>Restore from postcard</button>
+          <button type="button" onClick={() => onOpenClassic?.()}>Open classic editor</button>
         </div>
       )
     },
@@ -127,7 +130,6 @@ function entryFrom(row: PlaceWithRelations, src: Source): ReviewQueueEntry {
     name: row.name,
     createdAt: row.createdAt,
     userId: row.userId,
-    source: src,
     screenshotUrl: src.uri,
     screenshotName: `${src.id}.jpg`,
     uploadLabel: `${src.id}.jpg`,
@@ -187,6 +189,34 @@ describe('ReviewQueue decisions', () => {
       return jsonResponse({ status: 'success' })
     })
     window.history.replaceState({}, '', '/review')
+  })
+
+  it('shows a failed postcard in the place pane instead of leaving the spinner', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        return jsonResponse({ message: 'Place exploded' }, 500)
+      }
+      return jsonResponse({ status: 'success' })
+    })
+    renderQueue()
+
+    fireEvent.keyDown(window, { key: 's' })
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Place exploded'))
+    expect(screen.queryByLabelText('Loading place')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('postcard')).not.toBeInTheDocument()
+    const postcardGets = fetchMock.mock.calls.filter((call) => String(call[0]).startsWith('/api/review/postcard/'))
+    expect(postcardGets).toHaveLength(1)
+  })
+
+  it('opens the classic editor for the card on screen', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+
+    await user.click(screen.getByRole('button', { name: 'Open classic editor' }))
+
+    expect(mockPush).toHaveBeenCalledWith('/place/plc_one?editor=classic')
   })
 
   it('adds, advances, and offers an Undo that restores Inbox and the original card', async () => {

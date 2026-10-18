@@ -17,14 +17,14 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/adapters/button'
 import { PlaceView } from '@/components/places/place-view/place-view'
-import { placeEditHref } from '@/lib/place-view/edit-link'
+import { placeClassicHref, placeEditHref } from '@/lib/place-view/edit-link'
 import { notify } from '@/lib/notify'
 import type { ExploreCollection } from '@/lib/explore/types'
 import type { ReviewPostcard, ReviewQueueEntry } from '@/lib/review-queue'
 
 type ReviewOutcome = 'added' | 'archived' | 'skipped' | 'removed'
 type PlaceStatus = 'inbox' | 'library' | 'archived'
-type SessionEntry = ReviewQueueEntry & { postcard?: ReviewPostcard }
+type SessionEntry = ReviewQueueEntry & { postcard?: ReviewPostcard; postcardError?: string }
 
 interface ReviewQueueProps {
   entries: ReviewQueueEntry[]
@@ -69,6 +69,13 @@ function installPostcard(
   return { ...postcard, place: { ...postcard.place, status } }
 }
 
+function withInstalledPostcard(entry: SessionEntry, installed: ReviewPostcard | null): SessionEntry {
+  if (!installed || entry.placeId !== installed.place.id) return entry
+  const next: SessionEntry = { ...entry, postcard: installed }
+  delete next.postcardError
+  return next
+}
+
 function mergeSession(
   session: SessionEntry[],
   entries: ReviewQueueEntry[],
@@ -83,11 +90,11 @@ function mergeSession(
     seen.add(existing.placeId)
     const update = incoming.get(existing.placeId)
     const next: SessionEntry = update ? { ...existing, ...update, postcard: existing.postcard } : existing
-    merged.push(installed && next.placeId === installed.place.id ? { ...next, postcard: installed } : next)
+    merged.push(withInstalledPostcard(next, installed))
   }
   for (const entry of entries) {
     if (seen.has(entry.placeId)) continue
-    merged.push(installed && entry.placeId === installed.place.id ? { ...entry, postcard: installed } : { ...entry })
+    merged.push(withInstalledPostcard({ ...entry }, installed))
   }
   return merged
 }
@@ -274,7 +281,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const current = currentId === null ? null : session.find((entry) => entry.placeId === currentId) ?? null
-  const postcardMissing = Boolean(current && !current.postcard)
+  const postcardMissing = Boolean(current && !current.postcard && !current.postcardError)
   const initialQueueRef = React.useRef({ entries, initialPlaceId })
   const didRedirectStaleLink = React.useRef(false)
 
@@ -310,13 +317,17 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
             { place: body.place, alsoIn: body.alsoIn ?? [] },
             writtenStatusRef.current,
           )
-          if (!entry.postcard) return { ...entry, postcard: serverPostcard }
+          if (!entry.postcard) return withInstalledPostcard(entry, serverPostcard)
           if (!writtenStatusRef.current[placeId] || entry.postcard.place.status === serverPostcard.place.status) return entry
-          return { ...entry, postcard: serverPostcard }
+          return withInstalledPostcard(entry, serverPostcard)
         }))
       } catch (loadError) {
         if (cancelled || (loadError instanceof DOMException && loadError.name === 'AbortError')) return
-        setError(loadError instanceof Error ? loadError.message : "We couldn't open this place.")
+        const message = loadError instanceof Error ? loadError.message : "We couldn't open this place."
+        setSession((prev) => prev.map((entry) => {
+          if (entry.placeId !== placeId || entry.postcard) return entry
+          return { ...entry, postcardError: message }
+        }))
       }
     })()
     return () => {
@@ -545,12 +556,17 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
               trips={trips}
               alsoIn={current.postcard.alsoIn}
               onEdit={() => router.push(placeEditHref(current.placeId))}
+              onOpenClassic={() => router.push(placeClassicHref(current.placeId))}
               onPhotoAttached={() => router.refresh()}
               onArchive={() => { void decide('archived') }}
               onDeleted={removeFromQueue}
               onRestored={() => noteRestored(current.placeId)}
               showMobileActionBar={false}
             />
+          ) : current.postcardError ? (
+            <div className="grid min-h-64 place-items-center px-6 text-center text-sm text-muted-foreground" role="alert">
+              {current.postcardError}
+            </div>
           ) : (
             <div className="grid min-h-64 place-items-center text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin" aria-label="Loading place" />

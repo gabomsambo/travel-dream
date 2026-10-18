@@ -6,7 +6,6 @@
  */
 import {
   ALICE,
-  BOB,
   FIXTURE,
   assertLocalDatabase,
   readCell,

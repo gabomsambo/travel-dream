@@ -278,6 +278,13 @@ describe('Path A — a mixed list acts on the caller\'s rows only', () => {
     await execute('INSERT INTO sources_to_places (source_id, place_id) VALUES (?, ?)', [
       FIXTURE.aliceSource, FIXTURE.alicePlace,
     ]);
+    await execute('UPDATE sources SET meta = ? WHERE id = ?', [
+      JSON.stringify({
+        uploadInfo: { sessionId: FIXTURE.aliceSession },
+        massUpload: { outcome: { created: [FIXTURE.alicePlace], linked: [] } },
+      }),
+      FIXTURE.aliceSource,
+    ]);
     await setSessionUploadedFiles(FIXTURE.aliceSession, [FIXTURE.bobSource, FIXTURE.aliceSource]);
     const mixed = await (
       await GET(apiRequest(`http://t/api/mass-upload/status?sessionId=${FIXTURE.aliceSession}`))
@@ -348,9 +355,13 @@ describe('register duplicate branch scopes its rebuild sweep', () => {
 
     expect(response.status).toBe(200);
     expect((await response.json()).status).toBe('duplicate');
-    const uploadedFiles = JSON.parse(await sessionMeta(FIXTURE.aliceSession)).uploadedFiles;
-    expect(uploadedFiles).toEqual(expect.arrayContaining([FIXTURE.aliceSource, duplicateId]));
+    const meta = JSON.parse(await sessionMeta(FIXTURE.aliceSession));
+    const uploadedFiles = meta.uploadedFiles;
+    expect(uploadedFiles).toEqual([FIXTURE.aliceSource]);
     expect(uploadedFiles).not.toContain(FIXTURE.bobSource);
+    expect(meta.duplicates).toEqual([
+      { originalName: 'alice-duplicate.png', duplicateOf: duplicateId },
+    ]);
   });
 });
 

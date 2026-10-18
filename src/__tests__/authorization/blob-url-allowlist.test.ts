@@ -30,7 +30,13 @@ jest.mock('@/lib/db-utils', () => ({
       }),
       select: jest.fn().mockReturnValue({
         from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue([{ id: 'src_test-new' }]),
+          where: jest.fn().mockImplementation(() => {
+            const rows = Promise.resolve([{ id: 'src_test-new' }]) as Promise<unknown> & {
+              limit: () => Promise<Array<{ meta: null }>>;
+            };
+            rows.limit = () => Promise.resolve([{ meta: null }]);
+            return rows;
+          }),
         }),
       }),
     })

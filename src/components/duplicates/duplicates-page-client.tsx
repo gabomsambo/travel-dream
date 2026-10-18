@@ -313,9 +313,13 @@ export function DuplicatesPageClient({
       : dismissPairsForCluster(cluster);
     try {
       const written = await writePairs(pairs, 'POST');
-      if (written.failed && written.inserted.length === 0) throw new Error('Failed to dismiss cluster');
+      if (written.failed) {
+        if (written.inserted.length > 0) {
+          await writePairs(written.inserted, 'DELETE', { absentOk: true });
+        }
+        throw new Error('Failed to dismiss cluster');
+      }
       offerUndo(`Marked ${cluster.places.length} places as not duplicates`, { kind: 'dismiss', pairs: written.inserted });
-      if (written.failed) notify.error('Failed to dismiss cluster');
       setExpandedClusterId(nextId);
       await clearScanCache();
       router.refresh();

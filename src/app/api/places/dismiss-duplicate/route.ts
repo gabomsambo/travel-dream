@@ -10,6 +10,7 @@ import { dismissedDuplicates } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { getOwnedPlaceIds } from '@/lib/db-queries';
 import { insertFreshDismissPairs } from '@/lib/db-mutations';
+import { withTransaction } from '@/lib/db-utils';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { clearDuplicateScanCache } from '@/lib/duplicate-scan-cache';
 import { z } from 'zod';
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const recorded = await insertFreshDismissPairs(db, user.id, pairs, reason);
+    const recorded = await withTransaction((tx) => insertFreshDismissPairs(tx, user.id, pairs, reason));
 
     // The scan caches clusters after filtering dismissals, so a dismiss has to
     // drop that cache or the next load serves the group that was just dismissed.

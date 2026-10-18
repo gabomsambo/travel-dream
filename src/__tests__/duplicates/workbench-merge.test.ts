@@ -24,6 +24,7 @@ import { requireAuthForApi } from '@/lib/auth-helpers';
 import { loadDuplicateQueueExtras } from '@/lib/duplicate-queue-data';
 import {
   buildMergePlan,
+  cardLines,
   combinedScreenshotCount,
   compareStartsOpen,
   fieldConflicts,
@@ -292,6 +293,41 @@ describe('duplicates workbench on real data', () => {
     expect(await dismissedKeys()).toEqual([[ids[2], ids[3]].sort().join('|')]);
   });
 
+  it('rolls back a dismiss when a later insert batch fails', async () => {
+    const ids = Array.from({ length: 42 }, (_, index) => `plc_atom_${index}`);
+    for (const id of ids) await insertPlace({ id, name: id });
+    const pairs = ids.slice(1).map((id) => ({ placeId1: ids[0], placeId2: id }));
+    expect(pairs).toHaveLength(41);
+
+    const { client } = require('@/db') as {
+      client: { transaction: (mode?: string) => Promise<{ execute: (stmt: unknown) => Promise<unknown> }> };
+    };
+    const original = client.transaction.bind(client);
+    let inserts = 0;
+    const spy = jest.spyOn(client, 'transaction').mockImplementation(async (mode?: string) => {
+      const tx = await original(mode);
+      const execute = tx.execute.bind(tx);
+      tx.execute = async (stmt: unknown) => {
+        const text = typeof stmt === 'string' ? stmt : String((stmt as { sql?: string }).sql ?? '');
+        if (/insert\s+into/i.test(text) && /dismissed_duplicates/i.test(text)) {
+          inserts += 1;
+          if (inserts > 1) throw new Error('second batch failed');
+        }
+        return execute(stmt);
+      };
+      return tx;
+    });
+
+    try {
+      const response = await post('dismiss-duplicate', { pairs });
+      expect(response.status).toBe(500);
+      expect(inserts).toBe(2);
+      expect(await dismissedKeys()).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('undo restores the kept place, the absorbed place, and every moved row', async () => {
     const { attachments, collections, placesToCollections, sourcesToPlaces, reservations } =
       require('@/db/schema') as typeof import('@/db/schema');
@@ -392,6 +428,39 @@ describe('duplicates workbench on real data', () => {
     expect(pairs).toEqual([{ placeId1: 'plc_pair_o', placeId2: 'plc_pair_k' }]);
     expect((await post('dismiss-duplicate', { pairs })).status).toBe(200);
     expect(await dismissedKeys()).toEqual(['plc_pair_k|plc_pair_o']);
+  });
+
+  it('leaves both sides of one hard-against edge In and shows the conflict', async () => {
+    const kept = await insertPlace({ id: 'plc_g4_k', name: 'Kept Cafe', status: 'library', city: 'Lisbon', country: 'Portugal' });
+    const a = await insertPlace({ id: 'plc_g4_a', name: 'Cafe A', city: 'Lisbon', country: 'Portugal' });
+    const b = await insertPlace({ id: 'plc_g4_b', name: 'Cafe B', city: 'Lisbon', country: 'Portugal' });
+    const c = await insertPlace({ id: 'plc_g4_c', name: 'Cafe C', city: 'Lisbon', country: 'Portugal' });
+    const cluster: QueueCluster = {
+      cluster_id: 'plc_g4_a+plc_g4_b+plc_g4_c+plc_g4_k',
+      places: [kept, a, b, c],
+      avgConfidence: 0.9,
+      edges: [
+        edge('plc_g4_k', 'plc_g4_a', true, 40),
+        edge('plc_g4_k', 'plc_g4_b', true, 50),
+        edge('plc_g4_k', 'plc_g4_c', true, 30),
+        edge('plc_g4_a', 'plc_g4_c', true, 45),
+        edge('plc_g4_b', 'plc_g4_c', true, 55),
+        { ...edge('plc_g4_a', 'plc_g4_b', false, 5000), score: 0.4, against: ['5 km apart'] },
+      ],
+    };
+    const order = [kept, a, b, c];
+    expect([...suggestedOut(cluster, 'plc_g4_k').keys()]).toEqual([]);
+    expect(linkLines(cluster, order).find((line) => line.key === '2:3')).toEqual({
+      key: '2:3',
+      text: '2 and 3 · 5 km apart',
+      tone: 'against',
+    });
+    expect(cardLines(cluster, order, 'plc_g4_a').filter((line) => line.tone === 'against')).toEqual([
+      { text: '5 km apart from #3', tone: 'against' },
+    ]);
+    expect(cardLines(cluster, order, 'plc_g4_b').filter((line) => line.tone === 'against')).toEqual([
+      { text: '5 km apart from #2', tone: 'against' },
+    ]);
   });
 
   it('gives each hard-against edge its own reason', async () => {

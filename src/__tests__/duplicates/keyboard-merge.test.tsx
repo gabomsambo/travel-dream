@@ -116,6 +116,35 @@ function farPair() {
   };
 }
 
+function symmetricHardAgainstGroup() {
+  const kept = place('g4_k', 'Kept Cafe');
+  const cafeA = place('g4_a', 'Cafe A');
+  const cafeB = place('g4_b', 'Cafe B');
+  const cafeC = place('g4_c', 'Cafe C');
+  kept.status = 'library';
+  kept.confidence = 0.95;
+  kept.description = 'The complete record';
+  const near = (left: string, right: string, score: number, distanceM: number) => edge(left, right, score, distanceM, 0.95);
+  const clash = edge('g4_a', 'g4_b', 0.4, 5000, 0.9);
+  clash.included = false;
+  clash.against = ['5 km apart'];
+  return {
+    cluster_id: 'g4_a+g4_b+g4_c+g4_k',
+    avgConfidence: 0.9,
+    places: [kept, cafeA, cafeB, cafeC],
+    edges: [
+      near('g4_k', 'g4_a', 0.92, 40),
+      near('g4_k', 'g4_b', 0.9, 50),
+      near('g4_k', 'g4_c', 0.88, 30),
+      near('g4_a', 'g4_c', 0.86, 45),
+      near('g4_b', 'g4_c', 0.84, 55),
+      clash,
+    ],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
 function keptChangeGroup() {
   const kept = place('mix_k', 'Harbor Cafe');
   const kiosk = place('mix_n', 'Harbor Kiosk');
@@ -1345,6 +1374,67 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(undoPosts).toBe(2);
     expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0);
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it('shows a hard-against edge between two In members on the link line and both cards', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[symmetricHardAgainstGroup()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+
+    expect(partButton('Cafe A', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Cafe B', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('2 and 3 · 5 km apart')).toBeInTheDocument();
+    const member = (number: number) => {
+      const card = document.querySelector(`[data-member="${number}"]`);
+      expect(card).not.toBeNull();
+      return within(card as HTMLElement);
+    };
+    expect(member(2).getByText('5 km apart from #3')).toBeInTheDocument();
+    expect(member(3).getByText('5 km apart from #2')).toBeInTheDocument();
+    expect(screen.queryByText(/Suggested out:/)).not.toBeInTheDocument();
+  });
+
+  it('deletes a partial Not duplicates write when a later chunk fails', async () => {
+    const places = Array.from({ length: 16 }, (_, index) => place(`part_${index}`, `Cafe ${index}`));
+    let posts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        posts += 1;
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        if (posts === 1) return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
+        return { ok: false, status: 500, json: async () => ({ message: 'failed' }) };
+      }
+      return { ok: true, json: async () => ({ status: 'success' }) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: places.map((row) => row.id).sort().join('+'),
+          avgConfidence: 0.9,
+          places,
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to dismiss cluster'));
+    expect(notify.success).not.toHaveBeenCalled();
+    const posted = postedBodies('/api/places/dismiss-duplicate', 'POST');
+    expect(posted.map((body) => body.pairs?.length)).toEqual([100, 20]);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: posted[0].pairs }]);
   });
 
   it('chunks Not duplicates past 100 pairs and undoes only the pairs the server newly wrote', async () => {

@@ -57,6 +57,7 @@ export interface QueuePlaceFields {
   screenshotCount: number;
   hasPhoto: boolean;
   photoUrl: string | null;
+  photoCount: number;
 }
 
 export type QueuePlace = Place & Partial<QueuePlaceFields>;
@@ -89,6 +90,8 @@ export interface MergedGroupView {
   keptName: string;
   performedAt: string;
   placeCount: number;
+  /** Newest merge into this kept place, logged with what undo needs. */
+  canUndo?: boolean;
 }
 
 function hasCoords(place: { coords?: { lat: number; lon: number } | null }): boolean {
@@ -111,6 +114,16 @@ function countriesClash(a: QueuePlace, b: QueuePlace): boolean {
 
 function citiesClash(a: QueuePlace, b: QueuePlace): boolean {
   return Boolean(a.city?.trim() && b.city?.trim() && !citiesMatch(a.city, b.city));
+}
+
+/**
+ * Evidence that two members are different places, whatever the score: pins
+ * more than 2 km apart, or known cities or countries that differ.
+ */
+export function pairHasHardAgainst(edge: DuplicateGroupEdge, a: QueuePlace, b: QueuePlace): boolean {
+  const far = (edge.distanceM !== null && edge.distanceM > DUPLICATE_PAGE_BAND.farMetres)
+    || edge.flags.includes('far apart');
+  return far || citiesClash(a, b) || countriesClash(a, b);
 }
 
 /** The name match came through an alt name, not the two display names. */
@@ -238,9 +251,7 @@ export function certaintyWord(cluster: QueueCluster): CertaintyWord {
 
   if (edge.score < DUPLICATE_PAGE_BAND.reviewMin) return 'possible';
 
-  const far = (edge.distanceM !== null && edge.distanceM > DUPLICATE_PAGE_BAND.farMetres)
-    || edge.flags.includes('far apart');
-  if (citiesClash(placeA, placeB) || countriesClash(placeA, placeB) || far) return 'probably-not';
+  if (pairHasHardAgainst(edge, placeA, placeB)) return 'probably-not';
 
   const missingPins = edge.distanceM === null && !hasCoords(placeA) && !hasCoords(placeB);
   if (missingPins && edge.factors.name < DUPLICATE_PAGE_BAND.exactName) return 'maybe';

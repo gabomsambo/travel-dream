@@ -2,10 +2,10 @@ import { eq, and, inArray, count, sql, desc } from 'drizzle-orm';
 import { db } from '@/db';
 import { releaseBlobIfUnreferenced, releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks } from '@/db/schema';
-import { appendNote, mergePlaceFields, sanitizeMergeFieldOverrides, type MergeFieldOverrides } from '@/lib/place-merge';
+import { appendNote, MERGED_PLACE_FIELDS, mergePlaceFields, sanitizeMergeFieldOverrides, type MergeFieldOverrides } from '@/lib/place-merge';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { forUser } from './tenant-db';
-import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId, NotFoundError } from './db-utils';
+import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId, NotFoundError, ConflictError } from './db-utils';
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
 import { isClaimableNow } from './mass-upload/queue-sql';
 import { archivedAtForStatus } from './place-status';
@@ -971,12 +971,20 @@ export interface MovedMergeRelations {
   attachmentIds: string[];
   reservationIds: string[];
   placeLinkIds: string[];
+  /** Where each moved row came from, so `undoMerge` can put it back. */
+  attachmentOrigins?: Array<{ id: string; fromPlaceId: string; isPrimary: number }>;
+  reservationOrigins?: Array<{ id: string; fromPlaceId: string }>;
+  placeLinkOrigins?: Array<{ id: string; fromPlaceId: string }>;
   sourceLinks: Array<{ sourceId: string; fromPlaceId: string; action: 'moved' | 'dropped' }>;
   collectionLinks: Array<{
     collectionId: string;
     fromPlaceId: string;
     action: 'moved' | 'note-appended';
     absorbedNote: string | null;
+    /** For 'note-appended': the kept row's note before, and the absorbed row's position. */
+    keptNoteBefore?: string | null;
+    orderIndex?: number;
+    isPinned?: number;
   }>;
 }
 
@@ -1069,6 +1077,9 @@ export async function bulkMergePlaces(
             attachmentIds: [],
             reservationIds: [],
             placeLinkIds: [],
+            attachmentOrigins: [],
+            reservationOrigins: [],
+            placeLinkOrigins: [],
             sourceLinks: [],
             collectionLinks: [],
           };
@@ -1078,11 +1089,16 @@ export async function bulkMergePlaces(
               .from(attachments)
               .where(and(eq(attachments.placeId, cluster.targetId), eq(attachments.isPrimary, 1)))
               .limit(1);
-            const sourceAttachments = await tx.select({ id: attachments.id })
+            const sourceAttachments = await tx.select({ id: attachments.id, isPrimary: attachments.isPrimary })
               .from(attachments)
               .where(eq(attachments.placeId, sourceId));
             if (sourceAttachments.length > 0) {
               movedRelations.attachmentIds.push(...sourceAttachments.map((row: { id: string }) => row.id));
+              movedRelations.attachmentOrigins!.push(...sourceAttachments.map((row: { id: string; isPrimary: number }) => ({
+                id: row.id,
+                fromPlaceId: sourceId,
+                isPrimary: row.isPrimary,
+              })));
               await tx.update(attachments)
                 .set(targetHasPrimary
                   ? { placeId: cluster.targetId, isPrimary: 0 }
@@ -1095,6 +1111,7 @@ export async function bulkMergePlaces(
               .where(eq(reservations.placeId, sourceId));
             if (sourceReservations.length > 0) {
               movedRelations.reservationIds.push(...sourceReservations.map((row: { id: string }) => row.id));
+              movedRelations.reservationOrigins!.push(...sourceReservations.map((row: { id: string }) => ({ id: row.id, fromPlaceId: sourceId })));
               await tx.update(reservations)
                 .set({ placeId: cluster.targetId, updatedAt })
                 .where(eq(reservations.placeId, sourceId));
@@ -1105,6 +1122,7 @@ export async function bulkMergePlaces(
               .where(eq(placeLinks.placeId, sourceId));
             if (sourceLinks.length > 0) {
               movedRelations.placeLinkIds.push(...sourceLinks.map((row: { id: string }) => row.id));
+              movedRelations.placeLinkOrigins!.push(...sourceLinks.map((row: { id: string }) => ({ id: row.id, fromPlaceId: sourceId })));
               await tx.update(placeLinks)
                 .set({ placeId: cluster.targetId })
                 .where(eq(placeLinks.placeId, sourceId));
@@ -1200,6 +1218,9 @@ export async function bulkMergePlaces(
                   fromPlaceId: sourceId,
                   action: 'note-appended',
                   absorbedNote: assoc.note ?? null,
+                  keptNoteBefore: keptNote ?? null,
+                  orderIndex: assoc.orderIndex,
+                  isPinned: assoc.isPinned,
                 });
               }
             }
@@ -1240,6 +1261,8 @@ export async function bulkMergePlaces(
             status: merged.status,
             fieldOverrides: fieldOverrides ?? null,
             movedRelations,
+            // The kept place before this merge; `undoMerge` restores it.
+            targetSnapshot: { ...targetPlace },
             updatedAt,
           };
 
@@ -1280,36 +1303,138 @@ export async function bulkMergePlaces(
   }, 'bulkMergePlaces');
 }
 
-export async function undoMerge(mergeLogId: string, userId: string): Promise<void> {
+/** Place columns a merge may change; undo writes them back from the snapshots. */
+const UNDO_RESTORED_FIELDS = [
+  ...MERGED_PLACE_FIELDS,
+  'archivedAt',
+] as const;
+
+function restoredColumns(snapshot: Record<string, unknown>, updatedAt: string): Record<string, unknown> {
+  const columns: Record<string, unknown> = { updatedAt };
+  for (const field of UNDO_RESTORED_FIELDS) {
+    if (field in snapshot) columns[field] = snapshot[field] ?? null;
+  }
+  return columns;
+}
+
+function mergeOrderKey(log: { performedAt: string; mergedData: unknown }): string {
+  const data = log.mergedData as { updatedAt?: unknown } | null;
+  return typeof data?.updatedAt === 'string' ? data.updatedAt : log.performedAt;
+}
+
+/**
+ * Undo the latest merge into `placeId`: the kept place goes back to how it was
+ * before, every absorbed place comes back with its own fields and status, and
+ * photos, reservations, links, screenshots, and collection rows move back.
+ *
+ * Merges into one place are undone newest first. `mergeLogId`, when given,
+ * must be that newest merge. A place that was itself merged away since must
+ * have that later merge undone first. Merges logged before the kept-place
+ * snapshot existed cannot be undone.
+ */
+export async function undoMerge(
+  placeId: string,
+  userId: string,
+  mergeLogId?: string
+): Promise<{ mergeLogId: string; restoredIds: string[] }> {
   return withErrorHandling(async () => {
-    await withTransaction(async (tx) => {
-      const [log] = await tx.select().from(mergeLogs)
-        .where(eq(mergeLogs.id, mergeLogId)).limit(1);
+    return await withTransaction(async (tx) => {
+      const [target] = await tx.select().from(places)
+        .where(and(eq(places.id, placeId), eq(places.userId, userId))).limit(1);
+      if (!target) throw new NotFoundError('Place not found or unauthorized');
 
-      if (!log || log.undone) {
-        throw new Error('Merge log not found or already undone');
+      const logs = await tx.select().from(mergeLogs)
+        .where(and(eq(mergeLogs.targetId, placeId), eq(mergeLogs.undone, false)));
+      const latest = [...logs].sort((a, b) => mergeOrderKey(b).localeCompare(mergeOrderKey(a)))[0];
+      if (!latest) throw new NotFoundError('No merge to undo');
+      if (mergeLogId && mergeLogId !== latest.id) {
+        if (!logs.some((log: { id: string }) => log.id === mergeLogId)) {
+          throw new NotFoundError('No merge to undo');
+        }
+        throw new ConflictError('Undo the later merge into this place first');
+      }
+      if (target.status === 'archived') {
+        throw new ConflictError('This place was merged into another place since. Undo that merge first');
       }
 
-      // Verify ownership - check that the target place belongs to user
-      const [targetPlace] = await tx.select().from(places)
-        .where(and(eq(places.id, log.targetId), eq(places.userId, userId)))
-        .limit(1);
-
-      if (!targetPlace) {
-        throw new Error('Unauthorized to undo this merge');
+      const data = (latest.mergedData ?? {}) as {
+        targetSnapshot?: Record<string, unknown>;
+        movedRelations?: MovedMergeRelations;
+      };
+      if (!data.targetSnapshot) {
+        throw new ConflictError('This merge was made before undo was available');
       }
 
-      for (const snapshot of (log.sourceSnapshots as any[]) || []) {
-        await tx.insert(places).values({
-          ...snapshot,
-          status: 'library',
-          archivedAt: null,
-        });
+      const updatedAt = new Date().toISOString();
+      await tx.update(places)
+        .set(restoredColumns(data.targetSnapshot, updatedAt))
+        .where(and(eq(places.id, placeId), eq(places.userId, userId)));
+
+      const snapshots = (Array.isArray(latest.sourceSnapshots) ? latest.sourceSnapshots : []) as Array<Record<string, unknown>>;
+      const restoredIds: string[] = [];
+      for (const snapshot of snapshots) {
+        if (typeof snapshot.id !== 'string') continue;
+        await tx.update(places)
+          .set(restoredColumns(snapshot, updatedAt))
+          .where(and(eq(places.id, snapshot.id), eq(places.userId, userId)));
+        restoredIds.push(snapshot.id);
+      }
+
+      const moved = data.movedRelations;
+      for (const row of moved?.attachmentOrigins ?? []) {
+        await tx.update(attachments)
+          .set({ placeId: row.fromPlaceId, isPrimary: row.isPrimary })
+          .where(and(eq(attachments.id, row.id), eq(attachments.placeId, placeId)));
+      }
+      for (const row of moved?.reservationOrigins ?? []) {
+        await tx.update(reservations)
+          .set({ placeId: row.fromPlaceId, updatedAt })
+          .where(and(eq(reservations.id, row.id), eq(reservations.placeId, placeId)));
+      }
+      for (const row of moved?.placeLinkOrigins ?? []) {
+        await tx.update(placeLinks)
+          .set({ placeId: row.fromPlaceId })
+          .where(and(eq(placeLinks.id, row.id), eq(placeLinks.placeId, placeId)));
+      }
+      // Newest first, so a row moved by one source and then appended to by
+      // the next ends with the note it had before either.
+      for (const link of [...(moved?.sourceLinks ?? [])].reverse()) {
+        if (link.action === 'moved') {
+          await tx.update(sourcesToPlaces)
+            .set({ placeId: link.fromPlaceId })
+            .where(and(eq(sourcesToPlaces.placeId, placeId), eq(sourcesToPlaces.sourceId, link.sourceId)));
+        } else {
+          await tx.insert(sourcesToPlaces)
+            .values({ sourceId: link.sourceId, placeId: link.fromPlaceId })
+            .onConflictDoNothing();
+        }
+      }
+      for (const link of [...(moved?.collectionLinks ?? [])].reverse()) {
+        if (link.action === 'moved') {
+          await tx.update(placesToCollections)
+            .set({ placeId: link.fromPlaceId })
+            .where(and(eq(placesToCollections.placeId, placeId), eq(placesToCollections.collectionId, link.collectionId)));
+        } else {
+          await tx.update(placesToCollections)
+            .set({ note: link.keptNoteBefore ?? null })
+            .where(and(eq(placesToCollections.placeId, placeId), eq(placesToCollections.collectionId, link.collectionId)));
+          await tx.insert(placesToCollections)
+            .values({
+              placeId: link.fromPlaceId,
+              collectionId: link.collectionId,
+              note: link.absorbedNote,
+              orderIndex: link.orderIndex ?? 0,
+              isPinned: link.isPinned ?? 0,
+            })
+            .onConflictDoNothing();
+        }
       }
 
       await tx.update(mergeLogs)
-        .set({ undone: true, undonAt: new Date().toISOString() })
-        .where(eq(mergeLogs.id, mergeLogId));
+        .set({ undone: true, undonAt: updatedAt })
+        .where(eq(mergeLogs.id, latest.id));
+
+      return { mergeLogId: latest.id, restoredIds };
     });
   }, 'undoMerge');
 }

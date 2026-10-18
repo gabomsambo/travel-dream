@@ -890,6 +890,20 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   'places/dismiss-duplicate': {
     POST: {
       slots: ['place', 'place2'],
+      // The fixture stores this pair so DELETE has a row to remove. Dismissing
+      // a pair that is already stored inserts nothing, so the owner control
+      // removes Alice's row first and this POST writes a fresh one.
+      setup: async () => {
+        await dbExec()({
+          sql: `DELETE FROM dismissed_duplicates
+                WHERE user_id = ? AND (
+                  (place_id_1 = ? AND place_id_2 = ?) OR
+                  (place_id_1 = ? AND place_id_2 = ?)
+                )`,
+          args: [ALICE.id, ALICE_IDS.place, ALICE_IDS.place2, ALICE_IDS.place2, ALICE_IDS.place],
+        });
+        return [];
+      },
       request: (t) => ({
         url: `${API}/places/dismiss-duplicate`,
         body: { pairs: [{ placeId1: t.place, placeId2: t.place2 }] },

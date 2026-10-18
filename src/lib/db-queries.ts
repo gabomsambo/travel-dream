@@ -762,7 +762,7 @@ export async function getInboxStats(userId: string): Promise<{
     low: number;     // 60-79%
     veryLow: number; // <60%
   };
-  needsReview: number; // Potential duplicates or conflicts
+  needsReview: number; // Inbox places still awaiting review
   avgConfidence: number;
 }> {
   return withErrorHandling(async () => {
@@ -781,8 +781,7 @@ export async function getInboxStats(userId: string): Promise<{
     const total = result?.total ?? 0;
     const veryLow = result?.veryLow ?? 0;
 
-    // Estimate items needing review (very low confidence + potential duplicates)
-    const needsReview = veryLow + Math.floor(total * 0.05); // Estimate 5% might be duplicates
+    const needsReview = total;
 
     return {
       total,

@@ -376,12 +376,12 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(fireEvent.keyDown(document, { key: 'k', metaKey: true })).toBe(true);
     expect(fireEvent.keyDown(document, { key: 'j', ctrlKey: true })).toBe(true);
     expect(fireEvent.keyDown(document, { key: 'k', altKey: true })).toBe(true);
-    expect(screen.queryByText('Merge These Two')).not.toBeInTheDocument();
+    expect(screen.queryByText('Is this one place?')).not.toBeInTheDocument();
     expect(document.querySelector('[aria-current="true"]')).toBeNull();
 
     expect(fireEvent.keyDown(document, { key: 'j' })).toBe(false);
     expect(document.querySelector('[data-cluster-index="0"]')).toHaveAttribute('aria-current', 'true');
-    expect(screen.getByText('Merge These Two')).toBeInTheDocument();
+    expect(screen.getByText('Is this one place?')).toBeInTheDocument();
 
     expect(fireEvent.keyDown(document, { key: 'j', metaKey: true })).toBe(true);
     expect(document.querySelector('[data-cluster-index="0"]')).toHaveAttribute('aria-current', 'true');
@@ -781,7 +781,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
 
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
-    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
     fireEvent.keyDown(document, { key: 'm' });
 
     expect(postedBodies('/api/places/bulk-merge', 'POST')).toHaveLength(1);
@@ -828,23 +828,22 @@ describe('duplicates keyboard and bulk confirmation', () => {
     await screen.findByText('Tromsø Cathedral');
 
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
-    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
-    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged "Arctic Cathedral" into "Tromsø Cathedral"'));
-
-    fireEvent.keyDown(document, { key: 'm' });
-    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 2 places'));
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith(
+      'Merged 2 places into Tromsø Cathedral',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    ));
 
     const bodies = postedBodies('/api/places/bulk-merge', 'POST');
-    expect(bodies).toHaveLength(3);
+    expect(bodies).toHaveLength(2);
     expect(bodies[1].clusters).toEqual([{
       targetId: 'arctic_c',
       sourceIds: ['arctic_a'],
       confidence: 0.98,
     }]);
-    expect(bodies[2].clusters).toEqual(bodies[1].clusters);
   });
 
-  it('refreshes a skipped pair merge without a failure toast', async () => {
+  it('refreshes a skipped merge from the button without a failure toast', async () => {
     const { refresh, routerSpy: spy } = spyRefresh();
     routerSpy = spy;
     (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
@@ -867,7 +866,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     Element.prototype.scrollIntoView = jest.fn();
 
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
-    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
 
     await waitFor(() => expect(deleteCalls()).toHaveLength(1));
     expect(refresh).toHaveBeenCalled();
@@ -906,7 +905,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(notify.success).not.toHaveBeenCalled();
   });
 
-  it('still reports a pair merge that failed', async () => {
+  it('still reports a merge that failed', async () => {
     const { refresh, routerSpy: spy } = spyRefresh();
     routerSpy = spy;
     (global.fetch as jest.Mock).mockResolvedValue({
@@ -924,11 +923,13 @@ describe('duplicates keyboard and bulk confirmation', () => {
     Element.prototype.scrollIntoView = jest.fn();
 
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
-    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
 
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('transaction failed'));
     expect(deleteCalls()).toHaveLength(0);
-    expect(refresh).not.toHaveBeenCalled();
+    // The group was taken off the queue while the merge ran; the refresh brings it back.
+    expect(refresh).toHaveBeenCalled();
+    expect(notify.success).not.toHaveBeenCalled();
   });
 
   it('refreshes when every certain-group merge is already skipped', async () => {

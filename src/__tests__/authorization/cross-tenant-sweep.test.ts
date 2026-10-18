@@ -931,6 +931,18 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
     },
     GET: { exempt: 'Returns static API documentation; reads nothing.' },
   },
+  'places/undo-merge': {
+    POST: {
+      slots: ['place'],
+      // Alice merges her second place into her first, so the owner control has a merge to undo.
+      setup: async () => {
+        const { bulkMergePlaces } = require('@/lib/db-mutations') as typeof import('@/lib/db-mutations');
+        await bulkMergePlaces([{ targetId: ALICE_IDS.place, sourceIds: [ALICE_IDS.place2], confidence: 0.9 }], ALICE.id);
+        return [];
+      },
+      request: (t) => ({ url: `${API}/places/undo-merge`, body: { placeId: t.place } }),
+    },
+  },
 
   // --- sources -------------------------------------------------------------
   'sources/[id]': {

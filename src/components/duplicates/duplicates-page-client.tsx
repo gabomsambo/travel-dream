@@ -344,10 +344,10 @@ export function DuplicatesPageClient({
         await clearScanCache();
         router.refresh();
       } else {
-        throw new Error('Merge failed');
+        throw new Error(result.results?.find((entry) => entry.error)?.error || 'Failed to merge cluster');
       }
-    } catch {
-      notify.error('Failed to merge cluster');
+    } catch (error) {
+      notify.error(error instanceof Error && error.message !== 'Failed to fetch' ? error.message : 'Failed to merge cluster');
       router.refresh();
     } finally {
       setIsLoading(false);

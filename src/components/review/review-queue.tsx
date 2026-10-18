@@ -22,7 +22,8 @@ import { notify } from '@/lib/notify'
 import type { ExploreCollection } from '@/lib/explore/types'
 import type { ReviewPostcard, ReviewQueueEntry } from '@/lib/review-queue'
 
-type ReviewOutcome = 'added' | 'archived' | 'skipped'
+type ReviewOutcome = 'added' | 'archived' | 'skipped' | 'removed'
+type PlaceStatus = 'inbox' | 'library' | 'archived'
 type SessionEntry = ReviewQueueEntry & { postcard?: ReviewPostcard }
 
 interface ReviewQueueProps {
@@ -59,48 +60,40 @@ function reviewHref(placeId: string | null): string {
   return `/review?placeId=${encodeURIComponent(placeId)}&from=queue`
 }
 
+function installPostcard(
+  postcard: ReviewPostcard,
+  written: Readonly<Record<string, PlaceStatus>>,
+): ReviewPostcard {
+  const status = written[postcard.place.id]
+  if (!status || postcard.place.status === status) return postcard
+  return { ...postcard, place: { ...postcard.place, status } }
+}
+
 function mergeSession(
   session: SessionEntry[],
   entries: ReviewQueueEntry[],
   postcard: ReviewPostcard | null,
+  written: Readonly<Record<string, PlaceStatus>>,
 ): SessionEntry[] {
   const incoming = new Map(entries.map((entry) => [entry.placeId, entry]))
   const seen = new Set<string>()
   const merged: SessionEntry[] = []
+  const installed = postcard ? installPostcard(postcard, written) : null
   for (const existing of session) {
     seen.add(existing.placeId)
     const update = incoming.get(existing.placeId)
     const next: SessionEntry = update ? { ...existing, ...update, postcard: existing.postcard } : existing
-    merged.push(postcard && next.placeId === postcard.place.id ? { ...next, postcard } : next)
+    merged.push(installed && next.placeId === installed.place.id ? { ...next, postcard: installed } : next)
   }
   for (const entry of entries) {
     if (seen.has(entry.placeId)) continue
-    merged.push(postcard && entry.placeId === postcard.place.id ? { ...entry, postcard } : { ...entry })
-  }
-  if (postcard && !merged.some((entry) => entry.placeId === postcard.place.id)) {
-    merged.push({
-      placeId: postcard.place.id,
-      name: postcard.place.name,
-      createdAt: postcard.place.createdAt,
-      userId: postcard.place.userId,
-      source: null,
-      screenshotUrl: null,
-      screenshotName: null,
-      uploadLabel: 'your upload',
-      postcard,
-    })
+    merged.push(installed && entry.placeId === installed.place.id ? { ...entry, postcard: installed } : { ...entry })
   }
   return merged
 }
 
-function startingPlaceId(
-  entries: ReviewQueueEntry[],
-  postcard: ReviewPostcard | null,
-  initialPlaceId: string | undefined,
-): string | null {
-  if (initialPlaceId && (entries.some((entry) => entry.placeId === initialPlaceId) || postcard?.place.id === initialPlaceId)) {
-    return initialPlaceId
-  }
+function startingPlaceId(entries: ReviewQueueEntry[], initialPlaceId: string | undefined): string | null {
+  if (initialPlaceId && entries.some((entry) => entry.placeId === initialPlaceId)) return initialPlaceId
   return entries[0]?.placeId ?? null
 }
 
@@ -180,6 +173,7 @@ function ReviewSummary({
     added: entries.filter((entry) => outcomes[entry.placeId] === 'added'),
     archived: entries.filter((entry) => outcomes[entry.placeId] === 'archived'),
     skipped: entries.filter((entry) => outcomes[entry.placeId] === 'skipped'),
+    removed: entries.filter((entry) => outcomes[entry.placeId] === 'removed'),
   }
   const firstSkipped = grouped.skipped[0]
 
@@ -215,6 +209,12 @@ function ReviewSummary({
             <strong className="block font-serif text-3xl">{grouped.skipped.length}</strong>
             <span className="mt-1 block text-sm text-muted-foreground">skipped for later</span>
           </button>
+          {grouped.removed.length > 0 && (
+            <div className="rounded-2xl border bg-background p-5">
+              <strong className="block font-serif text-3xl">{grouped.removed.length}</strong>
+              <span className="mt-1 block text-sm text-muted-foreground">removed</span>
+            </div>
+          )}
         </div>
 
         {grouped.skipped.length > 0 && (
@@ -242,19 +242,31 @@ function ReviewSummary({
 
 export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: ReviewQueueProps) {
   const router = useRouter()
-  const [session, setSession] = React.useState<SessionEntry[]>(() => mergeSession([], entries, postcard))
+  const [session, setSession] = React.useState<SessionEntry[]>(() => mergeSession([], entries, postcard, {}))
   const sessionRef = React.useRef(session)
   sessionRef.current = session
-  const [currentId, setCurrentId] = React.useState<string | null>(() => startingPlaceId(entries, postcard, initialPlaceId))
+  const writtenStatusRef = React.useRef<Record<string, PlaceStatus>>({})
+  const [currentId, setCurrentId] = React.useState<string | null>(() => startingPlaceId(entries, initialPlaceId))
+  const currentIdRef = React.useRef(currentId)
+  currentIdRef.current = currentId
   const [outcomes, setOutcomes] = React.useState<Record<string, ReviewOutcome>>({})
+  const outcomesRef = React.useRef(outcomes)
+  outcomesRef.current = outcomes
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const current = currentId === null ? null : session.find((entry) => entry.placeId === currentId) ?? null
   const postcardMissing = Boolean(current && !current.postcard)
 
-  React.useEffect(() => {
-    setSession((prev) => mergeSession(prev, entries, postcard))
-  }, [entries, postcard])
+  const commitStatus = React.useCallback((placeId: string, status: PlaceStatus) => {
+    writtenStatusRef.current = { ...writtenStatusRef.current, [placeId]: status }
+    setSession((prev) => withPostcardStatus(prev, placeId, status))
+  }, [])
+
+  React.useLayoutEffect(() => {
+    const href = reviewHref(currentId)
+    if (`${window.location.pathname}${window.location.search}` === href) return
+    window.history.replaceState({}, '', href)
+  }, [currentId])
 
   React.useEffect(() => {
     if (!currentId || !postcardMissing) return
@@ -269,9 +281,16 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
         if (!response.ok || !body?.place) {
           throw new Error(body?.message || "We couldn't open this place. Try again.")
         }
-        setSession((prev) => prev.map((entry) => (
-          entry.placeId === placeId && !entry.postcard ? { ...entry, postcard: { place: body.place, alsoIn: body.alsoIn ?? [] } } : entry
-        )))
+        setSession((prev) => prev.map((entry) => {
+          if (entry.placeId !== placeId) return entry
+          const serverPostcard = installPostcard(
+            { place: body.place, alsoIn: body.alsoIn ?? [] },
+            writtenStatusRef.current,
+          )
+          if (!entry.postcard) return { ...entry, postcard: serverPostcard }
+          if (!writtenStatusRef.current[placeId] || entry.postcard.place.status === serverPostcard.place.status) return entry
+          return { ...entry, postcard: serverPostcard }
+        }))
       } catch (loadError) {
         if (cancelled || (loadError instanceof DOMException && loadError.name === 'AbortError')) return
         setError(loadError instanceof Error ? loadError.message : "We couldn't open this place.")
@@ -301,18 +320,27 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     selectPlace(nextId)
   }, [selectPlace])
 
+  React.useEffect(() => {
+    const written = writtenStatusRef.current
+    const merged = mergeSession(sessionRef.current, entries, postcard, written)
+    setSession((prev) => mergeSession(prev, entries, postcard, writtenStatusRef.current))
+    if (currentIdRef.current !== null) return
+    const nextId = merged.find((entry) => !outcomesRef.current[entry.placeId])?.placeId
+    if (nextId) selectPlace(nextId)
+  }, [entries, postcard, selectPlace])
+
   const undoDecision = React.useCallback(async (
     placeId: string,
     previousOutcome: ReviewOutcome | undefined,
   ) => {
     const entry = session.find((item) => item.placeId === placeId)
     if (!entry) return
-    const restoreStatus = previousOutcome && previousOutcome !== 'skipped'
+    const restoreStatus = previousOutcome === 'added' || previousOutcome === 'archived'
       ? OUTCOME_STATUS[previousOutcome]
       : 'inbox'
     try {
       await setPlaceStatus(entry.placeId, restoreStatus)
-      setSession((prev) => withPostcardStatus(prev, entry.placeId, restoreStatus))
+      commitStatus(entry.placeId, restoreStatus)
       setOutcomes((existing) => {
         const next = { ...existing }
         if (previousOutcome) next[entry.placeId] = previousOutcome
@@ -324,7 +352,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     } catch (undoError) {
       notify.error(undoError instanceof Error ? undoError.message : "Couldn't undo that change.")
     }
-  }, [session, selectPlace])
+  }, [commitStatus, session, selectPlace])
 
   const decide = React.useCallback(async (outcome: 'added' | 'archived') => {
     if (!current || busy) return
@@ -335,7 +363,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     try {
       const written = OUTCOME_STATUS[outcome]
       await setPlaceStatus(placeId, written)
-      setSession((prev) => withPostcardStatus(prev, placeId, written))
+      commitStatus(placeId, written)
       const nextOutcomes = { ...outcomes, [placeId]: outcome }
       setOutcomes(nextOutcomes)
       advance(placeId, nextOutcomes)
@@ -358,7 +386,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     } finally {
       setBusy(false)
     }
-  }, [advance, busy, current, outcomes, undoDecision])
+  }, [advance, busy, commitStatus, current, outcomes, undoDecision])
 
   const skip = React.useCallback(async () => {
     if (!current || busy) return
@@ -369,7 +397,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     try {
       if (previousOutcome === 'added' || previousOutcome === 'archived') {
         await setPlaceStatus(placeId, 'inbox')
-        setSession((prev) => withPostcardStatus(prev, placeId, 'inbox'))
+        commitStatus(placeId, 'inbox')
       }
       const nextOutcomes = { ...outcomes, [placeId]: 'skipped' as const }
       setOutcomes(nextOutcomes)
@@ -381,7 +409,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     } finally {
       setBusy(false)
     }
-  }, [advance, busy, current, outcomes])
+  }, [advance, busy, commitStatus, current, outcomes])
 
   const previous = React.useCallback(() => {
     const index = currentId === null ? -1 : session.findIndex((entry) => entry.placeId === currentId)
@@ -402,6 +430,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     })
     selectPlace(placeId)
   }, [selectPlace])
+
+  const removeFromQueue = React.useCallback(() => {
+    if (!current) return
+    const placeId = current.placeId
+    const nextOutcomes = { ...outcomes, [placeId]: 'removed' as const }
+    setOutcomes(nextOutcomes)
+    advance(placeId, nextOutcomes)
+  }, [advance, current, outcomes])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -466,6 +502,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
               alsoIn={current.postcard.alsoIn}
               onEdit={() => router.push(placeEditHref(current.placeId))}
               onPhotoAttached={() => router.refresh()}
+              onArchive={() => { void decide('archived') }}
+              onDeleted={removeFromQueue}
               showMobileActionBar={false}
             />
           ) : (

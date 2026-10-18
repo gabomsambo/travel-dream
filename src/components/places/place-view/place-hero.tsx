@@ -30,6 +30,8 @@ export function PlaceHero({
   onPrefetchEdit,
   onOpenPhoto,
   onPhotoAttached,
+  onArchive,
+  onDeleted,
 }: {
   place: PlaceWithRelations
   photos: Attachment[]
@@ -38,6 +40,8 @@ export function PlaceHero({
   onPrefetchEdit?: () => void
   onOpenPhoto: (index: number) => void
   onPhotoAttached: () => void
+  onArchive?: () => void
+  onDeleted?: () => void
 }) {
   const edit = useSectionEdit()
   const editing = Boolean(edit?.editingAll)
@@ -102,6 +106,8 @@ export function PlaceHero({
             className={GLASS}
             onOpenClassic={onOpenClassic}
             onPrefetchClassic={onPrefetchEdit}
+            onArchive={onArchive}
+            onDeleted={onDeleted}
           />
         </div>
 

@@ -30,6 +30,8 @@ export function PlaceActionsMenu({
   className,
   onOpenClassic,
   onPrefetchClassic,
+  onArchive,
+  onDeleted,
 }: {
   placeId: string
   placeName: string
@@ -37,6 +39,8 @@ export function PlaceActionsMenu({
   className?: string
   onOpenClassic?: () => void
   onPrefetchClassic?: () => void
+  onArchive?: () => void
+  onDeleted?: () => void
 }) {
   const router = useRouter()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
@@ -87,7 +91,8 @@ export function PlaceActionsMenu({
       if (!response.ok) throw new Error(await failureMessage(response, "Failed to delete place"))
       setConfirmDelete(false)
       notify.success(`Deleted “${placeName}”`)
-      leave()
+      if (onDeleted) onDeleted()
+      else leave()
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to delete place")
     } finally {
@@ -120,7 +125,7 @@ export function PlaceActionsMenu({
               <ArchiveRestore className="mr-2 h-4 w-4" aria-hidden /> Restore to library
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem onSelect={() => setStatus("archived")}>
+            <DropdownMenuItem onSelect={() => { if (onArchive) onArchive(); else void setStatus("archived") }}>
               <Archive className="mr-2 h-4 w-4" aria-hidden /> Archive
             </DropdownMenuItem>
           )}

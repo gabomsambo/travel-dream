@@ -2,8 +2,10 @@ import React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PlaceActionsMenu } from '@/components/places/place-view/place-actions-menu'
+import { PlaceHero } from '@/components/places/place-view/place-hero'
 import { notify } from '@/lib/notify'
 import { toastWithNavigate } from '@/lib/toast-navigate'
+import type { PlaceWithRelations } from '@/types/database'
 
 const mockRouter = { back: jest.fn(), push: jest.fn(), refresh: jest.fn() }
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }))
@@ -104,6 +106,55 @@ describe('PlaceActionsMenu', () => {
     expect(notify.success).toHaveBeenCalledWith('Deleted “Fushimi Inari-taisha”')
   })
 
+  it('lets the surrounding queue archive without leaving the page', async () => {
+    const onArchive = jest.fn()
+    render(<PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="inbox" onArchive={onArchive} />)
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: /Archive/ }))
+
+    expect(onArchive).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(toastWithNavigate).not.toHaveBeenCalled()
+    expect(mockRouter.back).not.toHaveBeenCalled()
+    expect(mockRouter.push).not.toHaveBeenCalled()
+  })
+
+  it('deletes after confirmation and lets the queue advance instead of going back', async () => {
+    const onDeleted = jest.fn()
+    render(<PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="inbox" onDeleted={onDeleted} />)
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: /Delete/ }))
+
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Delete “Fushimi Inari-taisha”?')
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onDeleted).not.toHaveBeenCalled()
+
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: /Delete/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete place' }))
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1))
+    expect(fetchMock).toHaveBeenCalledWith('/api/places/plc_fushimi', { method: 'DELETE' })
+    expect(notify.success).toHaveBeenCalledWith('Deleted “Fushimi Inari-taisha”')
+    expect(mockRouter.back).not.toHaveBeenCalled()
+    expect(mockRouter.push).not.toHaveBeenCalled()
+  })
+
+  it('does not tell the queue to advance when delete fails', async () => {
+    const onDeleted = jest.fn()
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({ message: 'Place not found' }) })
+    render(<PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="inbox" onDeleted={onDeleted} />)
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: /Delete/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete place' }))
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Place not found'))
+    expect(onDeleted).not.toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(mockRouter.back).not.toHaveBeenCalled()
+  })
+
   it('keeps the dialog open and stays put when the delete fails', async () => {
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ message: 'Place not found' }) })
     renderMenu()
@@ -113,6 +164,65 @@ describe('PlaceActionsMenu', () => {
 
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Place not found'))
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(mockRouter.back).not.toHaveBeenCalled()
+    expect(mockRouter.push).not.toHaveBeenCalled()
+  })
+})
+
+describe('postcard menu inside Review', () => {
+  let fetchMock: jest.Mock
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    Object.defineProperty(window.history, 'length', { configurable: true, get: () => 3 })
+  })
+
+  function renderHero(onArchive: () => void, onDeleted: () => void) {
+    const place = {
+      id: 'plc_fushimi',
+      name: 'Fushimi Inari-taisha',
+      kind: 'temple',
+      status: 'inbox',
+      city: 'Kyoto',
+      country: 'Japan',
+      vibes: [],
+      visitStatus: 'not_visited',
+      priority: 0,
+      googlePlaceId: null,
+    } as unknown as PlaceWithRelations
+    render(
+      <PlaceHero
+        place={place}
+        photos={[]}
+        onEdit={() => {}}
+        onOpenPhoto={() => {}}
+        onPhotoAttached={() => {}}
+        onArchive={onArchive}
+        onDeleted={onDeleted}
+      />
+    )
+  }
+
+  it('archives and deletes through the queue without going back', async () => {
+    const onArchive = jest.fn()
+    const onDeleted = jest.fn()
+    renderHero(onArchive, onDeleted)
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Archive/ }))
+    expect(onArchive).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mockRouter.back).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Delete/ }))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Delete place' }))
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1))
+    expect(fetchMock).toHaveBeenCalledWith('/api/places/plc_fushimi', { method: 'DELETE' })
     expect(mockRouter.back).not.toHaveBeenCalled()
     expect(mockRouter.push).not.toHaveBeenCalled()
   })

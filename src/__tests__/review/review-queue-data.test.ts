@@ -52,23 +52,56 @@ describe('loadReviewQueue with real SQLite data', () => {
   it('keeps screenshots together in deterministic order and returns only the caller tenant', async () => {
     const queue = await loadReviewQueue(ALICE.id)
 
-    expect(queue.items.map((item) => item.place.id)).toEqual([
+    expect(queue.entries.map((entry) => entry.placeId)).toEqual([
       'plc_alice_new_1',
       'plc_alice_new_2',
       'plc_alice_old_1',
     ])
-    expect(queue.items.map((item) => item.source?.id)).toEqual([
+    expect(queue.entries.map((entry) => entry.source?.id)).toEqual([
       'src_alice_new',
       'src_alice_new',
       'src_alice_old',
     ])
-    expect(queue.items[0]).toMatchObject({
+    expect(queue.entries[0]).toMatchObject({
       screenshotUrl: 'https://example.test/alice-new.jpg',
       screenshotName: 'new-list.jpg',
       uploadLabel: 'new-list.jpg',
     })
-    expect(queue.items.every((item) => item.place.userId === ALICE.id && item.source?.userId === ALICE.id)).toBe(true)
-    expect(queue.items.some((item) => item.place.userId === BOB.id || item.source?.userId === BOB.id)).toBe(false)
+    expect(queue.entries.every((entry) => entry.userId === ALICE.id && entry.source?.userId === ALICE.id)).toBe(true)
+    expect(queue.entries.some((entry) => entry.userId === BOB.id || entry.source?.userId === BOB.id)).toBe(false)
+    expect(queue.postcard?.place.id).toBe('plc_alice_new_1')
+    expect(queue.postcard?.place.sources.map((source) => source.id)).toEqual(['src_alice_new'])
+    expect(queue.postcard?.alsoIn).toEqual([])
     expect(queue.trips.map((trip) => trip.id)).toEqual(['col_alice'])
+  })
+
+  it('loads relations for the requested place and not once per inbox row', async () => {
+    const { client } = require('@/db') as {
+      client: { execute: (query: unknown) => Promise<unknown> }
+    }
+    const original = client.execute.bind(client)
+    let queries = 0
+    client.execute = (query: unknown) => {
+      queries += 1
+      return original(query)
+    }
+    try {
+      queries = 0
+      const focused = await loadReviewQueue(ALICE.id, 'plc_alice_old_1')
+      expect(focused.entries.map((entry) => entry.placeId)).toEqual([
+        'plc_alice_new_1',
+        'plc_alice_new_2',
+        'plc_alice_old_1',
+      ])
+      expect(focused.postcard?.place.id).toBe('plc_alice_old_1')
+      expect(focused.postcard?.place.sources.map((source) => source.id)).toEqual(['src_alice_old'])
+      expect(focused.entries.every((entry) => !('alsoIn' in entry) && !('place' in entry))).toBe(true)
+      // A per-place relations load is about six statements, so three inbox rows
+      // would clear this. The list itself stays a handful of scoped reads.
+      expect(queries).toBeGreaterThan(0)
+      expect(queries).toBeLessThanOrEqual(16)
+    } finally {
+      client.execute = original
+    }
   })
 })

@@ -748,6 +748,17 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
     ],
   },
 
+  // --- review --------------------------------------------------------------
+  'review/postcard/[placeId]': {
+    GET: {
+      slots: ['place'],
+      request: (t) => ({
+        url: `${API}/review/postcard/${t.place}`,
+        params: { placeId: t.place },
+      }),
+    },
+  },
+
   // --- photos --------------------------------------------------------------
   'photos/resolve/[attachmentId]': {
     GET: {

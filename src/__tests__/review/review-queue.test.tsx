@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ReviewQueue } from '@/components/review/review-queue'
 import { notify } from '@/lib/notify'
-import type { ReviewQueueItem } from '@/lib/review-queue'
+import type { ReviewPostcard, ReviewQueueEntry } from '@/lib/review-queue'
 import type { PlaceWithRelations, Source } from '@/types/database'
 
 const mockPush = jest.fn()
@@ -97,32 +97,91 @@ function place(id: string, name: string, src: Source): PlaceWithRelations {
   }
 }
 
+function entryFrom(row: PlaceWithRelations, src: Source): ReviewQueueEntry {
+  return {
+    placeId: row.id,
+    name: row.name,
+    createdAt: row.createdAt,
+    userId: row.userId,
+    source: src,
+    screenshotUrl: src.uri,
+    screenshotName: `${src.id}.jpg`,
+    uploadLabel: `${src.id}.jpg`,
+  }
+}
+
+function postcardFor(row: PlaceWithRelations): ReviewPostcard {
+  return { place: row, alsoIn: [] }
+}
+
 const firstSource = source('one')
 const secondSource = source('two')
-const items: ReviewQueueItem[] = [
-  { place: place('plc_one', 'One Cafe', firstSource), source: firstSource, screenshotUrl: firstSource.uri, screenshotName: 'one.jpg', uploadLabel: 'one.jpg', alsoIn: [] },
-  { place: place('plc_two', 'Two Cafe', secondSource), source: secondSource, screenshotUrl: secondSource.uri, screenshotName: 'two.jpg', uploadLabel: 'two.jpg', alsoIn: [] },
+const placeOne = place('plc_one', 'One Cafe', firstSource)
+const placeTwo = place('plc_two', 'Two Cafe', secondSource)
+const entries: ReviewQueueEntry[] = [
+  entryFrom(placeOne, firstSource),
+  entryFrom(placeTwo, secondSource),
 ]
+const placesById = new Map([
+  [placeOne.id, placeOne],
+  [placeTwo.id, placeTwo],
+])
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function patchCalls() {
+  return fetchMock.mock.calls.filter((call) => (call[1] as { method?: string } | undefined)?.method === 'PATCH')
+}
+
+function renderQueue(override: Partial<React.ComponentProps<typeof ReviewQueue>> = {}) {
+  return render(
+    <ReviewQueue
+      entries={entries}
+      postcard={postcardFor(placeOne)}
+      trips={[]}
+      {...override}
+    />
+  )
+}
 
 describe('ReviewQueue decisions', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ status: 'success' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      return jsonResponse({ status: 'success' })
+    })
     window.history.replaceState({}, '', '/review')
   })
 
   it('adds, advances, and offers an Undo that restores Inbox and the original card', async () => {
     const user = userEvent.setup()
-    render(<ReviewQueue items={items} trips={[]} />)
+    window.history.replaceState({ __NA: true }, '', '/review?placeId=plc_one')
+    const replaceSpy = jest.spyOn(window.history, 'replaceState')
+    renderQueue()
 
     expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
     await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
 
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/places/plc_one', expect.objectContaining({
+    expect(patchCalls()[0]?.[0]).toBe('/api/places/plc_one')
+    expect(patchCalls()[0]?.[1]).toEqual(expect.objectContaining({
       method: 'PATCH',
       body: JSON.stringify({ status: 'library' }),
     }))
+    expect(replaceSpy).toHaveBeenCalledWith({}, '', '/review?placeId=plc_two&from=queue')
+    expect(replaceSpy.mock.calls.some((call) => (call[0] as { __NA?: boolean } | null)?.__NA)).toBe(false)
 
     await waitFor(() => expect(notifySuccess).toHaveBeenCalled())
     const toastOptions = notifySuccess.mock.calls[0][1]
@@ -132,19 +191,46 @@ describe('ReviewQueue decisions', () => {
     await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
 
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/places/plc_one', expect.objectContaining({
+    expect(patchCalls().at(-1)?.[1]).toEqual(expect.objectContaining({
       body: JSON.stringify({ status: 'inbox' }),
     }))
+    expect(notifySuccess).toHaveBeenLastCalledWith(expect.stringContaining('Inbox'))
+    replaceSpy.mockRestore()
+  })
+
+  it('keeps the session when a refresh drops places that already left the inbox', async () => {
+    const user = userEvent.setup()
+    const view = renderQueue({ initialPlaceId: 'plc_one' })
+
+    await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+
+    const refreshed = { ...placeTwo, name: 'Two Cafe Planned' }
+    view.rerender(
+      <ReviewQueue
+        entries={[entries[1]]}
+        postcard={postcardFor(refreshed)}
+        trips={[]}
+        initialPlaceId="plc_one"
+      />
+    )
+
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe Planned'))
+    expect(screen.queryByText("That's everything.")).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    expect(screen.getByText('added to Library').previousElementSibling).toHaveTextContent('1')
   })
 
   it('uses keyboard decisions, never confirms archive, and summarizes skipped places', async () => {
     const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
-    render(<ReviewQueue items={items} trips={[]} />)
+    renderQueue()
 
     fireEvent.keyDown(window, { key: 'n' })
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
     expect(confirmSpy).not.toHaveBeenCalled()
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/places/plc_one', expect.objectContaining({
+    expect(patchCalls()[0]?.[1]).toEqual(expect.objectContaining({
       body: JSON.stringify({ status: 'archived' }),
     }))
 
@@ -152,12 +238,52 @@ describe('ReviewQueue decisions', () => {
     await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
     expect(screen.getAllByText('1', { selector: 'strong' })).toHaveLength(2)
     expect(screen.getByText('Two Cafe')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(patchCalls()).toHaveLength(1)
     confirmSpy.mockRestore()
   })
+
+  it('walks every skipped place when review resumes', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /Review the skipped/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(screen.queryByText("That's everything.")).not.toBeInTheDocument()
+  })
+
+  it('says Library when Undo puts an added place back in the Library', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+
+    await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+
+    await user.click(screen.getAllByRole('button', { name: /Not a place/i })[0])
+    await waitFor(() => expect(notifySuccess.mock.calls.some((call) => String(call[0]).includes('Archive'))).toBe(true))
+    const archiveToast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Archive'))
+    const undo = (archiveToast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+
+    await waitFor(() => expect(notifySuccess).toHaveBeenLastCalledWith(expect.stringContaining('Library')))
+    expect(patchCalls().at(-1)?.[1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ status: 'library' }),
+    }))
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
+  })
+
   it('keeps letter shortcuts working after a mouse click leaves focus on a button', async () => {
     const user = userEvent.setup()
-    render(<ReviewQueue items={items} trips={[]} />)
+    renderQueue()
 
     const skipButton = screen.getAllByRole('button', { name: /Skip for now/i })[0]
     await user.click(skipButton)
@@ -165,12 +291,46 @@ describe('ReviewQueue decisions', () => {
     skipButton.focus()
 
     fireEvent.keyDown(skipButton, { key: 'n' })
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/places/plc_two', expect.objectContaining({
-      body: JSON.stringify({ status: 'archived' }),
-    })))
+    await waitFor(() => expect(patchCalls().some((call) =>
+      call[0] === '/api/places/plc_two' &&
+      (call[1] as { body?: string }).body === JSON.stringify({ status: 'archived' })
+    )).toBe(true))
+    const patchesBeforeEnter = patchCalls().length
 
     // Enter on a focused button is the button's own click, not a second "Add".
     fireEvent.keyDown(skipButton, { key: 'Enter' })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(patchCalls()).toHaveLength(patchesBeforeEnter)
+  })
+
+  it('ignores review shortcuts while a confirmation dialog or menu is open', () => {
+    renderQueue()
+    const patchesBefore = () => patchCalls().length
+
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'alertdialog')
+    const confirm = document.createElement('button')
+    confirm.textContent = 'Delete place'
+    dialog.append(confirm)
+    document.body.append(dialog)
+
+    fireEvent.keyDown(confirm, { key: 'n' })
+    expect(patchesBefore()).toBe(0)
+
+    const menu = document.createElement('div')
+    menu.setAttribute('role', 'menu')
+    const item = document.createElement('button')
+    item.textContent = 'Rename'
+    menu.append(item)
+    document.body.append(menu)
+    fireEvent.keyDown(item, { key: 'n' })
+    expect(patchesBefore()).toBe(0)
+
+    const add = screen.getAllByRole('button', { name: /Add to Library/i })[0]
+    add.addEventListener('keydown', (event) => event.preventDefault())
+    fireEvent.keyDown(add, { key: 'n' })
+    expect(patchesBefore()).toBe(0)
+
+    dialog.remove()
+    menu.remove()
   })
 })

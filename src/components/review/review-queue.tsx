@@ -20,12 +20,14 @@ import { PlaceView } from '@/components/places/place-view/place-view'
 import { placeEditHref } from '@/lib/place-view/edit-link'
 import { notify } from '@/lib/notify'
 import type { ExploreCollection } from '@/lib/explore/types'
-import type { ReviewQueueItem } from '@/lib/review-queue'
+import type { ReviewPostcard, ReviewQueueEntry } from '@/lib/review-queue'
 
 type ReviewOutcome = 'added' | 'archived' | 'skipped'
+type SessionEntry = ReviewQueueEntry & { postcard?: ReviewPostcard }
 
 interface ReviewQueueProps {
-  items: ReviewQueueItem[]
+  entries: ReviewQueueEntry[]
+  postcard: ReviewPostcard | null
   trips: ExploreCollection[]
   initialPlaceId?: string
 }
@@ -35,15 +37,71 @@ const OUTCOME_STATUS: Record<Exclude<ReviewOutcome, 'skipped'>, 'library' | 'arc
   archived: 'archived',
 }
 
+const RESTORED_LABEL = {
+  inbox: 'Inbox',
+  library: 'Library',
+  archived: 'Archive',
+} as const
+
 function isTypingTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(
-    target.closest('input, textarea, select, [contenteditable="true"], [role="combobox"], [role="dialog"]')
+    target.closest('input, textarea, select, [contenteditable="true"], [role="combobox"], [role="dialog"], [role="alertdialog"], [role="menu"]')
   )
 }
 
 /** Enter on a focused button or link already activates it; don't also add the place. */
 function isActivatable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(target.closest('button, a'))
+}
+
+function reviewHref(placeId: string | null): string {
+  if (!placeId) return '/review'
+  return `/review?placeId=${encodeURIComponent(placeId)}&from=queue`
+}
+
+function mergeSession(
+  session: SessionEntry[],
+  entries: ReviewQueueEntry[],
+  postcard: ReviewPostcard | null,
+): SessionEntry[] {
+  const incoming = new Map(entries.map((entry) => [entry.placeId, entry]))
+  const seen = new Set<string>()
+  const merged: SessionEntry[] = []
+  for (const existing of session) {
+    seen.add(existing.placeId)
+    const update = incoming.get(existing.placeId)
+    const next: SessionEntry = update ? { ...existing, ...update, postcard: existing.postcard } : existing
+    merged.push(postcard && next.placeId === postcard.place.id ? { ...next, postcard } : next)
+  }
+  for (const entry of entries) {
+    if (seen.has(entry.placeId)) continue
+    merged.push(postcard && entry.placeId === postcard.place.id ? { ...entry, postcard } : { ...entry })
+  }
+  if (postcard && !merged.some((entry) => entry.placeId === postcard.place.id)) {
+    merged.push({
+      placeId: postcard.place.id,
+      name: postcard.place.name,
+      createdAt: postcard.place.createdAt,
+      userId: postcard.place.userId,
+      source: null,
+      screenshotUrl: null,
+      screenshotName: null,
+      uploadLabel: 'your upload',
+      postcard,
+    })
+  }
+  return merged
+}
+
+function startingPlaceId(
+  entries: ReviewQueueEntry[],
+  postcard: ReviewPostcard | null,
+  initialPlaceId: string | undefined,
+): string | null {
+  if (initialPlaceId && (entries.some((entry) => entry.placeId === initialPlaceId) || postcard?.place.id === initialPlaceId)) {
+    return initialPlaceId
+  }
+  return entries[0]?.placeId ?? null
 }
 
 async function setPlaceStatus(placeId: string, status: 'inbox' | 'library' | 'archived'): Promise<void> {
@@ -57,12 +115,14 @@ async function setPlaceStatus(placeId: string, status: 'inbox' | 'library' | 'ar
   throw new Error(body?.message || "We couldn't update this place. Try again.")
 }
 
-function nextUnhandled(items: ReviewQueueItem[], outcomes: Record<string, ReviewOutcome>, current: number): number | null {
-  for (let index = current + 1; index < items.length; index += 1) {
-    if (!outcomes[items[index].place.id]) return index
+function nextUnhandled(entries: ReviewQueueEntry[], outcomes: Record<string, ReviewOutcome>, currentId: string): string | null {
+  const current = entries.findIndex((entry) => entry.placeId === currentId)
+  const start = current < 0 ? entries.length : current
+  for (let index = start + 1; index < entries.length; index += 1) {
+    if (!outcomes[entries[index].placeId]) return entries[index].placeId
   }
-  for (let index = 0; index < current; index += 1) {
-    if (!outcomes[items[index].place.id]) return index
+  for (let index = 0; index < start; index += 1) {
+    if (!outcomes[entries[index].placeId]) return entries[index].placeId
   }
   return null
 }
@@ -91,18 +151,18 @@ function EmptyReview() {
 }
 
 function ReviewSummary({
-  items,
+  entries,
   outcomes,
   onReview,
 }: {
-  items: ReviewQueueItem[]
+  entries: ReviewQueueEntry[]
   outcomes: Record<string, ReviewOutcome>
-  onReview: (index: number) => void
+  onReview: (placeId: string) => void
 }) {
   const grouped = {
-    added: items.filter((item) => outcomes[item.place.id] === 'added'),
-    archived: items.filter((item) => outcomes[item.place.id] === 'archived'),
-    skipped: items.filter((item) => outcomes[item.place.id] === 'skipped'),
+    added: entries.filter((entry) => outcomes[entry.placeId] === 'added'),
+    archived: entries.filter((entry) => outcomes[entry.placeId] === 'archived'),
+    skipped: entries.filter((entry) => outcomes[entry.placeId] === 'skipped'),
   }
   const firstSkipped = grouped.skipped[0]
 
@@ -132,7 +192,7 @@ function ReviewSummary({
           <button
             type="button"
             disabled={!firstSkipped}
-            onClick={() => firstSkipped && onReview(items.indexOf(firstSkipped))}
+            onClick={() => firstSkipped && onReview(firstSkipped.placeId)}
             className="rounded-2xl border bg-background p-5 text-left transition enabled:hover:border-primary/40 enabled:hover:bg-primary/[0.02] disabled:cursor-default"
           >
             <strong className="block font-serif text-3xl">{grouped.skipped.length}</strong>
@@ -143,11 +203,11 @@ function ReviewSummary({
         {grouped.skipped.length > 0 && (
           <div className="mt-6 rounded-2xl bg-amber-500/10 p-4 text-sm text-foreground">
             <span className="font-semibold">Still waiting:</span>{' '}
-            {grouped.skipped.map((item, index) => (
-              <React.Fragment key={item.place.id}>
+            {grouped.skipped.map((entry, index) => (
+              <React.Fragment key={entry.placeId}>
                 {index > 0 && ', '}
-                <button type="button" className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => onReview(items.indexOf(item))}>
-                  {item.place.name}
+                <button type="button" className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => onReview(entry.placeId)}>
+                  {entry.name}
                 </button>
               </React.Fragment>
             ))}
@@ -155,7 +215,7 @@ function ReviewSummary({
         )}
 
         <div className="mt-8 flex flex-wrap justify-center gap-3">
-          {firstSkipped && <Button variant="outline" onClick={() => onReview(items.indexOf(firstSkipped))}>Review the skipped {grouped.skipped.length === 1 ? 'one' : 'places'}</Button>}
+          {firstSkipped && <Button variant="outline" onClick={() => onReview(firstSkipped.placeId)}>Review the skipped {grouped.skipped.length === 1 ? 'one' : 'places'}</Button>}
           <Button asChild><Link href="/library">See them in your Library</Link></Button>
         </div>
       </div>
@@ -163,73 +223,105 @@ function ReviewSummary({
   )
 }
 
-export function ReviewQueue({ items, trips, initialPlaceId }: ReviewQueueProps) {
+export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: ReviewQueueProps) {
   const router = useRouter()
-  const initialIndex = initialPlaceId ? items.findIndex((item) => item.place.id === initialPlaceId) : 0
-  const [currentIndex, setCurrentIndex] = React.useState<number | null>(items.length ? Math.max(0, initialIndex) : null)
+  const [session, setSession] = React.useState<SessionEntry[]>(() => mergeSession([], entries, postcard))
+  const [currentId, setCurrentId] = React.useState<string | null>(() => startingPlaceId(entries, postcard, initialPlaceId))
   const [outcomes, setOutcomes] = React.useState<Record<string, ReviewOutcome>>({})
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const current = currentIndex === null ? null : items[currentIndex]
+  const current = currentId === null ? null : session.find((entry) => entry.placeId === currentId) ?? null
+  const postcardMissing = Boolean(current && !current.postcard)
 
-  const selectIndex = React.useCallback((index: number | null) => {
+  React.useEffect(() => {
+    setSession((prev) => mergeSession(prev, entries, postcard))
+  }, [entries, postcard])
+
+  React.useEffect(() => {
+    if (!currentId || !postcardMissing) return
+    const placeId = currentId
+    const controller = new AbortController()
+    let cancelled = false
+    ;(async () => {
+      try {
+        const response = await fetch(`/api/review/postcard/${encodeURIComponent(placeId)}`, { signal: controller.signal })
+        const body = await response.json().catch(() => null) as (ReviewPostcard & { message?: string }) | null
+        if (cancelled) return
+        if (!response.ok || !body?.place) {
+          throw new Error(body?.message || "We couldn't open this place. Try again.")
+        }
+        setSession((prev) => prev.map((entry) => (
+          entry.placeId === placeId && !entry.postcard ? { ...entry, postcard: { place: body.place, alsoIn: body.alsoIn ?? [] } } : entry
+        )))
+      } catch (loadError) {
+        if (cancelled || (loadError instanceof DOMException && loadError.name === 'AbortError')) return
+        setError(loadError instanceof Error ? loadError.message : "We couldn't open this place.")
+      }
+    })()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [currentId, postcardMissing])
+
+  const selectPlace = React.useCallback((placeId: string | null) => {
     setError(null)
-    setCurrentIndex(index)
-    const href = index === null ? '/review' : `/review?placeId=${encodeURIComponent(items[index].place.id)}`
-    window.history.replaceState(window.history.state, '', href)
+    setCurrentId(placeId)
+    window.history.replaceState({}, '', reviewHref(placeId))
     const appScroller = document.querySelector('main')
     if (appScroller instanceof HTMLElement && typeof appScroller.scrollTo === 'function') {
       appScroller.scrollTo({ top: 0, behavior: 'smooth' })
     }
-  }, [items])
+  }, [])
 
-  const advance = React.useCallback((index: number, nextOutcomes: Record<string, ReviewOutcome>) => {
-    selectIndex(nextUnhandled(items, nextOutcomes, index))
-  }, [items, selectIndex])
+  const advance = React.useCallback((placeId: string, nextOutcomes: Record<string, ReviewOutcome>) => {
+    selectPlace(nextUnhandled(session, nextOutcomes, placeId))
+  }, [session, selectPlace])
 
   const undoDecision = React.useCallback(async (
-    index: number,
+    placeId: string,
     previousOutcome: ReviewOutcome | undefined,
   ) => {
-    const item = items[index]
+    const entry = session.find((item) => item.placeId === placeId)
+    if (!entry) return
     const restoreStatus = previousOutcome && previousOutcome !== 'skipped'
       ? OUTCOME_STATUS[previousOutcome]
       : 'inbox'
     try {
-      await setPlaceStatus(item.place.id, restoreStatus)
+      await setPlaceStatus(entry.placeId, restoreStatus)
       setOutcomes((existing) => {
         const next = { ...existing }
-        if (previousOutcome) next[item.place.id] = previousOutcome
-        else delete next[item.place.id]
+        if (previousOutcome) next[entry.placeId] = previousOutcome
+        else delete next[entry.placeId]
         return next
       })
-      selectIndex(index)
-      notify.success(`Restored “${item.place.name}” to your Inbox`)
+      selectPlace(placeId)
+      notify.success(`Restored “${entry.name}” to your ${RESTORED_LABEL[restoreStatus]}`)
     } catch (undoError) {
       notify.error(undoError instanceof Error ? undoError.message : "Couldn't undo that change.")
     }
-  }, [items, selectIndex])
+  }, [session, selectPlace])
 
   const decide = React.useCallback(async (outcome: 'added' | 'archived') => {
-    if (!current || currentIndex === null || busy) return
-    const index = currentIndex
-    const previousOutcome = outcomes[current.place.id]
+    if (!current || busy) return
+    const placeId = current.placeId
+    const previousOutcome = outcomes[placeId]
     setBusy(true)
     setError(null)
     try {
-      await setPlaceStatus(current.place.id, OUTCOME_STATUS[outcome])
-      const nextOutcomes = { ...outcomes, [current.place.id]: outcome }
+      await setPlaceStatus(placeId, OUTCOME_STATUS[outcome])
+      const nextOutcomes = { ...outcomes, [placeId]: outcome }
       setOutcomes(nextOutcomes)
-      advance(index, nextOutcomes)
+      advance(placeId, nextOutcomes)
       notify.success(
         outcome === 'added'
-          ? `Added “${current.place.name}” to your Library`
-          : `Moved “${current.place.name}” to Archive`,
+          ? `Added “${current.name}” to your Library`
+          : `Moved “${current.name}” to Archive`,
         {
           duration: 8_000,
           cancel: {
             label: 'Undo',
-            onClick: () => void undoDecision(index, previousOutcome),
+            onClick: () => void undoDecision(placeId, previousOutcome),
           },
         }
       )
@@ -240,21 +332,21 @@ export function ReviewQueue({ items, trips, initialPlaceId }: ReviewQueueProps) 
     } finally {
       setBusy(false)
     }
-  }, [advance, busy, current, currentIndex, outcomes, undoDecision])
+  }, [advance, busy, current, outcomes, undoDecision])
 
   const skip = React.useCallback(async () => {
-    if (!current || currentIndex === null || busy) return
-    const index = currentIndex
-    const previousOutcome = outcomes[current.place.id]
+    if (!current || busy) return
+    const placeId = current.placeId
+    const previousOutcome = outcomes[placeId]
     setBusy(true)
     setError(null)
     try {
       if (previousOutcome === 'added' || previousOutcome === 'archived') {
-        await setPlaceStatus(current.place.id, 'inbox')
+        await setPlaceStatus(placeId, 'inbox')
       }
-      const nextOutcomes = { ...outcomes, [current.place.id]: 'skipped' as const }
+      const nextOutcomes = { ...outcomes, [placeId]: 'skipped' as const }
       setOutcomes(nextOutcomes)
-      advance(index, nextOutcomes)
+      advance(placeId, nextOutcomes)
     } catch (skipError) {
       const message = skipError instanceof Error ? skipError.message : "We couldn't skip this place."
       setError(message)
@@ -262,19 +354,31 @@ export function ReviewQueue({ items, trips, initialPlaceId }: ReviewQueueProps) 
     } finally {
       setBusy(false)
     }
-  }, [advance, busy, current, currentIndex, outcomes])
+  }, [advance, busy, current, outcomes])
 
   const previous = React.useCallback(() => {
-    if (currentIndex === null) {
-      selectIndex(items.length - 1)
-    } else if (currentIndex > 0) {
-      selectIndex(currentIndex - 1)
+    const index = currentId === null ? -1 : session.findIndex((entry) => entry.placeId === currentId)
+    if (currentId === null) {
+      selectPlace(session[session.length - 1]?.placeId ?? null)
+    } else if (index > 0) {
+      selectPlace(session[index - 1].placeId)
     }
-  }, [currentIndex, items.length, selectIndex])
+  }, [currentId, session, selectPlace])
+
+  const resumeSkipped = React.useCallback((placeId: string) => {
+    setOutcomes((existing) => {
+      const next = { ...existing }
+      for (const [id, outcome] of Object.entries(next)) {
+        if (outcome === 'skipped') delete next[id]
+      }
+      return next
+    })
+    selectPlace(placeId)
+  }, [selectPlace])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return
       if (event.key === 'Enter') {
         if (isActivatable(event.target)) return
         event.preventDefault()
@@ -294,12 +398,13 @@ export function ReviewQueue({ items, trips, initialPlaceId }: ReviewQueueProps) 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [decide, previous, skip])
 
-  if (items.length === 0) return <EmptyReview />
-  if (!current || currentIndex === null) {
-    return <ReviewSummary items={items} outcomes={outcomes} onReview={selectIndex} />
+  if (session.length === 0) return <EmptyReview />
+  if (!current) {
+    return <ReviewSummary entries={session} outcomes={outcomes} onReview={resumeSkipped} />
   }
 
-  const progress = ((currentIndex + 1) / items.length) * 100
+  const currentIndex = session.findIndex((entry) => entry.placeId === current.placeId)
+  const progress = ((currentIndex + 1) / session.length) * 100
   const screenshotIsBrokenLegacyPath = current.screenshotUrl?.startsWith('/uploads/')
 
   return (
@@ -311,10 +416,10 @@ export function ReviewQueue({ items, trips, initialPlaceId }: ReviewQueueProps) 
           </Button>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-3">
-              <p className="truncate text-sm font-semibold">{currentIndex + 1} of {items.length} from {current.uploadLabel}</p>
+              <p className="truncate text-sm font-semibold">{currentIndex + 1} of {session.length} from {current.uploadLabel}</p>
               <span className="hidden text-xs text-muted-foreground sm:inline">{current.screenshotName ?? 'Screenshot'}</span>
             </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={currentIndex + 1}>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={session.length} aria-valuenow={currentIndex + 1}>
               <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progress}%` }} />
             </div>
           </div>
@@ -326,14 +431,20 @@ export function ReviewQueue({ items, trips, initialPlaceId }: ReviewQueueProps) 
 
       <div className="mx-auto grid max-w-[1560px] gap-5 px-3 py-5 sm:px-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 overflow-hidden rounded-[1.75rem] border bg-background shadow-sm">
-          <PlaceView
-            place={current.place}
-            trips={trips}
-            alsoIn={current.alsoIn}
-            onEdit={() => router.push(placeEditHref(current.place.id))}
-            onPhotoAttached={() => router.refresh()}
-            showMobileActionBar={false}
-          />
+          {current.postcard ? (
+            <PlaceView
+              place={current.postcard.place}
+              trips={trips}
+              alsoIn={current.postcard.alsoIn}
+              onEdit={() => router.push(placeEditHref(current.placeId))}
+              onPhotoAttached={() => router.refresh()}
+              showMobileActionBar={false}
+            />
+          ) : (
+            <div className="grid min-h-64 place-items-center text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin" aria-label="Loading place" />
+            </div>
+          )}
         </div>
 
         <aside className="order-first min-w-0 xl:order-none" aria-label="Screenshot evidence">
@@ -348,7 +459,7 @@ export function ReviewQueue({ items, trips, initialPlaceId }: ReviewQueueProps) 
             {current.screenshotUrl && !screenshotIsBrokenLegacyPath ? (
               // Source URLs are already persisted and ownership-filtered. The later evidence PR adds zoom.
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={current.screenshotUrl} alt={`Screenshot where ${current.place.name} was found`} className="max-h-[420px] w-full bg-muted object-contain xl:max-h-[70vh]" />
+              <img src={current.screenshotUrl} alt={`Screenshot where ${current.name} was found`} className="max-h-[420px] w-full bg-muted object-contain xl:max-h-[70vh]" />
             ) : (
               <div className="grid min-h-36 place-items-center bg-muted/50 p-6 text-center text-sm text-muted-foreground">
                 <span><ImageIcon className="mx-auto mb-2 h-7 w-7" />Screenshot unavailable</span>

@@ -1,0 +1,468 @@
+{
+  "status": "success",
+  "uploads": [
+    {
+      "sessionId": "session_1513",
+      "uploadedAt": "2026-10-18T15:13:00.000Z",
+      "screenshotCount": 6,
+      "placesRead": 6,
+      "newPlaces": 2,
+      "rows": {
+        "toReview": {
+          "placeIds": [
+            "plc_5867c67b-3e99-41ba-90bd-9cbc581322b2",
+            "plc_37fb15d5-9cf5-4418-9c97-1cee12ff3ffd"
+          ],
+          "sourceIds": [
+            "src_3007",
+            "src_2914"
+          ],
+          "places": [
+            {
+              "id": "plc_5867c67b-3e99-41ba-90bd-9cbc581322b2",
+              "name": "Médanos de Coro",
+              "city": "Coro",
+              "country": "Venezuela",
+              "status": "inbox",
+              "sourceIds": [
+                "src_3007"
+              ]
+            },
+            {
+              "id": "plc_37fb15d5-9cf5-4418-9c97-1cee12ff3ffd",
+              "name": "Cappadocia balloon ride",
+              "city": "Göreme",
+              "country": "Turkey",
+              "status": "inbox",
+              "sourceIds": [
+                "src_2914"
+              ]
+            }
+          ],
+          "checkCount": null
+        },
+        "added": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "notAPlace": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "alreadyInLibrary": {
+          "placeIds": [
+            "plc_6b03ea2f-fa0d-45a5-a10a-f04ed6b3eb73",
+            "plc_e53257ae-14ab-4d62-9d05-1679c41da899",
+            "plc_ab448513-b318-4d33-9bf9-52cdb0cb536f",
+            "plc_72d71169-13a8-48a6-8294-3489bc50a0d1"
+          ],
+          "sourceIds": [
+            "src_2917"
+          ],
+          "places": [
+            {
+              "id": "plc_6b03ea2f-fa0d-45a5-a10a-f04ed6b3eb73",
+              "name": "My Old Dutch Pancake House",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "library",
+              "sourceIds": [
+                "src_2917"
+              ]
+            },
+            {
+              "id": "plc_e53257ae-14ab-4d62-9d05-1679c41da899",
+              "name": "Gail's Bakery",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "library",
+              "sourceIds": [
+                "src_2917"
+              ]
+            },
+            {
+              "id": "plc_ab448513-b318-4d33-9bf9-52cdb0cb536f",
+              "name": "The Breakfast Club",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "library",
+              "sourceIds": [
+                "src_2917"
+              ]
+            },
+            {
+              "id": "plc_72d71169-13a8-48a6-8294-3489bc50a0d1",
+              "name": "Megan's",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "library",
+              "sourceIds": [
+                "src_2917"
+              ]
+            }
+          ]
+        },
+        "uploadedBefore": {
+          "items": [
+            {
+              "originalName": "IMG_2912.jpg",
+              "duplicateOfSourceId": "src_2912",
+              "duplicateOfSessionId": "session_1509",
+              "duplicateOfUploadedAt": "2026-10-18T15:09:00.000Z"
+            }
+          ]
+        },
+        "noPlaceFound": {
+          "sourceIds": [
+            "src_3024"
+          ]
+        },
+        "couldNotRead": {
+          "sourceIds": [
+            "src_3017"
+          ],
+          "items": [
+            {
+              "sourceId": "src_3017",
+              "status": "failed",
+              "error": "Processing failed after multiple attempts"
+            }
+          ]
+        },
+        "stillReading": {
+          "sourceIds": []
+        },
+        "cancelled": {
+          "sourceIds": []
+        }
+      },
+      "screenshots": [
+        {
+          "sourceId": "src_3007",
+          "name": "IMG_3007.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_3007.jpg",
+          "processingStatus": "completed",
+          "outcome": "places",
+          "createdPlaceIds": [
+            "plc_5867c67b-3e99-41ba-90bd-9cbc581322b2"
+          ],
+          "linkedPlaceIds": [],
+          "outcomeDerived": false
+        },
+        {
+          "sourceId": "src_2917",
+          "name": "IMG_2917.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_2917.jpg",
+          "processingStatus": "completed",
+          "outcome": "places",
+          "createdPlaceIds": [],
+          "linkedPlaceIds": [
+            "plc_6b03ea2f-fa0d-45a5-a10a-f04ed6b3eb73",
+            "plc_e53257ae-14ab-4d62-9d05-1679c41da899",
+            "plc_ab448513-b318-4d33-9bf9-52cdb0cb536f",
+            "plc_72d71169-13a8-48a6-8294-3489bc50a0d1"
+          ],
+          "outcomeDerived": false
+        },
+        {
+          "sourceId": "src_3024",
+          "name": "IMG_3024.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_3024.jpg",
+          "processingStatus": "completed",
+          "outcome": "noPlaceFound",
+          "createdPlaceIds": [],
+          "linkedPlaceIds": [],
+          "outcomeDerived": false
+        },
+        {
+          "sourceId": "src_3017",
+          "name": "IMG_3017.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_3017.jpg",
+          "processingStatus": "failed",
+          "outcome": "couldNotRead",
+          "createdPlaceIds": [],
+          "linkedPlaceIds": [],
+          "outcomeDerived": false
+        },
+        {
+          "sourceId": "src_2914",
+          "name": "IMG_2914.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_2914.jpg",
+          "processingStatus": "completed",
+          "outcome": "places",
+          "createdPlaceIds": [
+            "plc_37fb15d5-9cf5-4418-9c97-1cee12ff3ffd"
+          ],
+          "linkedPlaceIds": [],
+          "outcomeDerived": false
+        }
+      ],
+      "outcomeDerived": false
+    },
+    {
+      "sessionId": "session_1509",
+      "uploadedAt": "2026-10-18T15:09:00.000Z",
+      "screenshotCount": 3,
+      "placesRead": 7,
+      "newPlaces": 7,
+      "rows": {
+        "toReview": {
+          "placeIds": [
+            "plc_c4948e18-a6c6-4354-8fb3-886d0bc4eeef",
+            "plc_33fc63cf-3a2f-4d7a-b921-2f785aac6a24"
+          ],
+          "sourceIds": [
+            "src_2921"
+          ],
+          "places": [
+            {
+              "id": "plc_c4948e18-a6c6-4354-8fb3-886d0bc4eeef",
+              "name": "Tower of London",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "inbox",
+              "sourceIds": [
+                "src_2921"
+              ]
+            },
+            {
+              "id": "plc_33fc63cf-3a2f-4d7a-b921-2f785aac6a24",
+              "name": "Borough Market",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "inbox",
+              "sourceIds": [
+                "src_2921"
+              ]
+            }
+          ],
+          "checkCount": null
+        },
+        "added": {
+          "placeIds": [
+            "plc_6b03ea2f-fa0d-45a5-a10a-f04ed6b3eb73",
+            "plc_e53257ae-14ab-4d62-9d05-1679c41da899",
+            "plc_ab448513-b318-4d33-9bf9-52cdb0cb536f",
+            "plc_72d71169-13a8-48a6-8294-3489bc50a0d1",
+            "plc_ec148b1f-de20-4746-8adf-6162e548d3dd"
+          ],
+          "sourceIds": [
+            "src_2915",
+            "src_2912"
+          ],
+          "places": [
+            {
+              "id": "plc_6b03ea2f-fa0d-45a5-a10a-f04ed6b3eb73",
+              "name": "My Old Dutch Pancake House",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "library",
+              "sourceIds": [
+                "src_2915"
+              ]
+            },
+            {
+              "id": "plc_e53257ae-14ab-4d62-9d05-1679c41da899",
+              "name": "Gail's Bakery",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "library",
+              "sourceIds": [
+                "src_2915"
+              ]
+            },
+            {
+              "id": "plc_ab448513-b318-4d33-9bf9-52cdb0cb536f",
+              "name": "The Breakfast Club",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "library",
+              "sourceIds": [
+                "src_2915"
+              ]
+            },
+            {
+              "id": "plc_72d71169-13a8-48a6-8294-3489bc50a0d1",
+              "name": "Megan's",
+              "city": "London",
+              "country": "United Kingdom",
+              "status": "library",
+              "sourceIds": [
+                "src_2915"
+              ]
+            },
+            {
+              "id": "plc_ec148b1f-de20-4746-8adf-6162e548d3dd",
+              "name": "Huacachina",
+              "city": "Ica",
+              "country": "Peru",
+              "status": "library",
+              "sourceIds": [
+                "src_2912"
+              ]
+            }
+          ]
+        },
+        "notAPlace": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "alreadyInLibrary": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "uploadedBefore": {
+          "items": []
+        },
+        "noPlaceFound": {
+          "sourceIds": []
+        },
+        "couldNotRead": {
+          "sourceIds": [],
+          "items": []
+        },
+        "stillReading": {
+          "sourceIds": []
+        },
+        "cancelled": {
+          "sourceIds": []
+        }
+      },
+      "screenshots": [
+        {
+          "sourceId": "src_2921",
+          "name": "IMG_2921.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_2921.jpg",
+          "processingStatus": "completed",
+          "outcome": "places",
+          "createdPlaceIds": [
+            "plc_c4948e18-a6c6-4354-8fb3-886d0bc4eeef",
+            "plc_33fc63cf-3a2f-4d7a-b921-2f785aac6a24"
+          ],
+          "linkedPlaceIds": [],
+          "outcomeDerived": false
+        },
+        {
+          "sourceId": "src_2915",
+          "name": "IMG_2915.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_2915.jpg",
+          "processingStatus": "completed",
+          "outcome": "places",
+          "createdPlaceIds": [
+            "plc_6b03ea2f-fa0d-45a5-a10a-f04ed6b3eb73",
+            "plc_e53257ae-14ab-4d62-9d05-1679c41da899",
+            "plc_ab448513-b318-4d33-9bf9-52cdb0cb536f",
+            "plc_72d71169-13a8-48a6-8294-3489bc50a0d1"
+          ],
+          "linkedPlaceIds": [],
+          "outcomeDerived": false
+        },
+        {
+          "sourceId": "src_2912",
+          "name": "IMG_2912.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_2912.jpg",
+          "processingStatus": "completed",
+          "outcome": "places",
+          "createdPlaceIds": [
+            "plc_ec148b1f-de20-4746-8adf-6162e548d3dd"
+          ],
+          "linkedPlaceIds": [],
+          "outcomeDerived": false
+        }
+      ],
+      "outcomeDerived": false
+    },
+    {
+      "sessionId": "session_oct12",
+      "uploadedAt": "2026-10-12T09:30:00.000Z",
+      "screenshotCount": 2,
+      "placesRead": 1,
+      "newPlaces": 1,
+      "rows": {
+        "toReview": {
+          "placeIds": [
+            "plc_016c43f2-c356-491a-b03d-6aa23c43d0e0"
+          ],
+          "sourceIds": [
+            "src_oct12_prague"
+          ],
+          "places": [
+            {
+              "id": "plc_016c43f2-c356-491a-b03d-6aa23c43d0e0",
+              "name": "Old Town Square",
+              "city": "Prague",
+              "country": "Czechia",
+              "status": "inbox",
+              "sourceIds": [
+                "src_oct12_prague"
+              ]
+            }
+          ],
+          "checkCount": null
+        },
+        "added": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "notAPlace": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "alreadyInLibrary": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "uploadedBefore": {
+          "items": []
+        },
+        "noPlaceFound": {
+          "sourceIds": [
+            "src_oct12_empty"
+          ]
+        },
+        "couldNotRead": {
+          "sourceIds": [],
+          "items": []
+        },
+        "stillReading": {
+          "sourceIds": []
+        },
+        "cancelled": {
+          "sourceIds": []
+        }
+      },
+      "screenshots": [
+        {
+          "sourceId": "src_oct12_prague",
+          "name": "IMG_2801.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_2801.jpg",
+          "processingStatus": "completed",
+          "outcome": "places",
+          "createdPlaceIds": [
+            "plc_016c43f2-c356-491a-b03d-6aa23c43d0e0"
+          ],
+          "linkedPlaceIds": [],
+          "outcomeDerived": true
+        },
+        {
+          "sourceId": "src_oct12_empty",
+          "name": "IMG_2802.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/IMG_2802.jpg",
+          "processingStatus": "completed",
+          "outcome": "noPlaceFound",
+          "createdPlaceIds": [],
+          "linkedPlaceIds": [],
+          "outcomeDerived": true
+        }
+      ],
+      "outcomeDerived": true
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "status": "success",
+  "uploads": [
+    {
+      "sessionId": "session_other",
+      "uploadedAt": "2026-10-18T16:00:00.000Z",
+      "screenshotCount": 1,
+      "placesRead": 1,
+      "newPlaces": 1,
+      "rows": {
+        "toReview": {
+          "placeIds": [
+            "plc_3e52a350-3608-40d4-a329-787cf23d70e8"
+          ],
+          "sourceIds": [
+            "src_other"
+          ],
+          "places": [
+            {
+              "id": "plc_3e52a350-3608-40d4-a329-787cf23d70e8",
+              "name": "Other User Secret Bar",
+              "city": "Lisbon",
+              "country": "Portugal",
+              "status": "inbox",
+              "sourceIds": [
+                "src_other"
+              ]
+            }
+          ],
+          "checkCount": null
+        },
+        "added": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "notAPlace": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "alreadyInLibrary": {
+          "placeIds": [],
+          "sourceIds": [],
+          "places": []
+        },
+        "uploadedBefore": {
+          "items": []
+        },
+        "noPlaceFound": {
+          "sourceIds": []
+        },
+        "couldNotRead": {
+          "sourceIds": [],
+          "items": []
+        },
+        "stillReading": {
+          "sourceIds": []
+        },
+        "cancelled": {
+          "sourceIds": []
+        }
+      },
+      "screenshots": [
+        {
+          "sourceId": "src_other",
+          "name": "OTHER_1.jpg",
+          "imageUrl": "https://fake-blob.local/screenshots/OTHER_1.jpg",
+          "processingStatus": "completed",
+          "outcome": "places",
+          "createdPlaceIds": [
+            "plc_3e52a350-3608-40d4-a329-787cf23d70e8"
+          ],
+          "linkedPlaceIds": [],
+          "outcomeDerived": false
+        }
+      ],
+      "outcomeDerived": false
+    }
+  ]
+}

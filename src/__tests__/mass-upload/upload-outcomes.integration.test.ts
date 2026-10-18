@@ -195,6 +195,30 @@ describe('source place outcomes', () => {
     }
   });
 
+  it('keeps a repeated name match as a name link when the place has no google id', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO places
+         (id,user_id,name,kind,status,city,country,google_place_id,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      ['plc_cafe', ALICE.id, 'Cafe', 'cafe', 'library', 'Lisbon', 'Portugal', null, now, now]
+    );
+
+    await createPlacesFromPipeline([
+      pipelinePlace({ name: 'Cafe', city: 'Lisbon', country: 'Portugal', googlePlaceId: 'g-new' }),
+      pipelinePlace({ name: 'Cafe', city: 'Lisbon', country: 'Portugal', googlePlaceId: 'g-new' }),
+    ], FIXTURE.aliceSource, ALICE.id);
+
+    const sourceMeta = await jsonCell('SELECT meta FROM sources WHERE id = ?', [FIXTURE.aliceSource]);
+    const outcome = (sourceMeta.massUpload as {
+      outcome: { created: string[]; linked: Array<{ placeId: string; reason: string }> };
+    }).outcome;
+    expect(outcome.created).toEqual([]);
+    expect(outcome.linked).toEqual([
+      { placeId: 'plc_cafe', reason: 'exact_name_city_country' },
+    ]);
+  });
+
   it('reports only recorded creations and tolerates an old source with no outcome', async () => {
     const { GET } = require('@/app/api/mass-upload/status/route') as
       typeof import('@/app/api/mass-upload/status/route');

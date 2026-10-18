@@ -1826,10 +1826,14 @@ export async function createPlacesFromPipeline(
           // in this call, or one already listed on `outcome.created` from an
           // attempt whose inserts committed before the source completed.
           if (!createdIds.has(linked.id)) {
+            const matchedOnGoogleId = Boolean(
+              p.googlePlaceId &&
+              candidates.some((candidate) => candidate.googlePlaceId === p.googlePlaceId)
+            );
             rememberLinkReason(
               linkedByPlaceId,
               linked.id,
-              googleCandidates ? 'google_place_id' : 'exact_name_city_country'
+              matchedOnGoogleId ? 'google_place_id' : 'exact_name_city_country'
             );
           }
           if (p.googlePlaceId) byGoogleId.set(p.googlePlaceId, [linked]);

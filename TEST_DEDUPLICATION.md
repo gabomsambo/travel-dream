@@ -55,7 +55,9 @@ Navigate to: http://localhost:3000/duplicates
 - Tabs with counts: To review, Possible, Not duplicates, Merged. On desktop, the sidebar Duplicates item shows the To-review count when it is greater than zero.
 - To review and Possible list queue rows: a photo stack, the kept place's name, the member count, a certainty word, and one context line when the score would hide something.
 - An empty To review says "You're up to date." It names what is still under Possible and what was merged. It does not say the library is clean.
-- Opening a group keeps the compare-and-merge screen.
+- Opening a group asks "Is this one place?" beside the kept place and its certainty word. Who matches whom is short text, such as "1 and 2 · Likely · 54 m apart". Each card says who it matches, such as "Matches #1 · 54 m apart", and is In or Not this one. Clicking a card opens that place's details; Open place goes to `/place/<id>` in a new tab.
+- A sticky bar offers Not duplicates (d) and Merge N into one place (m), where N is how many members are In. On a Probably not group, Not duplicates is the filled button.
+- After a merge or Not duplicates, a toast offers undo and the workbench moves on. u undoes that action. The Merged tab can undo a merge. On desktop, j/k move between groups and 1–9 toggle a member. A phone uses the buttons.
 
 ### 3. Test Bulk Merge API
 
@@ -139,14 +141,12 @@ curl 'http://localhost:3000/api/places/duplicates?mode=clusters&status=library&p
 ## 🚀 Next Steps (Optional Enhancements)
 
 ### Not Implemented (Lower Priority):
-1. **Undo UI** - Visual undo button with history
-2. **Query Optimization** - Further performance tuning for <2s
-3. **E2E Tests** - Playwright/Cypress integration tests
+1. **Query Optimization** - Further performance tuning for <2s
+2. **E2E Tests** - Playwright/Cypress integration tests
 
 ### Recommended Priority:
 1. Add real data to test with actual duplicates
 2. Fine-tune confidence thresholds based on user feedback
-3. Implement undo UI for better UX
 
 ## 📊 Architecture Summary
 
@@ -178,7 +178,7 @@ curl 'http://localhost:3000/api/places/duplicates?mode=clusters&status=library&p
 1. **Intelligent Detection**: Multi-signal matching (name + location + metadata)
 2. **Performance Optimized**: 5x faster with spatial indexing
 3. **Zero Data Loss**: Complete audit trail with undo capability
-4. **Duplicates page**: queue, tabs, and empty states. What to look for is under "Test Duplicates Page" above.
+4. **Duplicates page**: the review queue, and the Is-this-one-place workbench when a group is open. What to look for is under "Test Duplicates Page" above.
 5. **Production Ready**: Transaction-safe, error handling, progress tracking
 
 ## 🎓 Technical Highlights

@@ -890,6 +890,20 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   'places/dismiss-duplicate': {
     POST: {
       slots: ['place', 'place2'],
+      // The fixture stores this pair so DELETE has a row to remove. Dismissing
+      // a pair that is already stored inserts nothing, so the owner control
+      // removes Alice's row first and this POST writes a fresh one.
+      setup: async () => {
+        await dbExec()({
+          sql: `DELETE FROM dismissed_duplicates
+                WHERE user_id = ? AND (
+                  (place_id_1 = ? AND place_id_2 = ?) OR
+                  (place_id_1 = ? AND place_id_2 = ?)
+                )`,
+          args: [ALICE.id, ALICE_IDS.place, ALICE_IDS.place2, ALICE_IDS.place2, ALICE_IDS.place],
+        });
+        return [];
+      },
       request: (t) => ({
         url: `${API}/places/dismiss-duplicate`,
         body: { pairs: [{ placeId1: t.place, placeId2: t.place2 }] },
@@ -930,6 +944,18 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       request: (t) => ({ url: `${API}/places/merge`, body: { sourceId: t.place2, targetId: t.place } }),
     },
     GET: { exempt: 'Returns static API documentation; reads nothing.' },
+  },
+  'places/undo-merge': {
+    POST: {
+      slots: ['place'],
+      // Alice merges her second place into her first, so the owner control has a merge to undo.
+      setup: async () => {
+        const { bulkMergePlaces } = require('@/lib/db-mutations') as typeof import('@/lib/db-mutations');
+        await bulkMergePlaces([{ targetId: ALICE_IDS.place, sourceIds: [ALICE_IDS.place2], confidence: 0.9 }], ALICE.id);
+        return [];
+      },
+      request: (t) => ({ url: `${API}/places/undo-merge`, body: { placeId: t.place } }),
+    },
   },
 
   // --- sources -------------------------------------------------------------

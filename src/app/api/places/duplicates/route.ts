@@ -97,6 +97,7 @@ function presentPlace(place: QueuePlace) {
     googlePlaceId: place.googlePlaceId,
     altNames: place.altNames,
     screenshotCount: place.screenshotCount ?? 0,
+    screenshotSourceIds: place.screenshotSourceIds ?? [],
     hasPhoto: place.hasPhoto ?? false,
     photoUrl: place.photoUrl ?? null,
   };

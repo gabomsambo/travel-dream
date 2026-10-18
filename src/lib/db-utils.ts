@@ -23,6 +23,15 @@ export class NotFoundError extends Error {
   }
 }
 
+// The caller owns the row but the action cannot run now (for example, a later
+// merge has to be undone first). Routes map it to 409.
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
 // Keeps the driver's own error (its class and `code`) reachable through the
 // friendlier message, so callers can still tell a locked database or a dropped
 // connection apart from a constraint violation.
@@ -42,7 +51,7 @@ export async function withErrorHandling<T>(
 
     // A caller-scoped "not found or unauthorized" is a refusal, not a
     // failure: let it reach the route untouched so it can answer 404.
-    if (error instanceof NotFoundError) {
+    if (error instanceof NotFoundError || error instanceof ConflictError) {
       throw error;
     }
 

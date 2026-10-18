@@ -1,5 +1,5 @@
 import '../helpers/react-optimistic';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DuplicatesPageClient } from '@/components/duplicates/duplicates-page-client';
 import type { DuplicateGroupEdge } from '@/lib/duplicate-detection';
@@ -90,6 +90,93 @@ function certainCluster() {
     avgConfidence: 0.981,
     places: [kept, other],
     edges: [edge(kept.id, other.id, 0.981, 32, 1)],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
+function partButton(name: string, which: 'In' | 'Not this one') {
+  const group = screen.getByRole('group', { name: `Is ${name} part of this place?` });
+  return within(group).getByRole('button', { name: which === 'In' ? /^In/ : 'Not this one' });
+}
+
+function farPair() {
+  const kept = place('far_k', 'Harbor Cafe');
+  const other = place('far_o', 'Harbor Other');
+  kept.status = 'library';
+  const pair = edge(kept.id, other.id, 0.4, 6600, 0.9);
+  pair.against = ['6.6 km apart'];
+  return {
+    cluster_id: 'far_k+far_o',
+    avgConfidence: 0.4,
+    places: [kept, other],
+    edges: [pair],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
+function symmetricHardAgainstGroup() {
+  const kept = place('g4_k', 'Kept Cafe');
+  const cafeA = place('g4_a', 'Cafe A');
+  const cafeB = place('g4_b', 'Cafe B');
+  const cafeC = place('g4_c', 'Cafe C');
+  kept.status = 'library';
+  kept.confidence = 0.95;
+  kept.description = 'The complete record';
+  const near = (left: string, right: string, score: number, distanceM: number) => edge(left, right, score, distanceM, 0.95);
+  const listed = (left: string, right: string, score: number, distanceM: number) => {
+    const pair = edge(left, right, score, distanceM, 0.95);
+    pair.included = false;
+    return pair;
+  };
+  const clash = edge('g4_a', 'g4_b', 0.4, 5000, 0.9);
+  clash.included = false;
+  clash.against = ['5 km apart'];
+  return {
+    cluster_id: 'g4_a+g4_b+g4_c+g4_k',
+    avgConfidence: 0.9,
+    places: [kept, cafeA, cafeB, cafeC],
+    edges: [
+      near('g4_k', 'g4_a', 0.92, 40),
+      near('g4_k', 'g4_b', 0.9, 50),
+      near('g4_k', 'g4_c', 0.88, 30),
+      listed('g4_a', 'g4_c', 0.86, 45),
+      listed('g4_b', 'g4_c', 0.84, 55),
+      clash,
+    ],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
+function keptChangeGroup() {
+  const kept = place('mix_k', 'Harbor Cafe');
+  const kiosk = place('mix_n', 'Harbor Kiosk');
+  const chapel = place('mix_c', 'Harbor Chapel');
+  const other = place('mix_f', 'Harbor Other');
+  kept.status = 'library';
+  other.city = 'Porto';
+  const near = (id: string, distanceM: number) => edge('mix_k', id, 0.9, distanceM, 0.95);
+  const clash = (id: string, distanceM: number) => {
+    const pair = edge(id, 'mix_f', 0.5, distanceM, 0.9);
+    pair.against = ['Lisbon vs Porto'];
+    return pair;
+  };
+  const far = edge('mix_k', 'mix_f', 0.5, 9500, 0.9);
+  far.against = ['9.5 km apart'];
+  return {
+    cluster_id: 'mix_c+mix_f+mix_k+mix_n',
+    avgConfidence: 0.8,
+    places: [kept, kiosk, chapel, other],
+    edges: [
+      near('mix_n', 40),
+      near('mix_c', 50),
+      edge('mix_n', 'mix_c', 0.9, 30, 0.95),
+      far,
+      clash('mix_n', 50),
+      clash('mix_c', 60),
+    ],
     leftOut: [],
     mergedOn: null,
   };
@@ -376,12 +463,12 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(fireEvent.keyDown(document, { key: 'k', metaKey: true })).toBe(true);
     expect(fireEvent.keyDown(document, { key: 'j', ctrlKey: true })).toBe(true);
     expect(fireEvent.keyDown(document, { key: 'k', altKey: true })).toBe(true);
-    expect(screen.queryByText('Merge These Two')).not.toBeInTheDocument();
+    expect(screen.queryByText('Is this one place?')).not.toBeInTheDocument();
     expect(document.querySelector('[aria-current="true"]')).toBeNull();
 
     expect(fireEvent.keyDown(document, { key: 'j' })).toBe(false);
     expect(document.querySelector('[data-cluster-index="0"]')).toHaveAttribute('aria-current', 'true');
-    expect(screen.getByText('Merge These Two')).toBeInTheDocument();
+    expect(screen.getByText('Is this one place?')).toBeInTheDocument();
 
     expect(fireEvent.keyDown(document, { key: 'j', metaKey: true })).toBe(true);
     expect(document.querySelector('[data-cluster-index="0"]')).toHaveAttribute('aria-current', 'true');
@@ -781,7 +868,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'More' })).toBeEnabled());
 
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
-    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
     fireEvent.keyDown(document, { key: 'm' });
 
     expect(postedBodies('/api/places/bulk-merge', 'POST')).toHaveLength(1);
@@ -828,23 +915,22 @@ describe('duplicates keyboard and bulk confirmation', () => {
     await screen.findByText('Tromsø Cathedral');
 
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
-    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
-    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged "Arctic Cathedral" into "Tromsø Cathedral"'));
-
-    fireEvent.keyDown(document, { key: 'm' });
-    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merged 2 places'));
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith(
+      'Merged 2 places into Tromsø Cathedral',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    ));
 
     const bodies = postedBodies('/api/places/bulk-merge', 'POST');
-    expect(bodies).toHaveLength(3);
+    expect(bodies).toHaveLength(2);
     expect(bodies[1].clusters).toEqual([{
       targetId: 'arctic_c',
       sourceIds: ['arctic_a'],
       confidence: 0.98,
     }]);
-    expect(bodies[2].clusters).toEqual(bodies[1].clusters);
   });
 
-  it('refreshes a skipped pair merge without a failure toast', async () => {
+  it('refreshes a skipped merge from the button without a failure toast', async () => {
     const { refresh, routerSpy: spy } = spyRefresh();
     routerSpy = spy;
     (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
@@ -867,7 +953,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     Element.prototype.scrollIntoView = jest.fn();
 
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
-    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
 
     await waitFor(() => expect(deleteCalls()).toHaveLength(1));
     expect(refresh).toHaveBeenCalled();
@@ -906,7 +992,7 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(notify.success).not.toHaveBeenCalled();
   });
 
-  it('still reports a pair merge that failed', async () => {
+  it('still reports a merge that failed', async () => {
     const { refresh, routerSpy: spy } = spyRefresh();
     routerSpy = spy;
     (global.fetch as jest.Mock).mockResolvedValue({
@@ -924,11 +1010,13 @@ describe('duplicates keyboard and bulk confirmation', () => {
     Element.prototype.scrollIntoView = jest.fn();
 
     await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
-    await user.click(screen.getByRole('button', { name: 'Merge These Two' }));
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
 
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('transaction failed'));
     expect(deleteCalls()).toHaveLength(0);
-    expect(refresh).not.toHaveBeenCalled();
+    // The group was taken off the queue while the merge ran; the refresh brings it back.
+    expect(refresh).toHaveBeenCalled();
+    expect(notify.success).not.toHaveBeenCalled();
   });
 
   it('refreshes when every certain-group merge is already skipped', async () => {
@@ -1113,6 +1201,532 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(postedBodies('/api/places/dismiss-duplicate', 'POST').map((body) => body.pairs?.length)).toEqual([100, 1]);
     expect(deleteCalls()).toHaveLength(1);
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it('does not toggle a member with 1-9 while More or a confirm dialog is open', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainCluster()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const memberIn = () => {
+      const group = screen.getByRole('group', { name: 'Is Ishavskatedralen part of this place?', hidden: true });
+      return within(group).getByRole('button', { name: /^In/, hidden: true });
+    };
+    const memberOut = () => {
+      const group = screen.getByRole('group', { name: 'Is Ishavskatedralen part of this place?', hidden: true });
+      return within(group).getByRole('button', { name: 'Not this one', hidden: true });
+    };
+
+    expect(memberIn()).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: '2' });
+    expect(memberIn()).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(await screen.findByRole('menuitem', { name: 'Merge certain groups (1)' }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: '2' });
+    expect(memberIn()).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(memberIn()).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.keyDown(document, { key: '2' });
+    expect(memberOut()).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('does not merge from m with one member In, and ignores shortcuts while the kept record select is focused', async () => {
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    const user = userEvent.setup();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    fireEvent.keyDown(document, { key: 'm' });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(notify.error).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'change' }));
+    const keptRecord = screen.getByRole('combobox', { name: 'Kept record' });
+    keptRecord.focus();
+    fireEvent.keyDown(document, { key: 'm' });
+    fireEvent.keyDown(document, { key: 'd' });
+    fireEvent.keyDown(document, { key: 'j' });
+    fireEvent.keyDown(document, { key: 'k' });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    const workbench = screen.getByRole('region', { name: 'Is this one place?' });
+    expect(workbench).toHaveTextContent('Arctic Cathedral');
+    expect(workbench).not.toHaveTextContent('Sushi Saito');
+  });
+
+  it('keeps a hard-against pair from merging when the kept record changes', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[farPair()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+
+    expect(partButton('Harbor Other', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Not duplicates marks these as different places. #2 stays separate too.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Merge 1 into one place/ })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'change' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Kept record' }), 'far_o');
+
+    expect(partButton('Harbor Cafe', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Suggested out: 6.6 km apart from Harbor Other.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Merge 1 into one place/ })).toBeDisabled();
+    fireEvent.keyDown(document, { key: 'm' });
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    await user.click(partButton('Harbor Cafe', 'In'));
+    expect(partButton('Harbor Cafe', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('"Not duplicates" remembers these 2 as different places.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Merge 2 into one place/ })).toBeEnabled();
+  });
+
+  it('says a Not duplicates undo was put back without naming a tab', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' || (url === '/api/places/duplicates' && init?.method === 'DELETE')) {
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[certainCluster()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith(
+      'Marked 2 places as not duplicates',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    ));
+
+    (notify.success as jest.Mock).mockClear();
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));
+    expect(notify.success).not.toHaveBeenCalledWith(expect.stringContaining('To review'));
+  });
+
+  it('marks members hard-against the new kept record Out', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[keptChangeGroup()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+
+    expect(partButton('Harbor Kiosk', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Harbor Chapel', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Harbor Other', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'change' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Kept record' }), 'mix_f');
+
+    expect(partButton('Harbor Cafe', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Harbor Kiosk', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Harbor Chapel', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Merge 1 into one place/ })).toBeDisabled();
+
+    await user.click(partButton('Harbor Kiosk', 'In'));
+    expect(partButton('Harbor Kiosk', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Merge 2 into one place/ })).toBeEnabled();
+  });
+
+  it('retries a failed merge undo without deleting dismissals by place id', async () => {
+    const { refresh, routerSpy: spy } = spyRefresh();
+    routerSpy = spy;
+    let undoPosts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
+        return { ok: true, json: async () => ({}) };
+      }
+      if (url === '/api/places/bulk-merge') {
+        return { ok: true, json: async () => ({ success: 1, failed: 0, results: [{ status: 'success', mergeLogId: 'log_1' }] }) };
+      }
+      if (url === '/api/places/undo-merge') {
+        undoPosts += 1;
+        if (undoPosts === 1) return { ok: false, status: 500, json: async () => ({ message: 'Undo failed' }) };
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    const user = userEvent.setup();
+    const gamma = place('place_c', 'Gamma Cafe');
+    const alpha = place('place_a', 'Alpha Cafe');
+    const beta = place('place_b', 'Beta Cafe');
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: 'place_a+place_b+place_c',
+          avgConfidence: 0.9,
+          places: [alpha, beta, gamma],
+          edges: [
+            edge('place_a', 'place_b', 0.9, 40, 0.9),
+            edge('place_a', 'place_c', 0.88, 50, 0.9),
+            edge('place_b', 'place_c', 0.86, 30, 0.9),
+          ],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Merge 2 into one place/ }));
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith(
+      'Merged 2 places into Alpha Cafe',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    ));
+
+    const mergeBody = postedBody('/api/places/bulk-merge', 'POST') as {
+      clusters?: Array<{ dismissPairs?: unknown[] }>;
+    };
+    expect(mergeBody.clusters?.[0].dismissPairs?.length).toBeGreaterThan(0);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(0);
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Undo failed'));
+    expect(undoPosts).toBe(1);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0);
+    expect(notify.success).not.toHaveBeenCalledWith('Merge undone');
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merge undone'));
+    expect(undoPosts).toBe(2);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0);
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it('shows a hard-against edge between two In members on the link line and both cards', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[symmetricHardAgainstGroup()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+
+    expect(partButton('Cafe A', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Cafe B', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('2 and 3 · 5 km apart')).toBeInTheDocument();
+    const member = (number: number) => {
+      const card = document.querySelector(`[data-member="${number}"]`);
+      expect(card).not.toBeNull();
+      return within(card as HTMLElement);
+    };
+    expect(member(2).getByText('Matches #1 · 40 m apart')).toBeInTheDocument();
+    expect(member(3).getByText('Matches #1 · 50 m apart')).toBeInTheDocument();
+    expect(member(2).getByText('5 km apart from #3')).toBeInTheDocument();
+    expect(member(3).getByText('5 km apart from #2')).toBeInTheDocument();
+    expect(member(2).queryByText(/Only linked through/)).not.toBeInTheDocument();
+    expect(member(3).queryByText(/Only linked through/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Suggested out:/)).not.toBeInTheDocument();
+  });
+
+  it('deletes a partial Not duplicates write when a later chunk fails', async () => {
+    const places = Array.from({ length: 16 }, (_, index) => place(`part_${index}`, `Cafe ${index}`));
+    let posts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        posts += 1;
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        if (posts === 1) return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
+        return { ok: false, status: 500, json: async () => ({ message: 'failed' }) };
+      }
+      return { ok: true, json: async () => ({ status: 'success' }) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: places.map((row) => row.id).sort().join('+'),
+          avgConfidence: 0.9,
+          places,
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to dismiss cluster'));
+    expect(notify.success).not.toHaveBeenCalled();
+    const posted = postedBodies('/api/places/dismiss-duplicate', 'POST');
+    expect(posted.map((body) => body.pairs?.length)).toEqual([100, 20]);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: posted[0].pairs }]);
+  });
+
+  it('rolls back pairs already written when a later dismiss request drops', async () => {
+    const places = Array.from({ length: 16 }, (_, index) => place(`drop_${index}`, `Cafe ${index}`));
+    let posts = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        posts += 1;
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        if (posts === 1) return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
+        throw new Error('network down');
+      }
+      return { ok: true, json: async () => ({ status: 'success' }) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: places.map((row) => row.id).sort().join('+'),
+          avgConfidence: 0.9,
+          places,
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to dismiss cluster'));
+    expect(notify.success).not.toHaveBeenCalled();
+    const posted = postedBodies('/api/places/dismiss-duplicate', 'POST');
+    expect(posted.map((body) => body.pairs?.length)).toEqual([100, 20]);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: posted[0].pairs }]);
+  });
+
+  it('ignores m, d, and u while Not duplicates is in flight', async () => {
+    let releaseDismiss: () => void = () => {};
+    const dismissGate = new Promise<void>((resolve) => {
+      releaseDismiss = resolve;
+    });
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/bulk-merge') {
+        return { ok: true, json: async () => ({ success: 1, failed: 0, results: [{ status: 'success', mergeLogId: 'log_1' }] }) };
+      }
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        await dismissGate;
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
+      }
+      if (url === '/api/places/undo-merge') {
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    fireEvent.keyDown(document, { key: 'm' });
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Is this one place?' })).toHaveTextContent('Sushi Saito');
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+    });
+
+    fireEvent.keyDown(document, { key: 'd' });
+    fireEvent.keyDown(document, { key: 'd' });
+    fireEvent.keyDown(document, { key: 'm' });
+    fireEvent.keyDown(document, { key: 'u' });
+
+    expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1);
+    expect(postedBodies('/api/places/bulk-merge', 'POST')).toHaveLength(1);
+    expect(postedBodies('/api/places/undo-merge', 'POST')).toHaveLength(0);
+
+    releaseDismiss();
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith(
+        'Marked 2 places as not duplicates',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+      );
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+    });
+    const saved = postedBodies('/api/places/dismiss-duplicate', 'POST')[0]?.pairs ?? [];
+    expect(saved.length).toBeGreaterThan(0);
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));
+    expect(postedBodies('/api/places/undo-merge', 'POST')).toHaveLength(0);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: saved }]);
+  });
+
+  it('keeps an earlier undo when a later dismiss writes no new pairs', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/places/bulk-merge') {
+        return { ok: true, json: async () => ({ success: 1, failed: 0, results: [{ status: 'success', mergeLogId: 'log_keep' }] }) };
+      }
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        return { ok: true, json: async () => ({ status: 'success', inserted: [] }) };
+      }
+      if (url === '/api/places/undo-merge') {
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[certainCluster(), maybeCluster()]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    fireEvent.keyDown(document, { key: 'm' });
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Is this one place?' })).toHaveTextContent('Sushi Saito');
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+    });
+
+    fireEvent.keyDown(document, { key: 'd' });
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith('Marked 2 places as not duplicates', { duration: expect.any(Number) });
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+    });
+    expect(notify.success).not.toHaveBeenCalledWith(
+      'Marked 2 places as not duplicates',
+      expect.objectContaining({ action: expect.anything() }),
+    );
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merge undone'));
+    const merged = postedBody('/api/places/bulk-merge', 'POST');
+    expect(postedBodies('/api/places/undo-merge', 'POST')).toEqual([{
+      placeId: merged.clusters?.[0].targetId,
+      mergeLogId: 'log_keep',
+    }]);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0);
+  });
+
+  it('keeps saved pairs undoable when a partial dismiss cannot be rolled back', async () => {
+    const places = Array.from({ length: 16 }, (_, index) => place(`part_${index}`, `Cafe ${index}`));
+    let posts = 0;
+    let deletes = 0;
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        posts += 1;
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        if (posts === 1) return { ok: true, json: async () => ({ status: 'success', inserted: body.pairs ?? [] }) };
+        return { ok: false, status: 500, json: async () => ({ message: 'failed' }) };
+      }
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'DELETE') {
+        deletes += 1;
+        if (deletes === 1) return { ok: false, status: 500, json: async () => ({ message: 'failed' }) };
+        return { ok: true, json: async () => ({ status: 'success' }) };
+      }
+      return { ok: true, json: async () => ({ status: 'success' }) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: places.map((row) => row.id).sort().join('+'),
+          avgConfidence: 0.9,
+          places,
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith(
+      'Failed to dismiss cluster',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    ));
+    expect(notify.error).toHaveBeenCalledTimes(1);
+    const saved = postedBodies('/api/places/dismiss-duplicate', 'POST')[0]?.pairs ?? [];
+    expect(saved).toHaveLength(100);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: saved }]);
+    expect(notify.success).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toEqual([{ pairs: saved }, { pairs: saved }]);
+  });
+
+  it('chunks Not duplicates past 100 pairs and undoes only the pairs the server newly wrote', async () => {
+    const places = Array.from({ length: 16 }, (_, index) => place(`wide_${index}`, `Cafe ${index}`));
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        const pairs = body.pairs ?? [];
+        const inserted = pairs.filter((pair) => pair.placeId1 !== 'wide_1' && pair.placeId2 !== 'wide_1');
+        return { ok: true, json: async () => ({ status: 'success', inserted }) };
+      }
+      return { ok: true, json: async () => ({ status: 'success' }) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: places.map((row) => row.id).sort().join('+'),
+          avgConfidence: 0.9,
+          places,
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+
+    await waitFor(() => expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(2));
+    expect(postedBodies('/api/places/dismiss-duplicate', 'POST').map((body) => body.pairs?.length)).toEqual([100, 20]);
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));
+    const undone = postedBodies('/api/places/dismiss-duplicate', 'DELETE').flatMap((body) => body.pairs ?? []);
+    expect(undone.some((pair) => pair.placeId1 === 'wide_1' || pair.placeId2 === 'wide_1')).toBe(false);
+    expect(undone.length).toBeGreaterThan(0);
+    expect(undone.length).toBeLessThan(120);
   });
 
   it('names Possible and merged work on an empty To review list', () => {

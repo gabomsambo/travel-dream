@@ -36,8 +36,8 @@ export async function loadDuplicateQueueExtras(
     [...clusters, ...possible].flatMap((cluster) => cluster.places.map((place) => place.id)),
   )];
 
-  const [shotCounts, photoUrls, logs, dismissed] = await Promise.all([
-    screenshotCounts(userId, memberIds),
+  const [shotSources, { urls: photoUrls, counts: photoCounts }, logs, dismissed] = await Promise.all([
+    screenshotSourceIds(userId, memberIds),
     photoUrlsFor(memberIds),
     mergeLogsFor(userId),
     dismissedPairsFor(userId),
@@ -45,12 +45,17 @@ export async function loadDuplicateQueueExtras(
 
   const apply = (cluster: DuplicateCluster): DuplicateCluster => ({
     ...cluster,
-    places: cluster.places.map((place) => ({
-      ...place,
-      screenshotCount: shotCounts.get(place.id) ?? 0,
-      hasPhoto: photoUrls.has(place.id),
-      photoUrl: photoUrls.get(place.id) ?? null,
-    })),
+    places: cluster.places.map((place) => {
+      const shots = shotSources.get(place.id) ?? [];
+      return {
+        ...place,
+        screenshotCount: shots.length,
+        screenshotSourceIds: shots,
+        hasPhoto: photoUrls.has(place.id),
+        photoUrl: photoUrls.get(place.id) ?? null,
+        photoCount: photoCounts.get(place.id) ?? 0,
+      };
+    }),
     mergedOn: mergedOnForCluster(cluster, logs),
   });
 
@@ -65,21 +70,22 @@ export async function loadDuplicateQueueExtras(
         keptName: log.keptName,
         performedAt: log.performedAt,
         placeCount: log.sourceIds.length + 1,
+        canUndo: log.canUndo,
       }))
       .sort((a, b) => b.performedAt.localeCompare(a.performedAt)),
   };
 }
 
-async function screenshotCounts(userId: string, placeIds: string[]): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
-  if (placeIds.length === 0) return counts;
+async function screenshotSourceIds(userId: string, placeIds: string[]): Promise<Map<string, string[]>> {
+  const byPlace = new Map<string, string[]>();
+  if (placeIds.length === 0) return byPlace;
 
   const links = await db.select({
     sourceId: sourcesToPlaces.sourceId,
     placeId: sourcesToPlaces.placeId,
   }).from(sourcesToPlaces).where(inArray(sourcesToPlaces.placeId, placeIds));
 
-  if (links.length === 0) return counts;
+  if (links.length === 0) return byPlace;
   const sourceIds = [...new Set(links.map((link) => link.sourceId))];
   const shots = await db.select({ id: sources.id }).from(sources).where(and(
     inArray(sources.id, sourceIds),
@@ -89,14 +95,20 @@ async function screenshotCounts(userId: string, placeIds: string[]): Promise<Map
   const shotIds = new Set(shots.map((shot) => shot.id));
   for (const link of links) {
     if (!shotIds.has(link.sourceId)) continue;
-    counts.set(link.placeId, (counts.get(link.placeId) ?? 0) + 1);
+    const list = byPlace.get(link.placeId);
+    if (list) {
+      if (!list.includes(link.sourceId)) list.push(link.sourceId);
+    } else {
+      byPlace.set(link.placeId, [link.sourceId]);
+    }
   }
-  return counts;
+  return byPlace;
 }
 
-async function photoUrlsFor(placeIds: string[]): Promise<Map<string, string>> {
+async function photoUrlsFor(placeIds: string[]): Promise<{ urls: Map<string, string>; counts: Map<string, number> }> {
   const urls = new Map<string, string>();
-  if (placeIds.length === 0) return urls;
+  const counts = new Map<string, number>();
+  if (placeIds.length === 0) return { urls, counts };
 
   const rows = await db.select({
     placeId: attachments.placeId,
@@ -109,6 +121,7 @@ async function photoUrlsFor(placeIds: string[]): Promise<Map<string, string>> {
   const best = new Map<string, PhotoRow>();
   for (const row of rows) {
     if (row.type !== 'photo') continue;
+    counts.set(row.placeId, (counts.get(row.placeId) ?? 0) + 1);
     const current = best.get(row.placeId);
     if (!current || (row.isPrimary === 1 && current.isPrimary !== 1)) {
       best.set(row.placeId, {
@@ -120,13 +133,14 @@ async function photoUrlsFor(placeIds: string[]): Promise<Map<string, string>> {
     }
   }
   for (const [placeId, photo] of best) urls.set(placeId, photo.thumbnailUri || photo.uri);
-  return urls;
+  return { urls, counts };
 }
 
 interface OwnedMergeLog extends MergeLogMatch {
   id: string;
   keptName: string;
   sourceIds: string[];
+  canUndo: boolean;
 }
 
 async function mergeLogsFor(userId: string): Promise<OwnedMergeLog[]> {
@@ -137,7 +151,9 @@ async function mergeLogsFor(userId: string): Promise<OwnedMergeLog[]> {
     performedAt: mergeLogs.performedAt,
     undone: mergeLogs.undone,
     sourceSnapshots: mergeLogs.sourceSnapshots,
+    mergedData: mergeLogs.mergedData,
     keptName: places.name,
+    keptStatus: places.status,
   }).from(mergeLogs)
     .innerJoin(places, eq(places.id, mergeLogs.targetId))
     .where(and(
@@ -145,8 +161,22 @@ async function mergeLogsFor(userId: string): Promise<OwnedMergeLog[]> {
       eq(mergeLogs.undone, false),
     ));
 
+  // Undo goes newest first per kept place, and needs the kept-place snapshot.
+  const orderKey = (row: (typeof rows)[number]) => {
+    const updatedAt = (row.mergedData as { updatedAt?: unknown } | null)?.updatedAt;
+    return typeof updatedAt === 'string' ? updatedAt : row.performedAt;
+  };
+  const newest = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const current = newest.get(row.targetId);
+    if (!current || orderKey(row) > orderKey(current)) newest.set(row.targetId, row);
+  }
+
   return rows.map((row) => ({
     id: row.id,
+    canUndo: newest.get(row.targetId)?.id === row.id
+      && row.keptStatus !== 'archived'
+      && Boolean((row.mergedData as { targetSnapshot?: unknown } | null)?.targetSnapshot),
     targetId: row.targetId,
     keptName: row.keptName,
     sourceIds: Array.isArray(row.sourceIds) ? row.sourceIds : [],

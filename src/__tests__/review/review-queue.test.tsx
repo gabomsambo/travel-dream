@@ -155,4 +155,22 @@ describe('ReviewQueue decisions', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     confirmSpy.mockRestore()
   })
+  it('keeps letter shortcuts working after a mouse click leaves focus on a button', async () => {
+    const user = userEvent.setup()
+    render(<ReviewQueue items={items} trips={[]} />)
+
+    const skipButton = screen.getAllByRole('button', { name: /Skip for now/i })[0]
+    await user.click(skipButton)
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    skipButton.focus()
+
+    fireEvent.keyDown(skipButton, { key: 'n' })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/places/plc_two', expect.objectContaining({
+      body: JSON.stringify({ status: 'archived' }),
+    })))
+
+    // Enter on a focused button is the button's own click, not a second "Add".
+    fireEvent.keyDown(skipButton, { key: 'Enter' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })

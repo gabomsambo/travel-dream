@@ -37,8 +37,13 @@ const OUTCOME_STATUS: Record<Exclude<ReviewOutcome, 'skipped'>, 'library' | 'arc
 
 function isTypingTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(
-    target.closest('input, textarea, select, button, a, [contenteditable="true"], [role="combobox"], [role="dialog"]')
+    target.closest('input, textarea, select, [contenteditable="true"], [role="combobox"], [role="dialog"]')
   )
+}
+
+/** Enter on a focused button or link already activates it; don't also add the place. */
+function isActivatable(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest('button, a'))
 }
 
 async function setPlaceStatus(placeId: string, status: 'inbox' | 'library' | 'archived'): Promise<void> {
@@ -271,6 +276,7 @@ export function ReviewQueue({ items, trips, initialPlaceId }: ReviewQueueProps) 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return
       if (event.key === 'Enter') {
+        if (isActivatable(event.target)) return
         event.preventDefault()
         void decide('added')
       } else if (event.key.toLowerCase() === 'n') {

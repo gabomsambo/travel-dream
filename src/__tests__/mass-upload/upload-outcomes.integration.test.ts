@@ -132,6 +132,69 @@ describe('source place outcomes', () => {
     expect(massUpload.outcome.linked).toHaveLength(2);
   });
 
+  it('keeps places this source already created when the screenshot is processed again', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO places
+         (id,user_id,name,kind,status,city,country,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['plc_exact', ALICE.id, 'Exact Cafe', 'cafe', 'library', 'Lisbon', 'Portugal', now, now]
+    );
+    const extracted = [
+      pipelinePlace({ name: 'Brand New', googlePlaceId: 'google-new' }),
+      pipelinePlace({ name: 'exact cafe', googlePlaceId: null }),
+    ];
+
+    const first = await createPlacesFromPipeline(extracted, FIXTURE.aliceSource, ALICE.id);
+    const createdId = first.find((place) => place.name === 'Brand New')?.id;
+    expect(createdId).toEqual(expect.any(String));
+
+    const second = await createPlacesFromPipeline(extracted, FIXTURE.aliceSource, ALICE.id);
+    expect(second.createdCount).toBe(1);
+    expect(second.filter((place) => place.name === 'Brand New').map((place) => place.id)).toEqual([createdId]);
+
+    const sourceMeta = await jsonCell('SELECT meta FROM sources WHERE id = ?', [FIXTURE.aliceSource]);
+    const outcome = (sourceMeta.massUpload as {
+      outcome: { created: string[]; linked: Array<{ placeId: string; reason: string }> };
+    }).outcome;
+    expect(outcome.created).toEqual([createdId]);
+    expect(outcome.linked).toEqual([
+      { placeId: 'plc_exact', reason: 'exact_name_city_country' },
+    ]);
+    expect((await execute(
+      'SELECT id FROM places WHERE user_id = ? AND lower(name) = lower(?)',
+      [ALICE.id, 'Brand New']
+    )).rows).toHaveLength(1);
+  });
+
+  it('prefers a google-id link when the same place is also matched by name', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO places
+         (id,user_id,name,kind,status,city,country,google_place_id,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      ['plc_google', ALICE.id, 'Cafe', 'cafe', 'library', 'Lisbon', 'Portugal', 'g1', now, now]
+    );
+
+    const googleThenName = [
+      pipelinePlace({ googlePlaceId: 'g1', name: 'Cafe', city: 'Lisbon', country: 'Portugal' }),
+      pipelinePlace({ googlePlaceId: null, name: 'Cafe', city: 'Lisbon', country: 'Portugal' }),
+    ];
+    const nameThenGoogle = [...googleThenName].reverse();
+
+    for (const extracted of [googleThenName, nameThenGoogle]) {
+      await createPlacesFromPipeline(extracted, FIXTURE.aliceSource, ALICE.id);
+      const sourceMeta = await jsonCell('SELECT meta FROM sources WHERE id = ?', [FIXTURE.aliceSource]);
+      const outcome = (sourceMeta.massUpload as {
+        outcome: { created: string[]; linked: Array<{ placeId: string; reason: string }> };
+      }).outcome;
+      expect(outcome.created).toEqual([]);
+      expect(outcome.linked).toEqual([
+        { placeId: 'plc_google', reason: 'google_place_id' },
+      ]);
+    }
+  });
+
   it('reports only recorded creations and tolerates an old source with no outcome', async () => {
     const { GET } = require('@/app/api/mass-upload/status/route') as
       typeof import('@/app/api/mass-upload/status/route');

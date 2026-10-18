@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadSessions } from '@/db/schema';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
@@ -49,7 +49,10 @@ export async function GET(request: NextRequest) {
     const ownedSources = metadataSourceIds.length > 0
       ? await tdb.selectFields(
           sourcesCurrentSchema,
-          { id: sourcesCurrentSchema.id, meta: sourcesCurrentSchema.meta },
+          {
+            id: sourcesCurrentSchema.id,
+            createdCount: sql<number | null>`json_array_length(json_extract(${sourcesCurrentSchema.meta}, '$.massUpload.outcome.created'))`,
+          },
           inArray(sourcesCurrentSchema.id, metadataSourceIds)
         )
       : [];
@@ -62,7 +65,7 @@ export async function GET(request: NextRequest) {
     // insertion and a link to an existing place. Older rows have no outcome;
     // report zero rather than relabel their joins as creations.
     const placesCreated = ownedSources.reduce(
-      (total, source) => total + (source.meta?.massUpload?.outcome?.created?.length ?? 0),
+      (total, source) => total + (Number(source.createdCount) || 0),
       0
     );
 

@@ -55,7 +55,7 @@ function createStatusRequest(sessionId?: string) {
  */
 function mockSessionSelect(
   session: ReturnType<typeof createMockSession> | null,
-  ownedSourceRows?: Array<string | { id: string; meta?: unknown }>,
+  ownedSourceRows?: Array<string | { id: string; createdCount?: number | null }>,
   foreignSessionId?: string
 ) {
   const owned = session?.userId === 'user_test-1' ? session : null;
@@ -73,7 +73,7 @@ function mockSessionSelect(
   const uploadedFiles = session!.meta.uploadedFiles as string[];
   if (uploadedFiles.length === 0) return undefined;
   const ownedSources = mockSelect((ownedSourceRows ?? uploadedFiles).map(row =>
-    typeof row === 'string' ? { id: row, meta: null } : row
+    typeof row === 'string' ? { id: row, createdCount: null } : row
   ));
   mockDb.select.mockReturnValueOnce(ownedSources.chain);
   return ownedSources;
@@ -216,14 +216,8 @@ describe('GET /api/mass-upload/status', () => {
       },
     });
     mockSessionSelect(session, [
-      {
-        id: 'src_1',
-        meta: { massUpload: { outcome: { created: ['plc_1', 'plc_2'], linked: [] } } },
-      },
-      {
-        id: 'src_2',
-        meta: { massUpload: { outcome: { created: ['plc_3'], linked: [] } } },
-      },
+      { id: 'src_1', createdCount: 2 },
+      { id: 'src_2', createdCount: 1 },
     ]);
 
     mockGetProcessingStatusCounts.mockResolvedValueOnce({ completed: 2 });

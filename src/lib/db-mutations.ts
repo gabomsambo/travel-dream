@@ -1760,8 +1760,8 @@ export async function createPlacesFromPipeline(
       const screenshotUri = source.uri;
       const meta = source.meta;
       const resolvedPlaces: Place[] = [];
-      const createdIds = new Set<string>();
-      const linkedByPlaceId = new Map<string, 'google_place_id' | 'exact_name_city_country'>();
+      const createdIds = new Set(recordedCreatedPlaceIds(meta));
+      const linkedByPlaceId = new Map<string, LinkReason>();
 
       // ── Batched dedup lookup ───────────────────────────────────────────
       // One query per lookup shape for the whole screenshot instead of two
@@ -1819,7 +1819,8 @@ export async function createPlacesFromPipeline(
           // just inserted. It is neither another creation nor a link to an
           // existing Library place, so keep it out of both outcome lists.
           if (!createdIds.has(linked.id)) {
-            linkedByPlaceId.set(
+            rememberLinkReason(
+              linkedByPlaceId,
               linked.id,
               googleCandidates ? 'google_place_id' : 'exact_name_city_country'
             );
@@ -1914,6 +1915,23 @@ export async function createPlacesFromPipeline(
       return result;
     });
   }, 'createPlacesFromPipeline');
+}
+
+type LinkReason = 'google_place_id' | 'exact_name_city_country';
+
+function recordedCreatedPlaceIds(meta: typeof sourcesCurrentSchema.$inferSelect.meta): string[] {
+  const created = meta?.massUpload?.outcome?.created;
+  if (!Array.isArray(created)) return [];
+  return created.filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+function rememberLinkReason(
+  linkedByPlaceId: Map<string, LinkReason>,
+  placeId: string,
+  reason: LinkReason
+): void {
+  if (linkedByPlaceId.get(placeId) === 'google_place_id') return;
+  linkedByPlaceId.set(placeId, reason);
 }
 
 /**

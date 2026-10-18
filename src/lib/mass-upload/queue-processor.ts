@@ -250,8 +250,8 @@ async function processOne(
     const completed = await completeSource(source.id, leaseId);
     if (!completed) {
       // Only reachable if a reclaim beat us; lease TTL > item budget makes this
-      // effectively impossible, and the dedup in createPlacesFromPipeline keeps
-      // the double-processed result idempotent if it ever happens.
+      // effectively impossible. A retry keeps ids already stored on
+      // `outcome.created`, so those insertions are not relabeled as links.
       result.leaseLost++;
       console.warn(`[MassUpload] lease lost while completing ${source.id}`);
       return;
@@ -438,7 +438,7 @@ async function runPipeline(
 
   signal.throwIfAborted();
   const created = await createPlacesFromPipeline(enrichedPlaces, source.id, source.userId);
-  return created.length;
+  return created.createdCount;
 }
 
 /**

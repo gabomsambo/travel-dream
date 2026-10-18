@@ -61,6 +61,11 @@ const mockTx = {
       return chain;
     },
   }),
+  update: () => ({
+    set: () => ({
+      where: () => Promise.resolve(),
+    }),
+  }),
 };
 
 function tableName(table: unknown): string {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processQueue } from '@/lib/mass-upload/queue-processor';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
+import { requeueStaleUploadedSources } from '@/lib/db-mutations';
+import { QUEUE_CONFIG } from '@/lib/mass-upload/queue-config';
 
 export const runtime = 'nodejs';
 // Keep in sync with MASS_UPLOAD_MAX_DURATION_SECONDS and vercel.json —
@@ -12,8 +14,14 @@ export const maxDuration = 300;
  *
  * Processing is event-triggered when an upload starts (see
  * `/api/mass-upload/start`), so this cron exists to make sure nothing can be
- * stranded when a trigger is missed or a worker dies: it reclaims expired
- * leases, tops the worker pool back up, and drains the queue itself.
+ * stranded when a trigger is missed or a worker dies. It queues `uploaded`
+ * sources older than `QUEUE_CONFIG.uploadedStaleMs` (the browser disappeared
+ * after registration and Start never ran), reclaims expired leases, tops the
+ * worker pool back up, and drains the queue itself.
+ *
+ * Those `uploaded` rows were never claimed, so recovery does not touch
+ * `processingAttempts` or `processingInterruptions`. Recent uploads stay
+ * `uploaded` while their batch is still being assembled.
  *
  * It runs on a slow schedule (see vercel.json) because it is a backstop, not
  * the primary path.
@@ -36,6 +44,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const recoveredUploads = await requeueStaleUploadedSources(
+      new Date(Date.now() - QUEUE_CONFIG.uploadedStaleMs).toISOString()
+    );
     // Add workers for whatever is waiting, then take a share of the work in
     // this invocation too, so the queue drains even if fan-out is unavailable.
     const dispatch = await dispatchProcessors('safety-net-cron', 'grow');
@@ -47,6 +58,7 @@ export async function GET(request: NextRequest) {
       failed: result.failed,
       remaining: result.remaining,
       placesCreated: result.placesCreated,
+      uploadedRequeued: recoveredUploads.requeued,
       // Reliability detail: interruptions are NOT failures.
       interrupted: result.interrupted,
       stalled: result.stalled,

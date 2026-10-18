@@ -5,6 +5,9 @@
 // ── Module mocks (BEFORE imports) ──────────────────────────────────────
 jest.mock('@/lib/mass-upload/queue-processor', () => ({ processQueue: jest.fn() }));
 jest.mock('@/lib/mass-upload/dispatch', () => ({ dispatchProcessors: jest.fn() }));
+jest.mock('@/lib/db-mutations', () => ({
+  requeueStaleUploadedSources: jest.fn().mockResolvedValue({ requeued: 0, ids: [] }),
+}));
 
 import { GET } from '@/app/api/mass-upload/cron/route';
 import { processQueue } from '@/lib/mass-upload/queue-processor';

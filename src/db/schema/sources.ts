@@ -106,6 +106,10 @@ export const uploadSessions = sqliteTable('upload_sessions', {
     uploadedFiles: string[];
     processingQueue?: string[];
     errors: Array<{ fileId: string; error: string }>;
+    duplicates?: Array<{
+      originalName: string;
+      duplicateOf: string;
+    }>;
   }>(),
 }, (table) => ({
   statusIdx: index('upload_sessions_status_idx').on(table.status),

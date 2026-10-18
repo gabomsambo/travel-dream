@@ -1,6 +1,7 @@
 # Evidence: `GET /api/inbox/uploads`
 
-Responses from the running app (`next dev`) on a seeded local SQLite file. No Turso,
+Responses from the running app (`next dev`) on a seeded local SQLite file. `toReviewPlaceIds`
+is those captures' inbox place ids, once each, newest batch first. No Turso,
 no Blob store, no paid providers: the environment held only a `file:` database URL
 and an auth secret. Places were made by the real `createPlacesFromPipeline` with
 simulated extraction, mirroring the Inbox scout's walk:

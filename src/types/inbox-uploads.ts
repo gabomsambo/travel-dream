@@ -85,8 +85,8 @@ export interface InboxUploadBatch {
     /** Still in the Inbox, whether this batch created the place or linked the screenshot to it. */
     toReview: InboxUploadPlaceRow & {
       /**
-       * How many of these Review would mark "Check this". `null` until the
-       * Review lane's check rules land on main; the Inbox page PR fills it.
+       * How many of these Review would mark "Check this". `null` until
+       * `reviewChecks` (Review PR 3) fills it from that lane's rules.
        */
       checkCount: number | null;
     };

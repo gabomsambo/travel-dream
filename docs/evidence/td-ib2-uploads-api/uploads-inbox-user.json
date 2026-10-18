@@ -464,5 +464,12 @@
       ],
       "outcomeDerived": true
     }
+  ],
+  "toReviewPlaceIds": [
+    "plc_5867c67b-3e99-41ba-90bd-9cbc581322b2",
+    "plc_37fb15d5-9cf5-4418-9c97-1cee12ff3ffd",
+    "plc_c4948e18-a6c6-4354-8fb3-886d0bc4eeef",
+    "plc_33fc63cf-3a2f-4d7a-b921-2f785aac6a24",
+    "plc_016c43f2-c356-491a-b03d-6aa23c43d0e0"
   ]
 }

@@ -33,7 +33,7 @@ interface ReviewQueueProps {
   initialPlaceId?: string
 }
 
-const OUTCOME_STATUS: Record<Exclude<ReviewOutcome, 'skipped'>, 'library' | 'archived'> = {
+const OUTCOME_STATUS: Record<Exclude<ReviewOutcome, 'skipped' | 'removed'>, 'library' | 'archived'> = {
   added: 'library',
   archived: 'archived',
 }

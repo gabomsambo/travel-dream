@@ -3,7 +3,13 @@
  * `uploadInfo.ocrStatus` fallback when the row never entered the pipeline.
  */
 
-export type ScreenshotDisplayStatus = 'waiting' | 'reading' | 'done' | 'failed';
+export type ScreenshotDisplayStatus =
+  | 'waiting'
+  | 'reading'
+  | 'done'
+  | 'failed'
+  | 'needs-retry'
+  | 'cancelled';
 
 export type InboxScreenshotSource = {
   processingStatus?: string | null;
@@ -48,11 +54,13 @@ function mapPipelineStatus(processingStatus: string): ScreenshotDisplayStatus {
       return 'reading';
     case 'failed':
       return 'failed';
+    case 'stalled':
+      return 'needs-retry';
+    case 'cancelled':
+      return 'cancelled';
     case 'uploaded':
     case 'queued':
     case 'pending':
-    case 'stalled':
-    case 'cancelled':
     default:
       return 'waiting';
   }
@@ -82,6 +90,10 @@ export function screenshotStatusLabel(status: ScreenshotDisplayStatus): string {
       return 'Reading…';
     case 'failed':
       return "Couldn't read";
+    case 'needs-retry':
+      return 'Needs retry';
+    case 'cancelled':
+      return 'Cancelled';
     case 'waiting':
       return 'Waiting';
   }
@@ -97,6 +109,8 @@ export function countScreenshotStatuses(
     reading: 0,
     done: 0,
     failed: 0,
+    'needs-retry': 0,
+    cancelled: 0,
   };
   for (const source of sources) {
     counts[resolveScreenshotDisplayStatus(source)] += 1;

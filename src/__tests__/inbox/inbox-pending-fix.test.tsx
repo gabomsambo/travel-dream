@@ -52,6 +52,24 @@ describe('inbox pending fix', () => {
       expect(screenshotStatusLabel('waiting')).toBe('Waiting');
     });
 
+    it('labels stalled as Needs retry and cancelled as Cancelled', () => {
+      expect(
+        resolveScreenshotDisplayStatus({
+          processingStatus: 'stalled',
+          meta: { uploadInfo: { ocrStatus: 'pending' } },
+        })
+      ).toBe('needs-retry');
+      expect(screenshotStatusLabel('needs-retry')).toBe('Needs retry');
+
+      expect(
+        resolveScreenshotDisplayStatus({
+          processingStatus: 'cancelled',
+          meta: { uploadInfo: { ocrStatus: 'pending' } },
+        })
+      ).toBe('cancelled');
+      expect(screenshotStatusLabel('cancelled')).toBe('Cancelled');
+    });
+
     it('falls back to legacy ocrStatus when processing_status stayed pending', () => {
       expect(
         resolveScreenshotDisplayStatus({
@@ -98,6 +116,30 @@ describe('inbox pending fix', () => {
       expect(counts.done).toBe(2);
       expect(counts.reading).toBe(1);
       expect(counts.failed).toBe(1);
+    });
+
+    it('leaves stalled and cancelled out of processed, processing, and failed', () => {
+      const counts = countScreenshotStatuses([
+        {
+          processingStatus: 'stalled',
+          meta: { uploadInfo: { ocrStatus: 'pending' } },
+        },
+        {
+          processingStatus: 'cancelled',
+          meta: { uploadInfo: { ocrStatus: 'pending' } },
+        },
+        {
+          processingStatus: 'completed',
+          meta: { uploadInfo: { ocrStatus: 'pending' } },
+        },
+      ]);
+
+      expect(counts.done).toBe(1);
+      expect(counts.reading).toBe(0);
+      expect(counts.failed).toBe(0);
+      expect(counts.waiting).toBe(0);
+      expect(counts['needs-retry']).toBe(1);
+      expect(counts.cancelled).toBe(1);
     });
   });
 
@@ -163,6 +205,56 @@ describe('inbox pending fix', () => {
         />
       );
       expect(screen.getByText('Done')).toBeInTheDocument();
+    });
+
+    it('shows Needs retry for a stalled screenshot', () => {
+      render(
+        <ScreenshotCard
+          source={{ ...baseSource, processingStatus: 'stalled' }}
+        />
+      );
+      const badge = screen.getByText('Needs retry');
+      expect(badge).toBeInTheDocument();
+      expect(badge).toHaveClass('text-amber-600');
+      expect(screen.queryByText('Waiting')).not.toBeInTheDocument();
+    });
+
+    it('shows Cancelled for a cancelled screenshot', () => {
+      render(
+        <ScreenshotCard
+          source={{ ...baseSource, processingStatus: 'cancelled' }}
+        />
+      );
+      const badge = screen.getByText('Cancelled');
+      expect(badge).toBeInTheDocument();
+      expect(badge).toHaveClass('text-muted-foreground');
+      expect(screen.queryByText('Waiting')).not.toBeInTheDocument();
+    });
+
+    it('offers retry only for a legacy OCR failure', () => {
+      const { unmount } = render(
+        <ScreenshotCard
+          source={{
+            ...baseSource,
+            processingStatus: 'pending',
+            meta: { uploadInfo: { originalName: 'trip.png', ocrStatus: 'failed' } },
+          }}
+        />
+      );
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      unmount();
+
+      render(
+        <ScreenshotCard
+          source={{
+            ...baseSource,
+            processingStatus: 'failed',
+            meta: { uploadInfo: { originalName: 'trip.png', ocrStatus: 'pending' } },
+          }}
+        />
+      );
+      expect(screen.getByText("Couldn't read")).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     });
   });
 });

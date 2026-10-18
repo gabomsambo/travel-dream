@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card } from "@/components/adapters/card"
 import { Badge } from "@/components/adapters/badge"
 import { Button } from "@/components/adapters/button"
-import { Image, FileText, Clock, CheckCircle, AlertCircle, X, RefreshCw, Loader2 } from 'lucide-react'
+import { Image, FileText, Clock, CheckCircle, AlertCircle, Ban, X, RefreshCw, Loader2 } from 'lucide-react'
 import { notify } from '@/lib/notify'
 import {
   resolveScreenshotDisplayStatus,
@@ -46,6 +46,10 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
         return <Clock className="h-4 w-4 text-blue-600" />
       case 'failed':
         return <AlertCircle className="h-4 w-4 text-red-600" />
+      case 'needs-retry':
+        return <RefreshCw className="h-4 w-4 text-amber-600" />
+      case 'cancelled':
+        return <Ban className="h-4 w-4 text-muted-foreground" />
       default:
         return <Clock className="h-4 w-4 text-gray-400" />
     }
@@ -59,6 +63,18 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
         return <Badge variant="secondary">{screenshotStatusLabel(status)}</Badge>
       case 'failed':
         return <Badge variant="destructive">{screenshotStatusLabel(status)}</Badge>
+      case 'needs-retry':
+        return (
+          <Badge variant="outline" className="text-amber-600">
+            {screenshotStatusLabel(status)}
+          </Badge>
+        )
+      case 'cancelled':
+        return (
+          <Badge variant="outline" className="text-muted-foreground">
+            {screenshotStatusLabel(status)}
+          </Badge>
+        )
       default:
         return <Badge variant="outline">{screenshotStatusLabel(status)}</Badge>
     }
@@ -128,14 +144,14 @@ export function ScreenshotCard({ source, onDelete, onRetryComplete }: Screenshot
     <Card className="p-4 hover:shadow-md transition-shadow relative group">
       {/* Action buttons */}
       <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-        {/* Retry button - only for failed status */}
-        {displayStatus === 'failed' && (
+        {uploadInfo?.ocrStatus === 'failed' && (
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8 bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700"
             onClick={handleRetry}
             disabled={isRetrying}
+            aria-label="Retry"
           >
             {isRetrying ? (
               <Loader2 className="h-4 w-4 animate-spin" />

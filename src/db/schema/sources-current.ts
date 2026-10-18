@@ -53,8 +53,10 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
       ocrError?: string;
       uploadedAt?: string;
     };
-    // Cached mass-upload pipeline work, so a retry after an interruption never
-    // re-charges Gemini or re-uploads a thumbnail that already exists.
+    // `extraction` and `thumbnailUrl` are paid work cached so a retry never
+    // re-charges Gemini or re-uploads a thumbnail. `outcome` records which
+    // places this source inserted (`created`) versus attached to an existing
+    // place (`linked`). A retry must keep `created` ids out of `linked`.
     massUpload?: {
       extraction?: unknown;
       extractedAt?: string;

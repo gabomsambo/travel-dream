@@ -1739,9 +1739,16 @@ export async function batchCreatePlaces(
   }, 'batchCreatePlaces');
 }
 
-// Mass upload pipeline — create places from enriched pipeline results
 export type CreatePlacesFromPipelineResult = Place[] & { createdCount: number };
 
+/**
+ * Insert new places from one screenshot and attach it to places that already
+ * exist. The same transaction stores `meta.massUpload.outcome`: `created` is
+ * the place ids this source inserted, including ids already stored by an
+ * earlier attempt, and `linked` is existing places this screenshot was
+ * attached to. `createdCount` is `created.length`, not how many places the
+ * screenshot touched.
+ */
 export async function createPlacesFromPipeline(
   pipelinePlaces: PipelinePlace[],
   sourceId: string,
@@ -1815,9 +1822,9 @@ export async function createPlacesFromPipeline(
           const linked = await resolveIdentityMatch(tx, candidates, userId);
           sourceLinks.push({ sourceId, placeId: linked.id });
           resolvedPlaces.push(linked);
-          // A repeated extraction inside this screenshot can match a place we
-          // just inserted. It is neither another creation nor a link to an
-          // existing Library place, so keep it out of both outcome lists.
+          // Keep this source's creations out of `linked`: a place inserted earlier
+          // in this call, or one already listed on `outcome.created` from an
+          // attempt whose inserts committed before the source completed.
           if (!createdIds.has(linked.id)) {
             rememberLinkReason(
               linkedByPlaceId,
@@ -1925,6 +1932,7 @@ function recordedCreatedPlaceIds(meta: typeof sourcesCurrentSchema.$inferSelect.
   return created.filter((id): id is string => typeof id === 'string' && id.length > 0);
 }
 
+/** A google-id match wins over a later name match for the same place. */
 function rememberLinkReason(
   linkedByPlaceId: Map<string, LinkReason>,
   placeId: string,

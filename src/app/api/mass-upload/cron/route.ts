@@ -14,8 +14,14 @@ export const maxDuration = 300;
  *
  * Processing is event-triggered when an upload starts (see
  * `/api/mass-upload/start`), so this cron exists to make sure nothing can be
- * stranded when a trigger is missed or a worker dies: it reclaims expired
- * leases, tops the worker pool back up, and drains the queue itself.
+ * stranded when a trigger is missed or a worker dies. It queues `uploaded`
+ * sources older than `QUEUE_CONFIG.uploadedStaleMs` (the browser disappeared
+ * after registration and Start never ran), reclaims expired leases, tops the
+ * worker pool back up, and drains the queue itself.
+ *
+ * Those `uploaded` rows were never claimed, so recovery does not touch
+ * `processingAttempts` or `processingInterruptions`. Recent uploads stay
+ * `uploaded` while their batch is still being assembled.
  *
  * It runs on a slow schedule (see vercel.json) because it is a backstop, not
  * the primary path.

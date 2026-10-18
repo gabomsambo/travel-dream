@@ -1,9 +1,9 @@
 /**
  * @jest-environment node
  *
- * The cron is now a safety net: it reclaims stranded work, tops the worker pool
- * back up, and takes a share of the queue itself. The per-item reliability rules
- * live in queue-processor.test.ts.
+ * What the cron is responsible for is documented on `GET` in
+ * `src/app/api/mass-upload/cron/route.ts`. Per-item reliability rules live in
+ * queue-processor.test.ts.
  */
 
 jest.mock('@/lib/mass-upload/queue-processor', () => ({

@@ -60,7 +60,7 @@ export default async function InboxPage() {
             <Info className="h-4 w-4 mt-0.5 shrink-0" />
             <span>
               Screenshots are processed automatically. Review the extracted places below,
-              then delete screenshots — a copy is saved with each place.
+              then delete screenshots when you are done — places made from them keep their photo.
             </span>
           </div>
 

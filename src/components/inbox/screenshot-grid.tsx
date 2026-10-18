@@ -106,7 +106,7 @@ export function ScreenshotGrid({ sources: initialSources }: ScreenshotGridProps)
             </AlertDialogTitle>
             <AlertDialogDescription>
               This will permanently delete all {sources.length} screenshot{sources.length !== 1 ? 's' : ''} from your inbox.
-              Places already extracted from these screenshots will not be affected.
+              Places already extracted from these screenshots keep their photos.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

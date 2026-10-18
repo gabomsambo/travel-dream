@@ -1,6 +1,6 @@
 import { eq, and, inArray, count, sql, desc } from 'drizzle-orm';
-import { del } from '@vercel/blob';
 import { db } from '@/db';
+import { releaseBlobIfUnreferenced, releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks } from '@/db/schema';
 import { appendNote, mergePlaceFields, sanitizeMergeFieldOverrides, type MergeFieldOverrides } from '@/lib/place-merge';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
@@ -155,14 +155,12 @@ export async function deleteSource(id: string, userId: string): Promise<void> {
       await tx.delete(sources).where(eq(sources.id, id));
     });
 
-    // Clean up blob storage AFTER transaction commits (best-effort)
-    if (source.uri?.startsWith('https://')) {
-      try {
-        await del(source.uri);
-      } catch (e) {
-        console.warn(`[deleteSource] Failed to delete blob ${source.uri}:`, e);
-      }
-    }
+    await releaseBlobIfUnreferenced(
+      userId,
+      source.uri,
+      { excludeSourceIds: [id] },
+      '[deleteSource]'
+    );
   }, 'deleteSource');
 }
 
@@ -200,14 +198,12 @@ export async function clearAllScreenshots(userId: string): Promise<{ deleted: nu
       await tx.delete(sources).where(inArray(sources.id, sourceIds));
     });
 
-    // Clean up blobs AFTER transaction commits (best-effort)
-    if (blobUrls.length > 0) {
-      try {
-        await del(blobUrls);
-      } catch (e) {
-        console.warn(`[clearAllScreenshots] Failed to delete ${blobUrls.length} blobs:`, e);
-      }
-    }
+    await releaseBlobsIfUnreferenced(
+      userId,
+      blobUrls,
+      { excludeSourceIds: sourceIds },
+      '[clearAllScreenshots]'
+    );
 
     return { deleted: userScreenshots.length };
   }, 'clearAllScreenshots');
@@ -1443,21 +1439,14 @@ export async function deleteAttachment(id: string, userId: string) {
       .delete(attachments)
       .where(eq(attachments.id, id));
 
-    // Clean up blob storage (best-effort)
-    if (attachment.uri?.startsWith('https://')) {
-      try {
-        await del(attachment.uri);
-      } catch (e) {
-        console.warn(`[deleteAttachment] Failed to delete blob ${attachment.uri}:`, e);
-      }
-    }
-    if (attachment.thumbnailUri?.startsWith('https://')) {
-      try {
-        await del(attachment.thumbnailUri);
-      } catch (e) {
-        console.warn(`[deleteAttachment] Failed to delete thumbnail blob:`, e);
-      }
-    }
+    const exclusions = { excludeAttachmentIds: [id] };
+    await releaseBlobIfUnreferenced(userId, attachment.uri, exclusions, '[deleteAttachment]');
+    await releaseBlobIfUnreferenced(
+      userId,
+      attachment.thumbnailUri,
+      exclusions,
+      '[deleteAttachment]'
+    );
 
     return { success: true };
   }, 'deleteAttachment');

@@ -75,6 +75,15 @@ async function dismissedKeys(): Promise<string[]> {
   return [...new Set(rows.map((row) => [String(row.a), String(row.b)].sort().join('|')))].sort();
 }
 
+async function dismissedRowIds(a: string, b: string): Promise<string[]> {
+  const { rows } = await sql().execute({
+    sql: `SELECT id FROM dismissed_duplicates
+          WHERE (place_id_1 = ? AND place_id_2 = ?) OR (place_id_1 = ? AND place_id_2 = ?)`,
+    args: [a, b, b, a],
+  });
+  return rows.map((row) => String(row.id)).sort();
+}
+
 function edge(a: string, b: string, included = true, distanceM: number | null = null): DuplicateGroupEdge {
   return {
     a, b, score: included ? 0.85 : 0.62, included, distanceM,
@@ -217,6 +226,70 @@ describe('duplicates workbench on real data', () => {
     expect((await post('undo-merge', { placeId: 'plc_k', mergeLogId })).status).toBe(200);
     expect(await dismissedKeys()).toEqual(['plc_k|plc_y', 'plc_x|plc_y']);
     expect((await readPlace('plc_s')).status).toBe('inbox');
+  });
+
+  it('leaves a dismissal that already existed when a later merge is undone', async () => {
+    await insertPlace({ id: 'plc_chapel', name: 'Chapel' });
+    await insertPlace({ id: 'plc_cafe', name: 'Cafe' });
+    await insertPlace({ id: 'plc_kiosk', name: 'Kiosk' });
+
+    const first = await post('dismiss-duplicate', { pairs: [{ placeId1: 'plc_chapel', placeId2: 'plc_cafe' }] });
+    expect(first.status).toBe(200);
+    expect(first.json.inserted).toEqual([{ placeId1: 'plc_chapel', placeId2: 'plc_cafe' }]);
+    const older = await dismissedRowIds('plc_chapel', 'plc_cafe');
+    expect(older).toHaveLength(2);
+
+    const again = await post('dismiss-duplicate', { pairs: [{ placeId1: 'plc_cafe', placeId2: 'plc_chapel' }] });
+    expect(again.status).toBe(200);
+    expect(again.json.inserted).toEqual([]);
+    expect(await dismissedRowIds('plc_chapel', 'plc_cafe')).toEqual(older);
+
+    const dismissPairs = [
+      { placeId1: 'plc_chapel', placeId2: 'plc_cafe' },
+      { placeId1: 'plc_chapel', placeId2: 'plc_kiosk' },
+    ];
+    const merged = await post('bulk-merge', {
+      clusters: [{ targetId: 'plc_cafe', sourceIds: ['plc_kiosk'], confidence: 0.8, dismissPairs }],
+    });
+    expect(merged.status).toBe(200);
+    expect(await dismissedRowIds('plc_chapel', 'plc_cafe')).toEqual(older);
+    expect(await dismissedKeys()).toEqual(['plc_cafe|plc_chapel', 'plc_chapel|plc_kiosk']);
+
+    const mergeLogId = (merged.json.results as Array<{ mergeLogId: string }>)[0].mergeLogId;
+    expect((await post('undo-merge', { placeId: 'plc_cafe', mergeLogId })).status).toBe(200);
+    expect(await dismissedRowIds('plc_chapel', 'plc_cafe')).toEqual(older);
+    expect(await dismissedKeys()).toEqual(['plc_cafe|plc_chapel']);
+  });
+
+  it('remembers every Not this one pair from a merge past 100, and undo removes only the new rows', async () => {
+    const ids = Array.from({ length: 16 }, (_, index) => `plc_wide_${index}`);
+    for (const id of ids) await insertPlace({ id, name: id });
+
+    const prior = await post('dismiss-duplicate', { pairs: [{ placeId1: ids[2], placeId2: ids[3] }] });
+    expect(prior.status).toBe(200);
+    const older = await dismissedRowIds(ids[2], ids[3]);
+    expect(older).toHaveLength(2);
+
+    const dismissPairs: Array<{ placeId1: string; placeId2: string }> = [];
+    for (let left = 0; left < ids.length; left++) {
+      for (let right = left + 1; right < ids.length; right++) {
+        dismissPairs.push({ placeId1: ids[left], placeId2: ids[right] });
+      }
+    }
+    expect(dismissPairs).toHaveLength(120);
+
+    const merged = await post('bulk-merge', {
+      clusters: [{ targetId: ids[0], sourceIds: [ids[1]], confidence: 0.8, dismissPairs }],
+    });
+    expect(merged.status).toBe(200);
+    expect((merged.json.success)).toBe(1);
+    expect(await dismissedKeys()).toHaveLength(120);
+    expect(await dismissedRowIds(ids[2], ids[3])).toEqual(older);
+
+    const mergeLogId = (merged.json.results as Array<{ mergeLogId: string }>)[0].mergeLogId;
+    expect((await post('undo-merge', { placeId: ids[0], mergeLogId })).status).toBe(200);
+    expect(await dismissedRowIds(ids[2], ids[3])).toEqual(older);
+    expect(await dismissedKeys()).toEqual([[ids[2], ids[3]].sort().join('|')]);
   });
 
   it('undo restores the kept place, the absorbed place, and every moved row', async () => {

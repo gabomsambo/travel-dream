@@ -94,6 +94,14 @@ function chunkItems<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+function isPair(value: unknown): value is Pair {
+  if (!value || typeof value !== 'object') return false;
+  const pair = value as { placeId1?: unknown; placeId2?: unknown };
+  return typeof pair.placeId1 === 'string' && pair.placeId1.length > 0
+    && typeof pair.placeId2 === 'string' && pair.placeId2.length > 0
+    && pair.placeId1 !== pair.placeId2;
+}
+
 function groupHasUnmergedPlace(group: QueueCluster, committedIds: ReadonlySet<string>): boolean {
   return group.places.some((place) => !committedIds.has(place.id));
 }
@@ -233,17 +241,27 @@ export function DuplicatesPageClient({
     pairs: Pair[],
     method: 'POST' | 'DELETE',
     options?: { absentOk?: boolean },
-  ) => {
+  ): Promise<{ inserted: Pair[]; failed: boolean }> => {
+    const inserted: Pair[] = [];
     for (const batch of chunkItems(pairs, DISMISS_PAIR_LIMIT)) {
       const response = await fetch('/api/places/dismiss-duplicate', {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pairs: batch }),
       });
-      if (response.ok) continue;
-      if (options?.absentOk && response.status === 404) continue;
-      throw new Error('Failed to save the pairs');
+      if (!response.ok) {
+        if (options?.absentOk && response.status === 404) continue;
+        return { inserted, failed: true };
+      }
+      if (method !== 'POST') continue;
+      const body = await response.json().catch(() => null) as { inserted?: unknown } | null;
+      if (Array.isArray(body?.inserted)) {
+        inserted.push(...body.inserted.filter(isPair));
+      } else {
+        inserted.push(...batch);
+      }
     }
+    return { inserted, failed: false };
   }, []);
 
   const handleUndo = useCallback(async (action: UndoableAction | null) => {
@@ -262,7 +280,10 @@ export function DuplicatesPageClient({
           throw new Error(body?.message || 'Undo failed');
         }
       }
-      if (action.pairs.length > 0) await writePairs(action.pairs, 'DELETE', { absentOk: true });
+      if (action.kind === 'dismiss' && action.pairs.length > 0) {
+        const written = await writePairs(action.pairs, 'DELETE', { absentOk: true });
+        if (written.failed) throw new Error('Failed to save the pairs');
+      }
       if (lastActionRef.current === action) lastActionRef.current = null;
       notify.success(action.kind === 'merge' ? 'Merge undone' : 'Put back');
       await clearScanCache();
@@ -291,13 +312,10 @@ export function DuplicatesPageClient({
       ? intent.dismissPairs
       : dismissPairsForCluster(cluster);
     try {
-      const response = await fetch('/api/places/dismiss-duplicate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pairs }),
-      });
-      if (!response.ok) throw new Error('Failed to dismiss cluster');
-      offerUndo(`Marked ${cluster.places.length} places as not duplicates`, { kind: 'dismiss', pairs });
+      const written = await writePairs(pairs, 'POST');
+      if (written.failed && written.inserted.length === 0) throw new Error('Failed to dismiss cluster');
+      offerUndo(`Marked ${cluster.places.length} places as not duplicates`, { kind: 'dismiss', pairs: written.inserted });
+      if (written.failed) notify.error('Failed to dismiss cluster');
       setExpandedClusterId(nextId);
       await clearScanCache();
       router.refresh();
@@ -307,7 +325,7 @@ export function DuplicatesPageClient({
     } finally {
       setIsLoading(false);
     }
-  }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router]);
+  }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router, writePairs]);
 
   const handleMerge = useCallback(async (cluster: QueueCluster, intent?: OpenGroupMergeIntent) => {
     const targetId = intent?.targetId ?? recommendMergeTarget(cluster.places);
@@ -344,16 +362,11 @@ export function DuplicatesPageClient({
       if (!response.ok) throw new Error('Failed to merge cluster');
       const result = await response.json() as BulkMergeResponse;
       if (result.success && result.success > 0) {
-        try {
-          if (mergePairs.length > 0) await writePairs(mergePairs, 'POST');
-        } catch {
-          notify.error('Merged, but could not remember the places marked "Not this one"');
-        }
         offerUndo(`Merged ${sourceIds.length + 1} places into ${target.name}`, {
           kind: 'merge',
           placeId: target.id,
           mergeLogId: result.results?.find((entry) => entry.status === 'success')?.mergeLogId,
-          pairs: mergePairs,
+          pairs: [],
         });
         setExpandedClusterId(nextId);
         await clearScanCache();
@@ -371,7 +384,7 @@ export function DuplicatesPageClient({
     } finally {
       setIsLoading(false);
     }
-  }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router, writePairs]);
+  }, [clearScanCache, dropCluster, neighbourOf, offerUndo, router]);
 
   const handleMergeCertain = useCallback(async (groups: QueueCluster[]) => {
     const unions = unionGroupsSharingPlace(

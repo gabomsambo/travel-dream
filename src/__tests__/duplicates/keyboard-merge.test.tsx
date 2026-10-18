@@ -1278,11 +1278,10 @@ describe('duplicates keyboard and bulk confirmation', () => {
     expect(screen.getByRole('button', { name: /^Merge 2 into one place/ })).toBeEnabled();
   });
 
-  it('retries u after a failed undo and finishes pair cleanup when the merge is already undone', async () => {
+  it('retries a failed merge undo without deleting dismissals by place id', async () => {
     const { refresh, routerSpy: spy } = spyRefresh();
     routerSpy = spy;
     let undoPosts = 0;
-    let pairDeletes = 0;
     (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string }) => {
       if (url === '/api/places/duplicates' && init?.method === 'DELETE') {
         return { ok: true, json: async () => ({}) };
@@ -1290,18 +1289,10 @@ describe('duplicates keyboard and bulk confirmation', () => {
       if (url === '/api/places/bulk-merge') {
         return { ok: true, json: async () => ({ success: 1, failed: 0, results: [{ status: 'success', mergeLogId: 'log_1' }] }) };
       }
-      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
-        return { ok: true, json: async () => ({ status: 'success' }) };
-      }
       if (url === '/api/places/undo-merge') {
         undoPosts += 1;
-        if (undoPosts === 1) return { ok: true, json: async () => ({ status: 'success' }) };
-        return { ok: false, status: 404, json: async () => ({ status: 'error', message: 'Merge not found' }) };
-      }
-      if (url === '/api/places/dismiss-duplicate' && init?.method === 'DELETE') {
-        pairDeletes += 1;
-        if (pairDeletes === 1) return { ok: false, status: 500, json: async () => ({ message: 'no' }) };
-        return { ok: true, json: async () => ({ status: 'success', undismissed: 1 }) };
+        if (undoPosts === 1) return { ok: false, status: 500, json: async () => ({ message: 'Undo failed' }) };
+        return { ok: true, json: async () => ({ status: 'success' }) };
       }
       return { ok: true, json: async () => ({}) };
     });
@@ -1337,17 +1328,66 @@ describe('duplicates keyboard and bulk confirmation', () => {
       expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
     ));
 
+    const mergeBody = postedBody('/api/places/bulk-merge', 'POST') as {
+      clusters?: Array<{ dismissPairs?: unknown[] }>;
+    };
+    expect(mergeBody.clusters?.[0].dismissPairs?.length).toBeGreaterThan(0);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(0);
+
     fireEvent.keyDown(document, { key: 'u' });
-    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to save the pairs'));
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Undo failed'));
     expect(undoPosts).toBe(1);
-    expect(pairDeletes).toBe(1);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0);
     expect(notify.success).not.toHaveBeenCalledWith('Merge undone');
 
     fireEvent.keyDown(document, { key: 'u' });
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Merge undone'));
     expect(undoPosts).toBe(2);
-    expect(pairDeletes).toBe(2);
+    expect(postedBodies('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0);
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it('chunks Not duplicates past 100 pairs and undoes only the pairs the server newly wrote', async () => {
+    const places = Array.from({ length: 16 }, (_, index) => place(`wide_${index}`, `Cafe ${index}`));
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/places/dismiss-duplicate' && init?.method === 'POST') {
+        const body = JSON.parse(init.body ?? '{}') as { pairs?: Array<{ placeId1: string; placeId2: string }> };
+        const pairs = body.pairs ?? [];
+        const inserted = pairs.filter((pair) => pair.placeId1 !== 'wide_1' && pair.placeId2 !== 'wide_1');
+        return { ok: true, json: async () => ({ status: 'success', inserted }) };
+      }
+      return { ok: true, json: async () => ({ status: 'success' }) };
+    });
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient
+        initialData={[{
+          cluster_id: places.map((row) => row.id).sort().join('+'),
+          avgConfidence: 0.9,
+          places,
+          edges: [],
+          leftOut: [],
+          mergedOn: null,
+        }]}
+        fetchedAt={null}
+        fetchError={null}
+      />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+    const notThisOne = screen.getAllByRole('button', { name: 'Not this one' });
+    await user.click(notThisOne[notThisOne.length - 1]);
+    await user.click(screen.getByRole('button', { name: /^Not duplicates/ }));
+
+    await waitFor(() => expect(postedBodies('/api/places/dismiss-duplicate', 'POST')).toHaveLength(2));
+    expect(postedBodies('/api/places/dismiss-duplicate', 'POST').map((body) => body.pairs?.length)).toEqual([100, 20]);
+
+    fireEvent.keyDown(document, { key: 'u' });
+    await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Put back'));
+    const undone = postedBodies('/api/places/dismiss-duplicate', 'DELETE').flatMap((body) => body.pairs ?? []);
+    expect(undone.some((pair) => pair.placeId1 === 'wide_1' || pair.placeId2 === 'wide_1')).toBe(false);
+    expect(undone.length).toBeGreaterThan(0);
+    expect(undone.length).toBeLessThan(120);
   });
 
   it('names Possible and merged work on an empty To review list', () => {

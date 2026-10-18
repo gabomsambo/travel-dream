@@ -9,6 +9,7 @@ import { db } from '@/db';
 import { dismissedDuplicates } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { getOwnedPlaceIds } from '@/lib/db-queries';
+import { insertFreshDismissPairs } from '@/lib/db-mutations';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { clearDuplicateScanCache } from '@/lib/duplicate-scan-cache';
 import { z } from 'zod';
@@ -64,26 +65,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create bidirectional dismiss entries (scoped to current user)
-    const inserts = pairs.flatMap(({ placeId1, placeId2 }) => [
-      {
-        userId: user.id,
-        placeId1,
-        placeId2,
-        reason: reason || null,
-      },
-      {
-        userId: user.id,
-        placeId1: placeId2,
-        placeId2: placeId1,
-        reason: reason || null,
-      },
-    ]);
-
-    // Insert all pairs (ignore duplicates via upsert pattern)
-    await db.insert(dismissedDuplicates)
-      .values(inserts)
-      .onConflictDoNothing();
+    const recorded = await insertFreshDismissPairs(db, user.id, pairs, reason);
 
     // The scan caches clusters after filtering dismissals, so a dismiss has to
     // drop that cache or the next load serves the group that was just dismissed.
@@ -92,6 +74,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       status: 'success',
       dismissed: pairs.length,
+      inserted: recorded.pairs,
       message: `Dismissed ${pairs.length} duplicate pair(s)`,
       timestamp: new Date().toISOString(),
     });

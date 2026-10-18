@@ -18,7 +18,7 @@ const BulkMergeSchema = z.object({
     dismissPairs: z.array(z.object({
       placeId1: z.string().min(1),
       placeId2: z.string().min(1),
-    })).max(100).optional(),
+    })).max(10000).optional(),
   })).min(1).max(50)
 });
 

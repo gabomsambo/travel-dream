@@ -721,4 +721,146 @@ describe('ReviewQueue decisions', () => {
     expect(screen.getByRole('button', { name: 'One Cafe' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Two Cafe' })).not.toBeInTheDocument()
   })
+
+  it('shows a place that joins the inbox while the last card is still being saved', async () => {
+    const thirdSource = source('late')
+    const placeLate = place('plc_late', 'Late Cafe', thirdSource)
+    placesById.set(placeLate.id, placeLate)
+    let releasePatch: (() => void) | undefined
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if ((init as { method?: string } | undefined)?.method === 'PATCH') {
+        await new Promise<void>((resolve) => {
+          releasePatch = resolve
+        })
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    try {
+      const view = renderQueue({ entries: [entries[0]], postcard: postcardFor(placeOne) })
+      fireEvent.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+      await waitFor(() => expect(releasePatch).toEqual(expect.any(Function)))
+
+      view.rerender(
+        <ReviewQueue
+          entries={[entries[0], entryFrom(placeLate, thirdSource)]}
+          postcard={postcardFor(placeOne)}
+          trips={[]}
+        />
+      )
+
+      await act(async () => {
+        releasePatch?.()
+      })
+
+      await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Late Cafe'))
+      expect(screen.queryByText("That's everything.")).not.toBeInTheDocument()
+    } finally {
+      placesById.delete(placeLate.id)
+    }
+  })
+
+  it('keeps an undone place out of the summary when a later add finishes after it', async () => {
+    let releaseSecond: (() => void) | undefined
+    let patches = 0
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if ((init as { method?: string } | undefined)?.method === 'PATCH') {
+        patches += 1
+        if (patches === 2) {
+          await new Promise<void>((resolve) => {
+            releaseSecond = resolve
+          })
+        }
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    renderQueue()
+    fireEvent.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(releaseSecond).toEqual(expect.any(Function)))
+
+    const undo = (notifySuccess.mock.calls[0]?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => {
+      undo?.({} as React.MouseEvent<HTMLButtonElement>)
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+
+    await act(async () => {
+      releaseSecond?.()
+    })
+
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    expect(screen.queryByText("That's everything.")).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    expect(screen.getByText('added to Library').previousElementSibling).toHaveTextContent('1')
+    expect(screen.getByRole('button', { name: 'One Cafe' })).toBeInTheDocument()
+  })
+
+  it('fetches a postcard again after leaving the card that failed', async () => {
+    let postcardGets = 0
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        postcardGets += 1
+        return jsonResponse({ message: 'Place exploded' }, 500)
+      }
+      return jsonResponse({ status: 'success' })
+    })
+    renderQueue()
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Place exploded'))
+    expect(postcardGets).toBe(1)
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Place exploded'))
+    expect(postcardGets).toBe(2)
+  })
+
+  it('retries a failed postcard without leaving the card', async () => {
+    const user = userEvent.setup()
+    let postcardGets = 0
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        postcardGets += 1
+        if (postcardGets === 1) return jsonResponse({ message: 'Place exploded' }, 500)
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      return jsonResponse({ status: 'success' })
+    })
+    renderQueue()
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Place exploded'))
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(postcardGets).toBe(2)
+  })
 })

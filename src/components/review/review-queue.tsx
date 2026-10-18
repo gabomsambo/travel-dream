@@ -144,6 +144,37 @@ function nextUnhandled(entries: ReviewQueueEntry[], outcomes: Record<string, Rev
   return null
 }
 
+function withOutcome(
+  existing: Record<string, ReviewOutcome>,
+  placeId: string,
+  outcome: ReviewOutcome,
+): Record<string, ReviewOutcome> {
+  if (outcome !== 'removed' && existing[placeId] === 'removed') return existing
+  if (existing[placeId] === outcome) return existing
+  return { ...existing, [placeId]: outcome }
+}
+
+function deriveReviewCursor(
+  session: SessionEntry[],
+  outcomes: Record<string, ReviewOutcome>,
+  currentId: string | null,
+  pinnedId: string | null,
+): string | null {
+  if (session.length === 0) return null
+  if (pinnedId && session.some((entry) => entry.placeId === pinnedId)) return pinnedId
+  if (
+    currentId
+    && session.some((entry) => entry.placeId === currentId)
+    && !outcomes[currentId]
+  ) {
+    return currentId
+  }
+  if (currentId && session.some((entry) => entry.placeId === currentId)) {
+    return nextUnhandled(session, outcomes, currentId)
+  }
+  return session.find((entry) => !outcomes[entry.placeId])?.placeId ?? null
+}
+
 function previousSelectableId(
   entries: ReviewQueueEntry[],
   outcomes: Record<string, ReviewOutcome>,
@@ -269,21 +300,19 @@ function ReviewSummary({
 export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: ReviewQueueProps) {
   const router = useRouter()
   const [session, setSession] = React.useState<SessionEntry[]>(() => mergeSession([], entries, postcard, {}))
-  const sessionRef = React.useRef(session)
-  sessionRef.current = session
+  const [incoming, setIncoming] = React.useState({ entries, postcard })
   const writtenStatusRef = React.useRef<Record<string, PlaceStatus>>({})
   const [currentId, setCurrentId] = React.useState<string | null>(() => startingPlaceId(entries, initialPlaceId))
-  const currentIdRef = React.useRef(currentId)
-  currentIdRef.current = currentId
+  const [pinnedId, setPinnedId] = React.useState<string | null>(null)
   const [outcomes, setOutcomes] = React.useState<Record<string, ReviewOutcome>>({})
   const outcomesRef = React.useRef(outcomes)
   outcomesRef.current = outcomes
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const current = currentId === null ? null : session.find((entry) => entry.placeId === currentId) ?? null
-  const postcardMissing = Boolean(current && !current.postcard && !current.postcardError)
   const initialQueueRef = React.useRef({ entries, initialPlaceId })
   const didRedirectStaleLink = React.useRef(false)
+  const historyPlaceId = React.useRef(currentId)
+  const shownIdRef = React.useRef<string | null>(currentId)
 
   const commitStatus = React.useCallback((placeId: string, status: PlaceStatus) => {
     writtenStatusRef.current = { ...writtenStatusRef.current, [placeId]: status }
@@ -298,9 +327,21 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     router.replace(`/place/${encodeURIComponent(requested)}`)
   }, [router])
 
+  if (incoming.entries !== entries || incoming.postcard !== postcard) {
+    setIncoming({ entries, postcard })
+    setSession((prev) => mergeSession(prev, entries, postcard, writtenStatusRef.current))
+  }
+
+  const derivedId = deriveReviewCursor(session, outcomes, currentId, pinnedId)
+  if (derivedId !== currentId) setCurrentId(derivedId)
+  shownIdRef.current = derivedId
+
+  const current = derivedId === null ? null : session.find((entry) => entry.placeId === derivedId) ?? null
+  const postcardMissing = Boolean(current && !current.postcard && !current.postcardError)
+
   React.useEffect(() => {
-    if (!currentId || !postcardMissing) return
-    const placeId = currentId
+    if (!derivedId || !postcardMissing) return
+    const placeId = derivedId
     const controller = new AbortController()
     let cancelled = false
     ;(async () => {
@@ -334,39 +375,40 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
       cancelled = true
       controller.abort()
     }
-  }, [currentId, postcardMissing])
+  }, [derivedId, postcardMissing])
 
-  const selectPlace = React.useCallback((placeId: string | null) => {
+  React.useEffect(() => {
+    setSession((prev) => {
+      let changed = false
+      const next = prev.map((entry) => {
+        if (!entry.postcardError || entry.placeId === derivedId) return entry
+        changed = true
+        const cleared: SessionEntry = { ...entry }
+        delete cleared.postcardError
+        return cleared
+      })
+      return changed ? next : prev
+    })
+    if (historyPlaceId.current === derivedId) return
+    historyPlaceId.current = derivedId
+    window.history.replaceState({}, '', reviewHref(derivedId))
+    const appScroller = document.querySelector('main')
+    if (appScroller instanceof HTMLElement && typeof appScroller.scrollTo === 'function') {
+      appScroller.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [derivedId])
+
+  const selectPlace = React.useCallback((placeId: string | null, pin = false) => {
+    setPinnedId(pin ? placeId : null)
     setError(null)
     setCurrentId(placeId)
+    historyPlaceId.current = placeId
     window.history.replaceState({}, '', reviewHref(placeId))
     const appScroller = document.querySelector('main')
     if (appScroller instanceof HTMLElement && typeof appScroller.scrollTo === 'function') {
       appScroller.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }, [])
-
-  const advance = React.useCallback((placeId: string, nextOutcomes: Record<string, ReviewOutcome>) => {
-    const latest = sessionRef.current
-    const nextId = nextUnhandled(latest, nextOutcomes, placeId)
-      ?? latest.find((entry) => !nextOutcomes[entry.placeId])?.placeId
-      ?? null
-    selectPlace(nextId)
-  }, [selectPlace])
-
-  React.useEffect(() => {
-    const written = writtenStatusRef.current
-    const merged = mergeSession(sessionRef.current, entries, postcard, written)
-    sessionRef.current = merged
-    setSession((prev) => {
-      const next = mergeSession(prev, entries, postcard, writtenStatusRef.current)
-      sessionRef.current = next
-      return next
-    })
-    if (currentIdRef.current !== null) return
-    const nextId = merged.find((entry) => !outcomesRef.current[entry.placeId])?.placeId
-    if (nextId) selectPlace(nextId)
-  }, [entries, postcard, selectPlace])
 
   const undoDecision = React.useCallback(async (
     placeId: string,
@@ -379,19 +421,19 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
       : 'inbox'
     try {
       await setPlaceStatus(entry.placeId, restoreStatus)
+      if (outcomesRef.current[entry.placeId] === 'removed') return
       commitStatus(entry.placeId, restoreStatus)
       setOutcomes((existing) => {
-        if (existing[entry.placeId] === 'removed') {
-          outcomesRef.current = existing
-          return existing
+        if (existing[entry.placeId] === 'removed') return existing
+        if (!previousOutcome) {
+          if (!(entry.placeId in existing)) return existing
+          const next = { ...existing }
+          delete next[entry.placeId]
+          return next
         }
-        const next = { ...existing }
-        if (previousOutcome) next[entry.placeId] = previousOutcome
-        else delete next[entry.placeId]
-        outcomesRef.current = next
-        return next
+        return withOutcome(existing, entry.placeId, previousOutcome)
       })
-      selectPlace(placeId)
+      selectPlace(placeId, true)
       notify.success(`Restored “${entry.name}” to your ${RESTORED_LABEL[restoreStatus]}`)
     } catch (undoError) {
       notify.error(undoError instanceof Error ? undoError.message : "Couldn't undo that change.")
@@ -409,10 +451,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
       await setPlaceStatus(placeId, written)
       if (outcomesRef.current[placeId] === 'removed') return
       commitStatus(placeId, written)
-      const nextOutcomes = { ...outcomesRef.current, [placeId]: outcome }
-      outcomesRef.current = nextOutcomes
-      setOutcomes(nextOutcomes)
-      advance(placeId, nextOutcomes)
+      setOutcomes((existing) => withOutcome(existing, placeId, outcome))
+      setPinnedId((pin) => (pin === placeId ? null : pin))
       notify.success(
         outcome === 'added'
           ? `Added “${current.name}” to your Library`
@@ -432,7 +472,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     } finally {
       setBusy(false)
     }
-  }, [advance, busy, commitStatus, current, undoDecision])
+  }, [busy, commitStatus, current, undoDecision])
 
   const skip = React.useCallback(async () => {
     if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
@@ -441,17 +481,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     setBusy(true)
     setError(null)
     try {
-      if (outcomesRef.current[placeId] === 'removed') return
       if (previousOutcome === 'added' || previousOutcome === 'archived') {
         await setPlaceStatus(placeId, 'inbox')
         if (outcomesRef.current[placeId] === 'removed') return
         commitStatus(placeId, 'inbox')
       }
       if (outcomesRef.current[placeId] === 'removed') return
-      const nextOutcomes = { ...outcomesRef.current, [placeId]: 'skipped' as const }
-      outcomesRef.current = nextOutcomes
-      setOutcomes(nextOutcomes)
-      advance(placeId, nextOutcomes)
+      setOutcomes((existing) => withOutcome(existing, placeId, 'skipped'))
+      setPinnedId((pin) => (pin === placeId ? null : pin))
     } catch (skipError) {
       const message = skipError instanceof Error ? skipError.message : "We couldn't skip this place."
       setError(message)
@@ -459,39 +496,50 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     } finally {
       setBusy(false)
     }
-  }, [advance, busy, commitStatus, current])
+  }, [busy, commitStatus, current])
 
   const previous = React.useCallback(() => {
-    const target = previousSelectableId(session, outcomes, currentId)
-    if (target) selectPlace(target)
-  }, [currentId, outcomes, session, selectPlace])
+    const target = previousSelectableId(session, outcomes, shownIdRef.current)
+    if (target) selectPlace(target, true)
+  }, [outcomes, session, selectPlace])
 
   const resumeSkipped = React.useCallback((placeId: string) => {
-    const next = { ...outcomesRef.current }
-    for (const [id, outcome] of Object.entries(next)) {
-      if (outcome === 'skipped') delete next[id]
-    }
-    outcomesRef.current = next
-    setOutcomes(next)
-    selectPlace(placeId)
+    setOutcomes((existing) => {
+      let changed = false
+      const next = { ...existing }
+      for (const [id, outcome] of Object.entries(existing)) {
+        if (outcome !== 'skipped') continue
+        delete next[id]
+        changed = true
+      }
+      return changed ? next : existing
+    })
+    selectPlace(placeId, true)
   }, [selectPlace])
 
   const noteRestored = React.useCallback((placeId: string) => {
     if (outcomesRef.current[placeId] === 'removed') return
     commitStatus(placeId, 'library')
-    const nextOutcomes = { ...outcomesRef.current, [placeId]: 'added' as const }
-    outcomesRef.current = nextOutcomes
-    setOutcomes(nextOutcomes)
+    setOutcomes((existing) => withOutcome(existing, placeId, 'added'))
+    setPinnedId(placeId)
   }, [commitStatus])
 
   const removeFromQueue = React.useCallback(() => {
     if (!current || outcomesRef.current[current.placeId] === 'removed') return
     const placeId = current.placeId
-    const nextOutcomes = { ...outcomesRef.current, [placeId]: 'removed' as const }
-    outcomesRef.current = nextOutcomes
-    setOutcomes(nextOutcomes)
-    advance(placeId, nextOutcomes)
-  }, [advance, current])
+    setOutcomes((existing) => withOutcome(existing, placeId, 'removed'))
+    setPinnedId((pin) => (pin === placeId ? null : pin))
+  }, [current])
+
+  const retryPostcard = () => {
+    if (!derivedId) return
+    setSession((prev) => prev.map((entry) => {
+      if (entry.placeId !== derivedId || !entry.postcardError) return entry
+      const cleared: SessionEntry = { ...entry }
+      delete cleared.postcardError
+      return cleared
+    }))
+  }
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -564,8 +612,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
               showMobileActionBar={false}
             />
           ) : current.postcardError ? (
-            <div className="grid min-h-64 place-items-center px-6 text-center text-sm text-muted-foreground" role="alert">
-              {current.postcardError}
+            <div className="grid min-h-64 place-items-center gap-3 px-6 text-center text-sm text-muted-foreground">
+              <p role="alert">{current.postcardError}</p>
+              <Button type="button" variant="outline" onClick={retryPostcard}>Try again</Button>
             </div>
           ) : (
             <div className="grid min-h-64 place-items-center text-muted-foreground">

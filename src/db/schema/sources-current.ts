@@ -59,6 +59,13 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
       extraction?: unknown;
       extractedAt?: string;
       thumbnailUrl?: string;
+      outcome?: {
+        created: string[];
+        linked: Array<{
+          placeId: string;
+          reason: 'google_place_id' | 'exact_name_city_country';
+        }>;
+      };
     };
     llmProcessing?: {
       processed: boolean;

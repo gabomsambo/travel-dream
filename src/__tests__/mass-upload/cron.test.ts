@@ -12,13 +12,18 @@ jest.mock('@/lib/mass-upload/queue-processor', () => ({
 jest.mock('@/lib/mass-upload/dispatch', () => ({
   dispatchProcessors: jest.fn(),
 }));
+jest.mock('@/lib/db-mutations', () => ({
+  requeueStaleUploadedSources: jest.fn(),
+}));
 
 import { GET } from '@/app/api/mass-upload/cron/route';
 import { processQueue } from '@/lib/mass-upload/queue-processor';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
+import { requeueStaleUploadedSources } from '@/lib/db-mutations';
 
 const mockProcessQueue = processQueue as jest.Mock;
 const mockDispatch = dispatchProcessors as jest.Mock;
+const mockRequeueUploaded = requeueStaleUploadedSources as jest.Mock;
 
 const CRON_SECRET = 'test-cron-secret';
 
@@ -54,6 +59,7 @@ describe('GET /api/mass-upload/cron', () => {
     process.env.CRON_SECRET = CRON_SECRET;
     process.env.GEMINI_VISION_ENABLED = 'true';
     mockDispatch.mockResolvedValue({ queued: 4, activeWorkers: 0, desiredWorkers: 1, spawned: 1 });
+    mockRequeueUploaded.mockResolvedValue({ requeued: 0, ids: [] });
     mockProcessQueue.mockResolvedValue(queueResult());
   });
 
@@ -87,6 +93,17 @@ describe('GET /api/mass-upload/cron', () => {
     expect(data.placesCreated).toBe(5);
     expect(data.remaining).toBe(4);
     expect(data.dispatch.spawned).toBe(1);
+  });
+
+  it('recovers stale uploaded sources before dispatching workers', async () => {
+    mockRequeueUploaded.mockResolvedValue({ requeued: 2, ids: ['src_a', 'src_b'] });
+
+    const data = await (await GET(cronRequest())).json();
+
+    expect(mockRequeueUploaded).toHaveBeenCalledTimes(1);
+    expect(mockRequeueUploaded.mock.invocationCallOrder[0])
+      .toBeLessThan(mockDispatch.mock.invocationCallOrder[0]);
+    expect(data.uploadedRequeued).toBe(2);
   });
 
   it('reports interruptions and reclaims separately from failures', async () => {

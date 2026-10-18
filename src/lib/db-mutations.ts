@@ -1,4 +1,4 @@
-import { eq, and, inArray, count, sql, desc } from 'drizzle-orm';
+import { eq, and, inArray, count, sql, desc, lt } from 'drizzle-orm';
 import { db } from '@/db';
 import { releaseBlobIfUnreferenced, releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks } from '@/db/schema';
@@ -1740,11 +1740,13 @@ export async function batchCreatePlaces(
 }
 
 // Mass upload pipeline — create places from enriched pipeline results
+export type CreatePlacesFromPipelineResult = Place[] & { createdCount: number };
+
 export async function createPlacesFromPipeline(
   pipelinePlaces: PipelinePlace[],
   sourceId: string,
   userId: string
-): Promise<Place[]> {
+): Promise<CreatePlacesFromPipelineResult> {
   return withErrorHandling(async () => {
     return await withTransaction(async (tx) => {
       // Get source to verify ownership and get screenshot URL
@@ -1756,8 +1758,10 @@ export async function createPlacesFromPipeline(
       if (!source) throw new NotFoundError(`Source ${sourceId} not found or unauthorized`);
 
       const screenshotUri = source.uri;
-      const meta = source.meta as { uploadInfo?: { originalName?: string; mimeType?: string; fileSize?: number; thumbnailPath?: string } } | null;
-      const createdPlaces: Place[] = [];
+      const meta = source.meta;
+      const resolvedPlaces: Place[] = [];
+      const createdIds = new Set<string>();
+      const linkedByPlaceId = new Map<string, 'google_place_id' | 'exact_name_city_country'>();
 
       // ── Batched dedup lookup ───────────────────────────────────────────
       // One query per lookup shape for the whole screenshot instead of two
@@ -1801,16 +1805,25 @@ export async function createPlacesFromPipeline(
       for (const p of pipelinePlaces) {
         // ── Dedup check (in-memory, including places created in this batch) ─
         const nameKey = p.name ? placeNameKey(p.name, p.city ?? null, p.country ?? null) : null;
-        const candidates =
-          (p.googlePlaceId ? byGoogleId.get(p.googlePlaceId) : undefined) ??
-          (nameKey ? byNameKey.get(nameKey) : undefined);
+        const googleCandidates = p.googlePlaceId ? byGoogleId.get(p.googlePlaceId) : undefined;
+        const nameCandidates = nameKey ? byNameKey.get(nameKey) : undefined;
+        const candidates = googleCandidates ?? nameCandidates;
 
         if (candidates && candidates.length > 0) {
           // A place archived by a merge still carries its Google id and name.
           // Attach this screenshot to the survivor instead of the archived copy.
           const linked = await resolveIdentityMatch(tx, candidates, userId);
           sourceLinks.push({ sourceId, placeId: linked.id });
-          createdPlaces.push(linked);
+          resolvedPlaces.push(linked);
+          // A repeated extraction inside this screenshot can match a place we
+          // just inserted. It is neither another creation nor a link to an
+          // existing Library place, so keep it out of both outcome lists.
+          if (!createdIds.has(linked.id)) {
+            linkedByPlaceId.set(
+              linked.id,
+              googleCandidates ? 'google_place_id' : 'exact_name_city_country'
+            );
+          }
           if (p.googlePlaceId) byGoogleId.set(p.googlePlaceId, [linked]);
           if (nameKey) byNameKey.set(nameKey, [linked]);
           continue;
@@ -1843,7 +1856,8 @@ export async function createPlacesFromPipeline(
         };
 
         const [place] = await tx.insert(places).values(newPlace).returning();
-        createdPlaces.push(place);
+        resolvedPlaces.push(place);
+        createdIds.add(place.id);
         if (place.googlePlaceId) byGoogleId.set(place.googlePlaceId, [place]);
         if (nameKey) byNameKey.set(nameKey, [place]);
 
@@ -1875,7 +1889,29 @@ export async function createPlacesFromPipeline(
         await tx.insert(attachments).values(newAttachments);
       }
 
-      return createdPlaces;
+      const outcome = {
+        created: Array.from(createdIds),
+        linked: Array.from(linkedByPlaceId, ([placeId, reason]) => ({ placeId, reason })),
+      };
+      await tx.update(sourcesCurrentSchema)
+        .set({
+          meta: {
+            ...(meta ?? {}),
+            massUpload: {
+              ...(meta?.massUpload ?? {}),
+              outcome,
+            },
+          },
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(
+          eq(sourcesCurrentSchema.id, sourceId),
+          eq(sourcesCurrentSchema.userId, userId)
+        ));
+
+      const result = resolvedPlaces as CreatePlacesFromPipelineResult;
+      result.createdCount = outcome.created.length;
+      return result;
     });
   }, 'createPlacesFromPipeline');
 }
@@ -2238,4 +2274,32 @@ export async function reclaimExpiredSourceLeases(
 
     return { requeued, stalled, ids };
   }, 'reclaimExpiredSourceLeases');
+}
+
+/**
+ * Recover uploads whose browser disappeared after registration but before the
+ * Start request. This is not a processing verdict or interruption: no worker
+ * ever claimed the source, so both counters remain untouched.
+ */
+export async function requeueStaleUploadedSources(
+  staleBeforeIso: string
+): Promise<{ requeued: number; ids: string[] }> {
+  return withErrorHandling(async () => {
+    const rows = await db.update(sourcesCurrentSchema)
+      .set({
+        processingStatus: 'queued',
+        processingError: null,
+        processingStartedAt: null,
+        processingLeaseId: null,
+        nextAttemptAt: null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(
+        eq(sourcesCurrentSchema.processingStatus, 'uploaded'),
+        lt(sourcesCurrentSchema.updatedAt, staleBeforeIso)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+
+    return { requeued: rows.length, ids: rows.map(row => row.id) };
+  }, 'requeueStaleUploadedSources');
 }

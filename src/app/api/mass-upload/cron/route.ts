@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processQueue } from '@/lib/mass-upload/queue-processor';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
+import { requeueStaleUploadedSources } from '@/lib/db-mutations';
+import { QUEUE_CONFIG } from '@/lib/mass-upload/queue-config';
 
 export const runtime = 'nodejs';
 // Keep in sync with MASS_UPLOAD_MAX_DURATION_SECONDS and vercel.json —
@@ -36,6 +38,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const recoveredUploads = await requeueStaleUploadedSources(
+      new Date(Date.now() - QUEUE_CONFIG.uploadedStaleMs).toISOString()
+    );
     // Add workers for whatever is waiting, then take a share of the work in
     // this invocation too, so the queue drains even if fan-out is unavailable.
     const dispatch = await dispatchProcessors('safety-net-cron', 'grow');
@@ -47,6 +52,7 @@ export async function GET(request: NextRequest) {
       failed: result.failed,
       remaining: result.remaining,
       placesCreated: result.placesCreated,
+      uploadedRequeued: recoveredUploads.requeued,
       // Reliability detail: interruptions are NOT failures.
       interrupted: result.interrupted,
       stalled: result.stalled,

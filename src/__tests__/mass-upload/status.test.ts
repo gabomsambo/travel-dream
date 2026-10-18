@@ -55,7 +55,7 @@ function createStatusRequest(sessionId?: string) {
  */
 function mockSessionSelect(
   session: ReturnType<typeof createMockSession> | null,
-  ownedSourceIds?: string[],
+  ownedSourceRows?: Array<string | { id: string; meta?: unknown }>,
   foreignSessionId?: string
 ) {
   const owned = session?.userId === 'user_test-1' ? session : null;
@@ -72,16 +72,11 @@ function mockSessionSelect(
 
   const uploadedFiles = session!.meta.uploadedFiles as string[];
   if (uploadedFiles.length === 0) return undefined;
-  const ownedSources = mockSelect((ownedSourceIds ?? uploadedFiles).map(id => ({ id })));
+  const ownedSources = mockSelect((ownedSourceRows ?? uploadedFiles).map(row =>
+    typeof row === 'string' ? { id: row, meta: null } : row
+  ));
   mockDb.select.mockReturnValueOnce(ownedSources.chain);
   return ownedSources;
-}
-
-function mockPlacesCountSelect(count: number) {
-  // sources_to_places has no user_id of its own; the tenant accessor scopes it
-  // through the sources the caller owns, so this is a plain from/where chain.
-  const selectChain = mockSelect([{ count }]);
-  mockDb.select.mockReturnValueOnce(selectChain.chain);
 }
 
 function mockFailedSourcesSelect(
@@ -173,7 +168,6 @@ describe('GET /api/mass-upload/status', () => {
       failed: 1,
     });
 
-    mockPlacesCountSelect(0);
     mockFailedSourcesSelect([]);
 
     const req = createStatusRequest('session_test-1');
@@ -221,10 +215,18 @@ describe('GET /api/mass-upload/status', () => {
         errors: [],
       },
     });
-    mockSessionSelect(session);
+    mockSessionSelect(session, [
+      {
+        id: 'src_1',
+        meta: { massUpload: { outcome: { created: ['plc_1', 'plc_2'], linked: [] } } },
+      },
+      {
+        id: 'src_2',
+        meta: { massUpload: { outcome: { created: ['plc_3'], linked: [] } } },
+      },
+    ]);
 
     mockGetProcessingStatusCounts.mockResolvedValueOnce({ completed: 2 });
-    mockPlacesCountSelect(3);
     mockFailedSourcesSelect([]);
 
     const req = createStatusRequest('session_test-1');
@@ -250,8 +252,6 @@ describe('GET /api/mass-upload/status', () => {
       completed: 2,
       failed: 1,
     });
-
-    mockPlacesCountSelect(2);
 
     mockFailedSourcesSelect([
       { id: 'src_3', processingError: 'LLM extraction timed out' },
@@ -281,8 +281,6 @@ describe('GET /api/mass-upload/status', () => {
     mockSessionSelect(session);
 
     mockGetProcessingStatusCounts.mockResolvedValueOnce({ failed: 2 });
-    mockPlacesCountSelect(0);
-
     // One failed source has an error message, one has null
     mockFailedSourcesSelect([
       { id: 'src_1', processingError: 'Quota exceeded' },
@@ -311,8 +309,6 @@ describe('GET /api/mass-upload/status', () => {
     });
     mockSessionSelect(session);
     mockGetProcessingStatusCounts.mockResolvedValueOnce({ failed: 5 });
-    mockPlacesCountSelect(0);
-
     mockFailedSourcesSelect([
       { id: 'src_1', processingError: '[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent: [503 Service Unavailable] This model is currently experiencing high demand.' },
       { id: 'src_2', processingError: 'fetch failed: ECONNRESET' },
@@ -344,7 +340,6 @@ describe('GET /api/mass-upload/status', () => {
     mockSessionSelect(session);
 
     mockGetProcessingStatusCounts.mockResolvedValueOnce({ completed: 4 });
-    mockPlacesCountSelect(4);
     mockFailedSourcesSelect([]);
 
     const req = createStatusRequest('session_test-1');
@@ -401,7 +396,6 @@ describe('GET /api/mass-upload/status', () => {
     mockSessionSelect(session);
 
     mockGetProcessingStatusCounts.mockResolvedValueOnce({ completed: 2 });
-    mockPlacesCountSelect(1);
     mockFailedSourcesSelect([]);
 
     const before = Date.now();

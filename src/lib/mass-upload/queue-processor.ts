@@ -438,7 +438,7 @@ async function runPipeline(
 
   signal.throwIfAborted();
   const created = await createPlacesFromPipeline(enrichedPlaces, source.id, source.userId);
-  return created.length;
+  return created.createdCount;
 }
 
 /**

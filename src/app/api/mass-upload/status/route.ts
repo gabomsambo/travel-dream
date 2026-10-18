@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadSessions, sourcesToPlaces } from '@/db/schema';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { uploadSessions } from '@/db/schema';
+import { and, eq, inArray } from 'drizzle-orm';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     const ownedSources = metadataSourceIds.length > 0
       ? await tdb.selectFields(
           sourcesCurrentSchema,
-          { id: sourcesCurrentSchema.id },
+          { id: sourcesCurrentSchema.id, meta: sourcesCurrentSchema.meta },
           inArray(sourcesCurrentSchema.id, metadataSourceIds)
         )
       : [];
@@ -58,18 +58,13 @@ export async function GET(request: NextRequest) {
     // Get counts per processingStatus
     const counts = await getProcessingStatusCounts(sourceIds, user.id);
 
-    // Count places created from these sources
-    let placesCreated = 0;
-    if (sourceIds.length > 0) {
-      // sources_to_places has no user_id — `selectFieldsVia` scopes it through
-      // the sources the caller owns.
-      const placesResult = await tdb.selectFieldsVia(
-        sourcesToPlaces,
-        { count: sql<number>`count(DISTINCT ${sourcesToPlaces.placeId})` },
-        inArray(sourcesToPlaces.sourceId, sourceIds)
-      );
-      placesCreated = Number(placesResult[0]?.count ?? 0);
-    }
+    // Outcome metadata is the only authoritative distinction between an
+    // insertion and a link to an existing place. Older rows have no outcome;
+    // report zero rather than relabel their joins as creations.
+    const placesCreated = ownedSources.reduce(
+      (total, source) => total + (source.meta?.massUpload?.outcome?.created?.length ?? 0),
+      0
+    );
 
     // Fetch per-source error messages for failed sources
     let failedErrors: Array<{ sourceId: string; error: string }> = [];

@@ -93,7 +93,7 @@ describe('processQueue', () => {
     mockComplete.mockResolvedValue(true);
     mockFailure.mockResolvedValue('queued');
     mockInterruption.mockResolvedValue('queued');
-    mockCreatePlaces.mockResolvedValue([{ id: 'plc_1' }]);
+    mockCreatePlaces.mockResolvedValue(Object.assign([{ id: 'plc_1' }], { createdCount: 1 }));
     mockExtractFromImage.mockResolvedValue(createMockExtractionResult());
     mockEnrichPlaces.mockResolvedValue([createMockPipelinePlace()]);
     global.fetch = jest.fn().mockResolvedValue(okImageResponse()) as unknown as typeof fetch;
@@ -362,7 +362,10 @@ describe('processQueue', () => {
 
   it('completes normally and reports places created', async () => {
     queueOf(createMockSource());
-    mockCreatePlaces.mockResolvedValue([{ id: 'plc_1' }, { id: 'plc_2' }]);
+    mockCreatePlaces.mockResolvedValue(Object.assign(
+      [{ id: 'plc_1' }, { id: 'plc_2' }],
+      { createdCount: 2 }
+    ));
     mockQueueDepth.mockResolvedValue(7);
 
     const result = await processQueue({ workerId: 'w_test' });

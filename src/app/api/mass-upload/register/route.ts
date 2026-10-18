@@ -96,22 +96,15 @@ export async function POST(request: NextRequest) {
     if (existingSource) {
       const existingSessionId = (existingSource.meta as Record<string, unknown> & { uploadInfo?: { sessionId?: string } })?.uploadInfo?.sessionId;
 
-      if (existingSessionId === sessionId) {
-        // Same session — pure duplicate, return existing
-        return NextResponse.json({
-          status: 'duplicate',
-          sourceId: existingSource.id,
-          blobUrl: existingSource.uri,
-          message: 'Image already uploaded in this session',
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // Different session — add existing source to current session's tracking (transactional)
+      // Keep the skip as a first-class batch outcome. `uploadedFiles` contains
+      // only sources actually registered to this session; pointing it at the
+      // older source made later rebuilds silently erase the duplicate outcome.
       await withTransaction(async (tx) => {
-        await tx.update(uploadSessions)
-          .set({ completedCount: sql`${uploadSessions.completedCount} + 1` })
-          .where(eq(uploadSessions.id, sessionId));
+        if (existingSessionId !== sessionId) {
+          await tx.update(uploadSessions)
+            .set({ completedCount: sql`${uploadSessions.completedCount} + 1` })
+            .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));
+        }
 
         // Owner-scoped: a session id is client-supplied, and a source row
         // tagged with it may belong to someone else (a session row can be
@@ -125,11 +118,26 @@ export async function POST(request: NextRequest) {
             eq(sourcesCurrentSchema.userId, user.id),
             sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`
           ));
-        const allSourceIds = [...sessionSources.map((s: { id: string }) => s.id), existingSource.id];
+        const [currentSession] = await tx.select({ meta: uploadSessions.meta })
+          .from(uploadSessions)
+          .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
+          .limit(1);
+        const currentMeta = currentSession?.meta;
+        const allSourceIds = sessionSources.map((s: { id: string }) => s.id);
 
         await tx.update(uploadSessions)
-          .set({ meta: { uploadedFiles: allSourceIds, errors: [] } })
-          .where(eq(uploadSessions.id, sessionId));
+          .set({
+            meta: {
+              ...(currentMeta ?? { uploadedFiles: [], errors: [] }),
+              uploadedFiles: allSourceIds,
+              errors: currentMeta?.errors ?? [],
+              duplicates: [
+                ...(currentMeta?.duplicates ?? []),
+                { originalName, duplicateOf: existingSource.id },
+              ],
+            },
+          })
+          .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));
       });
 
       // Delete the duplicate blob that was just uploaded (after tx commits)
@@ -143,7 +151,9 @@ export async function POST(request: NextRequest) {
         status: 'duplicate',
         sourceId: existingSource.id,
         blobUrl: existingSource.uri,
-        message: 'Image already exists from a previous upload',
+        message: existingSessionId === sessionId
+          ? 'Image already uploaded in this session'
+          : 'Image already exists from a previous upload',
         timestamp: new Date().toISOString(),
       });
     }
@@ -199,9 +209,20 @@ export async function POST(request: NextRequest) {
         ));
 
       const allSourceIds = sessionSources.map((s: { id: string }) => s.id);
+      const [currentSession] = await tx.select({ meta: uploadSessions.meta })
+        .from(uploadSessions)
+        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
+        .limit(1);
+      const currentMeta = currentSession?.meta;
       await tx.update(uploadSessions)
-        .set({ meta: { uploadedFiles: allSourceIds, errors: [] } })
-        .where(eq(uploadSessions.id, sessionId));
+        .set({
+          meta: {
+            ...(currentMeta ?? { uploadedFiles: [], errors: [] }),
+            uploadedFiles: allSourceIds,
+            errors: currentMeta?.errors ?? [],
+          },
+        })
+        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));
 
       return created;
     });

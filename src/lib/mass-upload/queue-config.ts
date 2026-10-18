@@ -50,6 +50,12 @@ export const QUEUE_CONFIG = {
   maxImageBytes: envInt('MASS_UPLOAD_MAX_IMAGE_BYTES', 25 * 1024 * 1024),
   /** Timeout for downloading one screenshot from blob storage. */
   blobFetchTimeoutMs: envInt('MASS_UPLOAD_BLOB_FETCH_TIMEOUT_MS', 30_000),
+  /**
+   * An `uploaded` source older than this missed the Start handoff. The cron
+   * moves it into the queue; recent uploads are left alone while their batch is
+   * still being assembled.
+   */
+  uploadedStaleMs: envInt('MASS_UPLOAD_UPLOADED_STALE_MS', 30 * 60_000),
   /** Parallel processing functions the dispatcher will keep alive. */
   maxWorkers: envInt('MASS_UPLOAD_MAX_WORKERS', 3),
   /** Queue depth one worker is expected to absorb; drives how many to spawn. */

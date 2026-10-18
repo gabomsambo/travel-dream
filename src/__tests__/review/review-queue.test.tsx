@@ -11,9 +11,19 @@ const mockRefresh = jest.fn()
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
 }))
-jest.mock('@/components/places/place-view/place-view', () => ({
-  PlaceView: ({ place }: { place: PlaceWithRelations }) => <div data-testid="postcard">{place.name}</div>,
-}))
+jest.mock('@/components/places/place-view/place-view', () => {
+  const React = require('react') as typeof import('react')
+  return {
+    PlaceView: ({ place }: { place: PlaceWithRelations }) => {
+      const mountedId = React.useRef(place.id)
+      return (
+        <div data-testid="postcard" data-status={place.status} data-mounted-id={mountedId.current}>
+          {place.name}
+        </div>
+      )
+    },
+  }
+})
 jest.mock('@/lib/notify', () => ({
   notify: {
     success: jest.fn(),
@@ -279,6 +289,7 @@ describe('ReviewQueue decisions', () => {
       body: JSON.stringify({ status: 'library' }),
     }))
     expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library')
   })
 
   it('keeps letter shortcuts working after a mouse click leaves focus on a button', async () => {
@@ -332,5 +343,87 @@ describe('ReviewQueue decisions', () => {
 
     dialog.remove()
     menu.remove()
+  })
+
+  it('mounts a fresh postcard once the next place is already cached', async () => {
+    renderQueue()
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-mounted-id', 'plc_one'))
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-mounted-id', 'plc_two')
+  })
+
+  it('shows the status just written when returning to a cached postcard', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+
+    await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library'))
+
+    await user.click(screen.getAllByRole('button', { name: /Not a place/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'archived'))
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'inbox'))
+  })
+
+  it('reviews a place that joins the inbox while the last decision is saving', async () => {
+    const thirdSource = source('three')
+    const placeThree = place('plc_three', 'Three Cafe', thirdSource)
+    placesById.set(placeThree.id, placeThree)
+    let releasePatch: (() => void) | undefined
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if ((init as { method?: string } | undefined)?.method === 'PATCH') {
+        await new Promise<void>((resolve) => {
+          releasePatch = resolve
+        })
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    try {
+      const view = renderQueue()
+      fireEvent.keyDown(window, { key: 's' })
+      await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+
+      fireEvent.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+      await waitFor(() => expect(releasePatch).toEqual(expect.any(Function)))
+
+      view.rerender(
+        <ReviewQueue
+          entries={[...entries, entryFrom(placeThree, thirdSource)]}
+          postcard={postcardFor(placeTwo)}
+          trips={[]}
+        />
+      )
+      await act(async () => {})
+
+      await act(async () => {
+        releasePatch?.()
+      })
+
+      await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Three Cafe'))
+      expect(screen.queryByText("That's everything.")).not.toBeInTheDocument()
+    } finally {
+      placesById.delete(placeThree.id)
+    }
   })
 })

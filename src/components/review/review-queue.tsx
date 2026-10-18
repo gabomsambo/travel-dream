@@ -115,6 +115,23 @@ async function setPlaceStatus(placeId: string, status: 'inbox' | 'library' | 'ar
   throw new Error(body?.message || "We couldn't update this place. Try again.")
 }
 
+function withPostcardStatus(
+  entries: SessionEntry[],
+  placeId: string,
+  status: 'inbox' | 'library' | 'archived',
+): SessionEntry[] {
+  return entries.map((entry) => {
+    if (entry.placeId !== placeId || !entry.postcard || entry.postcard.place.status === status) return entry
+    return {
+      ...entry,
+      postcard: {
+        ...entry.postcard,
+        place: { ...entry.postcard.place, status },
+      },
+    }
+  })
+}
+
 function nextUnhandled(entries: ReviewQueueEntry[], outcomes: Record<string, ReviewOutcome>, currentId: string): string | null {
   const current = entries.findIndex((entry) => entry.placeId === currentId)
   const start = current < 0 ? entries.length : current
@@ -226,6 +243,8 @@ function ReviewSummary({
 export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: ReviewQueueProps) {
   const router = useRouter()
   const [session, setSession] = React.useState<SessionEntry[]>(() => mergeSession([], entries, postcard))
+  const sessionRef = React.useRef(session)
+  sessionRef.current = session
   const [currentId, setCurrentId] = React.useState<string | null>(() => startingPlaceId(entries, postcard, initialPlaceId))
   const [outcomes, setOutcomes] = React.useState<Record<string, ReviewOutcome>>({})
   const [busy, setBusy] = React.useState(false)
@@ -275,8 +294,12 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   }, [])
 
   const advance = React.useCallback((placeId: string, nextOutcomes: Record<string, ReviewOutcome>) => {
-    selectPlace(nextUnhandled(session, nextOutcomes, placeId))
-  }, [session, selectPlace])
+    const latest = sessionRef.current
+    const nextId = nextUnhandled(latest, nextOutcomes, placeId)
+      ?? latest.find((entry) => !nextOutcomes[entry.placeId])?.placeId
+      ?? null
+    selectPlace(nextId)
+  }, [selectPlace])
 
   const undoDecision = React.useCallback(async (
     placeId: string,
@@ -289,6 +312,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
       : 'inbox'
     try {
       await setPlaceStatus(entry.placeId, restoreStatus)
+      setSession((prev) => withPostcardStatus(prev, entry.placeId, restoreStatus))
       setOutcomes((existing) => {
         const next = { ...existing }
         if (previousOutcome) next[entry.placeId] = previousOutcome
@@ -309,7 +333,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     setBusy(true)
     setError(null)
     try {
-      await setPlaceStatus(placeId, OUTCOME_STATUS[outcome])
+      const written = OUTCOME_STATUS[outcome]
+      await setPlaceStatus(placeId, written)
+      setSession((prev) => withPostcardStatus(prev, placeId, written))
       const nextOutcomes = { ...outcomes, [placeId]: outcome }
       setOutcomes(nextOutcomes)
       advance(placeId, nextOutcomes)
@@ -343,6 +369,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     try {
       if (previousOutcome === 'added' || previousOutcome === 'archived') {
         await setPlaceStatus(placeId, 'inbox')
+        setSession((prev) => withPostcardStatus(prev, placeId, 'inbox'))
       }
       const nextOutcomes = { ...outcomes, [placeId]: 'skipped' as const }
       setOutcomes(nextOutcomes)
@@ -433,6 +460,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
         <div className="min-w-0 overflow-hidden rounded-[1.75rem] border bg-background shadow-sm">
           {current.postcard ? (
             <PlaceView
+              key={current.postcard.place.id}
               place={current.postcard.place}
               trips={trips}
               alsoIn={current.postcard.alsoIn}

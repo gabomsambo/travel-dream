@@ -275,7 +275,7 @@ export function DuplicateWorkbench({
               const next = event.target.value;
               setKeptId(next);
               setPicks({});
-              setOutIds((current) => { const copy = new Set(current); copy.delete(next); return copy; });
+              setOutIds(new Set(suggestedOut(cluster, next).keys()));
               setChangingKept(false);
             }}
           >

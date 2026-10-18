@@ -1,5 +1,5 @@
 import '../helpers/react-optimistic';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DuplicatesPageClient } from '@/components/duplicates/duplicates-page-client';
 import type { DuplicateGroupEdge } from '@/lib/duplicate-detection';
@@ -90,6 +90,59 @@ function certainCluster() {
     avgConfidence: 0.981,
     places: [kept, other],
     edges: [edge(kept.id, other.id, 0.981, 32, 1)],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
+function partButton(name: string, which: 'In' | 'Not this one') {
+  const group = screen.getByRole('group', { name: `Is ${name} part of this place?` });
+  return within(group).getByRole('button', { name: which === 'In' ? /^In/ : 'Not this one' });
+}
+
+function farPair() {
+  const kept = place('far_k', 'Harbor Cafe');
+  const other = place('far_o', 'Harbor Other');
+  kept.status = 'library';
+  const pair = edge(kept.id, other.id, 0.4, 6600, 0.9);
+  pair.against = ['6.6 km apart'];
+  return {
+    cluster_id: 'far_k+far_o',
+    avgConfidence: 0.4,
+    places: [kept, other],
+    edges: [pair],
+    leftOut: [],
+    mergedOn: null,
+  };
+}
+
+function keptChangeGroup() {
+  const kept = place('mix_k', 'Harbor Cafe');
+  const kiosk = place('mix_n', 'Harbor Kiosk');
+  const chapel = place('mix_c', 'Harbor Chapel');
+  const other = place('mix_f', 'Harbor Other');
+  kept.status = 'library';
+  other.city = 'Porto';
+  const near = (id: string, distanceM: number) => edge('mix_k', id, 0.9, distanceM, 0.95);
+  const clash = (id: string, distanceM: number) => {
+    const pair = edge(id, 'mix_f', 0.5, distanceM, 0.9);
+    pair.against = ['Lisbon vs Porto'];
+    return pair;
+  };
+  const far = edge('mix_k', 'mix_f', 0.5, 9500, 0.9);
+  far.against = ['9.5 km apart'];
+  return {
+    cluster_id: 'mix_c+mix_f+mix_k+mix_n',
+    avgConfidence: 0.8,
+    places: [kept, kiosk, chapel, other],
+    edges: [
+      near('mix_n', 40),
+      near('mix_c', 50),
+      edge('mix_n', 'mix_c', 0.9, 30, 0.95),
+      far,
+      clash('mix_n', 50),
+      clash('mix_c', 60),
+    ],
     leftOut: [],
     mergedOn: null,
   };
@@ -1146,6 +1199,56 @@ describe('duplicates keyboard and bulk confirmation', () => {
     const workbench = screen.getByRole('region', { name: 'Is this one place?' });
     expect(workbench).toHaveTextContent('Arctic Cathedral');
     expect(workbench).not.toHaveTextContent('Sushi Saito');
+  });
+
+  it('keeps a hard-against pair from merging when the kept record changes', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[farPair()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+
+    expect(partButton('Harbor Other', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Merge 1 into one place/ })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'change' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Kept record' }), 'far_o');
+
+    expect(partButton('Harbor Cafe', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Suggested out: 6.6 km apart from Harbor Other.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Merge 1 into one place/ })).toBeDisabled();
+    fireEvent.keyDown(document, { key: 'm' });
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    await user.click(partButton('Harbor Cafe', 'In'));
+    expect(partButton('Harbor Cafe', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Merge 2 into one place/ })).toBeEnabled();
+  });
+
+  it('marks members hard-against the new kept record Out', async () => {
+    const user = userEvent.setup();
+    render(
+      <DuplicatesPageClient initialData={[keptChangeGroup()]} fetchedAt={null} fetchError={null} />
+    );
+    Element.prototype.scrollIntoView = jest.fn();
+    await user.click(document.querySelector('[data-cluster-index="0"]') as HTMLElement);
+
+    expect(partButton('Harbor Kiosk', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Harbor Chapel', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Harbor Other', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'change' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Kept record' }), 'mix_f');
+
+    expect(partButton('Harbor Cafe', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Harbor Kiosk', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(partButton('Harbor Chapel', 'Not this one')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Merge 1 into one place/ })).toBeDisabled();
+
+    await user.click(partButton('Harbor Kiosk', 'In'));
+    expect(partButton('Harbor Kiosk', 'In')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Merge 2 into one place/ })).toBeEnabled();
   });
 
   it('retries u after a failed undo and finishes pair cleanup when the merge is already undone', async () => {

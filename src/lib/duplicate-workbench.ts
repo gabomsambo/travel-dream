@@ -88,7 +88,9 @@ function clashSentences(a: QueuePlace, b: QueuePlace): string[] {
 }
 
 function hardReason(edge: DuplicateGroupEdge, a: QueuePlace, b: QueuePlace): string {
-  if (edge.distanceM !== null && edge.distanceM > DUPLICATE_PAGE_BAND.farMetres) return formatApart(edge.distanceM);
+  if (edge.distanceM !== null && edge.distanceM > DUPLICATE_PAGE_BAND.farMetres) {
+    return edge.against.find((text) => text.endsWith('apart')) ?? formatApart(edge.distanceM);
+  }
   const options = clashSentences(a, b);
   const own = edge.against.find((text) => options.includes(text));
   if (own) return own;

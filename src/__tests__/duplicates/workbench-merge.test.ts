@@ -316,6 +316,16 @@ describe('duplicates workbench on real data', () => {
     );
   });
 
+  it('uses the detector distance sentence past 10 km', async () => {
+    const kept = await insertPlace({ id: 'plc_km_k', name: 'Harbor Cafe', status: 'library', city: 'Lisbon', country: 'Portugal' });
+    const other = await insertPlace({ id: 'plc_km_o', name: 'Harbor Other', city: 'Lisbon', country: 'Portugal' });
+    const decimal = pairCluster(kept, other, 10400, ['10.4 km apart']);
+    expect(suggestedOut(decimal, 'plc_km_k').get('plc_km_o')).toBe('Suggested out: 10.4 km apart from Harbor Cafe.');
+    expect(linkLines(decimal, [kept, other]).map((line) => line.text)).toEqual(['1 and 2 · 10.4 km apart']);
+    expect(linkLines(pairCluster(kept, other, 10500, ['10.5 km apart']), [kept, other]).map((line) => line.text)).toEqual(['1 and 2 · 10.5 km apart']);
+    expect(linkLines(pairCluster(kept, other, 10400, []), [kept, other]).map((line) => line.text)).toEqual(['1 and 2 · 10 km apart']);
+  });
+
   it('keeps compare-all-fields closed when a Likely group only disagrees on the name', async () => {
     const kept = await insertPlace({ id: 'plc_cmp_k', name: 'Cafe Central', city: 'Vienna', country: 'Austria', coords: { lat: 48.21, lon: 16.36 } });
     const other = await insertPlace({ id: 'plc_cmp_o', name: 'Totally Other', city: 'Vienna', country: 'Austria', coords: { lat: 48.2102, lon: 16.3602 } });

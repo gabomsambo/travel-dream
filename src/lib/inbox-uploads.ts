@@ -318,3 +318,29 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
   );
   return { uploads, toReviewPlaceIds: distinctToReviewPlaceIds(uploads) };
 }
+
+export interface InboxPlaceAddedAnotherWay {
+  id: string;
+  name: string;
+}
+
+/**
+ * Inbox places that no mass-upload batch names. Hand-added and imported places
+ * land here; a place this summary already reports is excluded even when the
+ * caller passes an id it does not own, because the place read is scoped.
+ */
+export async function getInboxPlacesAddedAnotherWay(
+  userId: string,
+  coveredPlaceIds: string[]
+): Promise<InboxPlaceAddedAnotherWay[]> {
+  const covered = new Set(coveredPlaceIds);
+  const rows = await forUser(userId).selectFields(
+    places,
+    { id: places.id, name: places.name, createdAt: places.createdAt },
+    eq(places.status, 'inbox')
+  );
+  return rows
+    .filter((row) => !covered.has(row.id))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+    .map(({ id, name }) => ({ id, name }));
+}

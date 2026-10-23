@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { renderToString } from 'react-dom/server.node'
+import { renderToString } from 'react-dom/server'
 import { InboxPageClient } from '@/components/inbox/inbox-page-client'
 import { InboxScreen } from '@/components/inbox/inbox-screen'
 import { buildInboxScreen, formatUploadWhen } from '@/lib/inbox-page-model'
@@ -30,26 +30,35 @@ function shot(partial: Pick<InboxUploadScreenshot, 'sourceId'> & Partial<InboxUp
   }
 }
 
-function batch(partial: Pick<InboxUploadBatch, 'sessionId' | 'uploadedAt'> & Partial<InboxUploadBatch>): InboxUploadBatch {
+type InboxUploadRows = InboxUploadBatch['rows']
+
+function emptyRows(): InboxUploadRows {
   return {
-    screenshotCount: partial.screenshots?.length ?? 0,
+    toReview: { placeIds: [], sourceIds: [], places: [], checkCount: null },
+    added: { placeIds: [], sourceIds: [], places: [] },
+    notAPlace: { placeIds: [], sourceIds: [], places: [] },
+    alreadyInLibrary: { placeIds: [], sourceIds: [], places: [] },
+    uploadedBefore: { items: [] },
+    noPlaceFound: { sourceIds: [] },
+    couldNotRead: { sourceIds: [], items: [] },
+    stillReading: { sourceIds: [] },
+    cancelled: { sourceIds: [] },
+  }
+}
+
+function batch(
+  partial: Pick<InboxUploadBatch, 'sessionId' | 'uploadedAt'> &
+    Partial<Omit<InboxUploadBatch, 'rows'>> & { rows?: Partial<InboxUploadRows> },
+): InboxUploadBatch {
+  const { rows: rowOverrides, ...rest } = partial
+  return {
+    screenshotCount: rest.screenshots?.length ?? 0,
     placesRead: 0,
     newPlaces: 0,
     screenshots: [],
     outcomeDerived: false,
-    ...partial,
-    rows: {
-      toReview: { placeIds: [], sourceIds: [], places: [], checkCount: null },
-      added: { placeIds: [], sourceIds: [], places: [] },
-      notAPlace: { placeIds: [], sourceIds: [], places: [] },
-      alreadyInLibrary: { placeIds: [], sourceIds: [], places: [] },
-      uploadedBefore: { items: [] },
-      noPlaceFound: { sourceIds: [] },
-      couldNotRead: { sourceIds: [], items: [] },
-      stillReading: { sourceIds: [] },
-      cancelled: { sourceIds: [] },
-      ...partial.rows,
-    },
+    ...rest,
+    rows: { ...emptyRows(), ...rowOverrides },
   }
 }
 

@@ -38,6 +38,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       onPhotoAttached,
       blockWrites,
       handlesRef,
+      onReviewPlaceUpdated,
     }: {
       place: PlaceWithRelations
       editing?: boolean
@@ -57,6 +58,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
         flushSections: () => Promise<boolean>
         displayPlace: () => PlaceWithRelations
       } | null>
+      onReviewPlaceUpdated?: () => Promise<void> | void
     }) => {
       const mountedId = React.useRef(place.id)
       React.useEffect(() => {
@@ -75,6 +77,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
           data-testid="postcard"
           data-review-checks={showReviewChecks ? 'yes' : 'no'}
           data-status={place.status}
+          data-kind={place.kind}
           data-mounted-id={mountedId.current}
           data-editing={editing ? 'yes' : 'no'}
           data-soft-cover={softCover ? 'yes' : 'no'}
@@ -83,6 +86,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
           {lead}
           {!blockWrites && <button type="button" onClick={() => onEdit?.()}>Edit postcard</button>}
           {!blockWrites && <button type="button" onClick={() => onPhotoAttached?.()}>Attach photo</button>}
+          <button type="button" onClick={() => { void onReviewPlaceUpdated?.() }}>Save section</button>
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
           {!blockRestore && (
@@ -1034,6 +1038,118 @@ describe('ReviewQueue decisions', () => {
     expect(screen.queryByText('Your Inbox is sorted for now.')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'All caught up' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
+  })
+
+  it('keeps the later save when an earlier postcard reload finishes last', async () => {
+    const user = userEvent.setup()
+    const pending: Array<(response: Response) => void> = []
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        return await new Promise<Response>((resolve) => {
+          pending.push(resolve)
+        })
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    renderQueue()
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    const later = {
+      ...placeOne,
+      name: 'One Cafe Renamed',
+      kind: 'restaurant',
+      updatedAt: '2026-10-18T12:00:02.000Z',
+    }
+    const earlier = {
+      ...placeOne,
+      name: 'One Cafe Stale',
+      kind: 'cafe',
+      updatedAt: '2026-10-18T12:00:03.000Z',
+    }
+    await act(async () => {
+      pending[1](jsonResponse(postcardFor(later)))
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Renamed'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'restaurant')
+
+    await act(async () => {
+      pending[0](jsonResponse(postcardFor(earlier)))
+    })
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Renamed')
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'restaurant')
+  })
+
+  it('does not let an older refresh payload replace a newer postcard', async () => {
+    const user = userEvent.setup()
+    const pending: Array<(response: Response) => void> = []
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        return await new Promise<Response>((resolve) => {
+          pending.push(resolve)
+        })
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    const view = renderQueue()
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    const firstSave = {
+      ...placeOne,
+      name: 'One Cafe Renamed',
+      kind: 'bar',
+      updatedAt: '2026-10-18T12:00:02.000Z',
+    }
+    await act(async () => {
+      pending[0](jsonResponse(postcardFor(firstSave)))
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'bar'))
+
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(pending).toHaveLength(2))
+    const secondSave = {
+      ...placeOne,
+      name: 'One Cafe Renamed',
+      kind: 'restaurant',
+      updatedAt: '2026-10-18T12:00:02.000Z',
+    }
+    await act(async () => {
+      pending[1](jsonResponse(postcardFor(secondSave)))
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'restaurant'))
+
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(firstSave)}
+        trips={[]}
+      />
+    )
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Renamed')
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'restaurant')
+
+    const newest = {
+      ...placeOne,
+      name: 'One Cafe Newest',
+      kind: 'park',
+      updatedAt: '2026-10-18T12:00:04.000Z',
+    }
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(newest)}
+        trips={[]}
+      />
+    )
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Newest'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'park')
   })
 })
 

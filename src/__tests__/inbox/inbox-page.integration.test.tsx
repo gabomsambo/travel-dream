@@ -191,7 +191,9 @@ describe('inbox page', () => {
 
   it('becomes a progress card while an upload is still reading', async () => {
     await seedReady();
-    await session('session_reading', ALICE.id, '2026-10-23T14:00:00.000Z');
+    await session('session_reading', ALICE.id, '2026-10-23T14:00:00.000Z', [
+      { originalName: 'again.jpg', duplicateOf: 'src_earlier' },
+    ]);
     await source('src_reading_done', ALICE.id, 'session_reading', 'completed', '2026-10-23T14:01:00.000Z', {
       places: [place('Reading Place', { city: 'Lisbon', country: 'Portugal' })],
     });
@@ -200,7 +202,7 @@ describe('inbox page', () => {
     render(<InboxScreen model={await screenModel()} />);
 
     expect(screen.getByText('Reading your screenshots')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '1 of 2 read' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '2 of 3 read' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel the rest' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Review 2 places while you wait' })).toHaveAttribute(
       'href',

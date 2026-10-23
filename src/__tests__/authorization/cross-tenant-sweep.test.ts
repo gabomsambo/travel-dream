@@ -748,6 +748,40 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
     ],
   },
 
+  // --- inbox ---------------------------------------------------------------
+  'inbox/uploads': {
+    GET: [
+      { slots: [], request: () => ({ url: `${API}/inbox/uploads` }) },
+      {
+        // The summary reads place and source ids out of the caller's own JSON
+        // (`meta.massUpload.outcome`, `upload_sessions.meta.duplicates`). Plant
+        // Bob's ids there: none of Bob's places or sources may be described.
+        name: "Bob's ids planted in Alice's upload outcome and skipped list",
+        slots: [],
+        setup: async () => {
+          const run = dbExec();
+          await run({
+            sql: `UPDATE sources SET processing_status = 'completed', meta = ? WHERE id = ?`,
+            args: [JSON.stringify({
+              uploadInfo: { sessionId: FIXTURE.aliceSession, originalName: 'alice.png' },
+              massUpload: { outcome: { created: [BOB_IDS.place], linked: [{ placeId: BOB_IDS.place2, reason: 'google_place_id' }] } },
+            }), FIXTURE.aliceSource],
+          });
+          await run({
+            sql: `UPDATE upload_sessions SET meta = ? WHERE id = ?`,
+            args: [JSON.stringify({
+              uploadedFiles: [FIXTURE.aliceSource],
+              errors: [],
+              duplicates: [{ originalName: 'alice-again.png', duplicateOf: BOB_IDS.source }],
+            }), FIXTURE.aliceSession],
+          });
+          return [BOB_IDS.place, BOB_IDS.place2, BOB_IDS.source];
+        },
+        request: () => ({ url: `${API}/inbox/uploads` }),
+      },
+    ],
+  },
+
   // --- review --------------------------------------------------------------
   'review/postcard/[placeId]': {
     GET: {

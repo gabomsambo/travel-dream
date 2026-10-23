@@ -1,6 +1,16 @@
+import { TextDecoder, TextEncoder } from 'util'
 import '@testing-library/jest-dom'
 import dotenv from 'dotenv'
 import path from 'path'
+
+// jsdom does not provide the encoding globals. Jest resolves `react-dom/server`
+// to the browser build, which constructs a TextEncoder while the module loads.
+if (typeof globalThis.TextEncoder !== 'function') {
+  globalThis.TextEncoder = TextEncoder
+}
+if (typeof globalThis.TextDecoder !== 'function') {
+  globalThis.TextDecoder = TextDecoder
+}
 
 // Test API keys for modules with module-level singletons
 process.env.GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY || 'test-api-key';

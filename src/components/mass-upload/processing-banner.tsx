@@ -5,12 +5,8 @@ import Link from 'next/link'
 import { useActivityJobs } from '@/components/activity/activity-provider'
 
 /**
- * In-flight mass-upload indicator on Inbox only.
- *
- * Completion, failure and stalled outcomes belong to the header activity bell
- * — this banner used to return null at `activeCount === 0`, which hid the
- * conclusion at the exact moment it had something to report. The bell persists
- * that terminal state until the user dismisses it.
+ * Unused by the app. In-flight uploads show on the Inbox progress card; completion
+ * still belongs to the header bell — see AGENTS.md, Background activity.
  */
 export function ProcessingBanner() {
   const { jobs } = useActivityJobs()

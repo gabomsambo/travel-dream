@@ -143,9 +143,15 @@ function entryFrom(row: PlaceWithRelations, src: Source): ReviewQueueEntry {
     name: row.name,
     createdAt: row.createdAt,
     userId: row.userId,
+    sourceId: src.id,
     screenshotUrl: src.uri,
     screenshotName: `${src.id}.jpg`,
+    screenshotCreatedAt: src.createdAt,
     uploadLabel: `${src.id}.jpg`,
+    kind: row.kind,
+    city: row.city,
+    quote: row.description,
+    hasPin: Boolean(row.coords && !(row.coords.lat === 0 && row.coords.lon === 0)),
   }
 }
 
@@ -991,5 +997,193 @@ describe('ReviewQueue decisions', () => {
     expect(screen.queryByText('Your Inbox is sorted for now.')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'All caught up' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
+  })
+})
+
+function postCalls() {
+  return fetchMock.mock.calls.filter((call) => (call[1] as { method?: string } | undefined)?.method === 'POST')
+}
+
+function deleteCalls() {
+  return fetchMock.mock.calls.filter((call) => (call[1] as { method?: string } | undefined)?.method === 'DELETE')
+}
+
+describe('Review group and batch trip', () => {
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture ??= () => false
+    Element.prototype.setPointerCapture ??= () => {}
+    Element.prototype.releasePointerCapture ??= () => {}
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      return jsonResponse({ status: 'success' })
+    })
+    window.history.replaceState({}, '', '/review')
+  })
+
+  function sharedShot() {
+    const src = source('shot')
+    const dutch = place('plc_dutch', 'My Old Dutch', src)
+    dutch.kind = 'restaurant'
+    dutch.description = "King's Road"
+    dutch.coords = { lat: 51.48, lon: -0.16 }
+    const gails = place('plc_gails', "Gail's Bakery", src)
+    gails.createdAt = '2026-10-18T12:00:02.000Z'
+    gails.coords = null
+    placesById.set(dutch.id, dutch)
+    placesById.set(gails.id, gails)
+    return {
+      src,
+      dutch,
+      gails,
+      entries: [entryFrom(dutch, src), entryFrom(gails, src)],
+    }
+  }
+
+  it('reviews every inbox place from one screenshot together, in list order', async () => {
+    const { entries: groupEntries, dutch } = sharedShot()
+    render(
+      <ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[]} />
+    )
+
+    expect(screen.getByTestId('review-group')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'shot' })).toBeInTheDocument()
+    expect(screen.getByText('2 places · London')).toBeInTheDocument()
+    expect(screen.getByText('1–2 of 2 from shot.jpg')).toBeInTheDocument()
+    expect(screen.getByText(/King.s Road/)).toBeInTheDocument()
+    expect(screen.getByText('Pinned')).toBeInTheDocument()
+    expect(screen.getByText('No pin yet')).toBeInTheDocument()
+    expect(screen.queryByTestId('postcard')).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    expect(patchCalls().map((call) => call[0])).toEqual(['/api/places/plc_dutch', '/api/places/plc_gails'])
+    expect(patchCalls().every((call) => (call[1] as { body?: string }).body === JSON.stringify({ status: 'library' }))).toBe(true)
+    expect(postCalls()).toHaveLength(0)
+
+    const toast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Added 2 places'))
+    const undo = (toast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(screen.getByTestId('review-group')).toBeInTheDocument())
+    expect(patchCalls().at(-1)?.[1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ status: 'inbox' }),
+    }))
+  })
+
+  it('adds only the ticked rows, then reviews the one left on its own', async () => {
+    const user = userEvent.setup()
+    const { entries: groupEntries, dutch } = sharedShot()
+    const view = render(
+      <ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[]} />
+    )
+
+    await user.click(screen.getByRole('button', { name: "Leave Gail's Bakery out" }))
+    await user.click(screen.getAllByRole('button', { name: /Add 1 to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent("Gail's Bakery"))
+    expect(patchCalls().map((call) => call[0])).toEqual(['/api/places/plc_dutch'])
+
+    view.rerender(
+      <ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[]} />
+    )
+    fireEvent.keyDown(window, { key: 'n' })
+    await waitFor(() => expect(patchCalls().some((call) =>
+      call[0] === '/api/places/plc_gails' &&
+      (call[1] as { body?: string }).body === JSON.stringify({ status: 'archived' })
+    )).toBe(true))
+  })
+
+  it('archives every place with None of these, and Skip leaves them all for later', async () => {
+    const { entries: groupEntries, dutch } = sharedShot()
+    const view = render(
+      <ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[]} />
+    )
+
+    expect(screen.getAllByRole('button', { name: /None of these/i }).length).toBeGreaterThan(0)
+    fireEvent.keyDown(window, { key: 'n' })
+    await waitFor(() => expect(patchCalls()).toHaveLength(2))
+    expect(patchCalls().every((call) => (call[1] as { body?: string }).body === JSON.stringify({ status: 'archived' }))).toBe(true)
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    expect(screen.getByText('not a place').previousElementSibling).toHaveTextContent('2')
+
+    view.unmount()
+    fetchMock.mockClear()
+    render(
+      <ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[]} />
+    )
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    expect(patchCalls()).toHaveLength(0)
+    expect(screen.getByText('skipped for later').previousElementSibling).toHaveTextContent('2')
+  })
+
+  it('opens one place from the group and keeps Add, Not a place, and Skip on that place', async () => {
+    const user = userEvent.setup()
+    const { entries: groupEntries, dutch, gails } = sharedShot()
+    render(
+      <ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[]} />
+    )
+
+    await user.click(screen.getAllByRole('button', { name: 'Open' })[1])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent("Gail's Bakery"))
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('My Old Dutch'))
+    expect(patchCalls().map((call) => call[0])).toEqual(['/api/places/plc_gails'])
+    expect(placesById.get(gails.id)?.name).toBe("Gail's Bakery")
+  })
+
+  it('files every Add into the suggested trip and keeps that choice for the batch', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    renderQueue({ trips: [london] })
+
+    expect(screen.getAllByRole('button', { name: 'Also add to London long weekend' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: /Add to Library \+ trip/i }).length).toBeGreaterThan(0)
+
+    await user.click(screen.getAllByRole('button', { name: /Add to Library \+ trip/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(postCalls()[0]?.[0]).toBe('/api/collections/col_london/places')
+    expect(postCalls()[0]?.[1]).toEqual(expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ placeIds: ['plc_one'] }),
+    }))
+
+    const toast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('London long weekend'))
+    const undo = (toast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(deleteCalls().some((call) => call[0] === '/api/collections/col_london/places/plc_one')).toBe(true))
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(postCalls().some((call) =>
+      String(call[0]).includes('col_london') &&
+      (call[1] as { body?: string }).body === JSON.stringify({ placeIds: ['plc_one'] })
+    )).toBe(true))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(screen.getAllByRole('button', { name: 'Also add to London long weekend' }).length).toBeGreaterThan(0)
+  })
+
+  it('turns the batch trip off, so later adds stay in the Library only', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: [], cities: ['London'] }
+    renderQueue({ trips: [london] })
+
+    await user.click(screen.getAllByRole('button', { name: 'Also add to London long weekend' })[0])
+    await user.click(await screen.findByRole('menuitemradio', { name: 'No trip' }))
+    expect(screen.getAllByRole('button', { name: 'No trip' }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /Add to Library \+ trip/i })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(postCalls()).toHaveLength(0)
+    expect(screen.getAllByRole('button', { name: 'No trip' }).length).toBeGreaterThan(0)
   })
 })

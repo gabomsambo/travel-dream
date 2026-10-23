@@ -300,4 +300,67 @@ describe('loadReviewQueue with real SQLite data', () => {
       await run(`DELETE FROM sources WHERE id IN (?,?,?)`, ['src_cross_a1', 'src_cross_a2', 'src_cross_b'])
     }
   })
+
+  it('orders a screenshot by the cached extraction and keeps the rest of that cache off the queue', async () => {
+    const execute = dbExec()
+    await execute({
+      sql: `UPDATE places SET description = ?, city = ?, coords = ? WHERE id = ?`,
+      args: ["King's Road pancakes", 'London', JSON.stringify({ lat: 51.48, lon: -0.17 }), 'plc_alice_new_2'],
+    })
+    await execute({
+      sql: `UPDATE places SET coords = ?, city = ? WHERE id = ?`,
+      args: [JSON.stringify({ lat: 0, lon: 0 }), 'London', 'plc_alice_new_1'],
+    })
+    await execute({
+      sql: `UPDATE sources SET meta = json_set(COALESCE(meta, '{}'), '$.massUpload.extraction', json(?)) WHERE id = ?`,
+      args: [JSON.stringify({
+        places: [
+          { name: 'Second in new screenshot', description: 'do-not-leak-caption' },
+          { name: 'First in new screenshot' },
+        ],
+        rawResponse: 'do-not-leak-raw',
+      }), 'src_alice_new'],
+    })
+    await execute({
+      sql: `UPDATE places SET city = ? WHERE id = ?`,
+      args: ['London', 'plc_alice'],
+    })
+    await execute({
+      sql: `INSERT INTO collections (id,user_id,name,created_at,updated_at) VALUES (?,?,?,?,?)`,
+      args: ['col_london', ALICE.id, 'London long weekend', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z'],
+    })
+    await execute({
+      sql: `INSERT INTO places_to_collections (place_id,collection_id,order_index,is_pinned) VALUES (?,?,?,?)`,
+      args: ['plc_alice', 'col_london', 0, 0],
+    })
+
+    const queue = await loadReviewQueue(ALICE.id)
+    expect(queue.entries.map((entry) => entry.placeId)).toEqual([
+      'plc_alice_new_2',
+      'plc_alice_new_1',
+      'plc_alice_old_1',
+    ])
+    expect(queue.entries[0]).toMatchObject({
+      sourceId: 'src_alice_new',
+      kind: 'cafe',
+      city: 'London',
+      quote: "King's Road pancakes",
+      hasPin: true,
+    })
+    expect(queue.entries[1]).toMatchObject({ hasPin: false, city: 'London' })
+    expect(queue.entries[0].sourceId).toBe(queue.entries[1].sourceId)
+    const payload = JSON.stringify(queue.entries) + JSON.stringify(queue.postcard?.screenshot)
+    expect(payload).not.toContain('do-not-leak')
+    expect(payload).not.toContain('rawResponse')
+    expect(queue.postcard?.screenshot?.siblings.map((sibling) => sibling.placeId)).toEqual([
+      'plc_alice_new_2',
+      'plc_alice_new_1',
+      'plc_alice',
+    ])
+
+    const london = queue.trips.find((trip) => trip.id === 'col_london')
+    expect(london).toMatchObject({ name: 'London long weekend', cities: ['London'] })
+    expect(queue.trips.map((trip) => trip.id)).not.toContain('col_bob')
+    expect(JSON.stringify(queue.trips)).not.toContain('Bob')
+  })
 })

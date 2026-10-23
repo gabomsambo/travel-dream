@@ -27,16 +27,8 @@ export function KeyboardShortcutsDialog({
       { key: ['Cmd', 'C'], description: 'Go to Collections' },
       { key: ['Cmd', 'K'], description: 'Open Command Palette' },
     ],
-    'Inbox Actions': [
-      { key: ['J'], description: 'Navigate down' },
-      { key: ['K'], description: 'Navigate up' },
-      { key: ['C'], description: 'Confirm current item' },
-      { key: ['X'], description: 'Archive current item' },
-      { key: ['E'], description: 'Edit current item' },
-      { key: ['Space'], description: 'Toggle selection' },
-      { key: ['Shift', 'C'], description: 'Confirm selected items' },
-      { key: ['Shift', 'X'], description: 'Archive selected items' },
-      { key: ['?'], description: 'Show keyboard help' },
+    'Inbox': [
+      { key: ['Enter'], description: 'Start Review' },
     ],
   }
 

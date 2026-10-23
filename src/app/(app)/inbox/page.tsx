@@ -3,7 +3,7 @@ import { InboxClient } from "@/components/inbox/inbox-client"
 import { ScreenshotGrid } from "@/components/inbox/screenshot-grid"
 import { ProcessingBanner } from "@/components/mass-upload/processing-banner"
 import { Badge } from "@/components/adapters/badge"
-import { Info, CloudUpload } from "lucide-react"
+import { ArrowRight, Info, CloudUpload, Images } from "lucide-react"
 import Link from "next/link"
 import { getSourcesByType, getPlacesByStatus, getInboxStats } from "@/lib/db-queries"
 import { countScreenshotStatuses } from "@/lib/inbox-screenshot-status"
@@ -37,6 +37,25 @@ export default async function InboxPage() {
       />
 
       <ProcessingBanner />
+
+      {totalPlaces > 0 && (
+        <Link
+          href="/review"
+          className="group flex flex-col gap-5 overflow-hidden rounded-2xl bg-primary p-5 text-primary-foreground shadow-sm transition hover:bg-primary/95 sm:flex-row sm:items-center sm:p-6"
+        >
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary-foreground/15">
+            <Images className="h-6 w-6" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary-foreground/75">Up next</p>
+            <h2 className="mt-1 font-serif text-2xl font-semibold">Review {totalPlaces} {totalPlaces === 1 ? 'place' : 'places'}</h2>
+            <p className="mt-1 text-sm text-primary-foreground/80">Go through your screenshots one place at a time.</p>
+          </div>
+          <span className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-background px-4 text-sm font-semibold text-foreground transition group-hover:translate-x-0.5">
+            Start review <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+          </span>
+        </Link>
+      )}
 
       {/* Screenshots Section */}
       {totalScreenshots > 0 && (

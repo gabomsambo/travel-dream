@@ -20,8 +20,15 @@ async function failureMessage(response: Response, fallback: string) {
 }
 
 /**
- * The hero's ⋯ menu: archive (or restore) and delete, through the same endpoints the
- * review, inbox and archive pages use — PATCH status and DELETE /api/places/[id].
+ * The hero's ⋯ menu. Archive and restore PATCH /api/places/[id]; delete uses
+ * DELETE on that route. Archive and delete then call leave() (back, or Library
+ * on a direct visit). Restore stays put and refreshes.
+ *
+ * onArchive skips that PATCH and leave(); the caller writes the status.
+ * onDeleted still deletes, then skips leave(). onRestored runs after a
+ * successful restore, before the refresh. Review uses all three so the queue
+ * stays mounted: Archive is Not a place, Delete advances after confirmation,
+ * and Restore counts as added.
  */
 export function PlaceActionsMenu({
   placeId,
@@ -30,6 +37,9 @@ export function PlaceActionsMenu({
   className,
   onOpenClassic,
   onPrefetchClassic,
+  onArchive,
+  onDeleted,
+  onRestored,
 }: {
   placeId: string
   placeName: string
@@ -37,6 +47,9 @@ export function PlaceActionsMenu({
   className?: string
   onOpenClassic?: () => void
   onPrefetchClassic?: () => void
+  onArchive?: () => void
+  onDeleted?: () => void
+  onRestored?: () => void
 }) {
   const router = useRouter()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
@@ -70,6 +83,7 @@ export function PlaceActionsMenu({
         })
         leave()
       } else {
+        onRestored?.()
         notify.success(`Restored “${placeName}” to your library`)
         router.refresh()
       }
@@ -87,7 +101,8 @@ export function PlaceActionsMenu({
       if (!response.ok) throw new Error(await failureMessage(response, "Failed to delete place"))
       setConfirmDelete(false)
       notify.success(`Deleted “${placeName}”`)
-      leave()
+      if (onDeleted) onDeleted()
+      else leave()
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to delete place")
     } finally {
@@ -120,7 +135,7 @@ export function PlaceActionsMenu({
               <ArchiveRestore className="mr-2 h-4 w-4" aria-hidden /> Restore to library
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem onSelect={() => setStatus("archived")}>
+            <DropdownMenuItem onSelect={() => { if (onArchive) onArchive(); else void setStatus("archived") }}>
               <Archive className="mr-2 h-4 w-4" aria-hidden /> Archive
             </DropdownMenuItem>
           )}

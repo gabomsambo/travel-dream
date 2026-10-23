@@ -10,6 +10,8 @@
 import 'server-only';
 import { and, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { attachments, places, sources, sourcesToPlaces, uploadSessions } from '@/db/schema';
+import type { InboxPlaceAddedAnotherWay } from '@/lib/inbox-page-model';
+import { rankingSource } from '@/lib/review-order';
 import { forUser } from '@/lib/tenant-db';
 import { toUserFriendlyError } from '@/lib/mass-upload/friendly-error';
 import type {
@@ -211,7 +213,14 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
   const placeRows = await chunked(placeIds, (part) =>
     tdb.selectFields(
       places,
-      { id: places.id, name: places.name, city: places.city, country: places.country, status: places.status },
+      {
+        id: places.id,
+        name: places.name,
+        city: places.city,
+        country: places.country,
+        status: places.status,
+        createdAt: places.createdAt,
+      },
       inArray(places.id, part)
     )
   );
@@ -261,7 +270,15 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
       Array.from(map).flatMap(([id, sourceIds]) => {
         const row = placesById.get(id);
         if (!row) return [];
-        return [{ id, name: row.name, city: row.city, country: row.country, status: row.status as InboxPlaceStatus, sourceIds }];
+        return [{
+          id,
+          name: row.name,
+          city: row.city,
+          country: row.country,
+          status: row.status as InboxPlaceStatus,
+          createdAt: row.createdAt,
+          sourceIds,
+        }];
       });
     const createdPlaces = toPlaces(created);
     const linkedPlaces = toPlaces(linked);
@@ -319,12 +336,6 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
   return { uploads, toReviewPlaceIds: distinctToReviewPlaceIds(uploads) };
 }
 
-export interface InboxPlaceAddedAnotherWay {
-  id: string;
-  name: string;
-  createdAt: string;
-}
-
 /**
  * Inbox places that no mass-upload batch names. Hand-added and imported places
  * land here; a place this summary already reports is excluded even when the
@@ -335,13 +346,48 @@ export async function getInboxPlacesAddedAnotherWay(
   coveredPlaceIds: string[]
 ): Promise<InboxPlaceAddedAnotherWay[]> {
   const covered = new Set(coveredPlaceIds);
-  const rows = await forUser(userId).selectFields(
+  const tdb = forUser(userId);
+  const rows = await tdb.selectFields(
     places,
     { id: places.id, name: places.name, createdAt: places.createdAt },
     eq(places.status, 'inbox')
   );
-  return rows
-    .filter((row) => !covered.has(row.id))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
-    .map(({ id, name, createdAt }) => ({ id, name, createdAt }));
+  const uncovered = rows.filter((row) => !covered.has(row.id));
+  const links = await chunked(
+    uncovered.map((row) => row.id),
+    (part) => tdb.selectFieldsVia(
+      sourcesToPlaces,
+      { sourceId: sourcesToPlaces.sourceId, placeId: sourcesToPlaces.placeId },
+      inArray(sourcesToPlaces.placeId, part)
+    )
+  );
+  const sourceRows = await chunked(
+    links.map((link) => link.sourceId),
+    (part) => tdb.selectFields(
+      sources,
+      { id: sources.id, type: sources.type, createdAt: sources.createdAt },
+      inArray(sources.id, part)
+    )
+  );
+  const sourcesById = new Map(sourceRows.map((source) => [source.id, source]));
+  const sourcesByPlace = new Map<string, typeof sourceRows>();
+  for (const link of links) {
+    const source = sourcesById.get(link.sourceId);
+    if (!source) continue;
+    const list = sourcesByPlace.get(link.placeId) ?? [];
+    list.push(source);
+    sourcesByPlace.set(link.placeId, list);
+  }
+  return uncovered
+    .map((row) => {
+      const source = rankingSource(sourcesByPlace.get(row.id) ?? []);
+      return {
+        id: row.id,
+        name: row.name,
+        createdAt: row.createdAt,
+        sourceCreatedAt: source?.createdAt ?? '',
+        sourceId: source?.id ?? '',
+      };
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
 }

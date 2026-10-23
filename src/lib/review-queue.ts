@@ -3,6 +3,7 @@ import { places, sources, sourcesToPlaces } from '@/db/schema'
 import { coverPhoto } from '@/lib/cover-photo'
 import { getPlaceWithRelations } from '@/lib/db-queries'
 import { getExploreCollections, getExplorePlacesInCity } from '@/lib/explore/queries'
+import { compareReviewRank, rankingSource } from '@/lib/review-order'
 import { forUser } from '@/lib/tenant-db'
 import type { ExploreCollection, ExplorePlace } from '@/lib/explore/types'
 import type { PlaceWithRelations } from '@/types/database'
@@ -73,26 +74,6 @@ function sourceName(source: QueueSource | null): string | null {
   return source.originalName ?? source.uploadFilename ?? source.filename ?? null
 }
 
-interface ScreenshotCandidate {
-  id: string
-  type: string
-  createdAt: string
-  sessionId?: string | null
-}
-
-function screenshotSource<T extends ScreenshotCandidate>(
-  placeSources: T[],
-  uploadSessionId?: string,
-): T | null {
-  const pool = uploadSessionId
-    ? placeSources.filter((source) => source.sessionId === uploadSessionId)
-    : placeSources
-  const ordered = [...pool].sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)
-  )
-  return ordered.find((source) => source.type === 'screenshot') ?? ordered[0] ?? null
-}
-
 function nameFromSourceMeta(meta: { uploadInfo?: { originalName?: string; filename?: string }; filename?: string } | null): string | null {
   if (!meta) return null
   return meta.uploadInfo?.originalName ?? meta.uploadInfo?.filename ?? meta.filename ?? null
@@ -114,18 +95,6 @@ export function isSharedScreenshotCover(
 
 function compareSiblings(a: ReviewScreenshotSibling, b: ReviewScreenshotSibling): number {
   return a.createdAt.localeCompare(b.createdAt) || a.placeId.localeCompare(b.placeId)
-}
-
-function compareEntries(
-  a: ReviewQueueEntry & { sourceCreatedAt: string; sourceId: string },
-  b: ReviewQueueEntry & { sourceCreatedAt: string; sourceId: string },
-): number {
-  const bySourceTime = b.sourceCreatedAt.localeCompare(a.sourceCreatedAt)
-  if (bySourceTime !== 0) return bySourceTime
-  const bySource = a.sourceId.localeCompare(b.sourceId)
-  if (bySource !== 0) return bySource
-  const byPlaceTime = a.createdAt.localeCompare(b.createdAt)
-  return byPlaceTime || a.placeId.localeCompare(b.placeId)
 }
 
 /**
@@ -184,7 +153,7 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
   return inbox.flatMap((row) => {
     const placeSources = sourcesByPlace.get(row.id) ?? []
     if (uploadSessionId && !placeSources.some((source) => source.sessionId === uploadSessionId)) return []
-    const source = screenshotSource(placeSources, uploadSessionId)
+    const source = rankingSource(placeSources, uploadSessionId)
     const name = sourceName(source)
     return [{
       placeId: row.id,
@@ -197,7 +166,7 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
       screenshotName: name,
       uploadLabel: name ?? 'your upload',
     }]
-  }).sort(compareEntries).map((draft) => ({
+  }).sort(compareReviewRank).map((draft) => ({
     placeId: draft.placeId,
     name: draft.name,
     createdAt: draft.createdAt,
@@ -213,7 +182,7 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
  * place read is scoped again so a stray cross-tenant link cannot leak a name.
  */
 async function loadScreenshot(userId: string, place: PlaceWithRelations): Promise<ReviewScreenshot | null> {
-  const source = screenshotSource(place.sources)
+  const source = rankingSource(place.sources)
   if (!source?.uri) return null
   const scoped = forUser(userId)
   const links = await scoped.selectFieldsVia(

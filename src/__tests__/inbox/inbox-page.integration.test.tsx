@@ -267,4 +267,61 @@ describe('inbox page', () => {
     expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/review?placeId=plc_hand_old');
     expect(screen.queryByText('Bob Secret Inbox')).not.toBeInTheDocument();
   });
+
+  it('opens a screenshot review on the earlier inbox place, not the created id', async () => {
+    const earlier = '2026-10-23T10:00:01.000Z';
+    const later = '2026-10-23T12:00:02.000Z';
+    await session('session_multi', ALICE.id, '2026-10-23T12:00:00.000Z');
+    await source('src_multi', ALICE.id, 'session_multi', 'completed', '2026-10-23T12:00:00.000Z');
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+      ['plc_later', ALICE.id, 'Created Later', 'cafe', 'inbox', later, later]
+    );
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+      ['plc_earlier', ALICE.id, 'Linked Earlier', 'cafe', 'inbox', earlier, earlier]
+    );
+    await execute(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_multi', 'plc_later']);
+    await execute(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_multi', 'plc_earlier']);
+    await execute(`UPDATE sources SET meta = json_set(meta, '$.massUpload', json(?)) WHERE id = ?`, [
+      JSON.stringify({ outcome: { created: ['plc_later'], linked: [{ placeId: 'plc_earlier', reason: 'google_place_id' }] } }),
+      'src_multi',
+    ]);
+
+    render(<InboxScreen model={await screenModel('session_multi')} />);
+    expect(screen.getByRole('link', { name: 'Review 2 places' })).toHaveAttribute('href', '/review?upload=session_multi');
+    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute(
+      'href',
+      '/review?upload=session_multi&placeId=plc_earlier'
+    );
+  });
+
+  it('opens added another way on the queued source, ahead of an older sourceless place', async () => {
+    const handAt = '2026-10-23T08:00:00.000Z';
+    const ayeAt = '2026-10-23T09:00:00.000Z';
+    const beeAt = '2026-10-23T11:00:00.000Z';
+    const shotAt = '2026-10-23T12:00:00.000Z';
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+      ['plc_hand_old', ALICE.id, 'Older Cafe', 'cafe', 'inbox', handAt, handAt]
+    );
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+      ['plc_src_a', ALICE.id, 'Aye', 'cafe', 'inbox', ayeAt, ayeAt]
+    );
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+      ['plc_src_b', ALICE.id, 'Bee', 'cafe', 'inbox', beeAt, beeAt]
+    );
+    await source('src_b', ALICE.id, 'session_dropped', 'pending', shotAt);
+    await source('src_a', ALICE.id, 'session_dropped', 'pending', shotAt);
+    await execute(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_b', 'plc_src_b']);
+    await execute(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_a', 'plc_src_a']);
+
+    const model = await screenModel();
+    expect(model.view).toBe('home');
+    if (model.view !== 'home') return;
+    expect(model.addedAnotherWay?.names).toBe('Bee, Aye and Older Cafe');
+    expect(model.addedAnotherWay?.href).toBe('/review?placeId=plc_src_a');
+  });
 });

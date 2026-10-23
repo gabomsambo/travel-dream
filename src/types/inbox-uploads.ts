@@ -13,6 +13,7 @@ export interface InboxUploadPlace {
   city: string | null;
   country: string | null;
   status: InboxPlaceStatus;
+  createdAt: string;
   /** Screenshots in this batch that produced or were added to this place. */
   sourceIds: string[];
 }

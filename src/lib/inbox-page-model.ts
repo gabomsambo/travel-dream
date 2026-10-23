@@ -4,6 +4,7 @@
  * per-screenshot detail. No I/O. Later PRs wire Try again, Dismiss, Add by
  * hand, and "Add the N that look right"; this model leaves those unwired.
  */
+import { compareReviewRank, type ReviewRankKey } from '@/lib/review-order';
 import type {
   InboxUploadBatch,
   InboxUploadPlace,
@@ -173,6 +174,8 @@ export interface InboxPlaceAddedAnotherWay {
   id: string;
   name: string;
   createdAt: string;
+  sourceCreatedAt: string;
+  sourceId: string;
 }
 
 export interface BuildInboxScreenInput {
@@ -199,17 +202,38 @@ export function coveredUploadPlaceIds(uploads: InboxUploadBatch[]): string[] {
   return ids;
 }
 
-function firstQueuedHandAddedId(places: InboxPlaceAddedAnotherWay[]): string | undefined {
-  let first: InboxPlaceAddedAnotherWay | undefined;
-  for (const place of places) {
-    if (!first) {
-      first = place;
-      continue;
+function firstByReviewRank<T>(items: T[], key: (item: T) => ReviewRankKey): T | undefined {
+  let first: T | undefined;
+  let firstKey: ReviewRankKey | undefined;
+  for (const item of items) {
+    const itemKey = key(item);
+    if (!first || !firstKey || compareReviewRank(itemKey, firstKey) < 0) {
+      first = item;
+      firstKey = itemKey;
     }
-    const byTime = place.createdAt.localeCompare(first.createdAt);
-    if (byTime < 0 || (byTime === 0 && place.id.localeCompare(first.id) < 0)) first = place;
   }
-  return first?.id;
+  return first;
+}
+
+function firstQueuedHandAddedId(places: InboxPlaceAddedAnotherWay[]): string | undefined {
+  return firstByReviewRank(places, (place) => ({
+    placeId: place.id,
+    createdAt: place.createdAt,
+    sourceCreatedAt: place.sourceCreatedAt,
+    sourceId: place.sourceId,
+  }))?.id;
+}
+
+function firstInboxOnScreenshot(places: InboxUploadPlace[]): string | undefined {
+  return firstByReviewRank(
+    places.filter((place) => place.status === 'inbox'),
+    (place) => ({
+      placeId: place.id,
+      createdAt: place.createdAt,
+      sourceCreatedAt: '',
+      sourceId: '',
+    }),
+  )?.id;
 }
 
 export function reviewHref(placeId?: string | null, uploadSessionId?: string | null): string {
@@ -779,8 +803,7 @@ function shotLine(kind: InboxShotKind, shot: InboxUploadScreenshot, places: Inbo
 
 function shotActions(kind: InboxShotKind, shot: InboxUploadScreenshot, places: InboxUploadPlace[], batch: InboxUploadBatch): InboxAction[] {
   if (kind === 'new') {
-    const first = places.find((place) => place.status === 'inbox');
-    return [{ label: 'Review', href: reviewHref(first?.id, batch.sessionId) }];
+    return [{ label: 'Review', href: reviewHref(firstInboxOnScreenshot(places), batch.sessionId) }];
   }
   if (kind === 'library' || kind === 'added') {
     return [{ label: 'See them', href: seeThemHref(places.filter((place) => place.status === 'library')) }];

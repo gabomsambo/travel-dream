@@ -13,7 +13,7 @@ const NOW = new Date('2026-10-23T15:00:00.000Z')
 const EARLIER = '2026-10-12T15:00:00.000Z'
 
 function place(partial: Pick<InboxUploadPlace, 'id' | 'name' | 'status'> & Partial<InboxUploadPlace>): InboxUploadPlace {
-  return { city: null, country: null, sourceIds: [partial.id], ...partial }
+  return { city: null, country: null, sourceIds: [partial.id], createdAt: '', ...partial }
 }
 
 function shot(partial: Pick<InboxUploadScreenshot, 'sourceId'> & Partial<InboxUploadScreenshot>): InboxUploadScreenshot {
@@ -152,8 +152,8 @@ describe('inbox page model', () => {
           uploads: [],
           toReviewPlaceIds: [],
           addedAnotherWay: [
-            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z' },
-            { id: 'H_old', name: 'Older Cafe', createdAt: '2026-10-23T10:00:00.000Z' },
+            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z', sourceCreatedAt: '', sourceId: '' },
+            { id: 'H_old', name: 'Older Cafe', createdAt: '2026-10-23T10:00:00.000Z', sourceCreatedAt: '', sourceId: '' },
           ],
           now: NOW,
         })}
@@ -173,15 +173,65 @@ describe('inbox page model', () => {
           uploads: [],
           toReviewPlaceIds: [],
           addedAnotherWay: [
-            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z' },
-            { id: 'H_a', name: 'Alpha Cafe', createdAt: '2026-10-23T10:00:00.000Z' },
-            { id: 'H_b', name: 'Beta Cafe', createdAt: '2026-10-23T10:00:00.000Z' },
+            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z', sourceCreatedAt: '', sourceId: '' },
+            { id: 'H_a', name: 'Alpha Cafe', createdAt: '2026-10-23T10:00:00.000Z', sourceCreatedAt: '', sourceId: '' },
+            { id: 'H_b', name: 'Beta Cafe', createdAt: '2026-10-23T10:00:00.000Z', sourceCreatedAt: '', sourceId: '' },
           ],
           now: NOW,
         })}
       />
     )
     expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/review?placeId=H_a')
+  })
+
+  it('opens a screenshot on the inbox place the queue ranks first', () => {
+    const sameTime = '2026-10-23T12:00:00.000Z'
+    const upload = batch({
+      sessionId: 'session_shot',
+      uploadedAt: NOW.toISOString(),
+      screenshots: [
+        shot({ sourceId: 'src_mix', createdPlaceIds: ['plc_new'], linkedPlaceIds: ['plc_old'] }),
+        shot({ sourceId: 'src_tie', createdPlaceIds: ['plc_b'], linkedPlaceIds: ['plc_a'] }),
+      ],
+      rows: {
+        toReview: {
+          placeIds: ['plc_new', 'plc_old', 'plc_b', 'plc_a'],
+          sourceIds: ['src_mix', 'src_tie'],
+          places: [
+            place({ id: 'plc_new', name: 'Created later', status: 'inbox', createdAt: '2026-10-23T12:00:02.000Z', sourceIds: ['src_mix'] }),
+            place({ id: 'plc_old', name: 'Linked earlier', status: 'inbox', createdAt: '2026-10-23T10:00:01.000Z', sourceIds: ['src_mix'] }),
+            place({ id: 'plc_b', name: 'Bee', status: 'inbox', createdAt: sameTime, sourceIds: ['src_tie'] }),
+            place({ id: 'plc_a', name: 'Aye', status: 'inbox', createdAt: sameTime, sourceIds: ['src_tie'] }),
+          ],
+          checkCount: null,
+        },
+      },
+    })
+    render(<InboxScreen model={show([upload], 'session_shot')} />)
+    expect(screen.getByRole('link', { name: 'Review 4 places' })).toHaveAttribute('href', '/review?upload=session_shot')
+    expect(screen.getAllByRole('link', { name: 'Review' }).map((link) => link.getAttribute('href'))).toEqual([
+      '/review?upload=session_shot&placeId=plc_old',
+      '/review?upload=session_shot&placeId=plc_a',
+    ])
+  })
+
+  it('opens added another way on the sourced place the queue ranks first', () => {
+    render(
+      <InboxScreen
+        model={buildInboxScreen({
+          uploads: [],
+          toReviewPlaceIds: [],
+          addedAnotherWay: [
+            { id: 'P_src_b', name: 'Bee', createdAt: '2026-10-23T11:00:00.000Z', sourceCreatedAt: '2026-10-23T12:00:00.000Z', sourceId: 'src_b' },
+            { id: 'P_src_a', name: 'Aye', createdAt: '2026-10-23T09:00:00.000Z', sourceCreatedAt: '2026-10-23T12:00:00.000Z', sourceId: 'src_a' },
+            { id: 'H_old', name: 'Older Cafe', createdAt: '2026-10-23T08:00:00.000Z', sourceCreatedAt: '', sourceId: '' },
+          ],
+          now: NOW,
+        })}
+      />
+    )
+    expect(screen.getByText('Bee, Aye and Older Cafe')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/review?placeId=P_src_a')
   })
 
   it('offers the newest upload when hand-added places make the hero larger', () => {
@@ -207,8 +257,8 @@ describe('inbox page model', () => {
           uploads: [upload],
           toReviewPlaceIds: ['P1', 'P2', 'P3'],
           addedAnotherWay: [
-            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z' },
-            { id: 'H_old', name: 'Older Cafe', createdAt: '2026-10-23T10:00:00.000Z' },
+            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z', sourceCreatedAt: '', sourceId: '' },
+            { id: 'H_old', name: 'Older Cafe', createdAt: '2026-10-23T10:00:00.000Z', sourceCreatedAt: '', sourceId: '' },
           ],
           now: NOW,
         })}

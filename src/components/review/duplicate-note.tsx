@@ -117,7 +117,7 @@ export function ReviewDuplicateNote({
   }, [])
 
   const keepBoth = async () => {
-    if (!match || pending || disabled) return
+    if (!match || pending || disabled || currentPlace.status === 'archived') return
     const pairs = [{ placeId1: placeId, placeId2: match.placeId }]
     setPending('keep')
     onPending(true)
@@ -144,7 +144,7 @@ export function ReviewDuplicateNote({
   }
 
   const merge = async () => {
-    if (!match || pending || disabled) return
+    if (!match || pending || disabled || currentPlace.status === 'archived') return
     setPending('merge')
     onPending(true)
     try {
@@ -217,6 +217,15 @@ export function ReviewDuplicateNote({
           Undo
         </Button>
       </div>
+    )
+  }
+
+  if (currentPlace.status === 'archived') {
+    if (!match) return null
+    return (
+      <p className="mx-4 mt-4 text-sm text-muted-foreground sm:mx-8" data-testid="duplicate-note">
+        Looks like {match.name}, already in your Library
+      </p>
     )
   }
 

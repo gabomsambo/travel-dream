@@ -550,6 +550,7 @@ export function SectionEditProvider({
   handlesRef,
   editingAll = false,
   onExitEditing,
+  blockWrites = false,
   children,
 }: {
   place: PlaceWithRelations
@@ -557,6 +558,7 @@ export function SectionEditProvider({
   handlesRef?: React.MutableRefObject<SectionEditHandles | null>
   editingAll?: boolean
   onExitEditing?: () => void
+  blockWrites?: boolean
   children: React.ReactNode
 }) {
   const mobile = useMobileSheet()
@@ -630,6 +632,7 @@ export function SectionEditProvider({
   }, [handlesRef, save.flush])
 
   const setField = React.useCallback(<K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => {
+    if (blockWrites) return
     const nameCleared = key === "name" && (typeof value !== "string" || value.trim() === "")
     if (key === "lat" || key === "lon") {
       dirtyRef.current.add("lat")
@@ -647,12 +650,18 @@ export function SectionEditProvider({
       save.update(patchFor(next, key))
       return next
     })
-  }, [save])
+  }, [blockWrites, save])
+
+  React.useEffect(() => {
+    if (!blockWrites) return
+    setActive(null)
+  }, [blockWrites])
 
   const open = React.useCallback((id: SectionId) => {
+    if (blockWrites) return
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setActive(id)
-  }, [])
+  }, [blockWrites])
 
   React.useLayoutEffect(() => {
     const returnTo = openerRef.current

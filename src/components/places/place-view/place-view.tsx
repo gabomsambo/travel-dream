@@ -196,6 +196,7 @@ export function PlaceView({
   onDeleted,
   onRestored,
   blockRestore = false,
+  blockWrites = false,
   handlesRef,
   trips,
   alsoIn,
@@ -215,6 +216,7 @@ export function PlaceView({
   onDeleted?: () => void
   onRestored?: () => void
   blockRestore?: boolean
+  blockWrites?: boolean
   handlesRef?: React.MutableRefObject<PlaceViewHandles | null>
   trips: ExploreCollection[]
   alsoIn: ExplorePlace[]
@@ -315,9 +317,12 @@ export function PlaceView({
     void persistPromiseRef.current
   }
 
+  const editPlace = blockWrites ? () => {} : onEdit
+  const attachPhoto = blockWrites ? () => {} : onPhotoAttached
+
   return (
-    <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={editing} onExitEditing={onDoneEditing}>
-      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} />
+    <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={blockWrites ? false : editing} onExitEditing={onDoneEditing} blockWrites={blockWrites}>
+      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} onEdit={editPlace} onOpenClassic={blockWrites ? undefined : onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={attachPhoto} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} blockWrites={blockWrites} />
       {lead}
       <QuickFacts place={displayPlace} />
       <PlaceColumns
@@ -325,7 +330,7 @@ export function PlaceView({
         displayPlace={displayPlace}
         photos={photos}
         trips={trips}
-        onEdit={onEdit}
+        onEdit={editPlace}
         onStatusChange={setVisitStatus}
         onTripsChanged={() => router.refresh()}
         onOpenPhoto={setLightbox}

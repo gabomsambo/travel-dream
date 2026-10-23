@@ -216,7 +216,7 @@ describe('postcard menu inside Review', () => {
     Object.defineProperty(window.history, 'length', { configurable: true, get: () => 3 })
   })
 
-  function renderHero(onArchive: () => void, onDeleted: () => void, onRestored?: () => void, status = 'inbox', blockRestore = false) {
+  function renderHero(onArchive: () => void, onDeleted: () => void, onRestored?: () => void, status = 'inbox', blockRestore = false, blockWrites = false) {
     const place = {
       id: 'plc_fushimi',
       name: 'Fushimi Inari-taisha',
@@ -240,6 +240,7 @@ describe('postcard menu inside Review', () => {
         onDeleted={onDeleted}
         onRestored={onRestored}
         blockRestore={blockRestore}
+        blockWrites={blockWrites}
       />
     )
   }
@@ -286,5 +287,12 @@ describe('postcard menu inside Review', () => {
     await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
     expect(screen.queryByRole('menuitem', { name: /Restore to library/ })).not.toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('hides edit and photo attach while a merged place must stay untouched', () => {
+    renderHero(jest.fn(), jest.fn(), undefined, 'archived', true, true)
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Find Image' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More actions' })).toBeInTheDocument()
   })
 })

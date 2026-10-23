@@ -26,6 +26,8 @@ jest.mock('@/components/places/place-view/place-view', () => {
       blockRestore,
       onOpenClassic,
       onEdit,
+      onPhotoAttached,
+      blockWrites,
     }: {
       place: PlaceWithRelations
       editing?: boolean
@@ -37,6 +39,8 @@ jest.mock('@/components/places/place-view/place-view', () => {
       blockRestore?: boolean
       onOpenClassic?: () => void
       onEdit?: () => void
+      onPhotoAttached?: () => void
+      blockWrites?: boolean
     }) => {
       const mountedId = React.useRef(place.id)
       return (
@@ -49,7 +53,8 @@ jest.mock('@/components/places/place-view/place-view', () => {
         >
           {place.name}
           {lead}
-          <button type="button" onClick={() => onEdit?.()}>Edit postcard</button>
+          {!blockWrites && <button type="button" onClick={() => onEdit?.()}>Edit postcard</button>}
+          {!blockWrites && <button type="button" onClick={() => onPhotoAttached?.()}>Attach photo</button>}
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
           {!blockRestore && (
@@ -1232,5 +1237,123 @@ describe('Review duplicate note', () => {
     renderQueue()
     await user.click(await screen.findByRole('button', { name: 'Compare' }))
     expect(await screen.findByRole('dialog', { name: 'Compare with Fjellheisen' })).toBeInTheDocument()
+  })
+
+  it('hides merge after Not a place and restores it when that decision is undone', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+    await user.click(screen.getAllByRole('button', { name: /Not a place/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'archived'))
+
+    expect(await screen.findByText(/Looks like Fjellheisen, already in your Library/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Merge into Fjellheisen' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep both' })).not.toBeInTheDocument()
+
+    const archiveToast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Archive'))
+    const undo = (archiveToast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+
+    expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep both' })).toBeInTheDocument()
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'inbox')
+  })
+
+  it('ignores an earlier Add undo after the place has been merged', async () => {
+    const user = userEvent.setup()
+    notifySuccess.mockImplementation((message) => String(message).includes('Added') ? 'toast-add' : 'toast-other')
+    try {
+      renderQueue()
+      await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+      await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+      await user.click(screen.getByRole('button', { name: /Previous/i }))
+      await user.click(await screen.findByRole('button', { name: 'Merge into Fjellheisen' }))
+      await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+      expect(notify.dismiss).toHaveBeenCalledWith('toast-add')
+
+      const addToast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Added'))
+      const undo = (addToast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+      const patchesAfterMerge = patchCalls().length
+      await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+
+      expect(patchCalls()).toHaveLength(patchesAfterMerge)
+      expect(patchCalls().map((call) => String((call[1] as { body?: string } | undefined)?.body))).toEqual([
+        JSON.stringify({ status: 'library' }),
+      ])
+      fireEvent.keyDown(window, { key: 's' })
+      await waitFor(() => expect(screen.getByText('1 merged into Fjellheisen.')).toBeInTheDocument())
+      expect(screen.queryByTestId('postcard')).not.toBeInTheDocument()
+    } finally {
+      notifySuccess.mockReset()
+    }
+  })
+
+  it('does not turn a restored Library place into inbox when undo is repeated', async () => {
+    const user = userEvent.setup()
+    let undoPosts = 0
+    let releaseFirstUndo: (response: Response) => void = () => {}
+    const firstUndo = new Promise<Response>((resolve) => {
+      releaseFirstUndo = resolve
+    })
+    const previous = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input)
+      const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
+      if (url === '/api/places/undo-merge' && method === 'POST') {
+        undoPosts += 1
+        if (undoPosts === 1) return firstUndo
+        return jsonResponse({ message: 'Merge not found' }, 404)
+      }
+      if (!previous) return jsonResponse({ status: 'success' })
+      return previous(input, init)
+    })
+
+    renderQueue()
+    await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library'))
+    await user.click(await screen.findByRole('button', { name: 'Merge into Fjellheisen' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument())
+
+    const toast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Merged into Fjellheisen'))
+    const undo = (toast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => {
+      undo?.({} as React.MouseEvent<HTMLButtonElement>)
+      screen.getByRole('button', { name: 'Undo' }).click()
+    })
+    expect(undoPosts).toBe(1)
+
+    await act(async () => {
+      releaseFirstUndo(jsonResponse({ message: 'Merge not found' }, 404))
+      await firstUndo
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library'))
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
+
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    expect(undoPosts).toBe(1)
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library')
+    expect(patchCalls().map((call) => String((call[1] as { body?: string } | undefined)?.body))).toEqual([
+      JSON.stringify({ status: 'library' }),
+    ])
+  })
+
+  it('does not edit or attach a photo on a merged postcard', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+    await user.click(await screen.findByRole('button', { name: 'Merge into Fjellheisen' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'archived'))
+
+    expect(screen.queryByRole('button', { name: 'Edit postcard' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Attach photo' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Open classic editor' }))
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockRefresh).not.toHaveBeenCalled()
   })
 })

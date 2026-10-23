@@ -182,8 +182,8 @@ export function PlaceHero({
           />
         </div>
 
-        <div className="flex flex-wrap items-end gap-6">
-          <div className="min-w-0 max-w-4xl flex-1 animate-in fade-in slide-in-from-bottom-2 duration-500">
+        <div className="flex flex-col gap-6 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="min-w-0 w-full max-w-4xl sm:w-auto sm:flex-1 animate-in fade-in slide-in-from-bottom-2 duration-500">
             <div className="flex flex-wrap items-center gap-1.5">
               {editing && edit ? (
                 <select

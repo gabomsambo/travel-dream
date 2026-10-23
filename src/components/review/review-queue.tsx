@@ -15,6 +15,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { Button } from '@/components/adapters/button'
+import { editorialFont } from '@/components/explore/fonts'
 import { PlaceView, type PlaceViewHandles } from '@/components/places/place-view/place-view'
 import { ScreenshotEvidence } from '@/components/review/screenshot-evidence'
 import { placeClassicHref } from '@/lib/place-view/edit-link'
@@ -616,7 +617,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   }
 
   return (
-    <div className="-m-3 min-h-full bg-muted/20 pb-36 sm:-m-6 sm:pb-32">
+    <div className={`${editorialFont.variable} -m-3 min-h-full bg-muted/20 pb-36 sm:-m-6 sm:pb-32`}>
       <header className="sticky top-0 z-40 border-b bg-background/95 px-3 py-3 backdrop-blur sm:px-6">
         <div className="mx-auto flex max-w-[1560px] items-center gap-3">
           <Button type="button" variant="ghost" size="sm" onClick={previous} disabled={busy || previousPlaceId === null}>

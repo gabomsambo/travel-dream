@@ -58,6 +58,8 @@ interface FindImageDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAttached?: () => void;
+  /** `always` makes the attached photo the cover. Defaults to first-photo-only. */
+  primary?: 'if-first' | 'always';
 }
 
 export function FindImageDialog({
@@ -68,6 +70,7 @@ export function FindImageDialog({
   open,
   onOpenChange,
   onAttached,
+  primary,
 }: FindImageDialogProps) {
   const seedQuery = `${placeName}${placeCity ? ' ' + placeCity : ''}`.trim();
   const initialTab: Source = hasGooglePlaceId ? 'google_places' : 'wikimedia';
@@ -194,6 +197,7 @@ export function FindImageDialog({
           height: item.height,
           attribution: item.attribution,
           caption: item.caption,
+          ...(primary === 'always' ? { primary: 'always' as const } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));

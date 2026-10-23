@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { ALICE, BOB, assertLocalDatabase, resetTenantFixture } from '../helpers/tenant-fixture'
-import { loadReviewQueue } from '@/lib/review-queue'
+import { loadReviewPostcard, loadReviewQueue } from '@/lib/review-queue'
 
 type Exec = (query: { sql: string; args: unknown[] }) => Promise<unknown>
 
@@ -43,7 +43,29 @@ describe('loadReviewQueue with real SQLite data', () => {
     }
     await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_alice_new', 'plc_alice_new_1'])
     await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_alice_new', 'plc_alice_new_2'])
+    await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_alice_new', 'plc_alice'])
+    await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_alice_new', 'plc_bob_secret'])
     await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_alice_old', 'plc_alice_old_1'])
+    await run(
+      `INSERT INTO attachments (id,place_id,type,uri,filename,is_primary) VALUES (?,?,?,?,?,?)`,
+      ['att_new_1', 'plc_alice_new_1', 'photo', 'https://example.test/alice-new.jpg', 'new-list.jpg', 1],
+    )
+    await run(
+      `INSERT INTO attachments (id,place_id,type,uri,filename,is_primary,created_at) VALUES (?,?,?,?,?,?,?)`,
+      ['att_new_1_extra', 'plc_alice_new_1', 'photo', 'https://example.test/breakfast-extra.jpg', 'extra.jpg', 0, '2026-10-18T12:00:05.000Z'],
+    )
+    await run(
+      `INSERT INTO attachments (id,place_id,type,uri,filename,is_primary) VALUES (?,?,?,?,?,?)`,
+      ['att_new_2_shot', 'plc_alice_new_2', 'photo', 'https://example.test/alice-new.jpg', 'new-list.jpg', 0],
+    )
+    await run(
+      `INSERT INTO attachments (id,place_id,type,uri,filename,is_primary) VALUES (?,?,?,?,?,?)`,
+      ['att_new_2_real', 'plc_alice_new_2', 'photo', 'https://example.test/gails-real.jpg', 'gails.jpg', 1],
+    )
+    await run(
+      `INSERT INTO attachments (id,place_id,type,uri,filename,is_primary) VALUES (?,?,?,?,?,?)`,
+      ['att_old_1', 'plc_alice_old_1', 'photo', 'https://example.test/alice-old.jpg', 'old-list.jpg', 1],
+    )
 
     await run(`UPDATE places SET status = 'inbox' WHERE id = ?`, ['plc_bob_secret'])
     await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_bob_1', 'plc_bob_secret'])
@@ -71,6 +93,25 @@ describe('loadReviewQueue with real SQLite data', () => {
     expect(queue.entries.some((entry) => entry.userId === BOB.id)).toBe(false)
     expect(queue.postcard?.place.id).toBe('plc_alice_new_1')
     expect(queue.postcard?.place.sources.map((source) => source.id)).toEqual(['src_alice_new'])
+    const photos = queue.postcard?.place.attachments.filter((attachment) => attachment.type === 'photo') ?? []
+    expect(photos.map((photo) => photo.uri)).toEqual(expect.arrayContaining([
+      'https://example.test/alice-new.jpg',
+      'https://example.test/breakfast-extra.jpg',
+    ]))
+    expect(photos.find((photo) => photo.isPrimary === 1)?.uri).toBe('https://example.test/alice-new.jpg')
+    expect(queue.postcard?.screenshot).toMatchObject({
+      sourceId: 'src_alice_new',
+      url: 'https://example.test/alice-new.jpg',
+      name: 'new-list.jpg',
+      softCover: true,
+    })
+    expect(queue.postcard?.screenshot?.siblings.map((sibling) => sibling.placeId)).toEqual([
+      'plc_alice_new_1',
+      'plc_alice_new_2',
+      'plc_alice',
+    ])
+    expect(JSON.stringify(queue.postcard?.screenshot)).not.toContain('Bob')
+    expect(JSON.stringify(queue.postcard?.screenshot)).not.toContain('plc_bob')
     expect(queue.postcard?.alsoIn).toEqual([])
     expect(queue.trips.map((trip) => trip.id)).toEqual(['col_alice'])
   })
@@ -87,6 +128,8 @@ describe('loadReviewQueue with real SQLite data', () => {
 
     expect(payload).not.toContain('ocr-secret-body')
     expect(payload).not.toContain('secret-gemini-place')
+    expect(JSON.stringify(queue.postcard?.screenshot)).not.toContain('ocr-secret-body')
+    expect(JSON.stringify(queue.postcard?.screenshot)).not.toContain('secret-gemini-place')
     expect(queue.entries[0]).toMatchObject({
       screenshotName: 'new-list.jpg',
       uploadLabel: 'new-list.jpg',
@@ -122,5 +165,17 @@ describe('loadReviewQueue with real SQLite data', () => {
     } finally {
       client.execute = original
     }
+  })
+
+  it('treats a shared screenshot as a soft cover only when that file is the cover', async () => {
+    const withOwnPhoto = await loadReviewPostcard(ALICE.id, 'plc_alice_new_2')
+    expect(withOwnPhoto?.screenshot?.softCover).toBe(false)
+    expect(withOwnPhoto?.screenshot?.siblings.map((sibling) => sibling.name)).not.toContain('Bob Secret Hideaway')
+
+    const alone = await loadReviewPostcard(ALICE.id, 'plc_alice_old_1')
+    expect(alone?.screenshot?.softCover).toBe(false)
+    expect(alone?.screenshot?.siblings).toEqual([
+      expect.objectContaining({ placeId: 'plc_alice_old_1', name: 'Place in old screenshot' }),
+    ])
   })
 })

@@ -1,5 +1,6 @@
 "use client"
 
+import { useLayoutEffect, useRef } from "react"
 import Link from "next/link"
 import { Archive, ArrowLeft, CalendarHeart, Check, Images, Inbox, MapPin, Pencil, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -33,6 +34,8 @@ export function PlaceHero({
   onArchive,
   onDeleted,
   onRestored,
+  softCover = false,
+  fitReviewBar = false,
 }: {
   place: PlaceWithRelations
   photos: Attachment[]
@@ -44,9 +47,43 @@ export function PlaceHero({
   onArchive?: () => void
   onDeleted?: () => void
   onRestored?: () => void
+  /** The cover is a screenshot shared with other places: blur it and offer a real photo. */
+  softCover?: boolean
+  /** On a phone, keep the title above Review's fixed action bar. Desktop stays 72vh. */
+  fitReviewBar?: boolean
 }) {
   const edit = useSectionEdit()
   const editing = Boolean(edit?.editingAll)
+  const nameRef = useRef<HTMLTextAreaElement>(null)
+  const draftName = editing ? edit?.draft.name : undefined
+  useLayoutEffect(() => {
+    const el = nameRef.current
+    if (!el) return
+    const fit = () => {
+      el.style.height = "auto"
+      const next = el.scrollHeight
+      if (next > 0) el.style.height = `${next}px`
+    }
+    fit()
+    const parent = el.parentElement
+    let observer: ResizeObserver | undefined
+    if (parent && typeof ResizeObserver !== "undefined") {
+      let width = parent.clientWidth
+      observer = new ResizeObserver(() => {
+        const nextWidth = parent.clientWidth
+        if (nextWidth === width) return
+        width = nextWidth
+        fit()
+      })
+      observer.observe(parent)
+    }
+    const fonts = document.fonts
+    fonts?.addEventListener?.("loadingdone", fit)
+    return () => {
+      observer?.disconnect()
+      fonts?.removeEventListener?.("loadingdone", fit)
+    }
+  }, [draftName])
   const cover = photos[0]
   const back = place.status === "archived"
     ? { href: "/archive", label: "Archive" }
@@ -63,7 +100,17 @@ export function PlaceHero({
         {cover ? (
           // Plain <img>: photos are user content on Blob URLs, matching Explore.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={cover.uri} alt="" fetchPriority="high" className="h-full w-full object-cover opacity-90 animate-in fade-in zoom-in-[1.03] duration-700" />
+          <img
+            src={cover.uri}
+            alt=""
+            fetchPriority="high"
+            className={cn(
+              "h-full w-full object-cover opacity-90",
+              softCover
+                ? "scale-125 blur-[28px] brightness-75 saturate-150"
+                : "animate-in fade-in zoom-in-[1.03] duration-700",
+            )}
+          />
         ) : (
           <FallbackArt name={place.name} kind={place.kind} />
         )}
@@ -73,12 +120,33 @@ export function PlaceHero({
       <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/50 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background via-background/60 to-transparent sm:h-40" />
 
-      <div className={cn("relative flex flex-col justify-between gap-10 px-4 pb-10 pt-4 sm:px-8 sm:pb-16 sm:pt-6", cover ? "min-h-[min(72vh,38rem)]" : "min-h-[26rem]", editing && "pt-16 sm:pt-20")}>
-        <div className="flex items-center gap-2">
+      <div className={cn(
+        "relative flex flex-col justify-between gap-10 px-4 pb-10 pt-4 sm:px-8 sm:pb-16 sm:pt-6",
+        cover
+          ? fitReviewBar
+            ? "min-h-[min(72vh,calc(100svh-28rem))] sm:min-h-[min(72vh,38rem)]"
+            : "min-h-[min(72vh,38rem)]"
+          : "min-h-[26rem]",
+        editing && "pt-16 sm:pt-20",
+      )}>
+        <div className="flex max-sm:flex-wrap items-center gap-2">
           <Link href={back.href} className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium", GLASS)}>
             <ArrowLeft className="h-4 w-4" aria-hidden />
             <span>{back.label}</span>
           </Link>
+          {softCover && (
+            <FindImageButton
+              placeId={place.id}
+              placeName={place.name}
+              placeCity={place.city}
+              hasGooglePlaceId={Boolean(place.googlePlaceId)}
+              onAttached={onPhotoAttached}
+              label="Find a photo"
+              primary="always"
+              buttonVariant="ghost"
+              className={cn("h-9 rounded-full px-3.5", GLASS, "hover:text-white")}
+            />
+          )}
           <span className="ml-auto" />
           {!cover && (
             <FindImageButton
@@ -114,8 +182,8 @@ export function PlaceHero({
           />
         </div>
 
-        <div className="flex flex-wrap items-end gap-6">
-          <div className="min-w-0 max-w-4xl flex-1 animate-in fade-in slide-in-from-bottom-2 duration-500">
+        <div className="flex flex-col gap-6 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="min-w-0 w-full max-w-4xl sm:w-auto sm:flex-1 animate-in fade-in slide-in-from-bottom-2 duration-500">
             <div className="flex flex-wrap items-center gap-1.5">
               {editing && edit ? (
                 <select
@@ -163,11 +231,16 @@ export function PlaceHero({
             </div>
             {editing && edit ? (
               <h1 className="mt-3">
-                <input
+                <textarea
+                  ref={nameRef}
                   aria-label="Place name"
+                  rows={1}
                   value={edit.draft.name}
-                  onChange={(event) => edit.setField("name", event.target.value)}
-                  className="w-full border-0 bg-transparent p-0 font-editorial text-5xl leading-[0.95] tracking-tight text-white outline-none drop-shadow-sm [text-wrap:balance] placeholder:text-white/40 focus:underline focus:decoration-white/40 sm:text-7xl lg:text-8xl"
+                  onChange={(event) => edit.setField("name", event.target.value.replace(/[\r\n]+/g, " "))}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.preventDefault()
+                  }}
+                  className="block w-full min-w-0 max-w-full resize-none overflow-hidden whitespace-pre-wrap break-words border-0 bg-transparent p-0 font-editorial text-5xl leading-[0.95] tracking-tight text-white outline-none drop-shadow-sm [text-wrap:balance] placeholder:text-white/40 focus:underline focus:decoration-white/40 sm:text-7xl lg:text-8xl"
                 />
               </h1>
             ) : (

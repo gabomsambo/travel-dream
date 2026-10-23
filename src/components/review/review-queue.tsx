@@ -8,7 +8,6 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
-  Image as ImageIcon,
   Inbox,
   Library,
   Loader2,
@@ -16,8 +15,10 @@ import {
   Upload,
 } from 'lucide-react'
 import { Button } from '@/components/adapters/button'
-import { PlaceView } from '@/components/places/place-view/place-view'
-import { placeClassicHref, placeEditHref } from '@/lib/place-view/edit-link'
+import { editorialFont } from '@/components/explore/fonts'
+import { PlaceView, type PlaceViewHandles } from '@/components/places/place-view/place-view'
+import { ScreenshotEvidence } from '@/components/review/screenshot-evidence'
+import { placeClassicHref } from '@/lib/place-view/edit-link'
 import { notify } from '@/lib/notify'
 import type { ExploreCollection } from '@/lib/explore/types'
 import type { ReviewPostcard, ReviewQueueEntry } from '@/lib/review-queue'
@@ -43,6 +44,14 @@ const RESTORED_LABEL = {
   library: 'Library',
   archived: 'Archive',
 } as const
+
+function zoomKeyBlocked(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.closest('input, textarea, select, [contenteditable="true"]')) return true
+  if (target.closest('[role="combobox"], [role="listbox"], [role="menu"]')) return true
+  const dialog = target.closest('[role="dialog"], [role="alertdialog"]')
+  return Boolean(dialog && !dialog.hasAttribute('data-screenshot-zoom'))
+}
 
 function isTypingTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(
@@ -309,6 +318,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   outcomesRef.current = outcomes
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [editingId, setEditingId] = React.useState<string | null>(null)
+  const [zoomOpen, setZoomOpen] = React.useState(false)
+  const viewHandlesRef = React.useRef<PlaceViewHandles | null>(null)
   const initialQueueRef = React.useRef({ entries, initialPlaceId })
   const didRedirectStaleLink = React.useRef(false)
   const historyPlaceId = React.useRef(currentId)
@@ -355,7 +367,11 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
         setSession((prev) => prev.map((entry) => {
           if (entry.placeId !== placeId) return entry
           const serverPostcard = installPostcard(
-            { place: body.place, alsoIn: body.alsoIn ?? [] },
+            {
+              place: body.place,
+              alsoIn: body.alsoIn ?? [],
+              screenshot: body.screenshot ?? null,
+            },
             writtenStatusRef.current,
           )
           if (!entry.postcard) return withInstalledPostcard(entry, serverPostcard)
@@ -376,6 +392,11 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
       controller.abort()
     }
   }, [derivedId, postcardMissing])
+
+  React.useEffect(() => {
+    setZoomOpen(false)
+    setEditingId(null)
+  }, [derivedId])
 
   React.useEffect(() => {
     setSession((prev) => {
@@ -543,7 +564,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.toLowerCase() === 'z') {
+        if (event.repeat || zoomKeyBlocked(event.target)) return
+        event.preventDefault()
+        setZoomOpen((open) => !open)
+        return
+      }
+      if (isTypingTarget(event.target)) return
       if (event.key === 'Enter') {
         if (isActivatable(event.target)) return
         event.preventDefault()
@@ -571,10 +599,25 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   const currentIndex = session.findIndex((entry) => entry.placeId === current.placeId)
   const previousPlaceId = previousSelectableId(session, outcomes, current.placeId)
   const progress = ((currentIndex + 1) / session.length) * 100
-  const screenshotIsBrokenLegacyPath = current.screenshotUrl?.startsWith('/uploads/')
+  const shot = current.postcard?.screenshot ?? null
+  const queuePlaceIds = new Set(session.map((entry) => entry.placeId))
+
+  const openClassic = () => {
+    const handles = viewHandlesRef.current
+    const placeId = current.placeId
+    if (!handles) {
+      router.push(placeClassicHref(placeId))
+      return
+    }
+    void (async () => {
+      await handles.flushStatus()
+      if (!(await handles.flushSections())) return
+      router.push(placeClassicHref(placeId))
+    })()
+  }
 
   return (
-    <div className="-m-3 min-h-full bg-muted/20 pb-36 sm:-m-6 sm:pb-32">
+    <div className={`${editorialFont.variable} -m-3 min-h-full bg-muted/20 pb-36 sm:-m-6 sm:pb-32`}>
       <header className="sticky top-0 z-40 border-b bg-background/95 px-3 py-3 backdrop-blur sm:px-6">
         <div className="mx-auto flex max-w-[1560px] items-center gap-3">
           <Button type="button" variant="ghost" size="sm" onClick={previous} disabled={busy || previousPlaceId === null}>
@@ -595,7 +638,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-[1560px] gap-5 px-3 py-5 sm:px-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mx-auto grid max-w-[1560px] gap-5 px-3 py-5 sm:px-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 overflow-hidden rounded-[1.75rem] border bg-background shadow-sm">
           {current.postcard ? (
             <PlaceView
@@ -603,8 +646,17 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
               place={current.postcard.place}
               trips={trips}
               alsoIn={current.postcard.alsoIn}
-              onEdit={() => router.push(placeEditHref(current.placeId))}
-              onOpenClassic={() => router.push(placeClassicHref(current.placeId))}
+              editing={editingId === current.placeId}
+              softCover={Boolean(shot?.softCover)}
+              fitReviewBar
+              handlesRef={viewHandlesRef}
+              onEdit={() => setEditingId(current.placeId)}
+              onDoneEditing={() => {
+                setEditingId(null)
+                router.refresh()
+              }}
+              onOpenClassic={openClassic}
+              onPrefetchEdit={() => { void import('@/components/places/place-full-view') }}
               onPhotoAttached={() => router.refresh()}
               onArchive={() => { void decide('archived') }}
               onDeleted={removeFromQueue}
@@ -623,26 +675,19 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
           )}
         </div>
 
-        <aside className="order-first min-w-0 xl:order-none" aria-label="Screenshot evidence">
-          <div className="overflow-hidden rounded-2xl border bg-card shadow-sm xl:sticky xl:top-24">
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold">From your screenshot</p>
-                {current.screenshotName && <p className="mt-0.5 truncate text-xs text-muted-foreground">{current.screenshotName}</p>}
-              </div>
-              <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
-            </div>
-            {current.screenshotUrl && !screenshotIsBrokenLegacyPath ? (
-              // Source URLs are already persisted and ownership-filtered. The later evidence PR adds zoom.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={current.screenshotUrl} alt={`Screenshot where ${current.name} was found`} className="max-h-[420px] w-full bg-muted object-contain xl:max-h-[70vh]" />
-            ) : (
-              <div className="grid min-h-36 place-items-center bg-muted/50 p-6 text-center text-sm text-muted-foreground">
-                <span><ImageIcon className="mx-auto mb-2 h-7 w-7" />Screenshot unavailable</span>
-              </div>
-            )}
-          </div>
-        </aside>
+        <ScreenshotEvidence
+          url={shot?.url ?? current.screenshotUrl}
+          name={shot?.name ?? current.screenshotName}
+          createdAt={shot?.createdAt ?? null}
+          placeName={current.name}
+          siblings={shot?.siblings ?? []}
+          currentPlaceId={current.placeId}
+          queuePlaceIds={queuePlaceIds}
+          outcomes={outcomes}
+          onOpenInQueue={(placeId) => selectPlace(placeId, true)}
+          zoomOpen={zoomOpen}
+          onZoomOpenChange={setZoomOpen}
+        />
       </div>
 
       {error && <p role="alert" className="fixed bottom-32 left-1/2 z-50 -translate-x-1/2 rounded-full bg-destructive px-4 py-2 text-sm text-destructive-foreground shadow-lg sm:bottom-24">{error}</p>}

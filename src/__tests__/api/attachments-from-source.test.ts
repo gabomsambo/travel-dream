@@ -69,6 +69,18 @@ describe('POST /api/places/[id]/attachments/from-source', () => {
     expect(rows[0].is_primary).toBe(1);
   });
 
+  it('replaces the cover when primary is always', async () => {
+    await post(FIXTURE.alicePlace, googleBody('places/a/photos/1'));
+    const res = await post(FIXTURE.alicePlace, { ...googleBody('places/a/photos/2'), primary: 'always' });
+    expect(res.status).toBe(200);
+
+    const rows = await photos(FIXTURE.alicePlace);
+    expect(rows.map((r) => [r.source_id, r.is_primary])).toEqual([
+      ['places/a/photos/1', 0],
+      ['places/a/photos/2', 1],
+    ]);
+  });
+
   it('leaves the primary alone for a second photo, and dedups a repeat', async () => {
     await post(FIXTURE.alicePlace, googleBody('places/a/photos/1'));
     await post(FIXTURE.alicePlace, googleBody('places/a/photos/2'));

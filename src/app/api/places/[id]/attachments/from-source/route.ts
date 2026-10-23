@@ -49,6 +49,7 @@ const BodySchema = z.object({
   height: z.number().nullable(),
   attribution: AttributionSchema,
   caption: z.string().optional(),
+  primary: z.enum(['if-first', 'always']).optional(),
 });
 
 export async function POST(
@@ -62,9 +63,15 @@ export async function POST(
     const body = BodySchema.parse(json);
 
     const result = await attachPhotoFromSource(user.id, placeId, {
-      ...body,
+      source: body.source,
+      sourceId: body.sourceId,
+      thumbnailUrl: body.thumbnailUrl,
+      fullUrl: body.fullUrl,
+      width: body.width,
+      height: body.height,
+      caption: body.caption,
       attribution: body.attribution as AttributionMeta,
-    });
+    }, body.primary);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }

@@ -1,8 +1,8 @@
 /**
  * Attaching a photo from an external source, and choosing a place's primary
  * photo. Shared by the Find-image dialog's route, the primary-photo route and
- * `scripts/backfill-place-photos.ts`, so a photo attached by any of them is
- * stored and promoted the same way.
+ * `scripts/backfill-place-photos.ts`. Which photo becomes the cover follows
+ * `PrimaryPolicy` below.
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { attachments, places } from '@/db/schema';
@@ -23,8 +23,10 @@ export interface PhotoFromSource {
 }
 
 /**
- * - `if-first`: primary only when it is the place's only photo (the dialog's rule).
+ * - `if-first`: primary only when it is the place's only photo. The Find Image
+ *   dialog uses this unless the caller passes `always`.
  * - `always`: primary regardless, replacing whichever photo was primary.
+ *   Review's soft-cover Find a photo does that so the new image replaces the crop.
  */
 export type PrimaryPolicy = 'if-first' | 'always';
 

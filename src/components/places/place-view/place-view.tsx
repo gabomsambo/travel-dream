@@ -4,6 +4,7 @@ import * as React from "react"
 import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { CalendarHeart, Coins, ImagePlus, MapPin, PenLine, Plus, Quote, Sunrise, type LucideIcon } from "lucide-react"
+import { coverPhoto } from "@/lib/cover-photo"
 import { formatDateOnly } from "@/lib/place-view/format"
 import { notify } from "@/lib/notify"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
@@ -36,7 +37,7 @@ export interface PlaceViewHandles {
 /** Cover first, then the rest in their stored order. */
 export function orderedPhotos(attachments: Attachment[]): Attachment[] {
   const photos = attachments.filter((a) => a.type === "photo")
-  const cover = photos.find((p) => p.isPrimary === 1) ?? photos[0]
+  const cover = coverPhoto(attachments)
   return cover ? [cover, ...photos.filter((p) => p !== cover)] : []
 }
 
@@ -198,6 +199,8 @@ export function PlaceView({
   trips,
   alsoIn,
   showMobileActionBar = true,
+  softCover = false,
+  fitReviewBar = false,
 }: {
   place: PlaceWithRelations
   editing?: boolean
@@ -213,6 +216,10 @@ export function PlaceView({
   trips: ExploreCollection[]
   alsoIn: ExplorePlace[]
   showMobileActionBar?: boolean
+  /** Blur a shared-screenshot cover and offer Find a photo. Review sets this. */
+  softCover?: boolean
+  /** On a phone, keep the hero title above Review's fixed action bar. */
+  fitReviewBar?: boolean
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -305,7 +312,7 @@ export function PlaceView({
 
   return (
     <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={editing} onExitEditing={onDoneEditing}>
-      <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} />
+      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} />
       <QuickFacts place={displayPlace} />
       <PlaceColumns
         place={place}

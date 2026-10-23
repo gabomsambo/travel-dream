@@ -1,5 +1,6 @@
 "use client"
 
+import { useLayoutEffect, useRef } from "react"
 import Link from "next/link"
 import { Archive, ArrowLeft, CalendarHeart, Check, Images, Inbox, MapPin, Pencil, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -53,6 +54,36 @@ export function PlaceHero({
 }) {
   const edit = useSectionEdit()
   const editing = Boolean(edit?.editingAll)
+  const nameRef = useRef<HTMLTextAreaElement>(null)
+  const draftName = editing ? edit?.draft.name : undefined
+  useLayoutEffect(() => {
+    const el = nameRef.current
+    if (!el) return
+    const fit = () => {
+      el.style.height = "auto"
+      const next = el.scrollHeight
+      if (next > 0) el.style.height = `${next}px`
+    }
+    fit()
+    const parent = el.parentElement
+    let observer: ResizeObserver | undefined
+    if (parent && typeof ResizeObserver !== "undefined") {
+      let width = parent.clientWidth
+      observer = new ResizeObserver(() => {
+        const nextWidth = parent.clientWidth
+        if (nextWidth === width) return
+        width = nextWidth
+        fit()
+      })
+      observer.observe(parent)
+    }
+    const fonts = document.fonts
+    fonts?.addEventListener?.("loadingdone", fit)
+    return () => {
+      observer?.disconnect()
+      fonts?.removeEventListener?.("loadingdone", fit)
+    }
+  }, [draftName])
   const cover = photos[0]
   const back = place.status === "archived"
     ? { href: "/archive", label: "Archive" }
@@ -200,11 +231,16 @@ export function PlaceHero({
             </div>
             {editing && edit ? (
               <h1 className="mt-3">
-                <input
+                <textarea
+                  ref={nameRef}
                   aria-label="Place name"
+                  rows={1}
                   value={edit.draft.name}
-                  onChange={(event) => edit.setField("name", event.target.value)}
-                  className="w-full border-0 bg-transparent p-0 font-editorial text-5xl leading-[0.95] tracking-tight text-white outline-none drop-shadow-sm [text-wrap:balance] placeholder:text-white/40 focus:underline focus:decoration-white/40 sm:text-7xl lg:text-8xl"
+                  onChange={(event) => edit.setField("name", event.target.value.replace(/[\r\n]+/g, " "))}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.preventDefault()
+                  }}
+                  className="block w-full min-w-0 max-w-full resize-none overflow-hidden whitespace-pre-wrap break-words border-0 bg-transparent p-0 font-editorial text-5xl leading-[0.95] tracking-tight text-white outline-none drop-shadow-sm [text-wrap:balance] placeholder:text-white/40 focus:underline focus:decoration-white/40 sm:text-7xl lg:text-8xl"
                 />
               </h1>
             ) : (

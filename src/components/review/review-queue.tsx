@@ -211,7 +211,7 @@ function previousSelectableId(
   return null
 }
 
-function EmptyReview() {
+function EmptyReview({ scoped }: { scoped: boolean }) {
   return (
     <div className="mx-auto flex min-h-[65vh] max-w-xl flex-col items-center justify-center px-6 text-center">
       <div className="relative mb-6 h-28 w-28" aria-hidden>
@@ -222,13 +222,23 @@ function EmptyReview() {
         </div>
       </div>
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Inbox</p>
-      <h1 className="mt-3 font-serif text-4xl font-semibold tracking-tight">All caught up</h1>
+      <h1 className="mt-3 font-serif text-4xl font-semibold tracking-tight">
+        {scoped ? 'This upload is reviewed.' : 'All caught up'}
+      </h1>
       <p className="mt-3 text-lg text-muted-foreground">
-        Every place from your screenshots has a home. Drop more in and they&apos;ll wait here.
+        {scoped
+          ? 'Nothing else from this upload is waiting.'
+          : "Every place from your screenshots has a home. Drop more in and they'll wait here."}
       </p>
       <div className="mt-8 flex flex-wrap justify-center gap-3">
-        <Button variant="outline" asChild><Link href="/library"><Library className="mr-2 h-4 w-4" />Open Library</Link></Button>
-        <Button asChild><Link href="/mass-upload"><Upload className="mr-2 h-4 w-4" />Upload screenshots</Link></Button>
+        {scoped ? (
+          <Button asChild><Link href="/inbox"><Inbox className="mr-2 h-4 w-4" />Back to Inbox</Link></Button>
+        ) : (
+          <>
+            <Button variant="outline" asChild><Link href="/library"><Library className="mr-2 h-4 w-4" />Open Library</Link></Button>
+            <Button asChild><Link href="/mass-upload"><Upload className="mr-2 h-4 w-4" />Upload screenshots</Link></Button>
+          </>
+        )}
       </div>
     </div>
   )
@@ -238,10 +248,12 @@ function ReviewSummary({
   entries,
   outcomes,
   onReview,
+  scoped,
 }: {
   entries: ReviewQueueEntry[]
   outcomes: Record<string, ReviewOutcome>
   onReview: (placeId: string) => void
+  scoped: boolean
 }) {
   const grouped = {
     added: entries.filter((entry) => outcomes[entry.placeId] === 'added'),
@@ -258,11 +270,17 @@ function ReviewSummary({
           <CheckCircle2 className="h-7 w-7" aria-hidden />
         </div>
         <p className="mt-5 text-center text-xs font-semibold uppercase tracking-[0.2em] text-primary">Review complete</p>
-        <h1 className="mt-2 text-center font-serif text-4xl font-semibold tracking-tight">That&apos;s everything.</h1>
+        <h1 className="mt-2 text-center font-serif text-4xl font-semibold tracking-tight">
+          {scoped ? 'This upload is reviewed.' : "That's everything."}
+        </h1>
         <p className="mx-auto mt-3 max-w-xl text-center text-lg text-muted-foreground">
-          {grouped.added.length === 0
-            ? 'Your Inbox is sorted for now.'
-            : `${grouped.added.length} new ${grouped.added.length === 1 ? 'place is' : 'places are'} in your Library.`}
+          {scoped
+            ? grouped.added.length === 0
+              ? 'Nothing else from this upload is waiting.'
+              : `${grouped.added.length} new ${grouped.added.length === 1 ? 'place from this upload is' : 'places from this upload are'} in your Library.`
+            : grouped.added.length === 0
+              ? 'Your Inbox is sorted for now.'
+              : `${grouped.added.length} new ${grouped.added.length === 1 ? 'place is' : 'places are'} in your Library.`}
         </p>
 
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -307,6 +325,7 @@ function ReviewSummary({
 
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           {firstSkipped && <Button variant="outline" onClick={() => onReview(firstSkipped.placeId)}>Review the skipped {grouped.skipped.length === 1 ? 'one' : 'places'}</Button>}
+          {scoped && <Button variant="outline" asChild><Link href="/inbox"><Inbox className="mr-2 h-4 w-4" />Back to Inbox</Link></Button>}
           <Button asChild><Link href="/library">See them in your Library</Link></Button>
         </div>
       </div>
@@ -599,9 +618,10 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [decide, previous, skip])
 
-  if (session.length === 0) return <EmptyReview />
+  const scoped = Boolean(uploadSessionId)
+  if (session.length === 0) return <EmptyReview scoped={scoped} />
   if (!current) {
-    return <ReviewSummary entries={session} outcomes={outcomes} onReview={resumeSkipped} />
+    return <ReviewSummary entries={session} outcomes={outcomes} onReview={resumeSkipped} scoped={scoped} />
   }
 
   const currentIndex = session.findIndex((entry) => entry.placeId === current.placeId)

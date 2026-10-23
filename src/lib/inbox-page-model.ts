@@ -582,12 +582,18 @@ function readingTiles(batch: InboxUploadBatch): InboxReadingTile[] {
     } else if (kind === 'cancelled') label = 'Cancelled';
     else if (kind === 'new') {
       const inboxCount = places.filter((place) => place.status === 'inbox').length;
-      label = `✓ ${plural(inboxCount, 'new place', 'new places')}`;
+      const archivedCount = places.filter((place) => place.status === 'archived').length;
+      const bits: string[] = [];
+      if (inboxCount > 0) bits.push(plural(inboxCount, 'new place', 'new places'));
+      if (archivedCount > 0) bits.push(`${plural(archivedCount, 'place')} set aside`);
+      label = bits.length > 0 ? `✓ ${bits.join(' · ')}` : `✓ ${plural(places.length, 'place')}`;
     } else if (kind === 'library' || kind === 'added') {
       const { saved, matched } = libraryParts(shot, places);
+      const archivedCount = places.filter((place) => place.status === 'archived').length;
       const bits: string[] = [];
       if (matched.length > 0) bits.push(`${matched.length} in Library`);
       if (saved.length > 0) bits.push(`${plural(saved.length, 'place')} added`);
+      if (archivedCount > 0) bits.push(`${plural(archivedCount, 'place')} set aside`);
       label = bits.length > 0 ? `✓ ${bits.join(' · ')}` : `✓ ${plural(places.length, 'place')}`;
     } else if (kind === 'archived') {
       label = `✓ ${plural(places.length, 'place')} set aside`;
@@ -620,6 +626,7 @@ function readingFooter(batch: InboxUploadBatch): string {
   const fresh = batch.rows.toReview.places.length;
   const matched = batch.rows.alreadyInLibrary.places.length;
   const added = batch.rows.added.places.length;
+  const archived = batch.rows.notAPlace.places.length;
   const empty = batch.rows.noPlaceFound.sourceIds.length;
   const failed = batch.rows.couldNotRead.items.filter((item) => item.status === 'failed').length;
   const skipped = batch.rows.uploadedBefore.items.length;
@@ -628,6 +635,7 @@ function readingFooter(batch: InboxUploadBatch): string {
   if (fresh > 0) bits.push(plural(fresh, 'new place', 'new places'));
   if (matched > 0) bits.push(`${matched} already in your Library`);
   if (added > 0) bits.push(`${added} added`);
+  if (archived > 0) bits.push(`${archived} not a place`);
   if (skipped > 0) bits.push(`${skipped} uploaded before`);
   if (empty > 0) bits.push(`${empty} no place`);
   if (failed > 0) bits.push(`${failed} couldn't be read`);
@@ -749,6 +757,7 @@ function shotLine(kind: InboxShotKind, shot: InboxUploadScreenshot, places: Inbo
     return `${plural(places.length, 'place')} set aside as not a place`;
   }
   const inbox = places.filter((place) => place.status === 'inbox');
+  const archived = places.filter((place) => place.status === 'archived');
   const { saved, matched } = libraryParts(shot, places);
   const bits: string[] = [];
   if (kind === 'new') bits.push(`${plural(inbox.length, 'new place', 'new places')} to review`);
@@ -760,6 +769,7 @@ function shotLine(kind: InboxShotKind, shot: InboxUploadScreenshot, places: Inbo
         : `${plural(matched.length, 'place')} already in your Library · this screenshot was added to them`
     );
   }
+  if (archived.length > 0) bits.push(`${plural(archived.length, 'place')} set aside as not a place`);
   if (bits.length > 0) return bits.join(' · ');
   return `${plural(places.filter((place) => place.status === 'library').length, 'place')} added to your Library`;
 }

@@ -946,7 +946,36 @@ describe('ReviewQueue decisions', () => {
 
     await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: "That's everything." })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'This upload is reviewed.' })).toBeInTheDocument())
+    expect(screen.getByText('1 new place from this upload is in your Library.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: "That's everything." })).not.toBeInTheDocument()
+    expect(screen.queryByText('Your Inbox is sorted for now.')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
     expect(replaceSpy).toHaveBeenCalledWith({}, '', '/review?upload=session_newest')
+  })
+
+  it('does not call the inbox sorted when a scoped upload finishes with nothing added', async () => {
+    const user = userEvent.setup()
+    renderQueue({ entries: [entries[0]], uploadSessionId: 'session_newest', initialPlaceId: 'plc_one' })
+
+    await user.click(screen.getAllByRole('button', { name: /Not a place/i })[0])
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'This upload is reviewed.' })).toBeInTheDocument())
+    expect(screen.getByText('Nothing else from this upload is waiting.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: "That's everything." })).not.toBeInTheDocument()
+    expect(screen.queryByText('Your Inbox is sorted for now.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Every place from your screenshots has a home/)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
+  })
+
+  it('says an empty scoped queue is done with this upload and links back to the Inbox', () => {
+    renderQueue({ entries: [], postcard: null, uploadSessionId: 'session_newest' })
+
+    expect(screen.getByRole('heading', { name: 'This upload is reviewed.' })).toBeInTheDocument()
+    expect(screen.getByText('Nothing else from this upload is waiting.')).toBeInTheDocument()
+    expect(screen.queryByText(/Every place from your screenshots has a home/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Your Inbox is sorted for now.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'All caught up' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
   })
 })

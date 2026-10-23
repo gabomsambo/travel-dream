@@ -216,7 +216,62 @@ describe('inbox page model', () => {
     expect(screen.getByText('✓ 1 place added')).toBeInTheDocument()
     expect(screen.getByText('✓ 1 place set aside')).toBeInTheDocument()
     expect(screen.queryByText(/in Library/)).not.toBeInTheDocument()
-    expect(screen.getByText('So far: 1 new place · 1 added · 1 uploaded before · 1 still trying · 1 cancelled')).toBeInTheDocument()
+    expect(screen.getByText('So far: 1 new place · 1 added · 1 not a place · 1 uploaded before · 1 still trying · 1 cancelled')).toBeInTheDocument()
+  })
+
+  it('counts a set-aside place in the reading footer when that is the only decision so far', () => {
+    const archived = place({ id: 'p_arch', name: 'Not A Place', status: 'archived', sourceIds: ['src_arch'] })
+    const reading = batch({
+      sessionId: 'session_only_arch',
+      uploadedAt: '2026-10-23T14:00:00.000Z',
+      screenshots: [
+        shot({ sourceId: 'src_arch', createdPlaceIds: ['p_arch'] }),
+        shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
+      ],
+      rows: {
+        notAPlace: { placeIds: ['p_arch'], sourceIds: ['src_arch'], places: [archived] },
+        stillReading: { sourceIds: ['src_wait'] },
+      },
+    })
+    render(<InboxScreen model={show([reading])} />)
+    expect(screen.getByText('✓ 1 place set aside')).toBeInTheDocument()
+    expect(screen.getByText('So far: 1 not a place')).toBeInTheDocument()
+    expect(screen.queryByText('So far: still reading')).not.toBeInTheDocument()
+  })
+
+  it('counts a set-aside place on a screenshot that still has other places', () => {
+    const still = place({ id: 'p_new', name: 'Still New', status: 'inbox', sourceIds: ['src_mix'] })
+    const archived = place({ id: 'p_arch', name: 'Not A Place', status: 'archived', sourceIds: ['src_mix'] })
+    const saved = place({ id: 'p_saved', name: 'Saved Here', status: 'library', sourceIds: ['src_saved'] })
+    const archivedSaved = place({ id: 'p_arch_saved', name: 'Set Aside Too', status: 'archived', sourceIds: ['src_saved'] })
+    const reading = batch({
+      sessionId: 'session_mix_arch',
+      uploadedAt: '2026-10-23T14:00:00.000Z',
+      screenshots: [
+        shot({ sourceId: 'src_mix', createdPlaceIds: ['p_new', 'p_arch'] }),
+        shot({ sourceId: 'src_saved', createdPlaceIds: ['p_saved', 'p_arch_saved'] }),
+        shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
+      ],
+      rows: {
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_mix'], places: [still], checkCount: null },
+        added: { placeIds: ['p_saved'], sourceIds: ['src_saved'], places: [saved] },
+        notAPlace: {
+          placeIds: ['p_arch', 'p_arch_saved'],
+          sourceIds: ['src_mix', 'src_saved'],
+          places: [archived, archivedSaved],
+        },
+        stillReading: { sourceIds: ['src_wait'] },
+      },
+    })
+    const home = render(<InboxScreen model={show([reading])} />)
+    expect(screen.getByText('✓ 1 new place · 1 place set aside')).toBeInTheDocument()
+    expect(screen.getByText('✓ 1 place added · 1 place set aside')).toBeInTheDocument()
+    expect(screen.getByText('So far: 1 new place · 1 added · 2 not a place')).toBeInTheDocument()
+    home.unmount()
+
+    render(<InboxScreen model={show([reading], 'session_mix_arch')} />)
+    expect(screen.getByText('1 new place to review · 1 place set aside as not a place')).toBeInTheDocument()
+    expect(screen.getByText('1 place added to your Library · 1 place set aside as not a place')).toBeInTheDocument()
   })
 
   it('keeps Matched for linked library places and gives saved places their own chip', () => {

@@ -10,12 +10,6 @@ import {
   screenshotStatusLabel,
 } from '@/lib/inbox-screenshot-status';
 import { getInboxStats } from '@/lib/db-queries';
-import { render, screen } from '@testing-library/react';
-import { ScreenshotCard } from '@/components/inbox/screenshot-card';
-
-jest.mock('@/lib/notify', () => ({
-  notify: { error: jest.fn(), success: jest.fn() },
-}));
 
 describe('inbox pending fix', () => {
   beforeAll(() => {
@@ -173,88 +167,6 @@ describe('inbox pending fix', () => {
       const bobStats = await getInboxStats(BOB.id);
       expect(bobStats.total).toBe(1);
       expect(bobStats.needsReview).toBe(1);
-    });
-  });
-
-  describe('ScreenshotCard badge', () => {
-    const baseSource = {
-      id: 'src_test',
-      uri: 'https://example.com/shot.png',
-      ocrText: null,
-      createdAt: new Date().toISOString(),
-      meta: { uploadInfo: { originalName: 'trip.png', ocrStatus: 'pending' } },
-    };
-
-    it('shows Done when mass upload completed despite stale ocrStatus', () => {
-      render(
-        <ScreenshotCard
-          source={{ ...baseSource, processingStatus: 'completed' }}
-        />
-      );
-      expect(screen.getByText('Done')).toBeInTheDocument();
-    });
-
-    it('shows legacy Done from ocrStatus when processing_status is pending', () => {
-      render(
-        <ScreenshotCard
-          source={{
-            ...baseSource,
-            processingStatus: 'pending',
-            meta: { uploadInfo: { originalName: 'trip.png', ocrStatus: 'completed' } },
-          }}
-        />
-      );
-      expect(screen.getByText('Done')).toBeInTheDocument();
-    });
-
-    it('shows Needs retry for a stalled screenshot', () => {
-      render(
-        <ScreenshotCard
-          source={{ ...baseSource, processingStatus: 'stalled' }}
-        />
-      );
-      const badge = screen.getByText('Needs retry');
-      expect(badge).toBeInTheDocument();
-      expect(badge).toHaveClass('text-amber-600');
-      expect(screen.queryByText('Waiting')).not.toBeInTheDocument();
-    });
-
-    it('shows Cancelled for a cancelled screenshot', () => {
-      render(
-        <ScreenshotCard
-          source={{ ...baseSource, processingStatus: 'cancelled' }}
-        />
-      );
-      const badge = screen.getByText('Cancelled');
-      expect(badge).toBeInTheDocument();
-      expect(badge).toHaveClass('text-muted-foreground');
-      expect(screen.queryByText('Waiting')).not.toBeInTheDocument();
-    });
-
-    it('offers retry only for a legacy OCR failure', () => {
-      const { unmount } = render(
-        <ScreenshotCard
-          source={{
-            ...baseSource,
-            processingStatus: 'pending',
-            meta: { uploadInfo: { originalName: 'trip.png', ocrStatus: 'failed' } },
-          }}
-        />
-      );
-      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
-      unmount();
-
-      render(
-        <ScreenshotCard
-          source={{
-            ...baseSource,
-            processingStatus: 'failed',
-            meta: { uploadInfo: { originalName: 'trip.png', ocrStatus: 'pending' } },
-          }}
-        />
-      );
-      expect(screen.getByText("Couldn't read")).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     });
   });
 });

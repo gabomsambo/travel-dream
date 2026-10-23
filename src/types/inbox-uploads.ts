@@ -13,6 +13,7 @@ export interface InboxUploadPlace {
   city: string | null;
   country: string | null;
   status: InboxPlaceStatus;
+  createdAt: string;
   /** Screenshots in this batch that produced or were added to this place. */
   sourceIds: string[];
 }
@@ -55,6 +56,8 @@ export type InboxScreenshotOutcome =
 
 export interface InboxUploadScreenshot {
   sourceId: string;
+  /** Raw `sources.created_at`, compared as stored when ordering Review. */
+  createdAt: string;
   name: string | null;
   /** Thumbnail when one was made, else the screenshot itself. */
   imageUrl: string | null;

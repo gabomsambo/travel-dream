@@ -169,7 +169,7 @@ mounted in `(app)/layout.tsx` beside `AppToaster`. Terminal jobs persist per use
 `localStorage` (`td:activity-jobs:v1:<userId>`) until dismissed — there is no
 acknowledgement column. Announce transitions with `toastWithNavigate`
 (`src/lib/toast-navigate.ts`).
-The inbox `ProcessingBanner` is in-flight only; completion belongs to the bell.
+In-flight uploads show on the Inbox progress card; completion still belongs to the bell.
 
 ## Multi-Tenancy (security-critical)
 

@@ -22,11 +22,18 @@ jest.mock('@/components/review/review-queue', () => ({
   ReviewQueue: ({
     initialPlaceId,
     entries,
+    uploadSessionId,
   }: {
     initialPlaceId?: string
     entries: { placeId: string }[]
+    uploadSessionId?: string
   }) => (
-    <div data-testid="review-queue" data-initial-place-id={initialPlaceId ?? ''} data-count={String(entries.length)} />
+    <div
+      data-testid="review-queue"
+      data-initial-place-id={initialPlaceId ?? ''}
+      data-upload={uploadSessionId ?? ''}
+      data-count={String(entries.length)}
+    />
   ),
 }))
 
@@ -42,7 +49,23 @@ describe('Review page', () => {
     render(await ReviewPage({ searchParams: Promise.resolve({ placeId: 'plc_library' }) }))
 
     expect(screen.getByTestId('review-queue')).toHaveAttribute('data-initial-place-id', 'plc_library')
-    expect(mockLoad).toHaveBeenCalledWith('user_review', 'plc_library')
+    expect(screen.getByTestId('review-queue')).toHaveAttribute('data-upload', '')
+    expect(mockLoad).toHaveBeenCalledWith('user_review', 'plc_library', undefined)
     expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it('asks for one upload when the link names that upload', async () => {
+    mockLoad.mockResolvedValue({
+      entries: [{ placeId: 'P3' } as never],
+      postcard: null,
+      trips: [],
+    })
+
+    render(await ReviewPage({ searchParams: Promise.resolve({ upload: 'session_newest', placeId: 'P3' }) }))
+
+    expect(mockLoad).toHaveBeenCalledWith('user_review', 'P3', 'session_newest')
+    expect(screen.getByTestId('review-queue')).toHaveAttribute('data-upload', 'session_newest')
+    expect(screen.getByTestId('review-queue')).toHaveAttribute('data-initial-place-id', 'P3')
+    expect(screen.getByTestId('review-queue')).toHaveAttribute('data-count', '1')
   })
 })

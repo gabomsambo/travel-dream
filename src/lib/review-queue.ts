@@ -3,6 +3,7 @@ import { places, sources, sourcesToPlaces } from '@/db/schema'
 import { coverPhoto } from '@/lib/cover-photo'
 import { getPlaceWithRelations } from '@/lib/db-queries'
 import { getExploreCollections, getExplorePlacesInCity } from '@/lib/explore/queries'
+import { compareReviewRank, rankingSource } from '@/lib/review-order'
 import { forUser } from '@/lib/tenant-db'
 import type { ExploreCollection, ExplorePlace } from '@/lib/explore/types'
 import type { PlaceWithRelations } from '@/types/database'
@@ -26,6 +27,7 @@ interface QueueSource {
   originalName: string | null
   uploadFilename: string | null
   filename: string | null
+  sessionId: string | null
 }
 
 /** Another place found in the same screenshot, including the one on screen. */
@@ -72,19 +74,6 @@ function sourceName(source: QueueSource | null): string | null {
   return source.originalName ?? source.uploadFilename ?? source.filename ?? null
 }
 
-interface ScreenshotCandidate {
-  id: string
-  type: string
-  createdAt: string
-}
-
-function screenshotSource<T extends ScreenshotCandidate>(placeSources: T[]): T | null {
-  const ordered = [...placeSources].sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)
-  )
-  return ordered.find((source) => source.type === 'screenshot') ?? ordered[0] ?? null
-}
-
 function nameFromSourceMeta(meta: { uploadInfo?: { originalName?: string; filename?: string }; filename?: string } | null): string | null {
   if (!meta) return null
   return meta.uploadInfo?.originalName ?? meta.uploadInfo?.filename ?? meta.filename ?? null
@@ -108,24 +97,12 @@ function compareSiblings(a: ReviewScreenshotSibling, b: ReviewScreenshotSibling)
   return a.createdAt.localeCompare(b.createdAt) || a.placeId.localeCompare(b.placeId)
 }
 
-function compareEntries(
-  a: ReviewQueueEntry & { sourceCreatedAt: string; sourceId: string },
-  b: ReviewQueueEntry & { sourceCreatedAt: string; sourceId: string },
-): number {
-  const bySourceTime = b.sourceCreatedAt.localeCompare(a.sourceCreatedAt)
-  if (bySourceTime !== 0) return bySourceTime
-  const bySource = a.sourceId.localeCompare(b.sourceId)
-  if (bySource !== 0) return bySource
-  const byPlaceTime = a.createdAt.localeCompare(b.createdAt)
-  return byPlaceTime || a.placeId.localeCompare(b.placeId)
-}
-
 /**
  * Inbox rows in screenshot order, from two scoped reads (places, then their
  * sources). Extraction order belongs to the later group-review PR because the
  * join table itself has no ordering column.
  */
-async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
+async function loadReviewEntries(userId: string, uploadSessionId?: string): Promise<ReviewQueueEntry[]> {
   const scoped = forUser(userId)
   const inbox = await scoped.selectFields(places, {
     id: places.id,
@@ -151,6 +128,7 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
         originalName: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.originalName')`,
         uploadFilename: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.filename')`,
         filename: sql<string | null>`json_extract(${sources.meta}, '$.filename')`,
+        sessionId: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.sessionId')`,
       }, inArray(sources.id, sourceIds))
     : []
   const sourcesById = new Map(sourceRows.map((source) => [source.id, {
@@ -161,6 +139,7 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
     originalName: textOrNull(source.originalName),
     uploadFilename: textOrNull(source.uploadFilename),
     filename: textOrNull(source.filename),
+    sessionId: textOrNull(source.sessionId),
   } satisfies QueueSource]))
   const sourcesByPlace = new Map<string, QueueSource[]>()
   for (const link of links) {
@@ -171,10 +150,12 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
     sourcesByPlace.set(link.placeId, list)
   }
 
-  return inbox.map((row) => {
-    const source = screenshotSource(sourcesByPlace.get(row.id) ?? [])
+  return inbox.flatMap((row) => {
+    const placeSources = sourcesByPlace.get(row.id) ?? []
+    if (uploadSessionId && !placeSources.some((source) => source.sessionId === uploadSessionId)) return []
+    const source = rankingSource(placeSources, uploadSessionId)
     const name = sourceName(source)
-    return {
+    return [{
       placeId: row.id,
       name: row.name,
       createdAt: row.createdAt,
@@ -184,8 +165,8 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
       screenshotUrl: source?.uri ?? null,
       screenshotName: name,
       uploadLabel: name ?? 'your upload',
-    }
-  }).sort(compareEntries).map((draft) => ({
+    }]
+  }).sort(compareReviewRank).map((draft) => ({
     placeId: draft.placeId,
     name: draft.name,
     createdAt: draft.createdAt,
@@ -201,7 +182,7 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
  * place read is scoped again so a stray cross-tenant link cannot leak a name.
  */
 async function loadScreenshot(userId: string, place: PlaceWithRelations): Promise<ReviewScreenshot | null> {
-  const source = screenshotSource(place.sources)
+  const source = rankingSource(place.sources)
   if (!source?.uri) return null
   const scoped = forUser(userId)
   const links = await scoped.selectFieldsVia(
@@ -259,11 +240,17 @@ export async function loadReviewPostcard(userId: string, placeId: string): Promi
 /**
  * Queue order and light rows for every inbox place, and relations plus the
  * city rail only for `visiblePlaceId` (or the first row, when that id is
- * absent or no longer inbox).
+ * absent or no longer inbox). `uploadSessionId` keeps the walk inside that
+ * upload's inbox places.
  */
-export async function loadReviewQueue(userId: string, visiblePlaceId?: string): Promise<ReviewQueueData> {
+export async function loadReviewQueue(
+  userId: string,
+  visiblePlaceId?: string,
+  uploadSessionId?: string,
+): Promise<ReviewQueueData> {
+  const upload = uploadSessionId?.trim() || undefined
   const [entries, trips] = await Promise.all([
-    loadReviewEntries(userId),
+    loadReviewEntries(userId, upload),
     getExploreCollections(userId),
   ])
   const visible = visiblePlaceId && entries.some((entry) => entry.placeId === visiblePlaceId)

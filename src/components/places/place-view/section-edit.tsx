@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { Check, Pencil } from "lucide-react"
 import { useDebouncedCallback } from "@/hooks/use-auto-save"
 import type { PlaceWithRelations } from "@/types/database"
+import { usablePin } from "@/lib/place-coords"
 import { SectionEditor } from "./section-editors"
 
 export type SectionId = "why" | "about" | "know" | "photos" | "links" | "plan" | "ground"
@@ -80,6 +81,7 @@ export function useSectionEdit(): SectionEditApi | null {
 
 function draftFrom(place: PlaceWithRelations): PlaceDraft {
   const hours = place.hours && typeof place.hours === "object" ? (place.hours as Record<string, string>) : null
+  const pin = usablePin(place.coords)
   return {
     name: place.name ?? "",
     kind: place.kind ?? "tip",
@@ -99,8 +101,8 @@ function draftFrom(place: PlaceWithRelations): PlaceDraft {
     city: place.city ?? "",
     admin: place.admin ?? "",
     country: place.country ?? "",
-    lat: place.coords && Number.isFinite(place.coords.lat) ? String(place.coords.lat) : "",
-    lon: place.coords && Number.isFinite(place.coords.lon) ? String(place.coords.lon) : "",
+    lat: pin ? String(pin.lat) : "",
+    lon: pin ? String(pin.lon) : "",
     hours,
     website: place.website ?? "",
     phone: place.phone ?? "",

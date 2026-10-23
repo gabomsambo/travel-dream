@@ -1,14 +1,14 @@
 "use client"
 
 import { Navigation, Phone } from "lucide-react"
+import { usablePin } from "@/lib/place-coords"
 import type { ExploreCollection } from "@/lib/explore/types"
 import type { PlaceWithRelations } from "@/types/database"
 import { AddToTripMenu } from "./add-to-trip-menu"
 
 export function directionsUrl(coords: { lat: number; lon: number } | null): string | null {
-  return coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)
-    ? `https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lon}`
-    : null
+  const pin = usablePin(coords)
+  return pin ? `https://www.google.com/maps/dir/?api=1&destination=${pin.lat},${pin.lon}` : null
 }
 
 export function callUrl(phone: string | null): string | null {

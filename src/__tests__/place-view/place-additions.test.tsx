@@ -323,6 +323,14 @@ describe('PlacePage additions — on the ground + bar', () => {
     expect(screen.getByRole('link', { name: 'Call Fushimi Inari-taisha' })).toHaveAttribute('href', 'tel:+81756417331')
   })
 
+  it('renders a stored 0,0 coordinate as no pin', () => {
+    render(<PlacePage place={{ ...place, coords: { lat: 0, lon: 0 }, address: 'Somewhere', phone: null }} trips={[]} />)
+    expect(screen.getByText('No pin yet.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Map of Fushimi Inari-taisha')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Directions' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/0\.0000/)).not.toBeInTheDocument()
+  })
+
   it('leaves Directions and Call out when the place has no coords or phone', () => {
     render(<PlacePage place={sparse} trips={[]} />)
     expect(screen.getByText('No address, hours or contact yet.')).toBeInTheDocument()

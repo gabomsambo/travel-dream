@@ -1,8 +1,8 @@
 "use client"
 
-import { useLayoutEffect, useRef } from "react"
+import { useLayoutEffect, useRef, type ReactNode } from "react"
 import Link from "next/link"
-import { Archive, ArrowLeft, CalendarHeart, Check, Images, Inbox, MapPin, Pencil, Sparkles } from "lucide-react"
+import { Archive, ArrowLeft, CalendarHeart, Check, CircleAlert, Images, Inbox, MapPin, Pencil, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { cityGroupLabel } from "@/lib/city-names"
 import { flagFor, slugify } from "@/lib/explore/geo"
@@ -10,6 +10,7 @@ import { formatDateOnly } from "@/lib/place-view/format"
 import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { PLACE_KINDS } from "@/types/database"
+import type { ReviewCheckId } from "@/lib/review/review-checks"
 import { useSectionEdit } from "./section-edit"
 import { FindImageButton } from "@/components/places/find-image-button"
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
@@ -18,6 +19,15 @@ import type { Attachment, PlaceWithRelations } from "@/types/database"
 import { PlaceActionsMenu } from "./place-actions-menu"
 
 const GLASS = "border border-white/20 bg-black/35 text-white backdrop-blur-md transition hover:bg-black/50"
+
+function ReviewMark({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200/60 bg-black/45 px-2 py-0.5 text-[11px] font-semibold text-amber-100">
+      <CircleAlert className="h-3 w-3" aria-hidden />
+      {children}
+    </span>
+  )
+}
 
 /**
  * Explore's billboard, for one place: the photo runs full-bleed and fades into the page,
@@ -38,6 +48,7 @@ export function PlaceHero({
   blockWrites = false,
   softCover = false,
   fitReviewBar = false,
+  reviewCheckIds,
 }: {
   place: PlaceWithRelations
   photos: Attachment[]
@@ -55,6 +66,8 @@ export function PlaceHero({
   softCover?: boolean
   /** On a phone, keep the title above Review's fixed action bar. Desktop stays 72vh. */
   fitReviewBar?: boolean
+  /** Set by Review. Absent on the Library postcard, which does not mark checks. */
+  reviewCheckIds?: ReviewCheckId[]
 }) {
   const edit = useSectionEdit()
   const editing = Boolean(edit?.editingAll)
@@ -254,9 +267,11 @@ export function PlaceHero({
                 {place.name}
               </h1>
             )}
-            {(place.city || place.admin || place.country) && (
-              <p className="mt-3 flex flex-wrap items-center gap-x-1.5 text-sm font-medium text-white/90 sm:text-base">
-                {flag ? <span aria-hidden>{flag}</span> : <MapPin className="h-4 w-4" aria-hidden />}
+            {(place.city || place.admin || place.country || (reviewCheckIds && reviewCheckIds.length > 0)) && (
+              <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-sm font-medium text-white/90 sm:text-base">
+                {(place.city || place.admin || place.country) && (
+                  flag ? <span aria-hidden>{flag}</span> : <MapPin className="h-4 w-4" aria-hidden />
+                )}
                 {place.city &&
                   (countrySlug ? (
                     <Link href={`/explore/atlas/${countrySlug}/${slugify(cityGroupLabel(place.city))}`} className="underline decoration-white/30 underline-offset-4 hover:decoration-white">
@@ -279,6 +294,10 @@ export function PlaceHero({
                     </Link>
                   </>
                 )}
+                {reviewCheckIds?.includes("confidence") && <ReviewMark>Check the name</ReviewMark>}
+                {reviewCheckIds?.includes("tip") && <ReviewMark>Not a place?</ReviewMark>}
+                {reviewCheckIds?.includes("city") && <ReviewMark>No city</ReviewMark>}
+                {reviewCheckIds?.includes("pin") && <ReviewMark>No pin</ReviewMark>}
               </p>
             )}
             {vibes.length > 0 && (

@@ -9,6 +9,8 @@ import { formatDateOnly } from "@/lib/place-view/format"
 import { notify } from "@/lib/notify"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
 import type { ExploreCollection, ExplorePlace } from "@/lib/explore/types"
+import { reviewChecks } from "@/lib/review/review-checks"
+import { ReviewCheckPanel } from "@/components/review/review-check-panel"
 import { PlaceHero } from "./place-hero"
 import { About, GoodToKnow, Links, Photos, RecordInfo, SectionHeader, Sources, WhyItsHere } from "./place-sections"
 import { OnTheGround, YourPlan } from "./place-rail"
@@ -206,6 +208,8 @@ export function PlaceView({
   softCover = false,
   fitReviewBar = false,
   lead,
+  showReviewChecks = false,
+  onReviewPlaceUpdated,
 }: {
   place: PlaceWithRelations
   editing?: boolean
@@ -229,6 +233,10 @@ export function PlaceView({
   fitReviewBar?: boolean
   /** Review-only content under the hero, such as the possible-duplicate note. */
   lead?: React.ReactNode
+  /** Review marks the doubtful fields and offers a pin and a city fix. */
+  showReviewChecks?: boolean
+  /** Reload the postcard after a pin or city is saved. */
+  onReviewPlaceUpdated?: () => Promise<void> | void
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -325,8 +333,11 @@ export function PlaceView({
 
   return (
     <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={blockWrites ? false : editing} onExitEditing={onDoneEditing} blockWrites={blockWrites}>
-      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} onEdit={editPlace} onOpenClassic={blockWrites ? undefined : onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={attachPhoto} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} blockWrites={blockWrites} />
+      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} reviewCheckIds={showReviewChecks ? reviewChecks(place) : undefined} onEdit={editPlace} onOpenClassic={blockWrites ? undefined : onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={attachPhoto} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} blockWrites={blockWrites} />
       {lead}
+      {showReviewChecks && onReviewPlaceUpdated && (
+        <ReviewCheckPanel place={place} onRename={editPlace} onNotAPlace={onArchive} onUpdated={onReviewPlaceUpdated} />
+      )}
       <QuickFacts place={displayPlace} />
       <PlaceColumns
         place={place}

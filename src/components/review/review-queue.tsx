@@ -735,6 +735,22 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     setEditingId((id) => (id === info.inboxPlaceId ? null : id))
   }, [commitStatus])
 
+  const reloadPostcard = React.useCallback(async (placeId: string) => {
+    const response = await fetch(`/api/review/postcard/${encodeURIComponent(placeId)}`)
+    const body = await response.json().catch(() => null) as (ReviewPostcard & { message?: string }) | null
+    if (!response.ok || !body?.place) {
+      throw new Error(body?.message || "We couldn't refresh this place. Try again.")
+    }
+    const serverPostcard = installPostcard(
+      { place: body.place, alsoIn: body.alsoIn ?? [], screenshot: body.screenshot ?? null },
+      writtenStatusRef.current,
+    )
+    setSession((prev) => prev.map((entry) => (
+      entry.placeId === placeId ? withInstalledPostcard(entry, serverPostcard) : entry
+    )))
+    router.refresh()
+  }, [router])
+
   const retryPostcard = () => {
     if (!derivedId) return
     setSession((prev) => prev.map((entry) => {
@@ -882,6 +898,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               onRestored={() => noteRestored(current.placeId)}
               blockRestore={placeMerged}
               showMobileActionBar={false}
+              showReviewChecks
+              onReviewPlaceUpdated={() => reloadPostcard(current.placeId)}
             />
           ) : current.postcardError ? (
             <div className="grid min-h-64 place-items-center gap-3 px-6 text-center text-sm text-muted-foreground">

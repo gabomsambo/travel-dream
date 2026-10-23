@@ -28,6 +28,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       editing,
       softCover,
       lead,
+      showReviewChecks,
       onArchive,
       onDeleted,
       onRestored,
@@ -42,6 +43,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       editing?: boolean
       softCover?: boolean
       lead?: React.ReactNode
+      showReviewChecks?: boolean
       onArchive?: () => void
       onDeleted?: () => void
       onRestored?: () => void
@@ -71,6 +73,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       return (
         <div
           data-testid="postcard"
+          data-review-checks={showReviewChecks ? 'yes' : 'no'}
           data-status={place.status}
           data-mounted-id={mountedId.current}
           data-editing={editing ? 'yes' : 'no'}
@@ -937,6 +940,7 @@ describe('ReviewQueue decisions', () => {
     })
 
     expect(screen.getByTestId('postcard')).toHaveAttribute('data-soft-cover', 'yes')
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-review-checks', 'yes')
     expect(screen.getByRole('link', { name: /Saved Library/ })).toHaveAttribute('href', '/place/plc_saved')
     expect(screen.getByText(/In this screenshot/)).toBeInTheDocument()
 

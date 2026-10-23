@@ -150,8 +150,8 @@ describe('inbox page', () => {
     expect(screen.getByText('new place to review')).toBeInTheDocument();
     expect(screen.getByText('Medanos de Coro')).toBeInTheDocument();
     expect(screen.getByText(/We added this screenshot to Pancake House/)).toBeInTheDocument();
-    const skippedAt = formatUploadWhen(EARLIER, NOW).heading;
-    expect(screen.getByText(new RegExp(`IMG_2912.jpg was already in your ${skippedAt} upload`))).toBeInTheDocument();
+    const skippedAt = formatUploadWhen(EARLIER, NOW).sentence;
+    expect(screen.getByText(`IMG_2912.jpg was already in your ${skippedAt} upload, so we skipped it.`)).toBeInTheDocument();
     expect(screen.getByText(/IMG_3024.jpg/)).toBeInTheDocument();
     expect(screen.getByText(/AI service was unavailable/)).toBeInTheDocument();
     expect(screen.getByText('1 needs you')).toBeInTheDocument();

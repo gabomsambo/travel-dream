@@ -7,7 +7,7 @@ import type { InboxChip, InboxShotRow } from '@/lib/inbox-page-model'
 
 export function InboxUploadDetail({ chips, rows }: { chips: InboxChip[]; rows: InboxShotRow[] }) {
   const [filter, setFilter] = useState('all')
-  const visible = filter === 'all' ? rows : rows.filter((row) => row.kind === filter)
+  const visible = filter === 'all' ? rows : rows.filter((row) => row.kinds.includes(filter as InboxShotRow['kind']))
 
   return (
     <>

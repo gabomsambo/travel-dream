@@ -5,8 +5,15 @@ import { InboxScreen } from '@/components/inbox/inbox-screen'
 import { buildInboxScreen, type InboxPlaceAddedAnotherWay } from '@/lib/inbox-page-model'
 import type { InboxUploadBatch } from '@/types/inbox-uploads'
 
+let browserNowMs: number | null = null
+
 function subscribe(): () => void {
   return () => {}
+}
+
+function browserNow(): number {
+  if (browserNowMs === null) browserNowMs = Date.now()
+  return browserNowMs
 }
 
 export function InboxPageClient({
@@ -20,13 +27,12 @@ export function InboxPageClient({
   addedAnotherWay: InboxPlaceAddedAnotherWay[]
   uploadId?: string
 }) {
-  const ready = useSyncExternalStore(subscribe, () => true, () => false)
-  if (!ready) return null
+  const nowMs = useSyncExternalStore(subscribe, browserNow, () => null)
   const model = buildInboxScreen({
     uploads,
     toReviewPlaceIds,
     addedAnotherWay,
-    now: new Date(),
+    now: nowMs === null ? null : new Date(nowMs),
     uploadId,
   })
   return <InboxScreen model={model} />

@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { renderToString } from 'react-dom/server.node'
 import { InboxPageClient } from '@/components/inbox/inbox-page-client'
 import { InboxScreen } from '@/components/inbox/inbox-screen'
 import { buildInboxScreen, formatUploadWhen } from '@/lib/inbox-page-model'
@@ -110,7 +111,7 @@ describe('inbox page model', () => {
   })
 
   it('names a skipped file by the day of the earlier upload and ignores a bad timestamp', () => {
-    const heading = formatUploadWhen(EARLIER, NOW).heading
+    const sentence = formatUploadWhen(EARLIER, NOW).sentence
     const dated = batch({
       sessionId: 'session_skip',
       uploadedAt: '2026-10-23T12:00:00.000Z',
@@ -131,8 +132,47 @@ describe('inbox page model', () => {
       },
     })
     render(<InboxScreen model={show([dated], 'session_skip')} />)
-    expect(screen.getByText(`Uploaded before, in your ${heading} upload · skipped`)).toBeInTheDocument()
+    expect(screen.getByText(`Uploaded before, in your ${sentence} upload · skipped`)).toBeInTheDocument()
     expect(screen.getByText('Uploaded before · skipped')).toBeInTheDocument()
+  })
+
+  it('uses a sentence for a skip from earlier today and keeps Today on the card title', () => {
+    const earlierToday = new Date(NOW.getTime() - 3 * 60 * 60 * 1000).toISOString()
+    const when = formatUploadWhen(earlierToday, NOW)
+    const upload = batch({
+      sessionId: 'session_today',
+      uploadedAt: NOW.toISOString(),
+      screenshots: [shot({ sourceId: 'src_new', createdPlaceIds: ['p_new'] })],
+      rows: {
+        toReview: {
+          placeIds: ['p_new'],
+          sourceIds: ['src_new'],
+          places: [place({ id: 'p_new', name: 'Still New', status: 'inbox' })],
+          checkCount: null,
+        },
+        uploadedBefore: {
+          items: [{
+            originalName: 'again.jpg',
+            duplicateOfSourceId: 'src_old',
+            duplicateOfSessionId: 'session_old',
+            duplicateOfUploadedAt: earlierToday,
+          }],
+        },
+      },
+    })
+    const card = formatUploadWhen(NOW.toISOString(), NOW)
+    const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    render(<InboxScreen model={show([upload])} />)
+    expect(when.today).toBe(true)
+    expect(when.sentence).toBeTruthy()
+    expect(card.heading.startsWith('Today,')).toBe(true)
+    expect(screen.getByRole('heading', { name: new RegExp(escapeRegExp(card.heading)) })).toBeInTheDocument()
+    expect(screen.getByText(`again.jpg was already in your ${when.sentence} upload, so we skipped it.`)).toBeInTheDocument()
+    expect(screen.queryByText(new RegExp(`your ${escapeRegExp(when.heading)} upload`))).not.toBeInTheDocument()
+
+    render(<InboxScreen model={show([upload], 'session_today')} />)
+    expect(screen.getByRole('heading', { name: card.heading })).toBeInTheDocument()
+    expect(screen.getByText(`Uploaded before, in your ${when.sentence} upload · skipped`)).toBeInTheDocument()
   })
 
   it('captions reading tiles from place status and counts skips, stalls, and cancellations', () => {
@@ -201,6 +241,38 @@ describe('inbox page model', () => {
     expect(screen.getByText('1 place added to your Library')).toBeInTheDocument()
   })
 
+  it('counts a place saved from this upload apart from a library match', () => {
+    const still = place({ id: 'p_new', name: 'Still New', status: 'inbox', sourceIds: ['src_partial'] })
+    const saved = place({ id: 'p_saved', name: 'Saved Here', status: 'library', sourceIds: ['src_partial', 'src_both'] })
+    const matched = place({ id: 'p_match', name: 'Already Had', status: 'library', sourceIds: ['src_both'] })
+    const upload = batch({
+      sessionId: 'session_mix',
+      uploadedAt: EARLIER,
+      screenshots: [
+        shot({ sourceId: 'src_partial', createdPlaceIds: ['p_new', 'p_saved'] }),
+        shot({ sourceId: 'src_both', createdPlaceIds: ['p_saved'], linkedPlaceIds: ['p_match'] }),
+      ],
+      rows: {
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_partial'], places: [still], checkCount: null },
+        added: { placeIds: ['p_saved'], sourceIds: ['src_partial', 'src_both'], places: [saved] },
+        alreadyInLibrary: { placeIds: ['p_match'], sourceIds: ['src_both'], places: [matched] },
+      },
+    })
+    render(<InboxScreen model={show([upload], 'session_mix')} />)
+    expect(screen.getByText('1 new place to review · 1 place added to your Library')).toBeInTheDocument()
+    const mixed = '1 place added to your Library · 1 place already in your Library · this screenshot was added to them'
+    expect(screen.getByText(mixed)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Added to your Library 1' }))
+    expect(screen.getByText(mixed)).toBeInTheDocument()
+    expect(screen.queryByText('Still New')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Matched your Library 1' }))
+    expect(screen.getByText(mixed)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '✓ Saved Here' })).toBeInTheDocument()
+    expect(screen.queryByText('Still New')).not.toBeInTheDocument()
+  })
+
   it('says today on the caught-up library link only for an upload from today', () => {
     const saved = place({ id: 'p_saved', name: 'Plaza', status: 'library' })
     const older = batch({
@@ -229,5 +301,34 @@ describe('inbox page model', () => {
       />
     )
     expect(screen.getByRole('heading', { name: formatUploadWhen(uploadedAt, new Date()).heading })).toBeInTheDocument()
+  })
+
+  it('renders the inbox on the server without deciding today or the clock', () => {
+    const upload = batch({
+      sessionId: 'session_now',
+      uploadedAt: new Date().toISOString(),
+      screenshots: [shot({ sourceId: 'src', name: 'coro.jpg', createdPlaceIds: ['p1'] })],
+      newPlaces: 1,
+      placesRead: 1,
+      rows: {
+        toReview: {
+          placeIds: ['p1'],
+          sourceIds: ['src'],
+          places: [place({ id: 'p1', name: 'Medanos de Coro', status: 'inbox' })],
+          checkCount: null,
+        },
+      },
+    })
+    const html = renderToString(
+      <InboxPageClient
+        uploads={[upload]}
+        toReviewPlaceIds={['p1']}
+        addedAnotherWay={[]}
+      />
+    )
+    expect(html).toContain('Medanos de Coro')
+    expect(html).toContain('Review 1 place')
+    expect(html).not.toContain('Today,')
+    expect(html).not.toMatch(/\b\d{1,2}:\d{2}\b/)
   })
 })

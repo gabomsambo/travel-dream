@@ -337,7 +337,7 @@ function HomeView({ model }: { model: Extract<InboxScreenModel, { view: 'home' }
               >
                 <ThumbStrip thumbs={line.thumbs} variant="mini" />
                 <p className="text-sm text-muted-foreground">
-                  <span className="font-semibold text-foreground">{line.when} · {pluralScreenshots(line.screenshotCount)}</span>
+                  <span className="font-semibold text-foreground">{line.when ? `${line.when} · ` : ''}{pluralScreenshots(line.screenshotCount)}</span>
                   {' · '}
                   {line.summary}
                 </p>

@@ -114,6 +114,7 @@ export function Header() {
           <Button
             size="sm"
             className="gap-2 px-2 sm:px-3"
+            aria-label="Upload"
             onClick={() => openUploadSheet()}
           >
             <Upload className="h-4 w-4" />

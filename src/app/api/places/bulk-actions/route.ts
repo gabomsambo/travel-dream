@@ -166,7 +166,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (isPartialSuccess) {
-      const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : 'deleted';
+      const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : action === 'return-to-inbox' ? 'returned to the Inbox' : 'deleted';
       return NextResponse.json(
         {
           status: 'partial_success',
@@ -179,7 +179,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Full success
-    const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : 'permanently deleted';
+    const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : action === 'return-to-inbox' ? 'returned to the Inbox' : 'permanently deleted';
     return NextResponse.json(
       {
         status: 'success',

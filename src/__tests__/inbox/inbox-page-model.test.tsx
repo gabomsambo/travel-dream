@@ -57,6 +57,7 @@ function batch(
     newPlaces: 0,
     screenshots: [],
     outcomeDerived: false,
+    dismissedCount: 0,
     ...rest,
     rows: { ...emptyRows(), ...rowOverrides },
   }
@@ -419,7 +420,7 @@ describe('inbox page model', () => {
         },
         couldNotRead: {
           sourceIds: ['src_stalled'],
-          items: [{ sourceId: 'src_stalled', status: 'stalled', error: 'hold' }],
+          items: [{ sourceId: 'src_stalled', status: 'stalled', error: 'hold', attempts: 0 }],
         },
         stillReading: { sourceIds: ['src_wait'] },
         cancelled: { sourceIds: ['src_cancelled'] },

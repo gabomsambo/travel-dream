@@ -1,15 +1,26 @@
 /**
  * Turns `GET /api/inbox/uploads` plus hand-added inbox places into the Inbox
  * page: the hero, one card per open upload, earlier one-liners, and the
- * per-screenshot detail. No I/O. Later PRs wire Try again, Dismiss, Add by
- * hand, and "Add the N that look right"; this model leaves those unwired.
+ * per-screenshot detail. No I/O. Try again, Dismiss, and Add by hand are intents
+ * the client performs. "Add the N that look right" is a later change.
  */
 import { compareReviewRank, rankingSource, type ReviewRankKey } from '@/lib/review-order';
 import type {
+  InboxHandAdd,
   InboxUploadBatch,
   InboxUploadPlace,
   InboxUploadScreenshot,
 } from '@/types/inbox-uploads';
+
+/** One screenshot a row action can retry, dismiss, or turn into a place. */
+export interface InboxShotRef {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  handAdd: InboxHandAdd | null;
+  error?: string;
+  attempts?: number;
+}
 
 export interface InboxThumb {
   src: string;
@@ -21,6 +32,10 @@ export interface InboxAction {
   href?: string;
   disabled?: boolean;
   warn?: boolean;
+  intent?: 'retry' | 'dismiss' | 'add-by-hand';
+  shots?: InboxShotRef[];
+  /** "Today, 3:13 PM upload" on the couldn't-read sheet. */
+  uploadLabel?: string;
 }
 
 export type InboxRowTone = 'new' | 'ok' | 'info' | 'quiet' | 'check';
@@ -394,14 +409,48 @@ function seeThemHref(places: Array<{ id: string }>): string {
   return '/library';
 }
 
-function placeholderActions(kind: 'noPlace' | 'failed'): InboxAction[] {
-  if (kind === 'noPlace') {
-    return [
-      { label: 'Add by hand', disabled: true },
-      { label: 'Dismiss', disabled: true },
-    ];
-  }
-  return [{ label: 'Try again', disabled: true, warn: true }];
+function uploadLabel(batch: InboxUploadBatch, now: Date | null): string {
+  const heading = formatUploadWhen(batch.uploadedAt, now).heading;
+  return heading ? `${heading} upload` : 'This upload';
+}
+
+function shotRef(
+  batch: InboxUploadBatch,
+  sourceId: string,
+  extra?: { error?: string; attempts?: number }
+): InboxShotRef {
+  const shot = batch.screenshots.find((row) => row.sourceId === sourceId);
+  return {
+    id: sourceId,
+    name: shot?.name ?? 'Screenshot',
+    imageUrl: shot?.imageUrl ?? null,
+    handAdd: shot?.handAdd ?? null,
+    error: extra?.error,
+    attempts: extra?.attempts,
+  };
+}
+
+function noPlaceActions(batch: InboxUploadBatch): InboxAction[] {
+  const shots = batch.rows.noPlaceFound.sourceIds.map((id) => shotRef(batch, id));
+  return [
+    { label: 'Add by hand', intent: 'add-by-hand', shots },
+    { label: 'Dismiss', intent: 'dismiss', shots },
+  ];
+}
+
+function retryActions(batch: InboxUploadBatch, now: Date | null, sourceIds: string[]): InboxAction[] {
+  const byId = new Map(batch.rows.couldNotRead.items.map((item) => [item.sourceId, item]));
+  const shots = sourceIds.map((id) => {
+    const item = byId.get(id);
+    return shotRef(batch, id, { error: item?.error, attempts: item?.attempts });
+  });
+  return [{
+    label: 'Try again',
+    intent: 'retry',
+    warn: true,
+    shots,
+    uploadLabel: uploadLabel(batch, now),
+  }];
 }
 
 function outcomeRows(batch: InboxUploadBatch, now: Date | null): InboxOutcomeRow[] {
@@ -493,7 +542,7 @@ function outcomeRows(batch: InboxUploadBatch, now: Date | null): InboxOutcomeRow
       count: names.length,
       label: 'no place found',
       detail: joinDots(names, 4),
-      actions: placeholderActions('noPlace'),
+      actions: noPlaceActions(batch),
     });
   }
 
@@ -504,7 +553,7 @@ function outcomeRows(batch: InboxUploadBatch, now: Date | null): InboxOutcomeRow
       count: failed.length,
       label: "couldn't be read",
       detail: failed.map((item) => `${sourceName(batch, item.sourceId)} · ${item.error}`).join(' '),
-      actions: placeholderActions('failed'),
+      actions: retryActions(batch, now, failed.map((item) => item.sourceId)),
     });
   }
 
@@ -591,6 +640,7 @@ function earlierSummary(batch: InboxUploadBatch): string {
   const failed = batch.rows.couldNotRead.items.filter((item) => item.status === 'failed').length;
   const stalled = batch.rows.couldNotRead.items.filter((item) => item.status === 'stalled').length;
   const cancelled = batch.rows.cancelled.sourceIds.length;
+  const dismissed = batch.dismissedCount ?? 0;
   if (added > 0) bits.push(`${added} added`);
   if (archived > 0) bits.push(`${archived} not a place`);
   if (matched > 0) bits.push(`${matched} already in your Library`);
@@ -599,6 +649,7 @@ function earlierSummary(batch: InboxUploadBatch): string {
   if (failed > 0) bits.push(`${failed} couldn't be read`);
   if (stalled > 0) bits.push(`${stalled} still trying`);
   if (cancelled > 0) bits.push(`${cancelled} cancelled`);
+  if (dismissed > 0) bits.push(`${dismissed} dismissed`);
   return bits.length > 0 ? bits.join(' · ') : 'nothing saved';
 }
 
@@ -813,18 +864,24 @@ function shotLine(kind: InboxShotKind, shot: InboxUploadScreenshot, places: Inbo
   return `${plural(places.filter((place) => place.status === 'library').length, 'place')} added to your Library`;
 }
 
-function shotActions(kind: InboxShotKind, shot: InboxUploadScreenshot, places: InboxUploadPlace[], batch: InboxUploadBatch): InboxAction[] {
+function shotActions(
+  kind: InboxShotKind,
+  shot: InboxUploadScreenshot,
+  places: InboxUploadPlace[],
+  batch: InboxUploadBatch,
+  now: Date | null
+): InboxAction[] {
   if (kind === 'new') {
     return [{ label: 'Review', href: reviewHref(firstInboxOnScreenshot(places, batch.screenshots), batch.sessionId) }];
   }
   if (kind === 'library' || kind === 'added') {
     return [{ label: 'See them', href: seeThemHref(places.filter((place) => place.status === 'library')) }];
   }
-  if (kind === 'noPlace') return placeholderActions('noPlace');
+  if (kind === 'noPlace') return noPlaceActions({ ...batch, rows: { ...batch.rows, noPlaceFound: { sourceIds: [shot.sourceId] } } });
   if (kind === 'unreadable') {
     const item = batch.rows.couldNotRead.items.find((row) => row.sourceId === shot.sourceId);
     if (item?.status === 'stalled') return [];
-    return placeholderActions('failed');
+    return retryActions(batch, now, [shot.sourceId]);
   }
   return [];
 }
@@ -852,7 +909,7 @@ function detailRows(batch: InboxUploadBatch, now: Date | null): InboxShotRow[] {
         name: place.name,
         inLibrary: place.status === 'library',
       })),
-      actions: shotActions(kind, shot, places, batch),
+      actions: shotActions(kind, shot, places, batch, now),
     };
   });
   batch.rows.uploadedBefore.items.forEach((item, index) => {
@@ -905,6 +962,7 @@ function detailSubtitle(batch: InboxUploadBatch): string {
   const reading = batch.rows.stillReading.sourceIds.length;
   const archived = batch.rows.notAPlace.places.length;
   const cancelled = batch.rows.cancelled.sourceIds.length;
+  const dismissed = batch.dismissedCount ?? 0;
   if (fresh > 0) parts.push(plural(fresh, 'new place', 'new places'));
   if (matched > 0) parts.push(`${matched} already in your Library`);
   if (added > 0) parts.push(`${added} added`);
@@ -915,6 +973,7 @@ function detailSubtitle(batch: InboxUploadBatch): string {
   if (stalled > 0) parts.push(`${stalled} still trying`);
   if (reading > 0) parts.push(`${reading} still reading`);
   if (cancelled > 0) parts.push(`${cancelled} cancelled`);
+  if (dismissed > 0) parts.push(`${dismissed} dismissed`);
   return parts.join(' · ');
 }
 

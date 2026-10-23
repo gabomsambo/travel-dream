@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -22,13 +22,32 @@ import { KindSelector } from './kind-selector'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui-v2/collapsible'
 import { ChevronDown, ChevronUp, X, Loader2, AlertTriangle } from 'lucide-react'
 import { notify } from '@/lib/notify'
-import type { PlaceKind, Place } from '@/types/database'
+import { PLACE_KINDS, type PlaceKind, type Place } from '@/types/database'
 import type { LocationData } from '@/hooks/use-google-places'
+
+export interface AddPlaceSeed {
+  name?: string
+  kind?: string | null
+  city?: string | null
+  country?: string | null
+  admin?: string | null
+  description?: string | null
+  /** Screenshot file name, shown above the form. Not saved onto the place. */
+  sourceLabel?: string
+}
 
 interface AddPlaceDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onPlaceCreated?: (place: Place) => void
+  /** What the screenshot's cached read already knew. Applied each time the dialog opens. */
+  seed?: AddPlaceSeed
+}
+
+function seedKind(kind: string | null | undefined): PlaceKind {
+  return typeof kind === 'string' && (PLACE_KINDS as readonly string[]).includes(kind)
+    ? (kind as PlaceKind)
+    : initialFormData.kind
 }
 
 interface AddPlaceFormData {
@@ -65,7 +84,7 @@ const initialFormData: AddPlaceFormData = {
   amenities: [],
 }
 
-export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceDialogProps) {
+export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated, seed }: AddPlaceDialogProps) {
   const [formData, setFormData] = useState<AddPlaceFormData>(initialFormData)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showMoreFields, setShowMoreFields] = useState(false)
@@ -82,6 +101,31 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
   const [activityInput, setActivityInput] = useState('')
   const [cuisineInput, setCuisineInput] = useState('')
   const [amenityInput, setAmenityInput] = useState('')
+  const seedRef = useRef(seed)
+  seedRef.current = seed
+
+  useEffect(() => {
+    if (!open) return
+    const next = seedRef.current
+    setFormData({
+      ...initialFormData,
+      name: next?.name ?? '',
+      kind: seedKind(next?.kind),
+      description: next?.description ?? '',
+      city: next?.city ?? '',
+      admin: next?.admin ?? '',
+      country: next?.country ?? '',
+    })
+    setTagInput('')
+    setVibeInput('')
+    setActivityInput('')
+    setCuisineInput('')
+    setAmenityInput('')
+    setShowMoreFields(false)
+    setDuplicateWarning(null)
+    setNameError(null)
+    setSubmitError(null)
+  }, [open])
 
   const checkForDuplicates = useCallback(async (name: string, city: string) => {
     if (!name || name.length < 3) {
@@ -259,7 +303,9 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated }: AddPlaceD
         <DialogHeader>
           <DialogTitle>Add New Place</DialogTitle>
           <DialogDescription>
-            Add a place to your travel collection manually
+            {seed?.sourceLabel
+              ? `From ${seed.sourceLabel}. Type the name and we'll find it on the map.`
+              : 'Add a place to your travel collection manually'}
           </DialogDescription>
         </DialogHeader>
 

@@ -159,9 +159,9 @@ describe('inbox page', () => {
 
     expect(screen.queryByText(/that look right/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Add by hand' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Add by hand' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeEnabled();
 
     const reviewAll = screen.getAllByRole('link', { name: 'Review 1 place' });
     for (const link of reviewAll) {
@@ -197,7 +197,7 @@ describe('inbox page', () => {
     expect(screen.getByText('IMG_3024.jpg')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Medanos de Coro' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Review' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add by hand' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add by hand' })).toBeEnabled();
     expect(screen.queryByRole('link', { name: /that look right/i })).not.toBeInTheDocument();
   });
 

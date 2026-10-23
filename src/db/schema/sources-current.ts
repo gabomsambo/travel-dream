@@ -69,6 +69,10 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
         }>;
       };
     };
+    // Set when the Inbox hides this screenshot. The file stays; nothing is deleted.
+    inbox?: {
+      dismissedAt?: string;
+    };
     llmProcessing?: {
       processed: boolean;
       model: string;

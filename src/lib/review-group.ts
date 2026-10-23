@@ -115,28 +115,12 @@ export function groupCountLabel(count: number, cities: Array<string | null | und
   return `${count} ${placeWord}`
 }
 
-function cityMentionedIn(tripName: string, city: string): boolean {
-  const name = tripName.toLowerCase()
-  const needle = city.toLowerCase()
-  if (!needle) return false
-  let from = 0
-  while (from < name.length) {
-    const at = name.indexOf(needle, from)
-    if (at < 0) return false
-    const before = at === 0 || /[\s,./\-–—]/.test(name[at - 1] ?? '')
-    const afterIndex = at + needle.length
-    const after = afterIndex >= name.length || /[\s,./\-–—]/.test(name[afterIndex] ?? '')
-    if (before && after) return true
-    from = at + 1
-  }
-  return false
-}
-
 /**
  * The trip to suggest for these places, or null when nothing matches.
  * A single city has to be the strict majority (a tie suggests nothing).
- * A trip matches when its places are already in that city, or its name
- * contains the city on its own. The trip with more places there wins.
+ * Each place already in a trip counts once, trimmed and case-folded.
+ * The trip with the most places in that city wins, then the trip name.
+ * A trip with none is not suggested.
  */
 export function suggestBatchTrip(
   trips: BatchTripCandidate[],
@@ -167,12 +151,11 @@ export function suggestBatchTrip(
 
   const scored = trips.flatMap((trip) => {
     const inCity = trip.cities.filter((candidate) => candidate.trim().toLowerCase() === city).length
-    const nameHit = cityMentionedIn(trip.name, city) ? 1 : 0
-    if (inCity === 0 && nameHit === 0) return []
-    return [{ id: trip.id, inCity, nameHit }]
+    if (inCity === 0) return []
+    return [{ id: trip.id, name: trip.name, inCity }]
   })
   if (scored.length === 0) return null
-  scored.sort((a, b) => b.inCity - a.inCity || b.nameHit - a.nameHit || a.id.localeCompare(b.id))
+  scored.sort((a, b) => b.inCity - a.inCity || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
   return scored[0]?.id ?? null
 }
 

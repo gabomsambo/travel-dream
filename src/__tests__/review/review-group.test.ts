@@ -84,12 +84,37 @@ describe('batch trip suggestion', () => {
     { id: 'col_name_only', name: 'Ica desert', cities: [] },
   ]
 
-  it('suggests the trip whose places share the city, and nothing on a tie or a miss', () => {
+  it('suggests the trip whose places share the city, and nothing on a tie, a miss, or a name alone', () => {
     expect(suggestBatchTrip(trips, ['London', 'London', null])).toBe('col_london')
-    expect(suggestBatchTrip(trips, ['Ica'])).toBe('col_name_only')
+    expect(suggestBatchTrip(trips, ['Ica'])).toBeNull()
     expect(suggestBatchTrip(trips, ['London', 'Tromsø'])).toBeNull()
     expect(suggestBatchTrip(trips, [null, null])).toBeNull()
     expect(suggestBatchTrip(trips, ['Paris'])).toBeNull()
+    expect(suggestBatchTrip(
+      [{ id: 'col_name', name: 'London long weekend', cities: [] }],
+      ['London'],
+    )).toBeNull()
+  })
+
+  it('counts one city per place, so three Londons beat a one-place London long weekend', () => {
+    expect(suggestBatchTrip([
+      { id: 'col_weekend', name: 'London long weekend', cities: ['London'] },
+      { id: 'col_more', name: 'Spring notes', cities: ['London', 'London', 'London'] },
+    ], ['London'])).toBe('col_more')
+  })
+
+  it('folds city case and space, so mixed London spellings do not outrank a larger trip', () => {
+    expect(suggestBatchTrip([
+      { id: 'col_mixed', name: 'Aaa mixed', cities: ['London', 'london'] },
+      { id: 'col_same', name: 'Zzz same', cities: ['London', 'London', ' London '] },
+    ], ['London'])).toBe('col_same')
+  })
+
+  it('breaks an equal place count by trip name', () => {
+    expect(suggestBatchTrip([
+      { id: 'col_z', name: 'Alpha', cities: ['London', 'London'] },
+      { id: 'col_a', name: 'Zebra', cities: ['London', 'london'] },
+    ], ['London'])).toBe('col_z')
   })
 
   it('does not match a city that is only part of another word', () => {

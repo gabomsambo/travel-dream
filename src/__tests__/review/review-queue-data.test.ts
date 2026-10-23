@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { ALICE, BOB, assertLocalDatabase, resetTenantFixture } from '../helpers/tenant-fixture'
+import { suggestBatchTrip } from '@/lib/review-group'
 import { loadReviewPostcard, loadReviewQueue } from '@/lib/review-queue'
 
 type Exec = (query: { sql: string; args: unknown[] }) => Promise<unknown>
@@ -362,5 +363,65 @@ describe('loadReviewQueue with real SQLite data', () => {
     expect(london).toMatchObject({ name: 'London long weekend', cities: ['London'] })
     expect(queue.trips.map((trip) => trip.id)).not.toContain('col_bob')
     expect(JSON.stringify(queue.trips)).not.toContain('Bob')
+  })
+
+  it('ranks a batch trip by how many places it already holds in the city', async () => {
+    const execute = dbExec()
+    const now = '2026-10-20T00:00:00.000Z'
+    const insertPlace = (id: string, name: string, city: string) => execute({
+      sql: `INSERT INTO places (id,user_id,name,kind,status,city,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+      args: [id, ALICE.id, name, 'cafe', 'library', city, now, now],
+    })
+    const insertTrip = (id: string, name: string) => execute({
+      sql: `INSERT INTO collections (id,user_id,name,created_at,updated_at) VALUES (?,?,?,?,?)`,
+      args: [id, ALICE.id, name, now, now],
+    })
+    const link = (placeId: string, collectionId: string, order: number) => execute({
+      sql: `INSERT INTO places_to_collections (place_id,collection_id,order_index,is_pinned) VALUES (?,?,?,?)`,
+      args: [placeId, collectionId, order, 0],
+    })
+
+    await insertPlace('plc_rank_one', 'One London', 'London')
+    await insertPlace('plc_rank_a', 'London A', 'London')
+    await insertPlace('plc_rank_b', 'London B', 'London')
+    await insertPlace('plc_rank_c', 'London C', 'London')
+    await insertPlace('plc_rank_mix_1', 'Mixed upper', 'London')
+    await insertPlace('plc_rank_mix_2', 'Mixed lower', 'london')
+    await insertPlace('plc_rank_case_a', 'Cased A', 'London')
+    await insertPlace('plc_rank_case_b', 'Cased B', 'London')
+    await insertPlace('plc_rank_case_c', 'Cased C', 'London')
+    await insertTrip('col_rank_weekend', 'London long weekend')
+    await insertTrip('col_rank_many', 'Spring notes')
+    await insertTrip('col_rank_mixed', 'Aaa mixed')
+    await insertTrip('col_rank_same', 'Zzz same')
+    await link('plc_rank_one', 'col_rank_weekend', 0)
+    await link('plc_rank_a', 'col_rank_many', 0)
+    await link('plc_rank_b', 'col_rank_many', 1)
+    await link('plc_rank_c', 'col_rank_many', 2)
+    await link('plc_rank_mix_1', 'col_rank_mixed', 0)
+    await link('plc_rank_mix_2', 'col_rank_mixed', 1)
+    await link('plc_rank_case_a', 'col_rank_same', 0)
+    await link('plc_rank_case_b', 'col_rank_same', 1)
+    await link('plc_rank_case_c', 'col_rank_same', 2)
+
+    const queue = await loadReviewQueue(ALICE.id)
+    const candidate = (id: string) => {
+      const trip = queue.trips.find((item) => item.id === id)
+      if (!trip) throw new Error(`missing trip ${id}`)
+      return { id: trip.id, name: trip.name, cities: trip.cities }
+    }
+    const weekend = candidate('col_rank_weekend')
+    const many = candidate('col_rank_many')
+    const mixed = candidate('col_rank_mixed')
+    const same = candidate('col_rank_same')
+
+    expect(many.cities.filter((city) => city.trim().toLowerCase() === 'london')).toHaveLength(3)
+    expect(weekend.cities).toEqual(['London'])
+    expect(suggestBatchTrip([weekend, many], ['London'])).toBe('col_rank_many')
+
+    expect(mixed.cities).toEqual(expect.arrayContaining(['London', 'london']))
+    expect(mixed.cities).toHaveLength(2)
+    expect(same.cities.filter((city) => city.trim().toLowerCase() === 'london')).toHaveLength(3)
+    expect(suggestBatchTrip([mixed, same], ['London'])).toBe('col_rank_same')
   })
 })

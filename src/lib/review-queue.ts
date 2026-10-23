@@ -35,7 +35,7 @@ export interface ReviewQueueEntry {
   hasPin: boolean
 }
 
-/** A trip the batch can file into, plus the cities of places already in it. */
+/** A trip the batch can file into. `cities` lists one city per member place that has one. */
 export interface ReviewTrip extends ExploreCollection {
   cities: string[]
 }
@@ -321,11 +321,10 @@ async function loadReviewTrips(userId: string): Promise<ReviewTrip[]> {
   const cityByPlace = new Map(rows.map((row) => [row.id, row.city]))
   return trips.map((trip) => ({
     ...trip,
-    cities: [...new Set(
-      trip.placeIds
-        .map((placeId) => cityByPlace.get(placeId))
-        .filter((city): city is string => Boolean(city)),
-    )],
+    cities: trip.placeIds.flatMap((placeId) => {
+      const city = cityByPlace.get(placeId)?.trim()
+      return city ? [city] : []
+    }),
   }))
 }
 

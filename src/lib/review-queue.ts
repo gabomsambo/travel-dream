@@ -77,10 +77,17 @@ interface ScreenshotCandidate {
   id: string
   type: string
   createdAt: string
+  sessionId?: string | null
 }
 
-function screenshotSource<T extends ScreenshotCandidate>(placeSources: T[]): T | null {
-  const ordered = [...placeSources].sort((a, b) =>
+function screenshotSource<T extends ScreenshotCandidate>(
+  placeSources: T[],
+  uploadSessionId?: string,
+): T | null {
+  const pool = uploadSessionId
+    ? placeSources.filter((source) => source.sessionId === uploadSessionId)
+    : placeSources
+  const ordered = [...pool].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)
   )
   return ordered.find((source) => source.type === 'screenshot') ?? ordered[0] ?? null
@@ -177,7 +184,7 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
   return inbox.flatMap((row) => {
     const placeSources = sourcesByPlace.get(row.id) ?? []
     if (uploadSessionId && !placeSources.some((source) => source.sessionId === uploadSessionId)) return []
-    const source = screenshotSource(placeSources)
+    const source = screenshotSource(placeSources, uploadSessionId)
     const name = sourceName(source)
     return [{
       placeId: row.id,

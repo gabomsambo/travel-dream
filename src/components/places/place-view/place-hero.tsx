@@ -184,6 +184,7 @@ export function PlaceHero({
             onDeleted={onDeleted}
             onRestored={onRestored}
             blockRestore={blockRestore}
+            blockWrites={blockWrites}
           />
         </div>
 

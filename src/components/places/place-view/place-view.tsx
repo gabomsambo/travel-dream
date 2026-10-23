@@ -114,6 +114,7 @@ function PlaceColumns({
   onStatusChange,
   onTripsChanged,
   onOpenPhoto,
+  blockWrites = false,
 }: {
   place: PlaceWithRelations
   displayPlace: PlaceWithRelations
@@ -123,6 +124,7 @@ function PlaceColumns({
   onStatusChange: (next: VisitStatus) => void
   onTripsChanged: () => void
   onOpenPhoto: (index: number) => void
+  blockWrites?: boolean
 }) {
   const api = useSectionEdit()
   const editing = Boolean(api?.editingAll)
@@ -152,7 +154,7 @@ function PlaceColumns({
       <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1" aria-label="Plan and practical details">
         <div className="space-y-4 lg:sticky lg:top-6">
           <SectionSlot id="plan" shown>
-            <YourPlan place={shownPlace} onEdit={onEdit} onStatusChange={onStatusChange} trips={trips} onTripsChanged={onTripsChanged} />
+            <YourPlan place={shownPlace} onEdit={onEdit} onStatusChange={onStatusChange} trips={trips} onTripsChanged={onTripsChanged} blockWrites={blockWrites} />
           </SectionSlot>
           <SectionSlot id="ground" shown>
             <OnTheGround place={shownPlace} onEdit={onEdit} />
@@ -305,6 +307,7 @@ export function PlaceView({
   }, [handlesRef, flushStatus, displayPlace])
 
   const setVisitStatus = (next: VisitStatus) => {
+    if (blockWrites) return
     const displayed = (displayPlace.visitStatus as VisitStatus | null) ?? "not_visited"
     if (next === displayed) return
     latestSelectionRef.current = next
@@ -334,11 +337,12 @@ export function PlaceView({
         onStatusChange={setVisitStatus}
         onTripsChanged={() => router.refresh()}
         onOpenPhoto={setLightbox}
+        blockWrites={blockWrites}
       />
 
       {place.city && <AlsoInCity city={place.city} places={alsoIn} />}
 
-      {showMobileActionBar && <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} />}
+      {showMobileActionBar && <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} blockWrites={blockWrites} />}
 
       {photos.length > 0 && (
         <PhotoLightbox photos={photos} open={lightbox !== null} index={lightbox ?? 0} onClose={() => setLightbox(null)} />

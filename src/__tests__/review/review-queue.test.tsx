@@ -1356,4 +1356,154 @@ describe('Review duplicate note', () => {
     expect(mockPush).not.toHaveBeenCalled()
     expect(mockRefresh).not.toHaveBeenCalled()
   })
+
+  it('does not undo an add while merge is in flight', async () => {
+    const user = userEvent.setup()
+    let releaseMerge: (response: Response) => void = () => {}
+    const mergeGate = new Promise<Response>((resolve) => {
+      releaseMerge = resolve
+    })
+    const previous = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input)
+      const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
+      if (url === '/api/places/bulk-merge' && method === 'POST') return mergeGate
+      if (!previous) return jsonResponse({ status: 'success' })
+      return previous(input, init)
+    })
+    const patchBodies = () => patchCalls().map((call) => String((call[1] as { body?: string } | undefined)?.body))
+
+    renderQueue()
+    await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library'))
+    const addToast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Added'))
+    const undo = (addToast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    const mergeButton = await screen.findByRole('button', { name: 'Merge into Fjellheisen' })
+
+    await act(async () => {
+      mergeButton.click()
+      undo?.({} as React.MouseEvent<HTMLButtonElement>)
+    })
+    expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(1)
+    expect(patchBodies()).toEqual([JSON.stringify({ status: 'library' })])
+
+    await act(async () => {
+      releaseMerge(jsonResponse({
+        status: 'success',
+        success: 1,
+        results: [{ status: 'success', mergeLogId: 'mrg_race' }],
+      }))
+      await mergeGate
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(patchBodies()).toEqual([JSON.stringify({ status: 'library' })])
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText('1 merged into Fjellheisen.')).toBeInTheDocument())
+    expect(screen.getByText('added to Library').previousElementSibling).toHaveTextContent('0')
+  })
+
+  it('does not merge while an add undo is in flight', async () => {
+    const user = userEvent.setup()
+    let releaseUndo: (response: Response) => void = () => {}
+    const undoGate = new Promise<Response>((resolve) => {
+      releaseUndo = resolve
+    })
+    const previous = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input)
+      const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
+      if (method === 'PATCH') {
+        const body = JSON.parse(String((init as { body?: string }).body)) as { status?: string }
+        if (body.status === 'inbox') return undoGate
+      }
+      if (!previous) return jsonResponse({ status: 'success' })
+      return previous(input, init)
+    })
+    const patchBodies = () => patchCalls().map((call) => String((call[1] as { body?: string } | undefined)?.body))
+
+    renderQueue()
+    await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library'))
+    const addToast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Added'))
+    const undo = (addToast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    const mergeButton = await screen.findByRole('button', { name: 'Merge into Fjellheisen' })
+
+    await act(async () => {
+      undo?.({} as React.MouseEvent<HTMLButtonElement>)
+      mergeButton.click()
+    })
+    expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(0)
+    expect(patchBodies().filter((body) => body.includes('"status":"inbox"'))).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Merge into Fjellheisen' })).toBeDisabled()
+
+    await act(async () => {
+      releaseUndo(jsonResponse({ status: 'success' }))
+      await undoGate
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'inbox'))
+    expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(0)
+    expect(patchBodies()).toEqual([
+      JSON.stringify({ status: 'library' }),
+      JSON.stringify({ status: 'inbox' }),
+    ])
+    expect(screen.getByRole('button', { name: 'Merge into Fjellheisen' })).toBeEnabled()
+  })
+
+  it('does not apply Keep both after leaving that place', async () => {
+    const user = userEvent.setup()
+    let releaseDismiss: (response: Response) => void = () => {}
+    const dismissGate = new Promise<Response>((resolve) => {
+      releaseDismiss = resolve
+    })
+    const sharedShot = {
+      sourceId: 'src_shared',
+      url: 'https://example.test/shared.jpg',
+      name: 'shared.jpg',
+      createdAt: '2026-10-18T12:00:00.000Z',
+      softCover: false,
+      siblings: [
+        { placeId: 'plc_one', name: 'One Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:01.000Z' },
+        { placeId: 'plc_two', name: 'Two Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:02.000Z' },
+      ],
+    }
+    const previous = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input)
+      const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
+      if (url === '/api/places/dismiss-duplicate' && method === 'POST') return dismissGate
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse({ ...postcardFor(row), screenshot: sharedShot })
+      }
+      if (!previous) return jsonResponse({ status: 'success' })
+      return previous(input, init)
+    })
+
+    renderQueue({
+      postcard: { ...postcardFor(placeOne), screenshot: sharedShot },
+    })
+    await user.click(await screen.findByRole('button', { name: 'Keep both' }))
+    await waitFor(() => expect(posted('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1))
+    await user.click(screen.getByRole('button', { name: /Two Cafe/ }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+
+    await act(async () => {
+      releaseDismiss(jsonResponse({
+        status: 'success',
+        inserted: [{ placeId1: 'plc_one', placeId2: 'plc_lib' }],
+      }))
+      await dismissGate
+    })
+
+    expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe')
+    expect(screen.queryByText(/stay separate/)).not.toBeInTheDocument()
+    expect(notifySuccess.mock.calls.some((call) => String(call[0]).includes('Keeping'))).toBe(false)
+    expect(posted('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0)
+  })
 })

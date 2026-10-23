@@ -381,6 +381,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   sessionRef.current = session
   const mergeResumeRef = React.useRef<Record<string, MergeResume>>({})
   const undoingMergeRef = React.useRef<Set<string>>(new Set())
+  const placeOpRef = React.useRef<Set<string>>(new Set())
+  const [placeOps, setPlaceOps] = React.useState<ReadonlySet<string>>(() => new Set())
   const decisionToastsRef = React.useRef<Record<string, Array<string | number>>>({})
   const [mergedByPlace, setMergedByPlace] = React.useState<Record<string, MergedDuplicate>>({})
   const mergedRef = React.useRef(mergedByPlace)
@@ -500,22 +502,37 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     }
   }, [uploadSessionId])
 
+  const claimPlace = React.useCallback((placeId: string) => {
+    if (placeOpRef.current.has(placeId)) return false
+    if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId]) return false
+    placeOpRef.current.add(placeId)
+    setPlaceOps(new Set(placeOpRef.current))
+    return true
+  }, [])
+
+  const releasePlace = React.useCallback((placeId: string) => {
+    if (!placeOpRef.current.delete(placeId)) return
+    setPlaceOps(new Set(placeOpRef.current))
+  }, [])
+
   const undoDecision = React.useCallback(async (
     placeId: string,
     previousOutcome: ReviewOutcome | undefined,
   ) => {
-    if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId]) return
     const entry = session.find((item) => item.placeId === placeId)
     if (!entry) return
+    if (!claimPlace(placeId)) return
     const restoreStatus = previousOutcome === 'added' || previousOutcome === 'archived'
       ? OUTCOME_STATUS[previousOutcome]
       : 'inbox'
     try {
       await setPlaceStatus(entry.placeId, restoreStatus)
       if (outcomesRef.current[entry.placeId] === 'removed') return
+      if (outcomesRef.current[entry.placeId] === 'merged' || mergedRef.current[entry.placeId]) return
       commitStatus(entry.placeId, restoreStatus)
       setOutcomes((existing) => {
         if (existing[entry.placeId] === 'removed') return existing
+        if (existing[entry.placeId] === 'merged') return existing
         if (!previousOutcome) {
           if (!(entry.placeId in existing)) return existing
           const next = { ...existing }
@@ -528,12 +545,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       notify.success(`Restored “${entry.name}” to your ${RESTORED_LABEL[restoreStatus]}`)
     } catch (undoError) {
       notify.error(undoError instanceof Error ? undoError.message : "Couldn't undo that change.")
+    } finally {
+      releasePlace(placeId)
     }
-  }, [commitStatus, session, selectPlace])
+  }, [claimPlace, commitStatus, releasePlace, session, selectPlace])
 
   const decide = React.useCallback(async (outcome: 'added' | 'archived') => {
     if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
-    if (mergedRef.current[current.placeId]) return
+    if (mergedRef.current[current.placeId] || placeOpRef.current.has(current.placeId)) return
     const placeId = current.placeId
     const previousOutcome = outcomesRef.current[placeId]
     setBusy(true)
@@ -572,7 +591,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
 
   const skip = React.useCallback(async () => {
     if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
-    if (mergedRef.current[current.placeId]) return
+    if (mergedRef.current[current.placeId] || placeOpRef.current.has(current.placeId)) return
     const placeId = current.placeId
     const previousOutcome = outcomesRef.current[placeId]
     setBusy(true)
@@ -750,7 +769,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const shot = current.postcard?.screenshot ?? null
   const queuePlaceIds = new Set(session.map((entry) => entry.placeId))
   const placeMerged = outcomes[current.placeId] === 'merged' || Boolean(mergedByPlace[current.placeId])
-  const decisionLocked = busy || placeMerged
+  const placeBusy = placeOps.has(current.placeId)
+  const decisionLocked = busy || placeMerged || placeBusy
 
   const openClassic = () => {
     const handles = viewHandlesRef.current
@@ -808,7 +828,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
                   currentPlace={current.postcard.place}
                   screenshotUrl={shot?.url ?? current.screenshotUrl}
                   merged={mergedByPlace[current.placeId] ?? null}
-                  disabled={busy}
+                  disabled={busy || placeBusy}
+                  claimPlace={claimPlace}
+                  releasePlace={releasePlace}
                   onPending={setBusy}
                   onMerged={noteMerged}
                   onMergeUndone={undoMerge}

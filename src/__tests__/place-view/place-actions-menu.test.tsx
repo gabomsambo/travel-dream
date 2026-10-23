@@ -295,4 +295,12 @@ describe('postcard menu inside Review', () => {
     expect(screen.queryByRole('button', { name: 'Find Image' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'More actions' })).toBeInTheDocument()
   })
+
+  it('does not offer Delete while a merged place must stay untouched', async () => {
+    renderHero(jest.fn(), jest.fn(), undefined, 'archived', true, true)
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.queryByRole('menuitem', { name: /Delete/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Restore to library/ })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })

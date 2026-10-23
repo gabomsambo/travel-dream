@@ -60,6 +60,8 @@ export function ReviewDuplicateNote({
   screenshotUrl,
   merged,
   disabled,
+  claimPlace,
+  releasePlace,
   onPending,
   onMerged,
   onMergeUndone,
@@ -70,10 +72,21 @@ export function ReviewDuplicateNote({
   screenshotUrl: string | null
   merged: MergedDuplicate | null
   disabled?: boolean
+  claimPlace: (placeId: string) => boolean
+  releasePlace: (placeId: string) => void
   onPending: (pending: boolean) => void
   onMerged: (merged: MergedDuplicate) => void
   onMergeUndone: (merged: MergedDuplicate) => Promise<void>
 }) {
+  const placeIdRef = React.useRef(placeId)
+  placeIdRef.current = placeId
+  const aliveRef = React.useRef(true)
+  React.useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+    }
+  }, [])
   const [match, setMatch] = React.useState<ReviewDuplicateMatch | null>(null)
   const [kept, setKept] = React.useState<{ name: string; pairs: Array<{ placeId1: string; placeId2: string }> } | null>(null)
   const [pending, setPending] = React.useState<'merge' | 'keep' | null>(null)
@@ -118,7 +131,10 @@ export function ReviewDuplicateNote({
 
   const keepBoth = async () => {
     if (!match || pending || disabled || currentPlace.status === 'archived') return
+    const requestedPlaceId = placeId
     const pairs = [{ placeId1: placeId, placeId2: match.placeId }]
+    const keptName = match.name
+    const stillThisPlace = () => aliveRef.current && placeIdRef.current === requestedPlaceId
     setPending('keep')
     onPending(true)
     try {
@@ -128,23 +144,27 @@ export function ReviewDuplicateNote({
         body: JSON.stringify({ pairs }),
       })
       if (!response.ok) throw new Error(await readError(response, "Couldn't keep both."))
+      if (!stillThisPlace()) return
       const body = await response.json().catch(() => null) as { inserted?: Array<{ placeId1: string; placeId2: string }> } | null
       const inserted = body?.inserted?.length ? body.inserted : pairs
-      setKept({ name: match.name, pairs: inserted })
-      notify.success(`Keeping ${placeName} and ${match.name} separate`, {
+      if (!stillThisPlace()) return
+      setKept({ name: keptName, pairs: inserted })
+      notify.success(`Keeping ${placeName} and ${keptName} separate`, {
         duration: 8_000,
         cancel: { label: 'Undo', onClick: () => void undoKeep(inserted) },
       })
     } catch (error) {
+      if (!stillThisPlace()) return
       notify.error(error instanceof Error ? error.message : "Couldn't keep both.")
     } finally {
-      setPending(null)
+      if (stillThisPlace()) setPending(null)
       onPending(false)
     }
   }
 
   const merge = async () => {
     if (!match || pending || disabled || currentPlace.status === 'archived') return
+    if (!claimPlace(placeId)) return
     setPending('merge')
     onPending(true)
     try {
@@ -181,6 +201,7 @@ export function ReviewDuplicateNote({
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Couldn't merge these places.")
     } finally {
+      releasePlace(placeId)
       setPending(null)
       onPending(false)
     }

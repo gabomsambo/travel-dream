@@ -41,6 +41,7 @@ export function PlaceActionsMenu({
   onDeleted,
   onRestored,
   blockRestore = false,
+  blockWrites = false,
 }: {
   placeId: string
   placeName: string
@@ -52,6 +53,7 @@ export function PlaceActionsMenu({
   onDeleted?: () => void
   onRestored?: () => void
   blockRestore?: boolean
+  blockWrites?: boolean
 }) {
   const router = useRouter()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
@@ -141,10 +143,14 @@ export function PlaceActionsMenu({
               <Archive className="mr-2 h-4 w-4" aria-hidden /> Archive
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setConfirmDelete(true)} className="text-destructive focus:text-destructive">
-            <Trash2 className="mr-2 h-4 w-4" aria-hidden /> Delete…
-          </DropdownMenuItem>
+          {!blockWrites && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setConfirmDelete(true)} className="text-destructive focus:text-destructive">
+                <Trash2 className="mr-2 h-4 w-4" aria-hidden /> Delete…
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

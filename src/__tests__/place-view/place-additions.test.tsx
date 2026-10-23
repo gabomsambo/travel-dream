@@ -1,10 +1,11 @@
 import React from 'react'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { PlaceWithRelations } from '@/types/database'
 import type { ExploreCollection, ExplorePlace } from '@/lib/explore/types'
 import { notify } from '@/lib/notify'
 import { PlacePage } from '@/components/places/place-view/place-page'
+import { PlaceView } from '@/components/places/place-view/place-view'
 import { resetHalfBuiltTripsForTests } from '@/components/places/place-view/add-to-trip-menu'
 
 const mockRefresh = jest.fn()
@@ -340,5 +341,34 @@ describe('PlacePage additions — also in {city}', () => {
 
     rerender(<PlacePage place={place} trips={trips} alsoIn={[]} />)
     expect(screen.queryByRole('heading', { name: /more save/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('PlaceView blocked writes', () => {
+  it('does not change visit status, add a trip, or delete while writes are blocked', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    render(
+      <PlaceView
+        place={{ ...place, status: 'archived' }}
+        trips={trips}
+        alsoIn={[]}
+        blockWrites
+        blockRestore
+        onEdit={() => {}}
+        onPhotoAttached={() => {}}
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: 'Add to trip' })).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Been' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('radio', { name: 'Been' }))
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Planned' }), { key: 'ArrowRight' })
+    expect(screen.getByRole('radio', { name: 'Planned' })).toBeChecked()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.queryByRole('menuitem', { name: /Delete/ })).not.toBeInTheDocument()
   })
 })

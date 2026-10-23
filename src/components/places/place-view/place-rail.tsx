@@ -19,7 +19,7 @@ const VISIT_STATUS_OPTIONS: Array<{ value: VisitStatus; label: string }> = [
   { value: "visited", label: "Been" },
 ]
 
-function VisitStatusControl({ value, onChange }: { value: VisitStatus; onChange: (next: VisitStatus) => void }) {
+function VisitStatusControl({ value, onChange, disabled = false }: { value: VisitStatus; onChange: (next: VisitStatus) => void; disabled?: boolean }) {
   const refs = React.useRef<Array<HTMLButtonElement | null>>([])
   return (
     <div role="radiogroup" aria-label="Visit status" className="mt-3 inline-flex w-full rounded-full bg-secondary p-1">
@@ -31,13 +31,17 @@ function VisitStatusControl({ value, onChange }: { value: VisitStatus; onChange:
             type="button"
             role="radio"
             aria-checked={selected}
+            disabled={disabled}
             ref={(el) => {
               refs.current[i] = el
             }}
             tabIndex={selected ? 0 : -1}
-            onClick={() => onChange(option.value)}
+            onClick={() => {
+              if (disabled) return
+              onChange(option.value)
+            }}
             onKeyDown={(event) => {
-              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+              if (disabled || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return
               event.preventDefault()
               const next = (i + (event.key === "ArrowRight" ? 1 : -1) + VISIT_STATUS_OPTIONS.length) % VISIT_STATUS_OPTIONS.length
               refs.current[next]?.focus()
@@ -152,12 +156,14 @@ export function YourPlan({
   onStatusChange,
   trips,
   onTripsChanged,
+  blockWrites = false,
 }: {
   place: PlaceWithRelations
   onEdit: () => void
   onStatusChange: (next: VisitStatus) => void
   trips: ExploreCollection[]
   onTripsChanged: () => void
+  blockWrites?: boolean
 }) {
   const status: VisitStatus = (place.visitStatus as VisitStatus) || "not_visited"
   const planned = formatDateOnly(place.plannedVisit)
@@ -175,7 +181,7 @@ export function YourPlan({
         <h2 id="place-plan" className={EYEBROW}>Your plan</h2>
         <SectionPencilSlot id="plan" />
       </div>
-      <VisitStatusControl value={status} onChange={onStatusChange} />
+      <VisitStatusControl value={status} onChange={onStatusChange} disabled={blockWrites} />
       <dl className="mt-4 space-y-3 text-sm">
         {planned && (
           <div className="flex items-center gap-3">
@@ -245,13 +251,15 @@ export function YourPlan({
             ))}
           </>
         )}
-        <AddToTripMenu
-          placeId={place.id}
-          placeName={place.name}
-          placeCity={place.city}
-          trips={trips}
-          onChanged={onTripsChanged}
-        />
+        {!blockWrites && (
+          <AddToTripMenu
+            placeId={place.id}
+            placeName={place.name}
+            placeCity={place.city}
+            trips={trips}
+            onChanged={onTripsChanged}
+          />
+        )}
       </div>
       {!hasDetails && (
         <button type="button" onClick={() => (sections ? sections.open("plan") : onEdit())} className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">

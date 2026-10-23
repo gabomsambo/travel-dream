@@ -21,6 +21,8 @@ interface FindImageButtonProps {
   className?: string;
   /** Visible label. Defaults to "Find Image". */
   label?: string;
+  /** `always` makes the attached photo the cover. Defaults to first-photo-only. */
+  primary?: 'if-first' | 'always';
 }
 
 export function FindImageButton({
@@ -34,6 +36,7 @@ export function FindImageButton({
   size,
   className,
   label,
+  primary,
 }: FindImageButtonProps) {
   const [open, setOpen] = useState(false);
 
@@ -83,6 +86,7 @@ export function FindImageButton({
         open={open}
         onOpenChange={setOpen}
         onAttached={onAttached}
+        primary={primary}
       />
     </>
   );

@@ -168,7 +168,7 @@ export function ScreenshotEvidence({
 
       {available && url && (
         <Dialog open={zoomOpen} onOpenChange={onZoomOpenChange}>
-          <DialogContent className="max-w-5xl border-0 bg-black p-2 text-white sm:rounded-2xl">
+          <DialogContent data-screenshot-zoom="" className="max-w-5xl border-0 bg-black p-2 text-white sm:rounded-2xl">
             <DialogTitle className="sr-only">Screenshot</DialogTitle>
             <ShotImage url={url} alt={`Screenshot where ${placeName} was found`} className="max-h-[85vh] w-full rounded-xl object-contain" />
           </DialogContent>

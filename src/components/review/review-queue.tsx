@@ -44,6 +44,14 @@ const RESTORED_LABEL = {
   archived: 'Archive',
 } as const
 
+function zoomKeyBlocked(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.closest('input, textarea, select, [contenteditable="true"]')) return true
+  if (target.closest('[role="combobox"], [role="listbox"], [role="menu"]')) return true
+  const dialog = target.closest('[role="dialog"], [role="alertdialog"]')
+  return Boolean(dialog && !dialog.hasAttribute('data-screenshot-zoom'))
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(
     target.closest('input, textarea, select, [contenteditable="true"], [role="combobox"], [role="dialog"], [role="alertdialog"], [role="menu"]')
@@ -556,9 +564,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-      const typingField = event.target instanceof HTMLElement
-        && Boolean(event.target.closest('input, textarea, select, [contenteditable="true"]'))
-      if (event.key.toLowerCase() === 'z' && !typingField) {
+      if (event.key.toLowerCase() === 'z') {
+        if (event.repeat || zoomKeyBlocked(event.target)) return
         event.preventDefault()
         setZoomOpen((open) => !open)
         return
@@ -640,6 +647,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
               alsoIn={current.postcard.alsoIn}
               editing={editingId === current.placeId}
               softCover={Boolean(shot?.softCover)}
+              fitReviewBar
               handlesRef={viewHandlesRef}
               onEdit={() => setEditingId(current.placeId)}
               onDoneEditing={() => {

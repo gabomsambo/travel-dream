@@ -51,6 +51,10 @@ describe('loadReviewQueue with real SQLite data', () => {
       ['att_new_1', 'plc_alice_new_1', 'photo', 'https://example.test/alice-new.jpg', 'new-list.jpg', 1],
     )
     await run(
+      `INSERT INTO attachments (id,place_id,type,uri,filename,is_primary,created_at) VALUES (?,?,?,?,?,?,?)`,
+      ['att_new_1_extra', 'plc_alice_new_1', 'photo', 'https://example.test/breakfast-extra.jpg', 'extra.jpg', 0, '2026-10-18T12:00:05.000Z'],
+    )
+    await run(
       `INSERT INTO attachments (id,place_id,type,uri,filename,is_primary) VALUES (?,?,?,?,?,?)`,
       ['att_new_2_shot', 'plc_alice_new_2', 'photo', 'https://example.test/alice-new.jpg', 'new-list.jpg', 0],
     )
@@ -89,6 +93,12 @@ describe('loadReviewQueue with real SQLite data', () => {
     expect(queue.entries.some((entry) => entry.userId === BOB.id)).toBe(false)
     expect(queue.postcard?.place.id).toBe('plc_alice_new_1')
     expect(queue.postcard?.place.sources.map((source) => source.id)).toEqual(['src_alice_new'])
+    const photos = queue.postcard?.place.attachments.filter((attachment) => attachment.type === 'photo') ?? []
+    expect(photos.map((photo) => photo.uri)).toEqual(expect.arrayContaining([
+      'https://example.test/alice-new.jpg',
+      'https://example.test/breakfast-extra.jpg',
+    ]))
+    expect(photos.find((photo) => photo.isPrimary === 1)?.uri).toBe('https://example.test/alice-new.jpg')
     expect(queue.postcard?.screenshot).toMatchObject({
       sourceId: 'src_alice_new',
       url: 'https://example.test/alice-new.jpg',
@@ -157,7 +167,7 @@ describe('loadReviewQueue with real SQLite data', () => {
     }
   })
 
-  it('treats a shared screenshot as a soft cover only when it is the only photo', async () => {
+  it('treats a shared screenshot as a soft cover only when that file is the cover', async () => {
     const withOwnPhoto = await loadReviewPostcard(ALICE.id, 'plc_alice_new_2')
     expect(withOwnPhoto?.screenshot?.softCover).toBe(false)
     expect(withOwnPhoto?.screenshot?.siblings.map((sibling) => sibling.name)).not.toContain('Bob Secret Hideaway')

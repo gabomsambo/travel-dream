@@ -1,5 +1,6 @@
 import { eq, inArray, sql } from 'drizzle-orm'
 import { places, sources, sourcesToPlaces } from '@/db/schema'
+import { coverPhoto } from '@/lib/cover-photo'
 import { getPlaceWithRelations } from '@/lib/db-queries'
 import { getExploreCollections, getExplorePlacesInCity } from '@/lib/explore/queries'
 import { forUser } from '@/lib/tenant-db'
@@ -37,8 +38,8 @@ export interface ReviewScreenshotSibling {
 
 /**
  * The screenshot beside the postcard. `siblings` is every place linked to that
- * source. `softCover` is true when this place's only photos are that shared
- * screenshot, so the hero should blur it and offer Find a photo.
+ * source. `softCover` is true when the cover photo is that shared screenshot,
+ * so the hero should blur it and offer Find a photo.
  */
 export interface ReviewScreenshot {
   sourceId: string
@@ -91,17 +92,16 @@ function nameFromSourceMeta(meta: { uploadInfo?: { originalName?: string; filena
 
 /**
  * A multi-place screenshot is a poor cover: every place would show the same
- * unreadable crop. Blur it only when that file is the place's only photo.
+ * unreadable crop. Blur it when that file is the cover — the primary photo,
+ * or the first photo when none is primary — even if other photos sit behind it.
  */
 export function isSharedScreenshotCover(
-  attachments: Array<{ type: string; uri: string }>,
+  attachments: Array<{ type: string; uri: string; isPrimary?: number | null }>,
   screenshotUrl: string,
   siblingCount: number,
 ): boolean {
   if (siblingCount < 2 || !screenshotUrl) return false
-  const photos = attachments.filter((attachment) => attachment.type === 'photo')
-  if (photos.length === 0) return false
-  return photos.every((photo) => photo.uri === screenshotUrl)
+  return coverPhoto(attachments)?.uri === screenshotUrl
 }
 
 function compareSiblings(a: ReviewScreenshotSibling, b: ReviewScreenshotSibling): number {

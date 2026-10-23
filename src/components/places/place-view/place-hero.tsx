@@ -34,6 +34,7 @@ export function PlaceHero({
   onDeleted,
   onRestored,
   softCover = false,
+  fitReviewBar = false,
 }: {
   place: PlaceWithRelations
   photos: Attachment[]
@@ -45,8 +46,10 @@ export function PlaceHero({
   onArchive?: () => void
   onDeleted?: () => void
   onRestored?: () => void
-  /** The only image is a screenshot shared with other places: blur it and offer a real photo. */
+  /** The cover is a screenshot shared with other places: blur it and offer a real photo. */
   softCover?: boolean
+  /** On a phone, keep the title above Review's fixed action bar. Desktop stays 72vh. */
+  fitReviewBar?: boolean
 }) {
   const edit = useSectionEdit()
   const editing = Boolean(edit?.editingAll)
@@ -86,8 +89,16 @@ export function PlaceHero({
       <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/50 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background via-background/60 to-transparent sm:h-40" />
 
-      <div className={cn("relative flex flex-col justify-between gap-10 px-4 pb-10 pt-4 sm:px-8 sm:pb-16 sm:pt-6", cover ? "min-h-[min(72vh,38rem)]" : "min-h-[26rem]", editing && "pt-16 sm:pt-20")}>
-        <div className="flex items-center gap-2">
+      <div className={cn(
+        "relative flex flex-col justify-between gap-10 px-4 pb-10 pt-4 sm:px-8 sm:pb-16 sm:pt-6",
+        cover
+          ? fitReviewBar
+            ? "min-h-[min(72vh,calc(100svh-28rem))] sm:min-h-[min(72vh,38rem)]"
+            : "min-h-[min(72vh,38rem)]"
+          : "min-h-[26rem]",
+        editing && "pt-16 sm:pt-20",
+      )}>
+        <div className="flex max-sm:flex-wrap items-center gap-2">
           <Link href={back.href} className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium", GLASS)}>
             <ArrowLeft className="h-4 w-4" aria-hidden />
             <span>{back.label}</span>
@@ -100,6 +111,7 @@ export function PlaceHero({
               hasGooglePlaceId={Boolean(place.googlePlaceId)}
               onAttached={onPhotoAttached}
               label="Find a photo"
+              primary="always"
               buttonVariant="ghost"
               className={cn("h-9 rounded-full px-3.5", GLASS, "hover:text-white")}
             />

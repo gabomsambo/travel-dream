@@ -145,6 +145,87 @@ describe('inbox page model', () => {
     ])
   })
 
+  it('opens places added another way on the one the queue ranks first', () => {
+    render(
+      <InboxScreen
+        model={buildInboxScreen({
+          uploads: [],
+          toReviewPlaceIds: [],
+          addedAnotherWay: [
+            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z' },
+            { id: 'H_old', name: 'Older Cafe', createdAt: '2026-10-23T10:00:00.000Z' },
+          ],
+          now: NOW,
+        })}
+      />
+    )
+    expect(screen.getByText('Newer Cafe and Older Cafe')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/review?placeId=H_old')
+    for (const link of screen.getAllByRole('link', { name: 'Review 2 places' })) {
+      expect(link).toHaveAttribute('href', '/review')
+    }
+  })
+
+  it('opens same-time hand-added places on the smaller id, which the queue ranks first', () => {
+    render(
+      <InboxScreen
+        model={buildInboxScreen({
+          uploads: [],
+          toReviewPlaceIds: [],
+          addedAnotherWay: [
+            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z' },
+            { id: 'H_a', name: 'Alpha Cafe', createdAt: '2026-10-23T10:00:00.000Z' },
+            { id: 'H_b', name: 'Beta Cafe', createdAt: '2026-10-23T10:00:00.000Z' },
+          ],
+          now: NOW,
+        })}
+      />
+    )
+    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/review?placeId=H_a')
+  })
+
+  it('offers the newest upload when hand-added places make the hero larger', () => {
+    const upload = batch({
+      sessionId: 'session_only',
+      uploadedAt: NOW.toISOString(),
+      rows: {
+        toReview: {
+          placeIds: ['P1', 'P2', 'P3'],
+          sourceIds: ['src'],
+          places: [
+            place({ id: 'P1', name: 'One', status: 'inbox' }),
+            place({ id: 'P2', name: 'Two', status: 'inbox' }),
+            place({ id: 'P3', name: 'Three', status: 'inbox' }),
+          ],
+          checkCount: null,
+        },
+      },
+    })
+    render(
+      <InboxScreen
+        model={buildInboxScreen({
+          uploads: [upload],
+          toReviewPlaceIds: ['P1', 'P2', 'P3'],
+          addedAnotherWay: [
+            { id: 'H_new', name: 'Newer Cafe', createdAt: '2026-10-23T12:00:00.000Z' },
+            { id: 'H_old', name: 'Older Cafe', createdAt: '2026-10-23T10:00:00.000Z' },
+          ],
+          now: NOW,
+        })}
+      />
+    )
+    expect(screen.getByRole('heading', { name: '5 new places to review' })).toBeInTheDocument()
+    const scoped = screen.getAllByRole('link', { name: 'or just the newest upload (3)' })
+    expect(scoped.length).toBeGreaterThan(0)
+    for (const link of scoped) {
+      expect(link).toHaveAttribute('href', '/review?upload=session_only')
+    }
+    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/review?placeId=H_old')
+    for (const link of screen.getAllByRole('link', { name: 'Review 5 places' })) {
+      expect(link).toHaveAttribute('href', '/review')
+    }
+  })
+
   it('names a skipped file by the day of the earlier upload and ignores a bad timestamp', () => {
     const sentence = formatUploadWhen(EARLIER, NOW).sentence
     const dated = batch({

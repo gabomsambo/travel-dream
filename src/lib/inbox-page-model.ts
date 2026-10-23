@@ -172,6 +172,7 @@ export type InboxScreenModel = InboxHomeModel | InboxDetailModel;
 export interface InboxPlaceAddedAnotherWay {
   id: string;
   name: string;
+  createdAt: string;
 }
 
 export interface BuildInboxScreenInput {
@@ -196,6 +197,19 @@ export function coveredUploadPlaceIds(uploads: InboxUploadBatch[]): string[] {
     );
   }
   return ids;
+}
+
+function firstQueuedHandAddedId(places: InboxPlaceAddedAnotherWay[]): string | undefined {
+  let first: InboxPlaceAddedAnotherWay | undefined;
+  for (const place of places) {
+    if (!first) {
+      first = place;
+      continue;
+    }
+    const byTime = place.createdAt.localeCompare(first.createdAt);
+    if (byTime < 0 || (byTime === 0 && place.id.localeCompare(first.id) < 0)) first = place;
+  }
+  return first?.id;
 }
 
 export function reviewHref(placeId?: string | null, uploadSessionId?: string | null): string {
@@ -978,14 +992,15 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
     }
     const cta = { label: `Review ${plural(reviewCount, 'place')}`, href: reviewHref() };
     const newest = contributing[0];
+    const newestToReview = newest?.rows.toReview.places.length ?? 0;
     hero = {
       kind: 'review',
       title: `${plural(reviewCount, 'new place', 'new places')} to review`,
       line: parts.join(' · '),
       cta,
-      sub: contributing.length >= 2 && newest
+      sub: newest && newestToReview < reviewCount
         ? {
-            label: `or just the newest upload (${newest.rows.toReview.places.length})`,
+            label: `or just the newest upload (${newestToReview})`,
             href: reviewHref(null, newest.sessionId),
           }
         : undefined,
@@ -1032,7 +1047,7 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
     ? {
         count: addedAnotherWay.length,
         names: joinLimited(addedAnotherWay.map((place) => place.name), 6),
-        href: reviewHref(addedAnotherWay[0]?.id),
+        href: reviewHref(firstQueuedHandAddedId(addedAnotherWay)),
       }
     : null;
 

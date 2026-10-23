@@ -243,23 +243,28 @@ describe('inbox page', () => {
   });
 
   it('lists inbox places that no upload owns, and not another user', async () => {
-    const now = NOW.toISOString();
+    const newer = '2026-10-23T14:00:00.000Z';
+    const older = '2026-10-23T09:00:00.000Z';
     await execute(
       `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
-      ['plc_hand', ALICE.id, 'Hand Added Cafe', 'cafe', 'inbox', now, now]
+      ['plc_hand_new', ALICE.id, 'Newer Cafe', 'cafe', 'inbox', newer, newer]
     );
     await execute(
       `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
-      ['plc_bob_hand', BOB.id, 'Bob Secret Inbox', 'cafe', 'inbox', now, now]
+      ['plc_hand_old', ALICE.id, 'Older Cafe', 'cafe', 'inbox', older, older]
+    );
+    await execute(
+      `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+      ['plc_bob_hand', BOB.id, 'Bob Secret Inbox', 'cafe', 'inbox', newer, newer]
     );
 
     const model = await screenModel();
     expect(model.view).toBe('home');
     if (model.view !== 'home') return;
-    expect(model.addedAnotherWay?.names).toBe('Hand Added Cafe');
+    expect(model.addedAnotherWay?.names).toBe('Newer Cafe and Older Cafe');
     render(<InboxScreen model={model} />);
     expect(screen.getByText('Added another way')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/review?placeId=plc_hand');
+    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/review?placeId=plc_hand_old');
     expect(screen.queryByText('Bob Secret Inbox')).not.toBeInTheDocument();
   });
 });

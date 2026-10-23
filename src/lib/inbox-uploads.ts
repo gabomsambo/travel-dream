@@ -322,6 +322,7 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
 export interface InboxPlaceAddedAnotherWay {
   id: string;
   name: string;
+  createdAt: string;
 }
 
 /**
@@ -342,5 +343,5 @@ export async function getInboxPlacesAddedAnotherWay(
   return rows
     .filter((row) => !covered.has(row.id))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
-    .map(({ id, name }) => ({ id, name }));
+    .map(({ id, name, createdAt }) => ({ id, name, createdAt }));
 }

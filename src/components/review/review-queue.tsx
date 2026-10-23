@@ -244,6 +244,14 @@ function EmptyReview({ scoped }: { scoped: boolean }) {
   )
 }
 
+function scopedFinishLine(added: number, skipped: number): string {
+  if (added > 0) {
+    return `${added} new ${added === 1 ? 'place from this upload is' : 'places from this upload are'} in your Library.`
+  }
+  if (skipped === 0) return 'Nothing else from this upload is waiting.'
+  return `${skipped} ${skipped === 1 ? 'place from this upload is' : 'places from this upload are'} still waiting.`
+}
+
 function ReviewSummary({
   entries,
   outcomes,
@@ -275,9 +283,7 @@ function ReviewSummary({
         </h1>
         <p className="mx-auto mt-3 max-w-xl text-center text-lg text-muted-foreground">
           {scoped
-            ? grouped.added.length === 0
-              ? 'Nothing else from this upload is waiting.'
-              : `${grouped.added.length} new ${grouped.added.length === 1 ? 'place from this upload is' : 'places from this upload are'} in your Library.`
+            ? scopedFinishLine(grouped.added.length, grouped.skipped.length)
             : grouped.added.length === 0
               ? 'Your Inbox is sorted for now.'
               : `${grouped.added.length} new ${grouped.added.length === 1 ? 'place is' : 'places are'} in your Library.`}

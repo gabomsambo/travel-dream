@@ -372,7 +372,7 @@ function outcomeRows(batch: InboxUploadBatch, now: Date | null): InboxOutcomeRow
       note: check != null && check > 0 ? `${check} to check` : undefined,
       actions: [{
         label: `Review ${count}`,
-        href: reviewHref(rows.toReview.placeIds[0], batch.sessionId),
+        href: reviewHref(null, batch.sessionId),
       }],
     });
   }
@@ -568,7 +568,7 @@ function readingTiles(batch: InboxUploadBatch): InboxReadingTile[] {
   const byId = placeMap(batch);
   const tiles: InboxReadingTile[] = batch.screenshots.map((shot) => {
     const places = shotPlaces(shot, byId);
-    const kind = shotKind(shot, places);
+    const kind = shotKind(shot, places, batch);
     let label = 'Done';
     let waiting = false;
     let spinning = false;
@@ -580,17 +580,12 @@ function readingTiles(batch: InboxUploadBatch): InboxReadingTile[] {
       const item = batch.rows.couldNotRead.items.find((row) => row.sourceId === shot.sourceId);
       label = item?.status === 'stalled' ? 'Still trying' : "Couldn't be read";
     } else if (kind === 'cancelled') label = 'Cancelled';
-    else if (kind === 'new') {
+    else if (kind === 'new' || kind === 'library' || kind === 'added') {
       const inboxCount = places.filter((place) => place.status === 'inbox').length;
       const archivedCount = places.filter((place) => place.status === 'archived').length;
+      const { saved, matched } = libraryParts(shot, places, batch);
       const bits: string[] = [];
       if (inboxCount > 0) bits.push(plural(inboxCount, 'new place', 'new places'));
-      if (archivedCount > 0) bits.push(`${plural(archivedCount, 'place')} set aside`);
-      label = bits.length > 0 ? `✓ ${bits.join(' · ')}` : `✓ ${plural(places.length, 'place')}`;
-    } else if (kind === 'library' || kind === 'added') {
-      const { saved, matched } = libraryParts(shot, places);
-      const archivedCount = places.filter((place) => place.status === 'archived').length;
-      const bits: string[] = [];
       if (matched.length > 0) bits.push(`${matched.length} in Library`);
       if (saved.length > 0) bits.push(`${plural(saved.length, 'place')} added`);
       if (archivedCount > 0) bits.push(`${plural(archivedCount, 'place')} set aside`);
@@ -705,7 +700,7 @@ function caughtUpLibrary(uploads: InboxUploadBatch[], now: Date | null): InboxLi
   };
 }
 
-function libraryParts(shot: InboxUploadScreenshot, places: InboxUploadPlace[]): {
+function libraryParts(shot: InboxUploadScreenshot, places: InboxUploadPlace[], batch: InboxUploadBatch): {
   saved: InboxUploadPlace[];
   matched: InboxUploadPlace[];
 } {
@@ -713,33 +708,27 @@ function libraryParts(shot: InboxUploadScreenshot, places: InboxUploadPlace[]): 
   const matched: InboxUploadPlace[] = [];
   for (const place of places) {
     if (place.status !== 'library') continue;
-    if (shot.createdPlaceIds.includes(place.id)) saved.push(place);
+    if (shot.createdPlaceIds.includes(place.id) || batch.rows.added.placeIds.includes(place.id)) saved.push(place);
     else if (shot.linkedPlaceIds.includes(place.id)) matched.push(place);
   }
   return { saved, matched };
 }
 
-function shotKind(shot: InboxUploadScreenshot, places: InboxUploadPlace[]): InboxShotKind {
+function shotKind(shot: InboxUploadScreenshot, places: InboxUploadPlace[], batch: InboxUploadBatch): InboxShotKind {
   if (shot.outcome === 'stillReading') return 'reading';
   if (shot.outcome === 'couldNotRead') return 'unreadable';
   if (shot.outcome === 'cancelled') return 'cancelled';
   if (shot.outcome === 'noPlaceFound') return 'noPlace';
   if (places.some((place) => place.status === 'inbox')) return 'new';
-  const library = places.filter((place) => place.status === 'library');
-  if (library.length > 0) {
-    const matched = library.some(
-      (place) => shot.linkedPlaceIds.includes(place.id) && !shot.createdPlaceIds.includes(place.id)
-    );
-    if (matched) return 'library';
-    if (library.some((place) => shot.createdPlaceIds.includes(place.id))) return 'added';
-    return 'library';
-  }
+  const { saved, matched } = libraryParts(shot, places, batch);
+  if (matched.length > 0) return 'library';
+  if (saved.length > 0) return 'added';
   if (places.some((place) => place.status === 'archived')) return 'archived';
   return 'noPlace';
 }
 
-function shotFilterKinds(kind: InboxShotKind, shot: InboxUploadScreenshot, places: InboxUploadPlace[]): InboxShotKind[] {
-  const { saved, matched } = libraryParts(shot, places);
+function shotFilterKinds(kind: InboxShotKind, shot: InboxUploadScreenshot, places: InboxUploadPlace[], batch: InboxUploadBatch): InboxShotKind[] {
+  const { saved, matched } = libraryParts(shot, places, batch);
   if (kind !== 'new' && saved.length > 0 && matched.length > 0) return ['library', 'added'];
   return [kind];
 }
@@ -758,7 +747,7 @@ function shotLine(kind: InboxShotKind, shot: InboxUploadScreenshot, places: Inbo
   }
   const inbox = places.filter((place) => place.status === 'inbox');
   const archived = places.filter((place) => place.status === 'archived');
-  const { saved, matched } = libraryParts(shot, places);
+  const { saved, matched } = libraryParts(shot, places, batch);
   const bits: string[] = [];
   if (kind === 'new') bits.push(`${plural(inbox.length, 'new place', 'new places')} to review`);
   if (saved.length > 0) bits.push(`${plural(saved.length, 'place')} added to your Library`);
@@ -795,7 +784,7 @@ function detailRows(batch: InboxUploadBatch, now: Date | null): InboxShotRow[] {
   const byId = placeMap(batch);
   const rows: InboxShotRow[] = batch.screenshots.map((shot) => {
     const places = shotPlaces(shot, byId);
-    const kind = shotKind(shot, places);
+    const kind = shotKind(shot, places, batch);
     const title = places.length === 1
       ? places[0].name
       : places.length > 1
@@ -804,7 +793,7 @@ function detailRows(batch: InboxUploadBatch, now: Date | null): InboxShotRow[] {
     return {
       id: shot.sourceId,
       kind,
-      kinds: shotFilterKinds(kind, shot, places),
+      kinds: shotFilterKinds(kind, shot, places, batch),
       imageUrl: shot.imageUrl,
       alt: shot.name ?? title,
       title,
@@ -884,7 +873,7 @@ function buildDetail(batch: InboxUploadBatch, now: Date | null): InboxDetailMode
   const when = formatUploadWhen(batch.uploadedAt, now);
   const rows = detailRows(batch, now);
   const count = batch.rows.toReview.places.length;
-  const href = count > 0 ? reviewHref(batch.rows.toReview.placeIds[0], batch.sessionId) : null;
+  const href = count > 0 ? reviewHref(null, batch.sessionId) : null;
   return {
     view: 'detail',
     sessionId: batch.sessionId,
@@ -950,7 +939,7 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
     const left = readingBatch.rows.stillReading.sourceIds.length;
     const minutes = Math.max(1, Math.round(left * 0.5));
     const wait = reviewCount > 0
-      ? { label: `Review ${plural(reviewCount, 'place')} while you wait`, href: reviewHref(reviewIds[0]) }
+      ? { label: `Review ${plural(reviewCount, 'place')} while you wait`, href: reviewHref() }
       : undefined;
     hero = {
       kind: 'reading',
@@ -987,7 +976,7 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
     if (checks.length > 0 && checkTotal > 0) {
       parts.push(`${checkTotal} ${checkTotal === 1 ? 'is' : 'are'} marked "check this"`);
     }
-    const cta = { label: `Review ${plural(reviewCount, 'place')}`, href: reviewHref(reviewIds[0]) };
+    const cta = { label: `Review ${plural(reviewCount, 'place')}`, href: reviewHref() };
     const newest = contributing[0];
     hero = {
       kind: 'review',
@@ -997,7 +986,7 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
       sub: contributing.length >= 2 && newest
         ? {
             label: `or just the newest upload (${newest.rows.toReview.places.length})`,
-            href: reviewHref(newest.rows.toReview.placeIds[0], newest.sessionId),
+            href: reviewHref(null, newest.sessionId),
           }
         : undefined,
       images: heroImages(contributing.length > 0 ? contributing : uploads),

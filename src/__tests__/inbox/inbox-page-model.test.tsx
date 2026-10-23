@@ -93,21 +93,56 @@ describe('inbox page model', () => {
     const whole = screen.getAllByRole('link', { name: 'Review 3 places' })
     expect(whole.length).toBeGreaterThan(0)
     for (const link of whole) {
-      expect(link.getAttribute('href')).toMatch(/^\/review\?placeId=P3$/)
+      expect(link).toHaveAttribute('href', '/review')
     }
     const justNewest = screen.getAllByRole('link', { name: 'or just the newest upload (1)' })
     expect(justNewest.some((link) => link.closest('.fixed'))).toBe(true)
     for (const link of justNewest) {
-      expect(link).toHaveAttribute('href', '/review?upload=session_newest&placeId=P3')
+      expect(link).toHaveAttribute('href', '/review?upload=session_newest')
     }
     expect(screen.getByRole('link', { name: 'Review 2' })).toHaveAttribute(
       'href',
-      '/review?upload=session_older&placeId=P1'
+      '/review?upload=session_older'
     )
     expect(screen.getByRole('link', { name: 'Review 1' })).toHaveAttribute(
       'href',
-      '/review?upload=session_newest&placeId=P3'
+      '/review?upload=session_newest'
     )
+  })
+
+  it('starts an upload review at the first queued place and keeps a screenshot place', () => {
+    const upload = batch({
+      sessionId: 'session_two',
+      uploadedAt: NOW.toISOString(),
+      screenshots: [
+        shot({ sourceId: 'src_old', createdPlaceIds: ['P1'] }),
+        shot({ sourceId: 'src_new', createdPlaceIds: ['P2'] }),
+      ],
+      rows: {
+        toReview: {
+          placeIds: ['P1', 'P2'],
+          sourceIds: ['src_old', 'src_new'],
+          places: [
+            place({ id: 'P1', name: 'Older', status: 'inbox', sourceIds: ['src_old'] }),
+            place({ id: 'P2', name: 'Newer', status: 'inbox', sourceIds: ['src_new'] }),
+          ],
+          checkCount: null,
+        },
+      },
+    })
+    const home = render(<InboxScreen model={show([upload])} />)
+    for (const link of screen.getAllByRole('link', { name: 'Review 2 places' })) {
+      expect(link).toHaveAttribute('href', '/review')
+    }
+    expect(screen.getByRole('link', { name: 'Review 2' })).toHaveAttribute('href', '/review?upload=session_two')
+    home.unmount()
+
+    render(<InboxScreen model={show([upload], 'session_two')} />)
+    expect(screen.getByRole('link', { name: 'Review 2 places' })).toHaveAttribute('href', '/review?upload=session_two')
+    expect(screen.getAllByRole('link', { name: 'Review' }).map((link) => link.getAttribute('href')).sort()).toEqual([
+      '/review?upload=session_two&placeId=P1',
+      '/review?upload=session_two&placeId=P2',
+    ])
   })
 
   it('names a skipped file by the day of the earlier upload and ignores a bad timestamp', () => {
@@ -272,6 +307,55 @@ describe('inbox page model', () => {
     render(<InboxScreen model={show([reading], 'session_mix_arch')} />)
     expect(screen.getByText('1 new place to review · 1 place set aside as not a place')).toBeInTheDocument()
     expect(screen.getByText('1 place added to your Library · 1 place set aside as not a place')).toBeInTheDocument()
+  })
+
+  it('counts saved and matched places on a reading tile that still has a new place', () => {
+    const still = place({ id: 'p_new', name: 'Still New', status: 'inbox', sourceIds: ['src_new'] })
+    const saved = place({ id: 'p_saved', name: 'Saved Here', status: 'library', sourceIds: ['src_created', 'src_new'] })
+    const matched = place({ id: 'p_match', name: 'Already Had', status: 'library', sourceIds: ['src_new'] })
+    const reading = batch({
+      sessionId: 'session_tile',
+      uploadedAt: '2026-10-23T14:00:00.000Z',
+      screenshots: [
+        shot({ sourceId: 'src_created', createdPlaceIds: ['p_saved'] }),
+        shot({ sourceId: 'src_new', createdPlaceIds: ['p_new'], linkedPlaceIds: ['p_saved', 'p_match'] }),
+        shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
+      ],
+      rows: {
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_new'], places: [still], checkCount: null },
+        added: { placeIds: ['p_saved'], sourceIds: ['src_created', 'src_new'], places: [saved] },
+        alreadyInLibrary: { placeIds: ['p_match'], sourceIds: ['src_new'], places: [matched] },
+        stillReading: { sourceIds: ['src_wait'] },
+      },
+    })
+    render(<InboxScreen model={show([reading])} />)
+    expect(screen.getByText('✓ 1 place added')).toBeInTheDocument()
+    expect(screen.getByText('✓ 1 new place · 1 in Library · 1 place added')).toBeInTheDocument()
+    expect(screen.queryByText('✓ 1 new place · 2 in Library')).not.toBeInTheDocument()
+  })
+
+  it('files a sibling link to a place this upload saved under Added', () => {
+    const saved = place({ id: 'p_saved', name: 'Plaza', status: 'library', sourceIds: ['src_created', 'src_linked'] })
+    const matched = place({ id: 'p_match', name: 'Pancake House', status: 'library', sourceIds: ['src_linked'] })
+    const upload = batch({
+      sessionId: 'session_sibling',
+      uploadedAt: EARLIER,
+      screenshots: [
+        shot({ sourceId: 'src_created', createdPlaceIds: ['p_saved'] }),
+        shot({ sourceId: 'src_linked', linkedPlaceIds: ['p_saved'] }),
+        shot({ sourceId: 'src_both', linkedPlaceIds: ['p_saved', 'p_match'] }),
+      ],
+      rows: {
+        added: { placeIds: ['p_saved'], sourceIds: ['src_created', 'src_linked', 'src_both'], places: [saved] },
+        alreadyInLibrary: { placeIds: ['p_match'], sourceIds: ['src_both'], places: [matched] },
+      },
+    })
+    render(<InboxScreen model={show([upload], 'session_sibling')} />)
+    expect(screen.getByRole('button', { name: 'Added to your Library 3' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Matched your Library 1' })).toBeInTheDocument()
+    expect(screen.getAllByText('1 place added to your Library')).toHaveLength(2)
+    expect(screen.getByText('1 place added to your Library · 1 place already in your Library · this screenshot was added to them')).toBeInTheDocument()
+    expect(screen.queryByText('1 place already in your Library · this screenshot was added to them')).not.toBeInTheDocument()
   })
 
   it('keeps Matched for linked library places and gives saved places their own chip', () => {

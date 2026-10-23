@@ -968,6 +968,20 @@ describe('ReviewQueue decisions', () => {
     expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
   })
 
+  it('does not say a scoped upload has nothing waiting when the finish was a skip', async () => {
+    const user = userEvent.setup()
+    renderQueue({ entries: [entries[0]], uploadSessionId: 'session_newest', initialPlaceId: 'plc_one' })
+
+    await user.click(screen.getAllByRole('button', { name: /Skip for now/i })[0])
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'This upload is reviewed.' })).toBeInTheDocument())
+    expect(screen.getByText('1 place from this upload is still waiting.')).toBeInTheDocument()
+    expect(screen.queryByText('Nothing else from this upload is waiting.')).not.toBeInTheDocument()
+    expect(screen.getByText('Still waiting:')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Review the skipped one' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
+  })
+
   it('says an empty scoped queue is done with this upload and links back to the Inbox', () => {
     renderQueue({ entries: [], postcard: null, uploadSessionId: 'session_newest' })
 

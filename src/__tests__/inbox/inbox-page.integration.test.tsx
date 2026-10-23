@@ -164,12 +164,11 @@ describe('inbox page', () => {
 
     const reviewAll = screen.getAllByRole('link', { name: 'Review 1 place' });
     for (const link of reviewAll) {
-      expect(link.getAttribute('href')).toMatch(/^\/review\?placeId=/);
-      expect(link.getAttribute('href')).not.toContain('upload=');
+      expect(link).toHaveAttribute('href', '/review');
     }
     expect(screen.getByRole('link', { name: 'Review 1' })).toHaveAttribute(
       'href',
-      expect.stringMatching(/^\/review\?upload=session_today&placeId=/)
+      '/review?upload=session_today'
     );
     expect(screen.getByRole('link', { name: 'See them' })).toHaveAttribute('href', '/place/plc_pancakes');
 
@@ -185,6 +184,10 @@ describe('inbox page', () => {
     render(<InboxScreen model={await screenModel('session_today')} />);
 
     expect(screen.getByRole('heading', { name: /Today,/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review 1 place' })).toHaveAttribute('href', '/review?upload=session_today');
+    expect(screen.getByRole('link', { name: 'Review' }).getAttribute('href')).toMatch(
+      /^\/review\?upload=session_today&placeId=/
+    );
     expect(screen.getByRole('button', { name: 'All 4' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'No place 1' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: "Couldn't read 1" })).toBeInTheDocument();
@@ -215,8 +218,7 @@ describe('inbox page', () => {
     const waiting = screen.getAllByRole('link', { name: 'Review 2 places while you wait' });
     expect(waiting).toHaveLength(2);
     for (const link of waiting) {
-      expect(link.getAttribute('href')).toMatch(/^\/review\?placeId=/);
-      expect(link.getAttribute('href')).not.toContain('upload=');
+      expect(link).toHaveAttribute('href', '/review');
     }
     expect(waiting.some((link) => link.closest('.fixed'))).toBe(true);
     expect(waiting.some((link) => !link.closest('.fixed'))).toBe(true);

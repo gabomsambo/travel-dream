@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Upload } from 'lucide-react'
-import { cn } from '@/lib/utils'
 
 /** Re-reads the server page while a batch is still being read. */
 export function InboxLiveRefresh({ active }: { active: boolean }) {
@@ -78,36 +78,18 @@ export function CancelRemaining({ sessionId }: { sessionId: string }) {
   )
 }
 
-/**
- * First visit is the drop zone, and the files go to the existing Mass Upload
- * page. The in-page upload sheet is a later change.
- */
+/** First visit opens Mass Upload. The in-page drop sheet is a later change. */
 export function InboxDropLink() {
-  const router = useRouter()
-  const [over, setOver] = useState(false)
   return (
-    <a
-      href="/mass-upload"
-      onDragOver={(event) => {
-        event.preventDefault()
-        setOver(true)
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(event) => {
-        event.preventDefault()
-        setOver(false)
-        router.push('/mass-upload')
-      }}
-      className={cn(
-        'mx-auto mt-6 block max-w-xl rounded-2xl border-2 border-dashed px-6 py-8 text-muted-foreground',
-        over ? 'border-primary bg-primary/5' : 'border-primary/40'
-      )}
-    >
-      <Upload className="mx-auto mb-2 h-6 w-6" aria-hidden />
-      <span>
-        Drop screenshots here, or <span className="font-semibold text-primary">choose files</span>
-      </span>
-      <span className="mt-1 block text-xs">PNG, JPG, HEIC · up to 500 at a time</span>
-    </a>
+    <div className="mt-6">
+      <Link
+        href="/mass-upload"
+        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-base font-semibold text-primary-foreground"
+      >
+        <Upload className="h-4 w-4" aria-hidden />
+        Upload screenshots
+      </Link>
+      <p className="mt-2 text-xs text-muted-foreground">PNG, JPG, HEIC · up to 500 at a time</p>
+    </div>
   )
 }

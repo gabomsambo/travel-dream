@@ -178,4 +178,63 @@ describe('loadReviewQueue with real SQLite data', () => {
       expect.objectContaining({ placeId: 'plc_alice_old_1', name: 'Place in old screenshot' }),
     ])
   })
+
+  it('walks an older upload of P1 and P2 without the newest upload P3', async () => {
+    const execute = dbExec()
+    const run = (sql: string, args: unknown[] = []) => execute({ sql, args })
+    const olderAt = '2026-10-01T10:00:00.000Z'
+    const newerAt = '2026-10-02T12:00:00.000Z'
+    try {
+      await run(
+        `INSERT INTO sources (id,user_id,type,uri,processing_status,meta,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+        ['src_scope_older', ALICE.id, 'screenshot', 'https://example.test/older.jpg', 'completed',
+         JSON.stringify({ uploadInfo: { sessionId: 'session_scope_older', originalName: 'older.jpg' } }),
+         olderAt, olderAt]
+      )
+      await run(
+        `INSERT INTO sources (id,user_id,type,uri,processing_status,meta,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+        ['src_scope_newer', ALICE.id, 'screenshot', 'https://example.test/newer.jpg', 'completed',
+         JSON.stringify({ uploadInfo: { sessionId: 'session_scope_newer', originalName: 'newer.jpg' } }),
+         newerAt, newerAt]
+      )
+      for (const [id, name, createdAt] of [
+        ['plc_scope_p1', 'Older place one', '2026-10-01T10:00:01.000Z'],
+        ['plc_scope_p2', 'Older place two', '2026-10-01T10:00:02.000Z'],
+        ['plc_scope_p3', 'Newest place', '2026-10-02T12:00:01.000Z'],
+      ]) {
+        await run(
+          `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+          [id, ALICE.id, name, 'cafe', 'inbox', createdAt, createdAt]
+        )
+      }
+      await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_scope_older', 'plc_scope_p1'])
+      await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_scope_older', 'plc_scope_p2'])
+      await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_scope_newer', 'plc_scope_p3'])
+
+      const older = await loadReviewQueue(ALICE.id, 'plc_scope_p1', 'session_scope_older')
+      expect(older.entries.map((entry) => entry.placeId)).toEqual(['plc_scope_p1', 'plc_scope_p2'])
+      expect(older.postcard?.place.id).toBe('plc_scope_p1')
+
+      const olderFromSecond = await loadReviewQueue(ALICE.id, 'plc_scope_p2', 'session_scope_older')
+      expect(olderFromSecond.entries.map((entry) => entry.placeId)).toEqual(['plc_scope_p1', 'plc_scope_p2'])
+      expect(olderFromSecond.postcard?.place.id).toBe('plc_scope_p2')
+
+      const newest = await loadReviewQueue(ALICE.id, 'plc_scope_p3', 'session_scope_newer')
+      expect(newest.entries.map((entry) => entry.placeId)).toEqual(['plc_scope_p3'])
+      expect(newest.postcard?.place.id).toBe('plc_scope_p3')
+
+      const deepLink = await loadReviewQueue(ALICE.id, 'plc_scope_p1')
+      expect(deepLink.postcard?.place.id).toBe('plc_scope_p1')
+      expect(deepLink.entries.map((entry) => entry.placeId)).toEqual(expect.arrayContaining([
+        'plc_scope_p1',
+        'plc_scope_p2',
+        'plc_scope_p3',
+      ]))
+      expect(deepLink.entries.length).toBeGreaterThan(3)
+    } finally {
+      await run(`DELETE FROM sources_to_places WHERE source_id IN (?,?)`, ['src_scope_older', 'src_scope_newer'])
+      await run(`DELETE FROM places WHERE id IN (?,?,?)`, ['plc_scope_p1', 'plc_scope_p2', 'plc_scope_p3'])
+      await run(`DELETE FROM sources WHERE id IN (?,?)`, ['src_scope_older', 'src_scope_newer'])
+    }
+  })
 })

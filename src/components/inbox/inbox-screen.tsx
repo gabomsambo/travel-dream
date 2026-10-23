@@ -42,16 +42,23 @@ function pluralScreenshots(count: number): string {
   return `${count} screenshot${count === 1 ? '' : 's'}`
 }
 
-function Dock({ dock }: { dock: InboxLink | null }) {
-  if (!dock) return null
+function Dock({ dock, sub }: { dock: InboxLink | null; sub?: InboxLink }) {
+  if (!dock && !sub) return null
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden">
-      <Link
-        href={dock.href}
-        className="flex h-12 w-full items-center justify-center rounded-2xl bg-primary px-4 text-base font-semibold text-primary-foreground"
-      >
-        {dock.label}
-      </Link>
+      {sub && (
+        <Link href={sub.href} className="mb-2 block text-center text-sm font-medium text-primary">
+          {sub.label}
+        </Link>
+      )}
+      {dock && (
+        <Link
+          href={dock.href}
+          className="flex h-12 w-full items-center justify-center rounded-2xl bg-primary px-4 text-base font-semibold text-primary-foreground"
+        >
+          {dock.label}
+        </Link>
+      )}
     </div>
   )
 }
@@ -203,6 +210,9 @@ function HeroView({ hero }: { hero: InboxHero }) {
   }
 
   const progress = hero.kind === 'reading' ? (hero.total > 0 ? Math.round((hero.read / hero.total) * 100) : 0) : 0
+  const actions = hero.kind === 'reading'
+    ? (hero.cta ? { cta: hero.cta, sub: undefined } : null)
+    : { cta: hero.cta, sub: hero.sub }
 
   return (
     <section className="grid grid-cols-1 items-center gap-4 rounded-[20px] bg-[linear-gradient(120deg,#2b2bb5,#5b3fd8)] px-5 py-5 text-white dark:bg-[linear-gradient(120deg,#22238a,#3f2aa6)] md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-6 md:px-7 md:py-6">
@@ -227,20 +237,20 @@ function HeroView({ hero }: { hero: InboxHero }) {
         <p className="mt-2 text-sm text-white/85">{hero.line}</p>
         {hero.kind === 'reading' && <CancelRemaining sessionId={hero.sessionId} />}
       </div>
-      {hero.kind === 'review' && (
+      {actions && (
         <div className="hidden flex-col items-end gap-2 md:flex">
           <Link
-            href={hero.cta.href}
+            href={actions.cta.href}
             className="inline-flex h-12 items-center gap-2 rounded-2xl bg-white px-5 text-base font-semibold text-neutral-900"
           >
-            {hero.cta.label}
+            {actions.cta.label}
             <kbd className="rounded border border-neutral-900/30 px-1.5 font-mono text-[11px] text-neutral-900" aria-hidden>
               ↵
             </kbd>
           </Link>
-          {hero.sub && (
-            <Link href={hero.sub.href} className="text-sm text-white/85 underline underline-offset-4">
-              {hero.sub.label}
+          {actions.sub && (
+            <Link href={actions.sub.href} className="text-sm text-white/85 underline underline-offset-4">
+              {actions.sub.label}
             </Link>
           )}
         </div>
@@ -358,12 +368,13 @@ function DetailView({ model }: { model: Extract<InboxScreenModel, { view: 'detai
 
 export function InboxScreen({ model }: { model: InboxScreenModel }) {
   const dock = model.dock
+  const sub = model.view === 'home' && model.hero.kind === 'review' ? model.hero.sub : undefined
   return (
     <div className="mx-auto max-w-[1080px] pb-24 md:pb-8">
       <InboxLiveRefresh active={model.live} />
       <ReviewEnterKey href={model.enterHref} />
       {model.view === 'detail' ? <DetailView model={model} /> : <HomeView model={model} />}
-      <Dock dock={dock} />
+      <Dock dock={dock} sub={sub} />
     </div>
   )
 }

@@ -131,7 +131,8 @@ describe('inbox page', () => {
   it('is the drop zone when nothing has been uploaded', async () => {
     render(<InboxScreen model={await screenModel()} />);
     expect(screen.getByRole('heading', { name: 'Drop your travel screenshots' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /choose files/i })).toHaveAttribute('href', '/mass-upload');
+    expect(screen.queryByText(/drop screenshots here/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Upload screenshots' })).toHaveAttribute('href', '/mass-upload');
     expect(screen.getByRole('link', { name: 'Choose screenshots' })).toHaveAttribute('href', '/mass-upload');
     expect(screen.queryByText(/Bob Secret/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Review/ })).not.toBeInTheDocument();
@@ -149,7 +150,8 @@ describe('inbox page', () => {
     expect(screen.getByText('new place to review')).toBeInTheDocument();
     expect(screen.getByText('Medanos de Coro')).toBeInTheDocument();
     expect(screen.getByText(/We added this screenshot to Pancake House/)).toBeInTheDocument();
-    expect(screen.getByText(/IMG_2912.jpg was already in your/)).toBeInTheDocument();
+    const skippedAt = formatUploadWhen(EARLIER, NOW).heading;
+    expect(screen.getByText(new RegExp(`IMG_2912.jpg was already in your ${skippedAt} upload`))).toBeInTheDocument();
     expect(screen.getByText(/IMG_3024.jpg/)).toBeInTheDocument();
     expect(screen.getByText(/AI service was unavailable/)).toBeInTheDocument();
     expect(screen.getByText('1 needs you')).toBeInTheDocument();
@@ -161,8 +163,14 @@ describe('inbox page', () => {
     expect(screen.getByRole('button', { name: 'Dismiss' })).toBeDisabled();
 
     const reviewAll = screen.getAllByRole('link', { name: 'Review 1 place' });
-    expect(reviewAll[0]).toHaveAttribute('href', expect.stringContaining('/review?placeId='));
-    expect(screen.getByRole('link', { name: 'Review 1' })).toHaveAttribute('href', expect.stringContaining('/review?placeId='));
+    for (const link of reviewAll) {
+      expect(link.getAttribute('href')).toMatch(/^\/review\?placeId=/);
+      expect(link.getAttribute('href')).not.toContain('upload=');
+    }
+    expect(screen.getByRole('link', { name: 'Review 1' })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/review\?upload=session_today&placeId=/)
+    );
     expect(screen.getByRole('link', { name: 'See them' })).toHaveAttribute('href', '/place/plc_pancakes');
 
     const earlier = formatUploadWhen(EARLIER, NOW).earlier;
@@ -204,10 +212,15 @@ describe('inbox page', () => {
     expect(screen.getByText('Reading your screenshots')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '2 of 3 read' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel the rest' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Review 2 places while you wait' })).toHaveAttribute(
-      'href',
-      expect.stringContaining('/review?placeId=')
-    );
+    const waiting = screen.getAllByRole('link', { name: 'Review 2 places while you wait' });
+    expect(waiting).toHaveLength(2);
+    for (const link of waiting) {
+      expect(link.getAttribute('href')).toMatch(/^\/review\?placeId=/);
+      expect(link.getAttribute('href')).not.toContain('upload=');
+    }
+    expect(waiting.some((link) => link.closest('.fixed'))).toBe(true);
+    expect(waiting.some((link) => !link.closest('.fixed'))).toBe(true);
+    expect(screen.getByText('So far: 1 new place · 1 uploaded before')).toBeInTheDocument();
     expect(screen.getByText('While you wait')).toBeInTheDocument();
     expect(screen.getByText('Medanos de Coro')).toBeInTheDocument();
   });

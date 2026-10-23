@@ -3,7 +3,7 @@ import { loadReviewQueue } from '@/lib/review-queue'
 import { ReviewQueue } from '@/components/review/review-queue'
 
 interface ReviewPageProps {
-  searchParams: Promise<{ placeId?: string | string[] }>
+  searchParams: Promise<{ placeId?: string | string[]; upload?: string | string[] }>
 }
 
 function firstParam(value: string | string[] | undefined): string | undefined {
@@ -16,14 +16,17 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
 
   const params = await searchParams
   const requestedPlaceId = firstParam(params.placeId)
-  const queue = await loadReviewQueue(session.user.id, requestedPlaceId)
+  const requestedUpload = firstParam(params.upload)?.trim() || undefined
+  const queue = await loadReviewQueue(session.user.id, requestedPlaceId, requestedUpload)
 
   return (
     <ReviewQueue
+      key={requestedUpload ?? ''}
       entries={queue.entries}
       postcard={queue.postcard}
       trips={queue.trips}
       initialPlaceId={requestedPlaceId}
+      uploadSessionId={requestedUpload}
     />
   )
 }

@@ -936,4 +936,17 @@ describe('ReviewQueue decisions', () => {
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
     expect(screen.getByTestId('postcard')).toHaveAttribute('data-editing', 'no')
   })
+
+  it('counts a scoped upload on its own and keeps that upload in the address', async () => {
+    const user = userEvent.setup()
+    const replaceSpy = jest.spyOn(window.history, 'replaceState')
+    renderQueue({ entries: [entries[0]], uploadSessionId: 'session_newest', initialPlaceId: 'plc_one' })
+
+    expect(screen.getByText('1 of 1 from one.jpg')).toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: "That's everything." })).toBeInTheDocument())
+    expect(replaceSpy).toHaveBeenCalledWith({}, '', '/review?upload=session_newest')
+  })
 })

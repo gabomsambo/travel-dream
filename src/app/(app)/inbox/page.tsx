@@ -1,7 +1,7 @@
-import { InboxScreen } from '@/components/inbox/inbox-screen'
+import { InboxPageClient } from '@/components/inbox/inbox-page-client'
 import { editorialFont } from '@/components/explore/fonts'
 import { auth } from '@/lib/auth'
-import { buildInboxScreen, coveredUploadPlaceIds } from '@/lib/inbox-page-model'
+import { coveredUploadPlaceIds } from '@/lib/inbox-page-model'
 import { getInboxPlacesAddedAnotherWay, getInboxUploads } from '@/lib/inbox-uploads'
 
 export const metadata = { title: 'Inbox' }
@@ -24,18 +24,15 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
     session.user.id,
     coveredUploadPlaceIds(summary.uploads)
   )
-  const model = buildInboxScreen({
-    uploads: summary.uploads,
-    toReviewPlaceIds: summary.toReviewPlaceIds,
-    addedAnotherWay,
-    now: new Date(),
-    uploadId: firstParam(params.upload),
-  })
-
   return (
     <div className={`${editorialFont.variable} -m-3 min-h-full sm:-m-6`}>
       <div className="px-3.5 py-5 sm:px-8 sm:py-8">
-        <InboxScreen model={model} />
+        <InboxPageClient
+          uploads={summary.uploads}
+          toReviewPlaceIds={summary.toReviewPlaceIds}
+          addedAnotherWay={addedAnotherWay}
+          uploadId={firstParam(params.upload)}
+        />
       </div>
     </div>
   )

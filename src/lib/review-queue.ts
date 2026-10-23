@@ -26,6 +26,7 @@ interface QueueSource {
   originalName: string | null
   uploadFilename: string | null
   filename: string | null
+  sessionId: string | null
 }
 
 /** Another place found in the same screenshot, including the one on screen. */
@@ -125,7 +126,7 @@ function compareEntries(
  * sources). Extraction order belongs to the later group-review PR because the
  * join table itself has no ordering column.
  */
-async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
+async function loadReviewEntries(userId: string, uploadSessionId?: string): Promise<ReviewQueueEntry[]> {
   const scoped = forUser(userId)
   const inbox = await scoped.selectFields(places, {
     id: places.id,
@@ -151,6 +152,7 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
         originalName: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.originalName')`,
         uploadFilename: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.filename')`,
         filename: sql<string | null>`json_extract(${sources.meta}, '$.filename')`,
+        sessionId: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.sessionId')`,
       }, inArray(sources.id, sourceIds))
     : []
   const sourcesById = new Map(sourceRows.map((source) => [source.id, {
@@ -161,6 +163,7 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
     originalName: textOrNull(source.originalName),
     uploadFilename: textOrNull(source.uploadFilename),
     filename: textOrNull(source.filename),
+    sessionId: textOrNull(source.sessionId),
   } satisfies QueueSource]))
   const sourcesByPlace = new Map<string, QueueSource[]>()
   for (const link of links) {
@@ -171,10 +174,12 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
     sourcesByPlace.set(link.placeId, list)
   }
 
-  return inbox.map((row) => {
-    const source = screenshotSource(sourcesByPlace.get(row.id) ?? [])
+  return inbox.flatMap((row) => {
+    const placeSources = sourcesByPlace.get(row.id) ?? []
+    if (uploadSessionId && !placeSources.some((source) => source.sessionId === uploadSessionId)) return []
+    const source = screenshotSource(placeSources)
     const name = sourceName(source)
-    return {
+    return [{
       placeId: row.id,
       name: row.name,
       createdAt: row.createdAt,
@@ -184,7 +189,7 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
       screenshotUrl: source?.uri ?? null,
       screenshotName: name,
       uploadLabel: name ?? 'your upload',
-    }
+    }]
   }).sort(compareEntries).map((draft) => ({
     placeId: draft.placeId,
     name: draft.name,
@@ -259,11 +264,17 @@ export async function loadReviewPostcard(userId: string, placeId: string): Promi
 /**
  * Queue order and light rows for every inbox place, and relations plus the
  * city rail only for `visiblePlaceId` (or the first row, when that id is
- * absent or no longer inbox).
+ * absent or no longer inbox). `uploadSessionId` keeps the walk inside that
+ * upload's inbox places.
  */
-export async function loadReviewQueue(userId: string, visiblePlaceId?: string): Promise<ReviewQueueData> {
+export async function loadReviewQueue(
+  userId: string,
+  visiblePlaceId?: string,
+  uploadSessionId?: string,
+): Promise<ReviewQueueData> {
+  const upload = uploadSessionId?.trim() || undefined
   const [entries, trips] = await Promise.all([
-    loadReviewEntries(userId),
+    loadReviewEntries(userId, upload),
     getExploreCollections(userId),
   ])
   const visible = visiblePlaceId && entries.some((entry) => entry.placeId === visiblePlaceId)

@@ -32,6 +32,7 @@ interface ReviewQueueProps {
   postcard: ReviewPostcard | null
   trips: ExploreCollection[]
   initialPlaceId?: string
+  uploadSessionId?: string
 }
 
 const OUTCOME_STATUS: Record<Exclude<ReviewOutcome, 'skipped' | 'removed'>, 'library' | 'archived'> = {
@@ -64,9 +65,16 @@ function isActivatable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(target.closest('button, a'))
 }
 
-function reviewHref(placeId: string | null): string {
-  if (!placeId) return '/review'
-  return `/review?placeId=${encodeURIComponent(placeId)}&from=queue`
+function reviewHref(placeId: string | null, uploadSessionId?: string): string {
+  const params = new URLSearchParams()
+  if (uploadSessionId) params.set('upload', uploadSessionId)
+  if (!placeId) {
+    const query = params.toString()
+    return query ? `/review?${query}` : '/review'
+  }
+  params.set('placeId', placeId)
+  params.set('from', 'queue')
+  return `/review?${params.toString()}`
 }
 
 function installPostcard(
@@ -306,7 +314,7 @@ function ReviewSummary({
   )
 }
 
-export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: ReviewQueueProps) {
+export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSessionId }: ReviewQueueProps) {
   const router = useRouter()
   const [session, setSession] = React.useState<SessionEntry[]>(() => mergeSession([], entries, postcard, {}))
   const [incoming, setIncoming] = React.useState({ entries, postcard })
@@ -412,24 +420,24 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId }: Review
     })
     if (historyPlaceId.current === derivedId) return
     historyPlaceId.current = derivedId
-    window.history.replaceState({}, '', reviewHref(derivedId))
+    window.history.replaceState({}, '', reviewHref(derivedId, uploadSessionId))
     const appScroller = document.querySelector('main')
     if (appScroller instanceof HTMLElement && typeof appScroller.scrollTo === 'function') {
       appScroller.scrollTo({ top: 0, behavior: 'smooth' })
     }
-  }, [derivedId])
+  }, [derivedId, uploadSessionId])
 
   const selectPlace = React.useCallback((placeId: string | null, pin = false) => {
     setPinnedId(pin ? placeId : null)
     setError(null)
     setCurrentId(placeId)
     historyPlaceId.current = placeId
-    window.history.replaceState({}, '', reviewHref(placeId))
+    window.history.replaceState({}, '', reviewHref(placeId, uploadSessionId))
     const appScroller = document.querySelector('main')
     if (appScroller instanceof HTMLElement && typeof appScroller.scrollTo === 'function') {
       appScroller.scrollTo({ top: 0, behavior: 'smooth' })
     }
-  }, [])
+  }, [uploadSessionId])
 
   const undoDecision = React.useCallback(async (
     placeId: string,

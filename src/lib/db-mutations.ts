@@ -1568,6 +1568,10 @@ export async function bulkConfirmPlaces(placeIds: string[], userId: string): Pro
   return bulkUpdatePlaceStatus(placeIds, 'library', userId);
 }
 
+export async function bulkReturnPlacesToInbox(placeIds: string[], userId: string): Promise<number> {
+  return bulkUpdatePlaceStatus(placeIds, 'inbox', userId);
+}
+
 export async function bulkMovePlacesToReview(placeIds: string[], userId: string): Promise<number> {
   return bulkUpdatePlaceStatus(placeIds, 'review', userId);
 }

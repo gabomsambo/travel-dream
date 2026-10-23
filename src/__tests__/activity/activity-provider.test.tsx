@@ -120,7 +120,7 @@ describe('ActivityProvider', () => {
     expect(screen.getByTestId('summaries')).toHaveTextContent(
       'Processing 183 of 500 · 42 places found'
     )
-    expect(screen.getByRole('link', { name: /Details/ })).toHaveAttribute('href', '/mass-upload')
+    expect(screen.getByRole('link', { name: /Details/ })).toHaveAttribute('href', '/inbox')
     expect(mockedToast).not.toHaveBeenCalled()
   })
 
@@ -199,11 +199,11 @@ describe('ActivityProvider', () => {
       '487 processed · 9 failed · 118 places found'
     )
     expect(screen.queryByText(/Processing /)).not.toBeInTheDocument()
-    expect(mockedToast).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mockedToast).toHaveBeenCalledTimes(1))
     expect(mockedToast).toHaveBeenCalledWith(
-      'Processing complete! 118 places found from 487 screenshots.',
-      '/library',
-      { actionLabel: 'View library' }
+'Processing complete! 118 places found from 487 screenshots.',
+      '/inbox?upload=session_bell-1',
+      { actionLabel: 'View results' }
     )
     expect(localStorage.getItem(activityJobsStorageKey('user_a'))).toContain('session_bell-1')
 
@@ -220,6 +220,68 @@ describe('ActivityProvider', () => {
       expect(screen.getByTestId('phases')).toHaveTextContent('complete')
     })
     expect(mockedToast).not.toHaveBeenCalled()
+  })
+
+  it('sends a finished upload to the Library only when nothing is left', async () => {
+    ;(global.fetch as jest.Mock).mockImplementation((input: RequestInfo, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('/api/upload/sessions?')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: 'success',
+            sessions: [{
+              id: SESSION_ID,
+              status: 'active',
+              startedAt: new Date().toISOString(),
+              meta: { uploadedFiles: ['src_1'] },
+            }],
+          }),
+        })
+      }
+      if (url.startsWith('/api/mass-upload/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => statusPayload({ completed: 2 }, 2, 0),
+        })
+      }
+      if (url.startsWith('/api/inbox/uploads')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: 'success',
+            uploads: [{
+              sessionId: SESSION_ID,
+              rows: {
+                toReview: { places: [] },
+                noPlaceFound: { sourceIds: [] },
+                couldNotRead: { sourceIds: [] },
+                stillReading: { sourceIds: [] },
+              },
+            }],
+          }),
+        })
+      }
+      if ((init?.method || 'GET') === 'PATCH') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ status: 'success' }) })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+
+    render(
+      <ActivityProvider ownerUserId="user_a">
+        <JobProbe />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => expect(mockedToast).toHaveBeenCalledWith(
+      'Processing complete! 0 places found from 2 screenshots.',
+      '/library',
+      { actionLabel: 'View library' },
+    ))
   })
 
   it('clears a terminal job when the user acknowledges it', async () => {

@@ -2,8 +2,9 @@
  * Turns `GET /api/inbox/uploads` plus hand-added inbox places into the Inbox
  * page: the hero, one card per open upload, earlier one-liners, and the
  * per-screenshot detail. No I/O. Try again, Dismiss, and Add by hand are intents
- * the client performs. "Add the N that look right" is a later change.
+ * the client performs. "Add the N that look right" is the ids on each open upload card.
  */
+import { UPLOAD_SHEET_HREF } from '@/lib/upload-sheet';
 import { compareReviewRank, rankingSource, type ReviewRankKey } from '@/lib/review-order';
 import type {
   InboxHandAdd,
@@ -50,6 +51,11 @@ export interface InboxOutcomeRow {
   actions: InboxAction[];
 }
 
+export interface InboxLookRight {
+  label: string;
+  placeIds: string[];
+}
+
 export interface InboxUploadCard {
   sessionId: string;
   heading: string;
@@ -59,6 +65,8 @@ export interface InboxUploadCard {
   rows: InboxOutcomeRow[];
   showAllHref: string;
   screenshotCount: number;
+  /** Places in this upload with nothing to check. Null when there are none. */
+  lookRight: InboxLookRight | null;
 }
 
 export interface InboxEarlierLine {
@@ -623,6 +631,15 @@ function cardPill(batch: InboxUploadBatch): InboxUploadCard['pill'] {
   return undefined;
 }
 
+function lookRightAction(batch: InboxUploadBatch): InboxLookRight | null {
+  const ids = batch.rows.toReview.lookRightPlaceIds ?? [];
+  if (ids.length === 0) return null;
+  const label = ids.length === 1
+    ? 'Add the 1 that looks right'
+    : `Add the ${ids.length} that look right`;
+  return { label, placeIds: ids };
+}
+
 function uploadCard(batch: InboxUploadBatch, now: Date | null): InboxUploadCard {
   const when = formatUploadWhen(batch.uploadedAt, now);
   const count = plural(batch.screenshotCount, 'screenshot');
@@ -635,6 +652,7 @@ function uploadCard(batch: InboxUploadBatch, now: Date | null): InboxUploadCard 
     rows: outcomeRows(batch, now),
     showAllHref: uploadHref(batch.sessionId),
     screenshotCount: batch.screenshotCount,
+    lookRight: lookRightAction(batch),
   };
 }
 
@@ -1036,7 +1054,7 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
       addedAnotherWay: null,
       earlierHeading: null,
       earlier: [],
-      dock: { label: 'Choose screenshots', href: '/mass-upload' },
+      dock: { label: 'Choose screenshots', href: UPLOAD_SHEET_HREF },
       enterHref: null,
     };
   }
@@ -1143,9 +1161,9 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
       title: 'Every place from your uploads has a home.',
       line: caughtUpLine(uploads, now),
       library: caughtUpLibrary(uploads, now),
-      upload: { label: 'Upload more', href: '/mass-upload' },
+      upload: { label: 'Upload more', href: UPLOAD_SHEET_HREF },
     };
-    dock = { label: 'Upload screenshots', href: '/mass-upload' };
+    dock = { label: 'Upload screenshots', href: UPLOAD_SHEET_HREF };
   }
 
   const addedCard = addedAnotherWay.length > 0

@@ -23,7 +23,7 @@ export function ProcessingBanner() {
         </span>
       </div>
       <Link
-        href="/mass-upload"
+        href={active.href}
         className="text-sm text-primary hover:text-primary/80 flex items-center gap-1 flex-shrink-0 ml-2"
       >
         Details <ArrowRight className="h-3 w-3" />

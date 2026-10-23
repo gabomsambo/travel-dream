@@ -101,6 +101,21 @@ function addTo(map: Map<string, string[]>, key: string, value: string): void {
   else if (!list.includes(value)) list.push(value);
 }
 
+function needsCheck(row: {
+  city: string | null;
+  kind: string | null;
+  confidence: number | null;
+  coords: { lat: number; lon: number } | null;
+} | undefined): boolean {
+  if (!row) return true;
+  return reviewChecks({
+    coords: row.coords,
+    city: row.city,
+    confidence: row.confidence,
+    kind: row.kind ?? '',
+  }).length > 0;
+}
+
 function placeRow(list: InboxUploadPlace[]): InboxUploadPlaceRow {
   return {
     placeIds: list.map((p) => p.id),
@@ -285,7 +300,7 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
         status: places.status,
         createdAt: places.createdAt,
         kind: places.kind,
-        coords: places.coords,
+coords: places.coords,
         confidence: places.confidence,
       },
       inArray(places.id, part)
@@ -381,16 +396,10 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
       rows: {
         toReview: {
           ...placeRow(buckets.toReview),
-          checkCount: buckets.toReview.filter((place) => {
-            const row = placesById.get(place.id);
-            if (!row) return false;
-            return reviewChecks({
-              coords: row.coords,
-              city: row.city,
-              confidence: row.confidence,
-              kind: row.kind,
-            }).length > 0;
-          }).length,
+checkCount: buckets.toReview.filter((place) => needsCheck(placesById.get(place.id))).length,
+          lookRightPlaceIds: buckets.toReview
+            .filter((place) => !needsCheck(placesById.get(place.id)))
+            .map((place) => place.id),
         },
         added: placeRow(buckets.added),
         notAPlace: placeRow(buckets.notAPlace),

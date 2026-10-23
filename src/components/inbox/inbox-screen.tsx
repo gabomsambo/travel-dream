@@ -10,7 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { InboxActions, ThumbStrip } from '@/components/inbox/inbox-actions'
-import { CancelRemaining, InboxDropLink, InboxLiveRefresh, ReviewEnterKey } from '@/components/inbox/inbox-behaviors'
+import { AddLookRight, CancelRemaining, InboxFirstDrop, InboxLiveRefresh, ReviewEnterKey } from '@/components/inbox/inbox-behaviors'
 import { InboxUploadDetail } from '@/components/inbox/inbox-upload-detail'
 import { cn } from '@/lib/utils'
 import type {
@@ -143,6 +143,7 @@ function UploadCardView({ card }: { card: InboxUploadCard }) {
           Show all {pluralScreenshots(card.screenshotCount)}
           <ChevronRight className="h-4 w-4" aria-hidden />
         </Link>
+        {card.lookRight && <AddLookRight label={card.lookRight.label} placeIds={card.lookRight.placeIds} />}
       </div>
     </article>
   )
@@ -157,7 +158,7 @@ function HeroView({ hero }: { hero: InboxHero }) {
         <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
           TikToks, reels, blog lists. We find the places in them and bring them back here for you to check.
         </p>
-        <InboxDropLink />
+        <InboxFirstDrop />
         <div className="mx-auto mt-7 grid max-w-3xl gap-3 text-left md:grid-cols-3">
           <div className="rounded-2xl border border-border bg-background p-4">
             <p className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">1</p>

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import { upload } from '@vercel/blob/client'
 import {
   Upload,
@@ -10,8 +11,6 @@ import {
   Loader2,
   ArrowRight,
   CloudUpload,
-  Inbox,
-  Ban,
   RefreshCw,
   ImageIcon,
 } from 'lucide-react'
@@ -19,11 +18,14 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Card } from "@/components/adapters/card"
-import { useMassUploadStatus } from '@/hooks/use-mass-upload-status'
-import { processedSourceCount } from '@/lib/mass-upload/status-view'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/adapters/sheet'
 import { useActivityJobs } from '@/components/activity/activity-provider'
-import { notify } from '@/lib/notify'
-import Link from 'next/link'
 
 interface MassUploadFile {
   id: string
@@ -36,14 +38,22 @@ interface MassUploadFile {
   sourceId?: string
 }
 
-type MassUploadStep = 'upload' | 'review' | 'processing'
+type MassUploadStep = 'upload' | 'review'
+
+interface MassUploadSheetProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Files dropped on the Inbox before the sheet opened. */
+  initialFiles?: File[]
+}
 
 const MAX_FILES = 500
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const CONCURRENT_LIMIT = 3
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
 
-export function MassUploadPage() {
+export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUploadSheetProps) {
+  const router = useRouter()
   const [step, setStep] = useState<MassUploadStep>('upload')
   const [files, setFiles] = useState<Map<string, MassUploadFile>>(new Map())
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -53,50 +63,31 @@ export function MassUploadPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const filesRef = useRef<Map<string, MassUploadFile>>(new Map())
   const listParentRef = useRef<HTMLDivElement>(null)
+  const seededFiles = useRef<File[] | null>(null)
 
-  const status = useMassUploadStatus()
   const { observeSession } = useActivityJobs()
-  const [isCancelling, setIsCancelling] = useState(false)
-  const [isTriggering, setIsTriggering] = useState(false)
-  const [triggerResult, setTriggerResult] = useState<string | null>(null)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [batchError, setBatchError] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
-  const [cancelError, setCancelError] = useState<string | null>(null)
 
-  // On mount: resume active session if one exists, otherwise create new
+  // A new batch each time the sheet opens. Progress lives on the Inbox card.
   useEffect(() => {
-    const init = async () => {
-      try {
-        // Check for an existing active processing session
-        const sessionsRes = await fetch('/api/upload/sessions?status=active&hasUploads=true&limit=5')
-        if (sessionsRes.ok) {
-          const sessionsData = await sessionsRes.json()
-          if (sessionsData.status === 'success' && sessionsData.sessions) {
-            const active = sessionsData.sessions.find((s: { status: string; startedAt?: string; meta?: { uploadedFiles?: string[] } }) => {
-              const uploadedFiles = s.meta?.uploadedFiles || []
-              if (s.status !== 'active' || uploadedFiles.length === 0) return false
-              // Skip sessions older than 24h (likely abandoned, not in-progress)
-              if (s.startedAt) {
-                const ageMs = Date.now() - new Date(s.startedAt).getTime()
-                if (ageMs > 24 * 60 * 60 * 1000) return false
-              }
-              return true
-            })
-            if (active) {
-              setSessionId(active.id)
-              setStep('processing')
-              status.startPolling(active.id)
-              observeSession(active.id)
-              return
-            }
-          }
-        }
-      } catch {
-        // Fall through to create new session
-      }
+    if (!open) {
+      filesRef.current.forEach(file => {
+        if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
+      })
+      setFiles(new Map())
+      setStep('upload')
+      setSessionId(null)
+      setSessionError(null)
+      setBatchError(null)
+      setStartError(null)
+      seededFiles.current = null
+      return
+    }
 
-      // No active session — create a new one
+    let cancelled = false
+    const create = async () => {
       try {
         const res = await fetch('/api/upload/sessions', {
           method: 'POST',
@@ -104,6 +95,7 @@ export function MassUploadPage() {
           body: JSON.stringify({ fileCount: 0 }),
         })
         const data = await res.json()
+        if (cancelled) return
         if (data.status === 'success' && data.session?.id) {
           setSessionId(data.session.id)
           setSessionError(null)
@@ -111,12 +103,12 @@ export function MassUploadPage() {
           setSessionError('Failed to create upload session')
         }
       } catch {
-        setSessionError('Failed to create upload session')
+        if (!cancelled) setSessionError('Failed to create upload session')
       }
     }
-    init()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void create()
+    return () => { cancelled = true }
+  }, [open])
 
   // Task 2: Sync filesRef with files state (for unmount cleanup)
   useEffect(() => {
@@ -353,6 +345,13 @@ export function MassUploadPage() {
     })
   }, [])
 
+  useEffect(() => {
+    if (!open || !sessionId || !initialFiles || initialFiles.length === 0) return
+    if (seededFiles.current === initialFiles) return
+    seededFiles.current = initialFiles
+    void processFiles(initialFiles)
+  }, [open, sessionId, initialFiles, processFiles])
+
   const handleStartProcessing = useCallback(async () => {
     if (!sessionId) return
 
@@ -367,9 +366,10 @@ export function MassUploadPage() {
       const data = await res.json()
 
       if (data.status === 'success') {
-        setStep('processing')
-        status.startPolling(sessionId)
         observeSession(sessionId)
+        onOpenChange(false)
+        router.push('/inbox')
+        router.refresh()
       } else {
         setStartError(data.message || 'Failed to start processing')
       }
@@ -378,70 +378,7 @@ export function MassUploadPage() {
     } finally {
       setIsStarting(false)
     }
-  }, [sessionId, status, observeSession])
-
-  const handleStartFresh = useCallback(async () => {
-    // Best-effort mark old session completed
-    if (sessionId) {
-      fetch(`/api/upload/sessions?sessionId=${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'completed' }),
-      }).catch(() => {})
-    }
-
-    // Task 2: Revoke object URLs before clearing (use ref to avoid stale closure)
-    filesRef.current.forEach(file => {
-      if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
-    })
-
-    // Reset state for instant UI feedback
-    status.reset()
-    setFiles(new Map())
-    setStep('upload')
-    setSessionId(null)
-    setSessionError(null)
-
-    // Create fresh session
-    try {
-      const res = await fetch('/api/upload/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileCount: 0 }),
-      })
-      const data = await res.json()
-      if (data.status === 'success' && data.session?.id) {
-        setSessionId(data.session.id)
-      } else {
-        setSessionError('Failed to create new upload session')
-      }
-    } catch {
-      setSessionError('Failed to create new upload session')
-    }
-  }, [sessionId, status])
-
-  const handleCancelProcessing = useCallback(async () => {
-    if (!sessionId) return
-    setIsCancelling(true)
-    setCancelError(null)
-    try {
-      const res = await fetch('/api/mass-upload/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      })
-      const data = await res.json()
-      if (data.status === 'success') {
-        notify.success(`Cancelled ${data.cancelled} remaining screenshot${data.cancelled !== 1 ? 's' : ''}`)
-      } else {
-        setCancelError(data.message || 'Failed to cancel')
-      }
-    } catch {
-      setCancelError('Failed to cancel processing')
-    } finally {
-      setIsCancelling(false)
-    }
-  }, [sessionId])
+  }, [sessionId, observeSession, onOpenChange, router])
 
   // Task 3: Per-file retry (uses filesRef to avoid stale closure)
   const retryFile = useCallback(async (fileId: string) => {
@@ -517,234 +454,25 @@ export function MassUploadPage() {
   const uploadingFiles = filesArray.filter(f => f.status === 'uploading').length
   const allUploaded = filesArray.length > 0 && uploadingFiles === 0
 
-  // --- RENDER ---
+  if (!open) return null
 
-  // Step 3: Processing
-  if (step === 'processing') {
-    const processed = processedSourceCount(status.counts)
-    const progressPercent = status.total > 0 ? Math.round((processed / status.total) * 100) : 0
-
-    return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        {status.isComplete ? (
-          // Complete state
-          <Card className="p-8 text-center">
-            <CheckCircle2 className="mx-auto h-16 w-16 text-green-500 mb-4" />
-            <h2 className="text-2xl font-semibold mb-2">Processing Complete!</h2>
-            <p className="text-muted-foreground mb-2">
-              {status.placesCreated} places found from {status.counts.completed} screenshots
-            </p>
-            {status.counts.failed > 0 && (
-              <>
-                <p className="text-sm text-red-600 mb-2">
-                  {status.counts.failed} screenshot{status.counts.failed !== 1 ? 's' : ''} failed to process
-                </p>
-                {status.failedErrors.length > 0 && (
-                  <details className="mt-2 text-left mb-4">
-                    <summary className="text-sm text-red-600 cursor-pointer">
-                      View error details
-                    </summary>
-                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground max-h-40 overflow-y-auto">
-                      {status.failedErrors.slice(0, 20).map(err => (
-                        <li key={err.sourceId} className="truncate">
-                          {err.sourceId.slice(0, 12)}...: {err.error}
-                        </li>
-                      ))}
-                      {status.failedErrors.length > 20 && (
-                        <li className="text-muted-foreground italic">
-                          ...and {status.failedErrors.length - 20} more
-                        </li>
-                      )}
-                    </ul>
-                  </details>
-                )}
-              </>
-            )}
-            {status.counts.stalled > 0 && (
-              <p className="text-sm text-amber-600 mb-4">
-                {status.counts.stalled} screenshot{status.counts.stalled !== 1 ? 's' : ''} still trying
-                {status.counts.stalled !== 1 ? ' — they' : ' — it'} will retry on
-                {status.counts.stalled !== 1 ? ' their' : ' its'} own.
-              </p>
-            )}
-            {status.counts.cancelled > 0 && (
-              <p className="text-sm text-muted-foreground mb-4">
-                {status.counts.cancelled} screenshot{status.counts.cancelled !== 1 ? 's' : ''} cancelled
-              </p>
-            )}
-            {status.placesCreated > 1 && (
-              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-left dark:border-blue-800 dark:bg-blue-950">
-                <p className="text-sm text-muted-foreground">
-                  Some places may have been extracted from multiple screenshots.
-                </p>
-                <Link href="/duplicates" className="mt-1 inline-block text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
-                  Check for duplicates &rarr;
-                </Link>
-              </div>
-            )}
-            <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/inbox">
-                <Button size="lg">
-                  <Inbox className="mr-2 h-4 w-4" />
-                  View in Inbox
-                </Button>
-              </Link>
-              <Button size="lg" variant="outline" onClick={handleStartFresh}>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload More Photos
-              </Button>
-            </div>
-          </Card>
-        ) : (
-          // Processing in progress
-          <>
-            {status.error && (
-              <div
-                role="alert"
-                className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-              >
-                {status.error}. Polling will retry automatically.
-              </div>
-            )}
-            <Card className="p-8 text-center">
-              <Loader2 className="mx-auto h-12 w-12 text-blue-500 animate-spin mb-4" />
-              <h2 className="text-xl font-semibold mb-2">Processing Screenshots</h2>
-              <p className="text-2xl font-bold text-blue-600 mb-1">
-                {processed} of {status.total} processed
-              </p>
-              <p className="text-muted-foreground mb-2">
-                {status.placesCreated} places found so far
-              </p>
-              {status.estimatedMinutesRemaining !== null && !status.isComplete && (
-                <p className="text-sm text-muted-foreground mb-4">
-                  ~{status.estimatedMinutesRemaining} min remaining
-                </p>
-              )}
-
-              {/* Progress bar */}
-              <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                <div
-                  role="progressbar"
-                  aria-valuenow={progressPercent}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label="Overall processing progress"
-                  className="bg-blue-600 h-3 rounded-full transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-
-              {/* Status breakdown */}
-              <div className="flex flex-wrap justify-center gap-2 mb-6" aria-live="polite" aria-atomic="true">
-                {status.counts.queued > 0 && (
-                  <Badge variant="outline">{status.counts.queued} queued</Badge>
-                )}
-                {status.counts.extracting > 0 && (
-                  <Badge variant="secondary">{status.counts.extracting} extracting</Badge>
-                )}
-                {status.counts.enriching > 0 && (
-                  <Badge variant="secondary">{status.counts.enriching} enriching</Badge>
-                )}
-                {status.counts.completed > 0 && (
-                  <Badge variant="default">{status.counts.completed} completed</Badge>
-                )}
-                {status.counts.failed > 0 && (
-                  <Badge variant="destructive">{status.counts.failed} failed</Badge>
-                )}
-                {status.counts.stalled > 0 && (
-                  <Badge variant="outline">{status.counts.stalled} still trying</Badge>
-                )}
-                {status.counts.cancelled > 0 && (
-                  <Badge variant="outline">{status.counts.cancelled} cancelled</Badge>
-                )}
-              </div>
-
-              {/* Dev-only: manual cron trigger */}
-              {process.env.NODE_ENV === 'development' && (
-                <div className="border-t pt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={isTriggering}
-                    onClick={async () => {
-                      setIsTriggering(true)
-                      setTriggerResult(null)
-                      try {
-                        const res = await fetch('/api/mass-upload/dev-trigger', { method: 'POST' })
-                        const data = await res.json()
-                        setTriggerResult(
-                          `Processed: ${data.processed ?? 0}, Failed: ${data.failed ?? 0}, Places: ${data.placesCreated ?? 0}, Remaining: ${data.remaining ?? 0}`
-                        )
-                      } catch {
-                        setTriggerResult('Trigger failed')
-                      } finally {
-                        setIsTriggering(false)
-                      }
-                    }}
-                  >
-                    {isTriggering ? (
-                      <>
-                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                        Running cron...
-                      </>
-                    ) : (
-                      'Trigger Processing (Dev)'
-                    )}
-                  </Button>
-                  {triggerResult && (
-                    <p className="text-xs text-muted-foreground mt-2">{triggerResult}</p>
-                  )}
-                </div>
-              )}
-            </Card>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-              <p className="text-blue-800 font-medium">
-                You can safely close this page.
-              </p>
-              <p className="text-sm text-blue-600 mt-1">
-                Processing continues automatically in the background. Come back anytime to check progress.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Button variant="outline" onClick={handleStartFresh}>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload More Photos
-              </Button>
-              {cancelError && (
-                <p className="text-sm text-destructive text-center w-full">{cancelError}</p>
-              )}
-              {status.counts.queued > 0 && (
-                <Button
-                  variant="outline"
-                  onClick={handleCancelProcessing}
-                  disabled={isCancelling}
-                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                >
-                  {isCancelling ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Cancelling...
-                    </>
-                  ) : (
-                    <>
-                      <Ban className="mr-2 h-4 w-4" />
-                      Cancel Remaining
-                    </>
-                  )}
-                </Button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    )
-  }
+  const frame = (content: ReactNode) => (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="bottom" className="h-[min(92vh,860px)] overflow-y-auto rounded-t-2xl px-4 pb-8 sm:px-8">
+        <SheetHeader>
+          <SheetTitle>Upload screenshots</SheetTitle>
+          <SheetDescription>
+            Drop travel screenshots. After Start, they report back in your Inbox.
+          </SheetDescription>
+        </SheetHeader>
+        {content}
+      </SheetContent>
+    </Sheet>
+  )
 
   // Step 2: Review
   if (step === 'review') {
-    return (
+    return frame(
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -794,7 +522,7 @@ export function MassUploadPage() {
         <Card className="p-6 text-center">
           <CloudUpload className="mx-auto h-10 w-10 text-blue-500 mb-3" />
           <p className="text-muted-foreground mb-4">
-            Once started, processing continues in the background. You can close this page.
+            After Start, this upload shows up in your Inbox. You can leave; the bell rings when it is done.
           </p>
           {startError && (
             <p className="text-sm text-destructive mb-4">{startError}</p>
@@ -822,7 +550,7 @@ export function MassUploadPage() {
   }
 
   // Step 1: Upload
-  return (
+  return frame(
     <div className="max-w-2xl mx-auto space-y-6">
       {sessionError && (
         <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

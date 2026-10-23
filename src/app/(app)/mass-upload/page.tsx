@@ -1,20 +1,7 @@
-import { PageHeader } from "@/components/layout/page-header"
-import { MassUploadPage } from "@/components/mass-upload/mass-upload-page"
-import { auth } from "@/lib/auth"
+import { redirect } from 'next/navigation'
+import { UPLOAD_SHEET_HREF } from '@/lib/upload-sheet'
 
-export default async function MassUploadRoute() {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return null
-  }
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Mass Upload"
-        description="Upload and process travel screenshots in bulk"
-      />
-      <MassUploadPage />
-    </div>
-  )
+/** The upload lives on the Inbox. Keep the old URL working. */
+export default function MassUploadRoute() {
+  redirect(UPLOAD_SHEET_HREF)
 }

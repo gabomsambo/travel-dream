@@ -17,6 +17,7 @@ import {
   type ActivityConnectionState,
   type ActivityJob,
 } from '@/lib/activity-jobs'
+import { anythingLeftInUpload, type UploadLeftoverRows } from '@/lib/upload-sheet'
 import {
   computeEta,
   isSessionComplete,
@@ -67,27 +68,41 @@ function isDiscoverableSession(session: SessionRow, nowMs: number): boolean {
 function completionToast(job: ActivityJob): void {
   const stalled = job.counts.stalled
   const failed = job.counts.failed
+  const actionLabel = job.href === '/library' ? 'View library' : 'View results'
   if (stalled > 0) {
     toastWithNavigate(
-      `Processing finished · ${job.counts.completed} processed · ${stalled} still trying.`,
-      '/mass-upload',
-      { type: 'warning', actionLabel: 'Review upload' }
+`Processing finished · ${job.counts.completed} processed · ${stalled} still trying.`,
+      job.href,
+      { type: 'warning', actionLabel }
     )
     return
   }
   if (failed > 0 && job.counts.completed === 0) {
     toastWithNavigate(
       `Processing finished · ${failed} screenshot${failed === 1 ? '' : 's'} failed.`,
-      '/mass-upload',
-      { type: 'error', actionLabel: 'Review upload' }
+      job.href,
+      { type: 'error', actionLabel }
     )
     return
   }
   toastWithNavigate(
     `Processing complete! ${job.placesCreated} places found from ${job.counts.completed} screenshots.`,
-    '/library',
-    { actionLabel: 'View library' }
+    job.href,
+    { actionLabel }
   )
+}
+
+async function readAnythingLeft(sessionId: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/inbox/uploads')
+    if (!res.ok) return true
+    const data = await res.json() as {
+      uploads?: Array<{ sessionId: string; rows: UploadLeftoverRows }>
+    }
+    return anythingLeftInUpload(data.uploads?.find(upload => upload.sessionId === sessionId))
+  } catch {
+    return true
+  }
 }
 
 function markSessionCompleted(sessionId: string): void {
@@ -158,8 +173,23 @@ export function ActivityProvider({ children, ownerUserId }: { children: ReactNod
       etaRef.current.delete(sessionId)
       if (!alreadyAnnounced) {
         announcedRef.current.add(sessionId)
-        completionToast(nextJob)
-        markSessionCompleted(sessionId)
+        const updatedAt = nextJob.updatedAt
+        void readAnythingLeft(sessionId).then((left) => {
+          markSessionCompleted(sessionId)
+          if (!jobsRef.current.some(job => job.id === sessionId)) return
+          const announcedJob = toActivityJob(
+            sessionId,
+            counts,
+            total,
+            placesCreated,
+            null,
+            true,
+            updatedAt,
+            left,
+          )
+          commitJobs([...jobsRef.current.filter(job => job.id !== sessionId), announcedJob])
+          completionToast(announcedJob)
+        })
       }
     }
   }, [commitJobs])

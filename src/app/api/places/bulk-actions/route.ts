@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
-import { bulkConfirmPlaces, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces, batchSetVisitStatus } from '@/lib/db-mutations';
+import { bulkConfirmPlaces, bulkReturnPlacesToInbox, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces, batchSetVisitStatus } from '@/lib/db-mutations';
 import { getOwnedPlaceIds } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
@@ -9,9 +9,9 @@ export const runtime = 'nodejs';
 export const maxDuration = 60; // 1 minute for bulk operations
 
 const BulkActionSchema = z.object({
-  action: z.enum(['confirm', 'archive', 'restore', 'delete', 'set-visit-status'], {
+  action: z.enum(['confirm', 'archive', 'restore', 'delete', 'set-visit-status', 'return-to-inbox'], {
     required_error: 'Action is required',
-    invalid_type_error: 'Action must be one of: "confirm", "archive", "restore", "delete" or "set-visit-status"'
+    invalid_type_error: 'Action must be one of: "confirm", "archive", "restore", "delete", "set-visit-status" or "return-to-inbox"'
   }),
   // Only for "set-visit-status": the Library's Dreaming / Planned / Been.
   visitStatus: z.enum(['not_visited', 'planned', 'visited']).optional(),
@@ -25,7 +25,7 @@ const BulkActionSchema = z.object({
 });
 
 interface BulkActionRequest {
-  action: 'confirm' | 'archive' | 'restore' | 'delete' | 'set-visit-status';
+  action: 'confirm' | 'archive' | 'restore' | 'delete' | 'set-visit-status' | 'return-to-inbox';
   visitStatus?: 'not_visited' | 'planned' | 'visited';
   placeIds: string[];
 }
@@ -91,6 +91,9 @@ export async function POST(request: NextRequest) {
       switch (action) {
         case 'confirm':
           updatedCount = await bulkConfirmPlaces(uniquePlaceIds, user.id);
+          break;
+        case 'return-to-inbox':
+          updatedCount = await bulkReturnPlacesToInbox(uniquePlaceIds, user.id);
           break;
         case 'archive':
           updatedCount = await batchArchivePlaces(uniquePlaceIds, user.id);
@@ -229,12 +232,13 @@ export async function GET() {
         method: 'POST',
         description: 'Perform bulk operations on multiple places',
         requestBody: {
-          action: 'confirm | archive | restore | delete | set-visit-status',
+          action: 'confirm | archive | restore | delete | set-visit-status | return-to-inbox',
           placeIds: 'string[] (1-500 items)',
           visitStatus: 'not_visited | planned | visited (set-visit-status only)'
         },
         actions: {
           confirm: 'Move places from inbox to library',
+          'return-to-inbox': 'Move places back to the inbox (undo a confirm)',
           archive: 'Move places to archived status',
           restore: 'Restore archived places back to library',
           delete: 'Permanently delete places from database',

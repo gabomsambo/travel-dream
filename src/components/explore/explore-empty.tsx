@@ -11,7 +11,7 @@ export function ExploreEmpty() {
       <p className="text-sm text-muted-foreground">
         Drop in a few screenshots of places you want to go. Explore turns them into themed rows to wander through.
       </p>
-      <Link href="/mass-upload" className="inline-flex h-10 items-center rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground">
+      <Link href="/inbox?sheet=1" className="inline-flex h-10 items-center rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground">
         Upload screenshots
       </Link>
     </div>

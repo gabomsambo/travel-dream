@@ -105,10 +105,13 @@ export interface InboxUploadBatch {
     /** Still in the Inbox, whether this batch created the place or linked the screenshot to it. */
     toReview: InboxUploadPlaceRow & {
       /**
-       * How many of these places Review marks "Check this"
+ * How many of these places Review marks "Check this"
        * (`reviewChecks`: no pin, no city, low confidence, or a tip).
+       * `null` on a hand-built fixture that has not been scored.
        */
-      checkCount: number;
+      checkCount: number | null;
+      /** Inbox places in this batch with nothing to check. */
+      lookRightPlaceIds: string[];
     };
     /** Created by this batch and since added to the Library. */
     added: InboxUploadPlaceRow;

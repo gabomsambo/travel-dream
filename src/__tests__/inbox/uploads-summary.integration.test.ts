@@ -197,7 +197,7 @@ describe('GET /api/inbox/uploads', () => {
     expect(b.rows.toReview.places[0].sourceIds).toEqual(['src_b1', 'src_b2']);
     expect(b.rows.toReview.placeIds).toEqual([coro]);
     expect(b.rows.toReview.checkCount).toBe(1);
-    expect(b.rows.added.places).toEqual([]);
+    expect(b.rows.toReview.lookRightPlaceIds).toEqual([]);    expect(b.rows.added.places).toEqual([]);
     expect(names(b.rows.notAPlace)).toEqual(['Tea Terrace']);
     expect(b.rows.alreadyInLibrary.placeIds).toEqual(['plc_alice_pancakes']);
     expect(b.rows.alreadyInLibrary.sourceIds).toEqual(['src_b1']);
@@ -393,5 +393,43 @@ describe('GET /api/inbox/uploads', () => {
     expect(batch.screenshots[0].createdPlaceIds).toEqual([]);
     expect(batch.screenshots[0].linkedPlaceIds).toEqual(['plc_merge_keep']);
     expect(JSON.stringify(batch)).not.toContain(fresh);
+  });
+
+  it('offers only nothing-to-check places, and confirm plus undo moves just those', async () => {
+    await session('session_lr', ALICE.id, '2026-10-18T18:00:00.000Z');
+    await source('src_lr', ALICE.id, 'session_lr', 'completed', '2026-10-18T18:01:00.000Z', {
+      places: [
+        place('Ready Cafe', { city: 'Coro', country: 'Venezuela', confidence: 0.91, coords: { lat: 11.4, lon: -69.6 } }),
+        place('No Pin', { city: 'Coro', country: 'Venezuela', confidence: 0.91, coords: null }),
+        place('Shaky Name', { city: 'Coro', country: 'Venezuela', confidence: 0.4, coords: { lat: 11.4, lon: -69.6 } }),
+        place('Just a Tip', { kind: 'tip', city: 'Coro', country: 'Venezuela', confidence: 0.91, coords: { lat: 11.4, lon: -69.6 } }),
+        place('Gulf Pin', { city: 'Coro', country: 'Venezuela', confidence: 0.91, coords: { lat: 0, lon: 0 } }),
+      ],
+    });
+    const ready = await placeIdByName('Ready Cafe');
+    const [batch] = await getUploads();
+    expect(batch.rows.toReview.checkCount).toBe(4);
+    expect(batch.rows.toReview.lookRightPlaceIds).toEqual([ready]);
+
+    const { POST } = require('@/app/api/places/bulk-actions/route') as {
+      POST: (req: Request) => Promise<Response>;
+    };
+    const call = (action: string, placeIds: string[]) => POST(new Request('http://local.test/api/places/bulk-actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, placeIds }),
+    }));
+    expect((await call('confirm', [ready])).status).toBe(200);
+    const statusOf = async (name: string) => {
+      const id = await placeIdByName(name);
+      const row = (await execute('SELECT status FROM places WHERE id = ?', [id])) as { rows: Array<{ status: string }> };
+      return row.rows[0].status;
+    };
+    expect(await statusOf('Ready Cafe')).toBe('library');
+    expect(await statusOf('No Pin')).toBe('inbox');
+    expect(await statusOf('Just a Tip')).toBe('inbox');
+
+    expect((await call('return-to-inbox', [ready])).status).toBe(200);
+    expect(await statusOf('Ready Cafe')).toBe('inbox');
   });
 });

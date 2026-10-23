@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 /**
  * One place against the caller's Library. Review uses this for the inline
- * "Looks like … in your Library" note.
+ * "Looks like …, already in your Library" note.
  */
 export async function GET(
   _request: Request,

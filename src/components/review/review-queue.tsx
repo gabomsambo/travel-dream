@@ -589,6 +589,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
 
   const noteRestored = React.useCallback((placeId: string) => {
     if (outcomesRef.current[placeId] === 'removed') return
+    if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId]) return
     commitStatus(placeId, 'library')
     setOutcomes((existing) => withOutcome(existing, placeId, 'added'))
     setPinnedId(placeId)
@@ -693,7 +694,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const progress = ((currentIndex + 1) / session.length) * 100
   const shot = current.postcard?.screenshot ?? null
   const queuePlaceIds = new Set(session.map((entry) => entry.placeId))
-  const decisionLocked = busy || Boolean(mergedByPlace[current.placeId])
+  const placeMerged = outcomes[current.placeId] === 'merged' || Boolean(mergedByPlace[current.placeId])
+  const decisionLocked = busy || placeMerged
 
   const openClassic = () => {
     const handles = viewHandlesRef.current
@@ -767,6 +769,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               onArchive={() => { void decide('archived') }}
               onDeleted={removeFromQueue}
               onRestored={() => noteRestored(current.placeId)}
+              blockRestore={placeMerged}
               showMobileActionBar={false}
             />
           ) : current.postcardError ? (

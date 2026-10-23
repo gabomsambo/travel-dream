@@ -195,6 +195,7 @@ export function PlaceView({
   onArchive,
   onDeleted,
   onRestored,
+  blockRestore = false,
   handlesRef,
   trips,
   alsoIn,
@@ -213,6 +214,7 @@ export function PlaceView({
   onArchive?: () => void
   onDeleted?: () => void
   onRestored?: () => void
+  blockRestore?: boolean
   handlesRef?: React.MutableRefObject<PlaceViewHandles | null>
   trips: ExploreCollection[]
   alsoIn: ExplorePlace[]
@@ -315,7 +317,7 @@ export function PlaceView({
 
   return (
     <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={editing} onExitEditing={onDoneEditing}>
-      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} />
+      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} />
       {lead}
       <QuickFacts place={displayPlace} />
       <PlaceColumns

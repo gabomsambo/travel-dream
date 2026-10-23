@@ -23,6 +23,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       onArchive,
       onDeleted,
       onRestored,
+      blockRestore,
       onOpenClassic,
       onEdit,
     }: {
@@ -33,6 +34,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       onArchive?: () => void
       onDeleted?: () => void
       onRestored?: () => void
+      blockRestore?: boolean
       onOpenClassic?: () => void
       onEdit?: () => void
     }) => {
@@ -50,7 +52,9 @@ jest.mock('@/components/places/place-view/place-view', () => {
           <button type="button" onClick={() => onEdit?.()}>Edit postcard</button>
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
-          <button type="button" onClick={() => onRestored?.()}>Restore from postcard</button>
+          {!blockRestore && (
+            <button type="button" onClick={() => onRestored?.()}>Restore from postcard</button>
+          )}
           <button type="button" onClick={() => onOpenClassic?.()}>Open classic editor</button>
         </div>
       )
@@ -1063,7 +1067,7 @@ describe('Review duplicate note', () => {
 
   it('shows the Library match on the postcard', async () => {
     renderQueue()
-    expect(await screen.findByRole('heading', { name: /Looks like Fjellheisen in your Library/ })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /Looks like Fjellheisen\s*,\s*already in your Library/ })).toBeInTheDocument()
     expect(screen.getByText('Likely')).toBeInTheDocument()
     expect(screen.getByText(fjellMatch.summary)).toBeInTheDocument()
     expect(screen.getByText(/Merge keeps everything/)).toBeInTheDocument()
@@ -1091,6 +1095,52 @@ describe('Review duplicate note', () => {
     ]))
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
     expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+  })
+
+  it('does not restore a merged place from the screenshot list', async () => {
+    const user = userEvent.setup()
+    const sharedShot = {
+      sourceId: 'src_shared',
+      url: 'https://example.test/shared.jpg',
+      name: 'shared.jpg',
+      createdAt: '2026-10-18T12:00:00.000Z',
+      softCover: false,
+      siblings: [
+        { placeId: 'plc_one', name: 'One Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:01.000Z' },
+        { placeId: 'plc_two', name: 'Two Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:02.000Z' },
+      ],
+    }
+    const previous = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input)
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse({ ...postcardFor(row), screenshot: sharedShot })
+      }
+      if (!previous) return jsonResponse({ status: 'success' })
+      return previous(input, init)
+    })
+
+    renderQueue({
+      postcard: { ...postcardFor(placeOne), screenshot: sharedShot },
+    })
+    await user.click(await screen.findByRole('button', { name: 'Merge into Fjellheisen' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+
+    await user.click(screen.getByRole('button', { name: /One Cafe/ }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'archived')
+    expect(screen.queryByRole('button', { name: 'Restore from postcard' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+    expect(patchCalls().some((call) => String((call[1] as { body?: string } | undefined)?.body).includes('"status":"library"'))).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: /Two Cafe/ }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText('1 merged into Fjellheisen.')).toBeInTheDocument())
+    expect(screen.getByText('added to Library').previousElementSibling).toHaveTextContent('0')
   })
 
   it('keeps both by dismissing the pair, with Undo', async () => {

@@ -98,6 +98,16 @@ describe('PlaceActionsMenu', () => {
     expect(mockRouter.back).not.toHaveBeenCalled()
   })
 
+  it('does not offer Restore when a merged place must stay archived', async () => {
+    const onRestored = jest.fn()
+    render(<PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="archived" blockRestore onRestored={onRestored} />)
+    await openMenu()
+    expect(screen.queryByRole('menuitem', { name: /Restore to library/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /^Archive$/ })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onRestored).not.toHaveBeenCalled()
+  })
+
   it('does not tell Review to restore when the request fails', async () => {
     const onRestored = jest.fn()
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ message: 'Place not found' }) })
@@ -206,7 +216,7 @@ describe('postcard menu inside Review', () => {
     Object.defineProperty(window.history, 'length', { configurable: true, get: () => 3 })
   })
 
-  function renderHero(onArchive: () => void, onDeleted: () => void, onRestored?: () => void, status = 'inbox') {
+  function renderHero(onArchive: () => void, onDeleted: () => void, onRestored?: () => void, status = 'inbox', blockRestore = false) {
     const place = {
       id: 'plc_fushimi',
       name: 'Fushimi Inari-taisha',
@@ -229,6 +239,7 @@ describe('postcard menu inside Review', () => {
         onArchive={onArchive}
         onDeleted={onDeleted}
         onRestored={onRestored}
+        blockRestore={blockRestore}
       />
     )
   }
@@ -268,5 +279,12 @@ describe('postcard menu inside Review', () => {
     expect(order).toEqual(['restored', 'refresh'])
     expect(mockRouter.back).not.toHaveBeenCalled()
     expect(mockRouter.push).not.toHaveBeenCalled()
+  })
+
+  it('hides Restore on a merged archived hero', async () => {
+    renderHero(jest.fn(), jest.fn(), jest.fn(), 'archived', true)
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.queryByRole('menuitem', { name: /Restore to library/ })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

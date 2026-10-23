@@ -40,6 +40,7 @@ export function PlaceActionsMenu({
   onArchive,
   onDeleted,
   onRestored,
+  blockRestore = false,
 }: {
   placeId: string
   placeName: string
@@ -50,6 +51,7 @@ export function PlaceActionsMenu({
   onArchive?: () => void
   onDeleted?: () => void
   onRestored?: () => void
+  blockRestore?: boolean
 }) {
   const router = useRouter()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
@@ -129,16 +131,16 @@ export function PlaceActionsMenu({
           <DropdownMenuItem onSelect={() => onOpenClassic?.()}>
             <PencilLine className="mr-2 h-4 w-4" aria-hidden /> Open classic editor
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {status === "archived" ? (
+          {!(status === "archived" && blockRestore) && <DropdownMenuSeparator />}
+          {status === "archived" && !blockRestore ? (
             <DropdownMenuItem onSelect={() => setStatus("library")}>
               <ArchiveRestore className="mr-2 h-4 w-4" aria-hidden /> Restore to library
             </DropdownMenuItem>
-          ) : (
+          ) : status !== "archived" ? (
             <DropdownMenuItem onSelect={() => { if (onArchive) onArchive(); else void setStatus("archived") }}>
               <Archive className="mr-2 h-4 w-4" aria-hidden /> Archive
             </DropdownMenuItem>
-          )}
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setConfirmDelete(true)} className="text-destructive focus:text-destructive">
             <Trash2 className="mr-2 h-4 w-4" aria-hidden /> Delete…

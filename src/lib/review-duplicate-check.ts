@@ -43,6 +43,7 @@ function pairDismissed(dismissed: Set<string>, a: string, b: string): boolean {
 function displayablePhoto(uri: string | null | undefined): string | null {
   if (!uri) return null
   if (uri.startsWith('data:image/')) return uri
+  if (uri.startsWith('/') && !uri.startsWith('//')) return uri
   try {
     const url = new URL(uri)
     if (url.protocol === 'https:' || url.protocol === 'http:') return uri
@@ -69,7 +70,7 @@ function pinsApart(metres: number): string {
   return `pins ${Math.round(metres)} m apart`;
 }
 
-/** The one-line evidence under "Looks like … in your Library". */
+/** The one-line evidence under "Looks like …, already in your Library". */
 export function duplicateNoteSummary(cluster: DuplicateCluster, libraryPlace: Place): string {
   const edge = cluster.edges[0];
   const phrases: string[] = [];
@@ -122,7 +123,9 @@ function twoPlaceCluster(target: Place, match: DuplicateMatch): DuplicateCluster
 /**
  * Best Library match for one place. Inbox and archived rows are not candidates.
  * Dismissed pairs are dropped. The certainty word comes from a 2-place cluster,
- * the same function the duplicates queue uses. "Probably not" is not a note.
+ * the same function the duplicates queue uses. A pair that does not form that
+ * cluster, and a "Probably not" pair, is skipped for the next candidate that
+ * yields a note.
  */
 export async function checkLibraryDuplicate(userId: string, placeId: string): Promise<ReviewDuplicateCheck> {
   const scope = forUser(userId);
@@ -140,35 +143,41 @@ export async function checkLibraryDuplicate(userId: string, placeId: string): Pr
     ...DEFAULT_DETECTION_CONFIG,
     minConfidenceScore: DUPLICATE_PAGE_BAND.possibleMin,
   });
-  const top = detected.potentialDuplicates.find(
-    (candidate) => !pairDismissed(dismissed, placeId, candidate.place.id),
-  );
-  if (!top) return { status: 'ok', match: null };
-
-  const cluster = twoPlaceCluster(owned.row, top);
-  if (!cluster) return { status: 'ok', match: null };
-  const certainty = certaintyWord(cluster);
-  if (certainty === 'probably-not') return { status: 'ok', match: null };
+  let chosen: {
+    candidate: DuplicateMatch;
+    cluster: DuplicateCluster;
+    certainty: CertaintyWord;
+  } | null = null;
+  for (const candidate of detected.potentialDuplicates) {
+    if (pairDismissed(dismissed, placeId, candidate.place.id)) continue;
+    const cluster = twoPlaceCluster(owned.row, candidate);
+    if (!cluster) continue;
+    const certainty = certaintyWord(cluster);
+    if (certainty === 'probably-not') continue;
+    chosen = { candidate, cluster, certainty };
+    break;
+  }
+  if (!chosen) return { status: 'ok', match: null };
 
   const photos = await scope.selectVia(
     attachments,
-    and(eq(attachments.placeId, top.place.id), eq(attachments.type, 'photo')),
+    and(eq(attachments.placeId, chosen.candidate.place.id), eq(attachments.type, 'photo')),
   );
   const cover = [...photos].sort((a, b) => b.isPrimary - a.isPrimary || a.createdAt.localeCompare(b.createdAt))[0];
 
   return {
     status: 'ok',
     match: {
-      placeId: top.place.id,
-      name: top.place.name,
-      city: top.place.city,
-      kind: top.place.kind,
-      createdAt: top.place.createdAt,
+      placeId: chosen.candidate.place.id,
+      name: chosen.candidate.place.name,
+      city: chosen.candidate.place.city,
+      kind: chosen.candidate.place.kind,
+      createdAt: chosen.candidate.place.createdAt,
       photoUrl: displayablePhoto(cover?.uri) ?? displayablePhoto(cover?.thumbnailUri),
-      confidence: top.confidence,
-      certainty,
-      label: CERTAINTY_LABEL[certainty],
-      summary: duplicateNoteSummary(cluster, top.place),
+      confidence: chosen.candidate.confidence,
+      certainty: chosen.certainty,
+      label: CERTAINTY_LABEL[chosen.certainty],
+      summary: duplicateNoteSummary(chosen.cluster, chosen.candidate.place),
     },
   };
 }

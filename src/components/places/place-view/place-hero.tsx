@@ -34,6 +34,7 @@ export function PlaceHero({
   onArchive,
   onDeleted,
   onRestored,
+  blockRestore = false,
   softCover = false,
   fitReviewBar = false,
 }: {
@@ -47,6 +48,7 @@ export function PlaceHero({
   onArchive?: () => void
   onDeleted?: () => void
   onRestored?: () => void
+  blockRestore?: boolean
   /** The cover is a screenshot shared with other places: blur it and offer a real photo. */
   softCover?: boolean
   /** On a phone, keep the title above Review's fixed action bar. Desktop stays 72vh. */
@@ -179,6 +181,7 @@ export function PlaceHero({
             onArchive={onArchive}
             onDeleted={onDeleted}
             onRestored={onRestored}
+            blockRestore={blockRestore}
           />
         </div>
 

@@ -196,6 +196,71 @@ describe('GET /api/places/[id]/duplicate-check', () => {
     expect(JSON.stringify(foreignOnly.body)).not.toContain('BOB');
   });
 
+  it('skips a probably-not name clash for the next Library place that is a note', async () => {
+    const pin = { lat: 69.6492, lon: 18.9553 };
+    await insertPlace({
+      id: 'plc_pust_inbox',
+      name: 'Pust Floating Sauna',
+      status: 'inbox',
+      city: 'Tromsø',
+      country: 'Norway',
+      coords: pin,
+    });
+    await insertPlace({
+      id: 'plc_pust_italy',
+      name: 'Pust Floating Sauna',
+      status: 'library',
+      city: null,
+      country: 'Italy',
+      coords: null,
+    });
+    await insertPlace({
+      id: 'plc_pust_near',
+      name: 'Pust',
+      status: 'library',
+      city: 'Tromsø',
+      country: 'Norway',
+      coords: { lat: pin.lat + 0.00045, lon: pin.lon },
+    });
+
+    const { status, body } = await check('plc_pust_inbox');
+    expect(status).toBe(200);
+    expect(body.match?.placeId).toBe('plc_pust_near');
+    expect(body.match?.certainty).not.toBe('probably-not');
+    expect(body.match?.name).toBe('Pust');
+  });
+
+  it('keeps a root-relative Google cover and drops a protocol-relative host', async () => {
+    const { attachments } = require('@/db/schema') as typeof import('@/db/schema');
+    await insertPlace(LIBRARY);
+    await insertPlace(INBOX);
+    await database().insert(attachments).values({
+      id: 'att_google_cover',
+      placeId: LIBRARY.id,
+      type: 'photo',
+      uri: '/api/photos/resolve/att_google_cover',
+      thumbnailUri: '/api/photos/resolve/att_google_cover?w=400',
+      filename: 'google.jpg',
+      isPrimary: 1,
+      source: 'google_places',
+    });
+
+    const shown = await check(INBOX.id);
+    expect(shown.status).toBe(200);
+    expect(shown.body.match?.photoUrl).toBe('/api/photos/resolve/att_google_cover');
+
+    const client = (require('@/db') as { client: { execute: (q: string) => Promise<unknown> } }).client;
+    await client.execute(`UPDATE attachments SET uri = '//evil.example/secret.jpg' WHERE id = 'att_google_cover'`);
+    const dropped = await check(INBOX.id);
+    expect(dropped.body.match?.photoUrl).toBe('/api/photos/resolve/att_google_cover?w=400');
+    expect(JSON.stringify(dropped.body)).not.toContain('evil.example');
+
+    await client.execute(`UPDATE attachments SET thumbnail_uri = NULL WHERE id = 'att_google_cover'`);
+    const neither = await check(INBOX.id);
+    expect(neither.body.match?.placeId).toBe(LIBRARY.id);
+    expect(neither.body.match?.photoUrl).toBeNull();
+  });
+
   it('answers 404 for a missing id and for another tenant', async () => {
     const missing = await check('plc_missing');
     expect(missing.status).toBe(404);

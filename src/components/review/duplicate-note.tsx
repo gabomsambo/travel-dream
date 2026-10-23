@@ -247,7 +247,7 @@ export function ReviewDuplicateNote({
         </div>
         <div className="min-w-0">
           <h3 className="text-[15px] font-semibold leading-snug">
-            Looks like <span className="underline decoration-foreground/30 underline-offset-2">{match.name}</span> in your Library
+            Looks like <span className="underline decoration-foreground/30 underline-offset-2">{match.name}</span>, already in your Library
             <span className={cn('ml-2 inline-flex rounded-full px-2 py-0.5 align-middle text-[11px] font-bold', CERTAINTY_WORD_CLASS[match.certainty])}>
               {match.label}
             </span>

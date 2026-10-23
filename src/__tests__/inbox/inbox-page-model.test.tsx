@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { renderToString } from 'react-dom/server.node'
 import { InboxPageClient } from '@/components/inbox/inbox-page-client'
 import { InboxScreen } from '@/components/inbox/inbox-screen'
@@ -25,6 +25,7 @@ function shot(partial: Pick<InboxUploadScreenshot, 'sourceId'> & Partial<InboxUp
     createdPlaceIds: [],
     linkedPlaceIds: [],
     outcomeDerived: false,
+    createdAt: '',
     ...partial,
   }
 }
@@ -213,6 +214,44 @@ describe('inbox page model', () => {
       '/review?upload=session_shot&placeId=plc_old',
       '/review?upload=session_shot&placeId=plc_a',
     ])
+  })
+
+  it('opens an older screenshot on the place a later shot in the upload ranks first', () => {
+    const sameTime = '2026-10-23 10:00:00'
+    const upload = batch({
+      sessionId: 'session_sib',
+      uploadedAt: NOW.toISOString(),
+      screenshots: [
+        shot({
+          sourceId: 'src_old',
+          createdAt: '2026-10-23 11:00:00',
+          createdPlaceIds: ['plc_a', 'plc_b'],
+        }),
+        shot({
+          sourceId: 'src_new',
+          createdAt: '2026-10-23T10:00:00.000Z',
+          linkedPlaceIds: ['plc_b'],
+        }),
+      ],
+      rows: {
+        toReview: {
+          placeIds: ['plc_a', 'plc_b'],
+          sourceIds: ['src_old', 'src_new'],
+          places: [
+            place({ id: 'plc_a', name: 'Aye', status: 'inbox', createdAt: sameTime, sourceIds: ['src_old'] }),
+            place({ id: 'plc_b', name: 'Bee', status: 'inbox', createdAt: sameTime, sourceIds: ['src_old', 'src_new'] }),
+          ],
+          checkCount: null,
+        },
+      },
+    })
+    render(<InboxScreen model={show([upload], 'session_sib')} />)
+    const older = screen.getByRole('link', { name: 'Aye' }).closest('.grid')
+    expect(older).not.toBeNull()
+    expect(within(older as HTMLElement).getByRole('link', { name: 'Review' })).toHaveAttribute(
+      'href',
+      '/review?upload=session_sib&placeId=plc_b',
+    )
   })
 
   it('opens added another way on the sourced place the queue ranks first', () => {

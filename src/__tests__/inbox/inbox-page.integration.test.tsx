@@ -14,11 +14,12 @@ import {
 
 jest.mock('@vercel/blob', () => ({ del: jest.fn(), put: jest.fn(), head: jest.fn() }));
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { InboxScreen } from '@/components/inbox/inbox-screen';
 import { createPlacesFromPipeline } from '@/lib/db-mutations';
 import { buildInboxScreen, coveredUploadPlaceIds, formatUploadWhen } from '@/lib/inbox-page-model';
 import { getInboxPlacesAddedAnotherWay, getInboxUploads } from '@/lib/inbox-uploads';
+import { loadReviewQueue } from '@/lib/review-queue';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
 
 type Exec = (query: { sql: string; args?: unknown[] }) => Promise<{ rows: Array<Record<string, unknown>> }>;
@@ -293,6 +294,34 @@ describe('inbox page', () => {
     expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute(
       'href',
       '/review?upload=session_multi&placeId=plc_earlier'
+    );
+  });
+
+  it('opens an older screenshot on the place a later shot in the upload ranks first', async () => {
+    const placeAt = '2026-10-23 10:00:00';
+    await session('session_sib', ALICE.id, '2026-10-23T10:00:00.000Z');
+    await source('src_old', ALICE.id, 'session_sib', 'completed', '2026-10-23 11:00:00', { name: 'older.jpg' });
+    await source('src_new', ALICE.id, 'session_sib', 'completed', '2026-10-23T10:00:00.000Z', { name: 'newer.jpg' });
+    for (const [id, name] of [['plc_a', 'Aye'], ['plc_b', 'Bee']] as const) {
+      await execute(
+        `INSERT INTO places (id,user_id,name,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+        [id, ALICE.id, name, 'cafe', 'inbox', placeAt, placeAt]
+      );
+    }
+    await execute(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_old', 'plc_a']);
+    await execute(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_old', 'plc_b']);
+    await execute(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_new', 'plc_b']);
+
+    const queue = await loadReviewQueue(ALICE.id, undefined, 'session_sib');
+    expect(queue.entries.map((entry) => entry.placeId)).toEqual(['plc_b', 'plc_a']);
+
+    render(<InboxScreen model={await screenModel('session_sib')} />);
+    expect(screen.getByRole('link', { name: 'Review 2 places' })).toHaveAttribute('href', '/review?upload=session_sib');
+    const older = screen.getByRole('link', { name: 'Aye' }).closest('.grid');
+    expect(older).not.toBeNull();
+    expect(within(older as HTMLElement).getByRole('link', { name: 'Review' })).toHaveAttribute(
+      'href',
+      '/review?upload=session_sib&placeId=plc_b'
     );
   });
 

@@ -4,7 +4,7 @@
  * per-screenshot detail. No I/O. Later PRs wire Try again, Dismiss, Add by
  * hand, and "Add the N that look right"; this model leaves those unwired.
  */
-import { compareReviewRank, type ReviewRankKey } from '@/lib/review-order';
+import { compareReviewRank, rankingSource, type ReviewRankKey } from '@/lib/review-order';
 import type {
   InboxUploadBatch,
   InboxUploadPlace,
@@ -224,15 +224,27 @@ function firstQueuedHandAddedId(places: InboxPlaceAddedAnotherWay[]): string | u
   }))?.id;
 }
 
-function firstInboxOnScreenshot(places: InboxUploadPlace[]): string | undefined {
+function firstInboxOnScreenshot(
+  places: InboxUploadPlace[],
+  screenshots: InboxUploadScreenshot[],
+): string | undefined {
+  const shotsById = new Map(screenshots.map((shot) => [shot.sourceId, shot]));
   return firstByReviewRank(
     places.filter((place) => place.status === 'inbox'),
-    (place) => ({
-      placeId: place.id,
-      createdAt: place.createdAt,
-      sourceCreatedAt: '',
-      sourceId: '',
-    }),
+    (place) => {
+      const source = rankingSource(
+        place.sourceIds.flatMap((id) => {
+          const shot = shotsById.get(id);
+          return shot ? [{ id: shot.sourceId, type: 'screenshot', createdAt: shot.createdAt }] : [];
+        }),
+      );
+      return {
+        placeId: place.id,
+        createdAt: place.createdAt,
+        sourceCreatedAt: source?.createdAt ?? '',
+        sourceId: source?.id ?? '',
+      };
+    },
   )?.id;
 }
 
@@ -803,7 +815,7 @@ function shotLine(kind: InboxShotKind, shot: InboxUploadScreenshot, places: Inbo
 
 function shotActions(kind: InboxShotKind, shot: InboxUploadScreenshot, places: InboxUploadPlace[], batch: InboxUploadBatch): InboxAction[] {
   if (kind === 'new') {
-    return [{ label: 'Review', href: reviewHref(firstInboxOnScreenshot(places), batch.sessionId) }];
+    return [{ label: 'Review', href: reviewHref(firstInboxOnScreenshot(places, batch.screenshots), batch.sessionId) }];
   }
   if (kind === 'library' || kind === 'added') {
     return [{ label: 'See them', href: seeThemHref(places.filter((place) => place.status === 'library')) }];

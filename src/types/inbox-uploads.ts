@@ -56,6 +56,8 @@ export type InboxScreenshotOutcome =
 
 export interface InboxUploadScreenshot {
   sourceId: string;
+  /** Raw `sources.created_at`, compared as stored when ordering Review. */
+  createdAt: string;
   name: string | null;
   /** Thumbnail when one was made, else the screenshot itself. */
   imageUrl: string | null;

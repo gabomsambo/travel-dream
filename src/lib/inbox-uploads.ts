@@ -197,6 +197,7 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
     );
     const view: InboxUploadScreenshot = {
       sourceId: s.id,
+      createdAt: s.createdAt,
       name: s.meta?.uploadInfo?.originalName ?? s.meta?.filename ?? null,
       imageUrl: s.meta?.massUpload?.thumbnailUrl ?? s.meta?.uploadInfo?.thumbnailPath ?? s.uri ?? null,
       processingStatus: status,

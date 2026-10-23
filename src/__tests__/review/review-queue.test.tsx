@@ -19,6 +19,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       place,
       editing,
       softCover,
+      lead,
       onArchive,
       onDeleted,
       onRestored,
@@ -28,6 +29,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       place: PlaceWithRelations
       editing?: boolean
       softCover?: boolean
+      lead?: React.ReactNode
       onArchive?: () => void
       onDeleted?: () => void
       onRestored?: () => void
@@ -44,6 +46,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
           data-soft-cover={softCover ? 'yes' : 'no'}
         >
           {place.name}
+          {lead}
           <button type="button" onClick={() => onEdit?.()}>Edit postcard</button>
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
@@ -991,5 +994,128 @@ describe('ReviewQueue decisions', () => {
     expect(screen.queryByText('Your Inbox is sorted for now.')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'All caught up' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
+  })
+})
+
+const fjellMatch = {
+  placeId: 'plc_lib',
+  name: 'Fjellheisen',
+  city: 'Tromsø',
+  kind: 'experience',
+  createdAt: '2026-09-02T12:00:00.000Z',
+  photoUrl: null,
+  confidence: 0.86,
+  certainty: 'likely' as const,
+  label: 'Likely',
+  summary: 'Same name start · both Tromsø · pins 50 m apart · saved 2 Sept',
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.toString()
+  return input.url
+}
+
+function installDuplicateFetch() {
+  fetchMock.mockImplementation(async (input, init) => {
+    const url = requestUrl(input)
+    const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
+    if (url.includes('/duplicate-check')) {
+      const match = url.includes('plc_one') ? fjellMatch : null
+      return jsonResponse({ status: 'success', match })
+    }
+    if (url === '/api/places/bulk-merge' && method === 'POST') {
+      return jsonResponse({
+        status: 'success',
+        success: 1,
+        results: [{ status: 'success', mergeLogId: 'mrg_fjell' }],
+      })
+    }
+    if (url === '/api/places/undo-merge' && method === 'POST') return jsonResponse({ status: 'success' })
+    if (url === '/api/places/dismiss-duplicate' && method === 'POST') {
+      const body = JSON.parse(String((init as { body?: string }).body)) as { pairs: unknown }
+      return jsonResponse({ status: 'success', inserted: body.pairs })
+    }
+    if (url === '/api/places/dismiss-duplicate' && method === 'DELETE') return jsonResponse({ status: 'success' })
+    if (url === '/api/places/plc_lib') return jsonResponse(place('plc_lib', 'Fjellheisen', source('lib')))
+    if (url.startsWith('/api/review/postcard/')) {
+      const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+      const row = placesById.get(id)
+      if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+      return jsonResponse(postcardFor(row))
+    }
+    return jsonResponse({ status: 'success' })
+  })
+}
+
+function posted(url: string, method: string) {
+  return fetchMock.mock.calls
+    .filter((call) => requestUrl(call[0] as RequestInfo) === url && ((call[1] as { method?: string } | undefined)?.method ?? 'GET').toUpperCase() === method)
+    .map((call) => JSON.parse(String((call[1] as { body?: string }).body)))
+}
+
+describe('Review duplicate note', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    installDuplicateFetch()
+    window.history.replaceState({}, '', '/review')
+  })
+
+  it('shows the Library match on the postcard', async () => {
+    renderQueue()
+    expect(await screen.findByRole('heading', { name: /Looks like Fjellheisen in your Library/ })).toBeInTheDocument()
+    expect(screen.getByText('Likely')).toBeInTheDocument()
+    expect(screen.getByText(fjellMatch.summary)).toBeInTheDocument()
+    expect(screen.getByText(/Merge keeps everything/)).toBeInTheDocument()
+  })
+
+  it('merges into the Library place and undoes from the toast', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+    await user.click(await screen.findByRole('button', { name: 'Merge into Fjellheisen' }))
+
+    await waitFor(() => expect(posted('/api/places/bulk-merge', 'POST')).toEqual([
+      { clusters: [{ targetId: 'plc_lib', sourceIds: ['plc_one'], confidence: 0.86 }] },
+    ]))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    const toast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Merged into Fjellheisen'))
+    expect(toast?.[1]).toEqual(expect.objectContaining({ cancel: expect.objectContaining({ label: 'Undo' }) }))
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText('1 merged into Fjellheisen.')).toBeInTheDocument())
+
+    const undo = (toast?.[1]?.cancel as { onClick?: () => void } | undefined)?.onClick
+    undo?.()
+    await waitFor(() => expect(posted('/api/places/undo-merge', 'POST')).toEqual([
+      { placeId: 'plc_lib', mergeLogId: 'mrg_fjell' },
+    ]))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+  })
+
+  it('keeps both by dismissing the pair, with Undo', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+    await user.click(await screen.findByRole('button', { name: 'Keep both' }))
+
+    await waitFor(() => expect(posted('/api/places/dismiss-duplicate', 'POST')).toEqual([
+      { pairs: [{ placeId1: 'plc_one', placeId2: 'plc_lib' }] },
+    ]))
+    expect(await screen.findByText(/Fjellheisen and One Cafe stay separate/)).toBeInTheDocument()
+    const toast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Keeping'))
+    expect(toast?.[1]).toEqual(expect.objectContaining({ cancel: expect.objectContaining({ label: 'Undo' }) }))
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(posted('/api/places/dismiss-duplicate', 'DELETE')).toEqual([
+      { pairs: [{ placeId1: 'plc_one', placeId2: 'plc_lib' }] },
+    ]))
+    expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+  })
+
+  it('opens a comparison with the Library place', async () => {
+    const user = userEvent.setup()
+    renderQueue()
+    await user.click(await screen.findByRole('button', { name: 'Compare' }))
+    expect(await screen.findByRole('dialog', { name: 'Compare with Fjellheisen' })).toBeInTheDocument()
   })
 })

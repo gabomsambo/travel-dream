@@ -201,6 +201,7 @@ export function PlaceView({
   showMobileActionBar = true,
   softCover = false,
   fitReviewBar = false,
+  lead,
 }: {
   place: PlaceWithRelations
   editing?: boolean
@@ -220,6 +221,8 @@ export function PlaceView({
   softCover?: boolean
   /** On a phone, keep the hero title above Review's fixed action bar. */
   fitReviewBar?: boolean
+  /** Review-only content under the hero, such as the possible-duplicate note. */
+  lead?: React.ReactNode
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -313,6 +316,7 @@ export function PlaceView({
   return (
     <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={editing} onExitEditing={onDoneEditing}>
       <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} />
+      {lead}
       <QuickFacts place={displayPlace} />
       <PlaceColumns
         place={place}

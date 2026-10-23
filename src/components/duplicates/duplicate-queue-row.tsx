@@ -10,15 +10,7 @@ import {
   type QueuePlace,
 } from '@/lib/duplicate-certainty';
 import { cn } from '@/lib/utils';
-
-const WORD_CLASS = {
-  same: 'bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-100',
-  'very-likely': 'bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-100',
-  likely: 'bg-emerald-50 text-emerald-900 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/70 dark:text-emerald-100 dark:ring-emerald-800',
-  maybe: 'bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100',
-  possible: 'bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100',
-  'probably-not': 'bg-red-100 text-red-950 dark:bg-red-950 dark:text-red-100',
-} as const;
+import { CERTAINTY_WORD_CLASS as WORD_CLASS } from './certainty-word-class';
 
 function stackPlaces(cluster: QueueCluster): QueuePlace[] {
   const withPhoto = cluster.places.filter((place) => place.photoUrl);

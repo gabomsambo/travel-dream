@@ -1094,7 +1094,72 @@ describe('Review duplicate note', () => {
       { placeId: 'plc_lib', mergeLogId: 'mrg_fjell' },
     ]))
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'inbox')
     expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+
+    const patchesAfterUndo = patchCalls().length
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText('added to Library').previousElementSibling).toHaveTextContent('0'))
+    expect(patchCalls()).toHaveLength(patchesAfterUndo)
+  })
+
+  it('undoing a merge puts a Library add back on the postcard', async () => {
+    const user = userEvent.setup()
+    const sharedShot = {
+      sourceId: 'src_shared',
+      url: 'https://example.test/shared.jpg',
+      name: 'shared.jpg',
+      createdAt: '2026-10-18T12:00:00.000Z',
+      softCover: false,
+      siblings: [
+        { placeId: 'plc_one', name: 'One Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:01.000Z' },
+        { placeId: 'plc_two', name: 'Two Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:02.000Z' },
+      ],
+    }
+    const previous = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input)
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse({ ...postcardFor(row), screenshot: sharedShot })
+      }
+      if (!previous) return jsonResponse({ status: 'success' })
+      return previous(input, init)
+    })
+
+    renderQueue({
+      postcard: { ...postcardFor(placeOne), screenshot: sharedShot },
+    })
+
+    await user.click(screen.getAllByRole('button', { name: /Add to Library/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: 'Previous' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library'))
+
+    await user.click(await screen.findByRole('button', { name: 'Merge into Fjellheisen' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+
+    const toast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Merged into Fjellheisen'))
+    const undo = (toast?.[1]?.cancel as { onClick?: () => void } | undefined)?.onClick
+    undo?.()
+
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'library')
+    expect(screen.getByRole('button', { name: /Two Cafe/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Two Cafe/ }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(screen.getByRole('button', { name: /One Cafe/ })).toHaveTextContent('Added')
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText('1 new place is in your Library.')).toBeInTheDocument())
+    expect(screen.getByText('added to Library').previousElementSibling).toHaveTextContent('1')
+    expect(screen.queryByText(/merged into/)).not.toBeInTheDocument()
+    expect(patchCalls().map((call) => String((call[1] as { body?: string } | undefined)?.body))).toEqual([
+      JSON.stringify({ status: 'library' }),
+    ])
   })
 
   it('does not restore a merged place from the screenshot list', async () => {

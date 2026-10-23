@@ -43,7 +43,8 @@ function pairDismissed(dismissed: Set<string>, a: string, b: string): boolean {
 function displayablePhoto(uri: string | null | undefined): string | null {
   if (!uri) return null
   if (uri.startsWith('data:image/')) return uri
-  if (uri.startsWith('/') && !uri.startsWith('//')) return uri
+  if (uri.startsWith('/api/photos/resolve/')) return uri
+  if (uri.startsWith('/')) return null
   try {
     const url = new URL(uri)
     if (url.protocol === 'https:' || url.protocol === 'http:') return uri

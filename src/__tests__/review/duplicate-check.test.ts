@@ -261,6 +261,47 @@ describe('GET /api/places/[id]/duplicate-check', () => {
     expect(neither.body.match?.photoUrl).toBeNull();
   });
 
+  it('uses a live thumbnail when the cover uri is a dead /uploads/ path', async () => {
+    const { attachments } = require('@/db/schema') as typeof import('@/db/schema');
+    await insertPlace(LIBRARY);
+    await insertPlace(INBOX);
+    await database().insert(attachments).values({
+      id: 'att_legacy_cover',
+      placeId: LIBRARY.id,
+      type: 'photo',
+      uri: '/uploads/places/plc_fjell_lib/cover.jpg',
+      thumbnailUri: '/api/photos/resolve/att_legacy_cover?w=400',
+      filename: 'cover.jpg',
+      isPrimary: 1,
+      source: 'upload',
+    });
+
+    const shown = await check(INBOX.id);
+    expect(shown.status).toBe(200);
+    expect(shown.body.match?.photoUrl).toBe('/api/photos/resolve/att_legacy_cover?w=400');
+    expect(JSON.stringify(shown.body)).not.toContain('/uploads/');
+
+    const client = (require('@/db') as { client: { execute: (q: string) => Promise<unknown> } }).client;
+    await client.execute(`UPDATE attachments SET thumbnail_uri = '/uploads/places/plc_fjell_lib/thumb.jpg' WHERE id = 'att_legacy_cover'`);
+    const bothDead = await check(INBOX.id);
+    expect(bothDead.body.match?.photoUrl).toBeNull();
+    expect(JSON.stringify(bothDead.body)).not.toContain('/uploads/');
+
+    await client.execute(`UPDATE attachments SET uri = 'http://example.test/cover.jpg' WHERE id = 'att_legacy_cover'`);
+    const httpCover = await check(INBOX.id);
+    expect(httpCover.body.match?.photoUrl).toBe('http://example.test/cover.jpg');
+
+    await client.execute(`UPDATE attachments SET uri = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' WHERE id = 'att_legacy_cover'`);
+    const dataCover = await check(INBOX.id);
+    expect(dataCover.body.match?.photoUrl).toBe('data:image/gif;base64,R0lGODlhAQABAAAAACw=');
+
+    await client.execute(`UPDATE attachments SET uri = '//evil.example/secret.jpg', thumbnail_uri = '/uploads/places/plc_fjell_lib/thumb.jpg' WHERE id = 'att_legacy_cover'`);
+    const rejected = await check(INBOX.id);
+    expect(rejected.body.match?.photoUrl).toBeNull();
+    expect(JSON.stringify(rejected.body)).not.toContain('evil.example');
+    expect(JSON.stringify(rejected.body)).not.toContain('/uploads/');
+  });
+
   it('answers 404 for a missing id and for another tenant', async () => {
     const missing = await check('plc_missing');
     expect(missing.status).toBe(404);

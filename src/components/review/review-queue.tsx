@@ -172,6 +172,23 @@ function withOutcome(
   return { ...existing, [placeId]: outcome }
 }
 
+interface MergeResume {
+  status: PlaceStatus
+  outcome?: ReviewOutcome
+}
+
+function rememberedPlaceStatus(
+  placeId: string,
+  written: Readonly<Record<string, PlaceStatus>>,
+  session: readonly SessionEntry[],
+): PlaceStatus {
+  const writtenStatus = written[placeId]
+  if (writtenStatus) return writtenStatus
+  const status = session.find((entry) => entry.placeId === placeId)?.postcard?.place.status
+  if (status === 'inbox' || status === 'library' || status === 'archived') return status
+  return 'inbox'
+}
+
 function deriveReviewCursor(
   session: SessionEntry[],
   outcomes: Record<string, ReviewOutcome>,
@@ -360,6 +377,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const [outcomes, setOutcomes] = React.useState<Record<string, ReviewOutcome>>({})
   const outcomesRef = React.useRef(outcomes)
   outcomesRef.current = outcomes
+  const sessionRef = React.useRef(session)
+  sessionRef.current = session
+  const mergeResumeRef = React.useRef<Record<string, MergeResume>>({})
   const [mergedByPlace, setMergedByPlace] = React.useState<Record<string, MergedDuplicate>>({})
   const mergedRef = React.useRef(mergedByPlace)
   mergedRef.current = mergedByPlace
@@ -613,6 +633,10 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         const body = await response.json().catch(() => null) as { message?: string } | null
         throw new Error(body?.message || "Couldn't undo that merge.")
       }
+      const resume = mergeResumeRef.current[info.inboxPlaceId]
+      delete mergeResumeRef.current[info.inboxPlaceId]
+      const restoreStatus = resume?.status ?? 'inbox'
+      const restoreOutcome = resume?.outcome
       setMergedByPlace((existing) => {
         if (!existing[info.inboxPlaceId]) return existing
         const next = { ...existing }
@@ -621,11 +645,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       })
       setOutcomes((existing) => {
         if (existing[info.inboxPlaceId] !== 'merged') return existing
-        const next = { ...existing }
-        delete next[info.inboxPlaceId]
-        return next
+        if (!restoreOutcome) {
+          const next = { ...existing }
+          delete next[info.inboxPlaceId]
+          return next
+        }
+        return withOutcome(existing, info.inboxPlaceId, restoreOutcome)
       })
-      commitStatus(info.inboxPlaceId, 'inbox')
+      commitStatus(info.inboxPlaceId, restoreStatus)
       selectPlace(info.inboxPlaceId, true)
       notify.success('Merge undone')
     } catch (undoError) {
@@ -634,6 +661,13 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   }, [commitStatus, selectPlace])
 
   const noteMerged = React.useCallback((info: MergedDuplicate) => {
+    if (!mergeResumeRef.current[info.inboxPlaceId]) {
+      const outcome = outcomesRef.current[info.inboxPlaceId]
+      mergeResumeRef.current[info.inboxPlaceId] = {
+        status: rememberedPlaceStatus(info.inboxPlaceId, writtenStatusRef.current, sessionRef.current),
+        ...(outcome && outcome !== 'merged' ? { outcome } : {}),
+      }
+    }
     setMergedByPlace((existing) => ({ ...existing, [info.inboxPlaceId]: info }))
     commitStatus(info.inboxPlaceId, 'archived')
     setOutcomes((existing) => withOutcome(existing, info.inboxPlaceId, 'merged'))

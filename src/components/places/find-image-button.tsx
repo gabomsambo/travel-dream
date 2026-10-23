@@ -19,6 +19,8 @@ interface FindImageButtonProps {
   buttonVariant?: ButtonVariant;
   size?: ButtonSize;
   className?: string;
+  /** Visible label. Defaults to "Find Image". */
+  label?: string;
 }
 
 export function FindImageButton({
@@ -31,6 +33,7 @@ export function FindImageButton({
   buttonVariant,
   size,
   className,
+  label,
 }: FindImageButtonProps) {
   const [open, setOpen] = useState(false);
 
@@ -50,7 +53,7 @@ export function FindImageButton({
       >
         <Plus className="size-6" />
         <ImageIcon className="size-6" />
-        <span className="sr-only">Find image</span>
+        <span className="sr-only">{label ?? 'Find image'}</span>
       </Button>
     ) : (
       <Button
@@ -65,7 +68,7 @@ export function FindImageButton({
         }}
       >
         <ImageIcon className="h-4 w-4" />
-        Find Image
+        {label ?? 'Find Image'}
       </Button>
     );
 

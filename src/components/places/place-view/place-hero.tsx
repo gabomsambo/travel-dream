@@ -33,6 +33,7 @@ export function PlaceHero({
   onArchive,
   onDeleted,
   onRestored,
+  softCover = false,
 }: {
   place: PlaceWithRelations
   photos: Attachment[]
@@ -44,6 +45,8 @@ export function PlaceHero({
   onArchive?: () => void
   onDeleted?: () => void
   onRestored?: () => void
+  /** The only image is a screenshot shared with other places: blur it and offer a real photo. */
+  softCover?: boolean
 }) {
   const edit = useSectionEdit()
   const editing = Boolean(edit?.editingAll)
@@ -63,7 +66,17 @@ export function PlaceHero({
         {cover ? (
           // Plain <img>: photos are user content on Blob URLs, matching Explore.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={cover.uri} alt="" fetchPriority="high" className="h-full w-full object-cover opacity-90 animate-in fade-in zoom-in-[1.03] duration-700" />
+          <img
+            src={cover.uri}
+            alt=""
+            fetchPriority="high"
+            className={cn(
+              "h-full w-full object-cover opacity-90",
+              softCover
+                ? "scale-125 blur-[28px] brightness-75 saturate-150"
+                : "animate-in fade-in zoom-in-[1.03] duration-700",
+            )}
+          />
         ) : (
           <FallbackArt name={place.name} kind={place.kind} />
         )}
@@ -79,6 +92,18 @@ export function PlaceHero({
             <ArrowLeft className="h-4 w-4" aria-hidden />
             <span>{back.label}</span>
           </Link>
+          {softCover && (
+            <FindImageButton
+              placeId={place.id}
+              placeName={place.name}
+              placeCity={place.city}
+              hasGooglePlaceId={Boolean(place.googlePlaceId)}
+              onAttached={onPhotoAttached}
+              label="Find a photo"
+              buttonVariant="ghost"
+              className={cn("h-9 rounded-full px-3.5", GLASS, "hover:text-white")}
+            />
+          )}
           <span className="ml-auto" />
           {!cover && (
             <FindImageButton

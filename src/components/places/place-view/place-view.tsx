@@ -198,6 +198,7 @@ export function PlaceView({
   trips,
   alsoIn,
   showMobileActionBar = true,
+  softCover = false,
 }: {
   place: PlaceWithRelations
   editing?: boolean
@@ -213,6 +214,8 @@ export function PlaceView({
   trips: ExploreCollection[]
   alsoIn: ExplorePlace[]
   showMobileActionBar?: boolean
+  /** Blur a shared-screenshot cover and offer Find a photo. Review sets this. */
+  softCover?: boolean
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -305,7 +308,7 @@ export function PlaceView({
 
   return (
     <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={editing} onExitEditing={onDoneEditing}>
-      <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} />
+      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} />
       <QuickFacts place={displayPlace} />
       <PlaceColumns
         place={place}

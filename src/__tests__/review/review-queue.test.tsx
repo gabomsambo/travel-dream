@@ -17,21 +17,34 @@ jest.mock('@/components/places/place-view/place-view', () => {
   return {
     PlaceView: ({
       place,
+      editing,
+      softCover,
       onArchive,
       onDeleted,
       onRestored,
       onOpenClassic,
+      onEdit,
     }: {
       place: PlaceWithRelations
+      editing?: boolean
+      softCover?: boolean
       onArchive?: () => void
       onDeleted?: () => void
       onRestored?: () => void
       onOpenClassic?: () => void
+      onEdit?: () => void
     }) => {
       const mountedId = React.useRef(place.id)
       return (
-        <div data-testid="postcard" data-status={place.status} data-mounted-id={mountedId.current}>
+        <div
+          data-testid="postcard"
+          data-status={place.status}
+          data-mounted-id={mountedId.current}
+          data-editing={editing ? 'yes' : 'no'}
+          data-soft-cover={softCover ? 'yes' : 'no'}
+        >
           {place.name}
+          <button type="button" onClick={() => onEdit?.()}>Edit postcard</button>
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
           <button type="button" onClick={() => onRestored?.()}>Restore from postcard</button>
@@ -137,7 +150,7 @@ function entryFrom(row: PlaceWithRelations, src: Source): ReviewQueueEntry {
 }
 
 function postcardFor(row: PlaceWithRelations): ReviewPostcard {
-  return { place: row, alsoIn: [] }
+  return { place: row, alsoIn: [], screenshot: null }
 }
 
 const firstSource = source('one')
@@ -862,5 +875,43 @@ describe('ReviewQueue decisions', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
     expect(postcardGets).toBe(2)
+  })
+
+  it('edits the postcard in place and opens places from the same screenshot', async () => {
+    const user = userEvent.setup()
+    renderQueue({
+      postcard: {
+        ...postcardFor(placeOne),
+        screenshot: {
+          sourceId: 'src_one',
+          url: firstSource.uri,
+          name: 'one.jpg',
+          createdAt: '2026-10-18T12:00:00.000Z',
+          softCover: true,
+          siblings: [
+            { placeId: 'plc_one', name: 'One Cafe', status: 'inbox', createdAt: '2026-10-18T12:00:01.000Z' },
+            { placeId: 'plc_two', name: 'Two Cafe', status: 'inbox', createdAt: '2026-10-18T12:00:02.000Z' },
+            { placeId: 'plc_saved', name: 'Saved Library', status: 'library', createdAt: '2026-10-18T12:00:03.000Z' },
+          ],
+        },
+      },
+    })
+
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-soft-cover', 'yes')
+    expect(screen.getByRole('link', { name: /Saved Library/ })).toHaveAttribute('href', '/place/plc_saved')
+    expect(screen.getByText(/In this screenshot/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Edit postcard' }))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-editing', 'yes')
+    expect(mockPush).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(window, { key: 'z' })
+    expect(screen.getByRole('dialog', { name: 'Screenshot' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'z' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Screenshot' })).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /Two Cafe/ }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-editing', 'no')
   })
 })

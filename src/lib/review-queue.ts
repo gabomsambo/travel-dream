@@ -27,10 +27,33 @@ interface QueueSource {
   filename: string | null
 }
 
-/** Relations and the city rail for the one place on screen. */
+/** Another place found in the same screenshot, including the one on screen. */
+export interface ReviewScreenshotSibling {
+  placeId: string
+  name: string
+  status: string
+  createdAt: string
+}
+
+/**
+ * The screenshot beside the postcard. `siblings` is every place linked to that
+ * source. `softCover` is true when this place's only photos are that shared
+ * screenshot, so the hero should blur it and offer Find a photo.
+ */
+export interface ReviewScreenshot {
+  sourceId: string
+  url: string
+  name: string | null
+  createdAt: string
+  siblings: ReviewScreenshotSibling[]
+  softCover: boolean
+}
+
+/** Relations, the city rail, and the screenshot for the one place on screen. */
 export interface ReviewPostcard {
   place: PlaceWithRelations
   alsoIn: ExplorePlace[]
+  screenshot: ReviewScreenshot | null
 }
 
 export interface ReviewQueueData {
@@ -48,11 +71,41 @@ function sourceName(source: QueueSource | null): string | null {
   return source.originalName ?? source.uploadFilename ?? source.filename ?? null
 }
 
-function screenshotSource(placeSources: QueueSource[]): QueueSource | null {
+interface ScreenshotCandidate {
+  id: string
+  type: string
+  createdAt: string
+}
+
+function screenshotSource<T extends ScreenshotCandidate>(placeSources: T[]): T | null {
   const ordered = [...placeSources].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)
   )
   return ordered.find((source) => source.type === 'screenshot') ?? ordered[0] ?? null
+}
+
+function nameFromSourceMeta(meta: { uploadInfo?: { originalName?: string; filename?: string }; filename?: string } | null): string | null {
+  if (!meta) return null
+  return meta.uploadInfo?.originalName ?? meta.uploadInfo?.filename ?? meta.filename ?? null
+}
+
+/**
+ * A multi-place screenshot is a poor cover: every place would show the same
+ * unreadable crop. Blur it only when that file is the place's only photo.
+ */
+export function isSharedScreenshotCover(
+  attachments: Array<{ type: string; uri: string }>,
+  screenshotUrl: string,
+  siblingCount: number,
+): boolean {
+  if (siblingCount < 2 || !screenshotUrl) return false
+  const photos = attachments.filter((attachment) => attachment.type === 'photo')
+  if (photos.length === 0) return false
+  return photos.every((photo) => photo.uri === screenshotUrl)
+}
+
+function compareSiblings(a: ReviewScreenshotSibling, b: ReviewScreenshotSibling): number {
+  return a.createdAt.localeCompare(b.createdAt) || a.placeId.localeCompare(b.placeId)
 }
 
 function compareEntries(
@@ -143,14 +196,64 @@ async function loadReviewEntries(userId: string): Promise<ReviewQueueEntry[]> {
   }))
 }
 
+/**
+ * Places linked to this screenshot. The source is already the caller's, and the
+ * place read is scoped again so a stray cross-tenant link cannot leak a name.
+ */
+async function loadScreenshot(userId: string, place: PlaceWithRelations): Promise<ReviewScreenshot | null> {
+  const source = screenshotSource(place.sources)
+  if (!source?.uri) return null
+  const scoped = forUser(userId)
+  const links = await scoped.selectFieldsVia(
+    sourcesToPlaces,
+    { placeId: sourcesToPlaces.placeId },
+    eq(sourcesToPlaces.sourceId, source.id),
+  )
+  const placeIds = [...new Set(links.map((link) => link.placeId))]
+  const rows = placeIds.length
+    ? await scoped.selectFields(places, {
+        id: places.id,
+        name: places.name,
+        status: places.status,
+        createdAt: places.createdAt,
+      }, inArray(places.id, placeIds))
+    : []
+  const siblings = rows.map((row) => ({
+    placeId: row.id,
+    name: row.name,
+    status: row.status,
+    createdAt: row.createdAt,
+  }))
+  if (!siblings.some((sibling) => sibling.placeId === place.id)) {
+    siblings.push({
+      placeId: place.id,
+      name: place.name,
+      status: place.status,
+      createdAt: place.createdAt,
+    })
+  }
+  siblings.sort(compareSiblings)
+  return {
+    sourceId: source.id,
+    url: source.uri,
+    name: nameFromSourceMeta(source.meta),
+    createdAt: source.createdAt,
+    siblings,
+    softCover: isSharedScreenshotCover(place.attachments, source.uri, siblings.length),
+  }
+}
+
 /** Postcard payload for one owned place. Null when the id is missing or someone else's. */
 export async function loadReviewPostcard(userId: string, placeId: string): Promise<ReviewPostcard | null> {
   const place = await getPlaceWithRelations(placeId, userId)
   if (!place) return null
-  const alsoIn = place.city
-    ? await getExplorePlacesInCity(userId, place.city, place.country, place.id)
-    : []
-  return { place, alsoIn }
+  const [alsoIn, screenshot] = await Promise.all([
+    place.city
+      ? getExplorePlacesInCity(userId, place.city, place.country, place.id)
+      : Promise.resolve([]),
+    loadScreenshot(userId, place),
+  ])
+  return { place, alsoIn, screenshot }
 }
 
 /**

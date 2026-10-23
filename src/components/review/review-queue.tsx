@@ -352,7 +352,7 @@ function tripSentence(
   const parts = [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   if (parts.length === 0) return { text: '', primary: null }
   const text = parts.length === 1
-    ? parts[0].count === 1
+    ? added.length === 1
       ? `, and it is in ${parts[0].name}`
       : `, ${parts[0].count} of them in ${parts[0].name}`
     : `, ${parts.map((part) => `${part.count} in ${part.name}`).join(' and ')}`
@@ -466,6 +466,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   outcomesRef.current = outcomes
   const [tripChoice, setTripChoice] = React.useState<string | 'none' | null>(null)
   const [tripAssignments, setTripAssignments] = React.useState<Record<string, FiledTrip>>({})
+  const tripAssignmentsRef = React.useRef(tripAssignments)
+  tripAssignmentsRef.current = tripAssignments
   const [soloId, setSoloId] = React.useState<string | null>(null)
   const [excluded, setExcluded] = React.useState<Record<string, boolean>>({})
   const viewRef = React.useRef({
@@ -494,6 +496,44 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const commitStatus = React.useCallback((placeId: string, status: PlaceStatus) => {
     writtenStatusRef.current = { ...writtenStatusRef.current, [placeId]: status }
     setSession((prev) => withPostcardStatus(prev, placeId, status))
+  }, [])
+
+  const releasePreviousFilings = React.useCallback(async (
+    placeIds: readonly string[],
+    keepTripId: string | null,
+  ): Promise<string[]> => {
+    const failed: string[] = []
+    const failedTrips = new Map<string, { name: string; count: number }>()
+    let singleMessage: string | null = null
+    for (const placeId of placeIds) {
+      const filed = tripAssignmentsRef.current[placeId]
+      if (!filed || (keepTripId !== null && filed.id === keepTripId)) continue
+      try {
+        await removePlaceFromTrip(filed.id, placeId)
+        const tripId = filed.id
+        setTripAssignments((existing) => {
+          if (existing[placeId]?.id !== tripId) return existing
+          const next = { ...existing }
+          delete next[placeId]
+          return next
+        })
+      } catch (error) {
+        failed.push(placeId)
+        const row = failedTrips.get(filed.id) ?? { name: filed.name, count: 0 }
+        row.count += 1
+        failedTrips.set(filed.id, row)
+        singleMessage = error instanceof Error ? error.message : "Couldn't remove it from the trip."
+      }
+    }
+    if (failed.length === 1 && singleMessage) {
+      notify.error(singleMessage)
+    } else if (failed.length > 1 && failedTrips.size === 1) {
+      const trip = [...failedTrips.values()][0]
+      notify.error(`Couldn't remove ${trip.count} places from ${trip.name}.`)
+    } else if (failed.length > 1) {
+      notify.error(`Couldn't remove ${failed.length} places from their trips.`)
+    }
+    return failed
   }, [])
 
   React.useEffect(() => {
@@ -683,31 +723,43 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     }
     if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
     const placeId = current.placeId
+    const placeName = current.name
     const previousOutcome = outcomesRef.current[placeId]
     const tripAtDecision = outcome === 'added' && viewRef.current.tripId && viewRef.current.tripName
       ? { id: viewRef.current.tripId, name: viewRef.current.tripName }
       : null
+    const sameTrip = Boolean(
+      tripAtDecision && tripAssignmentsRef.current[placeId]?.id === tripAtDecision.id,
+    )
     setBusy(true)
     setError(null)
     try {
       const written = OUTCOME_STATUS[outcome]
       await setPlaceStatus(placeId, written)
       if (outcomesRef.current[placeId] === 'removed') return
+      const failedReleases = await releasePreviousFilings(
+        [placeId],
+        outcome === 'added' ? tripAtDecision?.id ?? null : null,
+      )
       let filedForThisAdd: FiledTrip | null = null
-      if (tripAtDecision) {
-        try {
-          const added = await addPlacesToTrip(tripAtDecision.id, [placeId])
-          if (added.successful.includes(placeId)) {
-            filedForThisAdd = tripAtDecision
-          } else {
-            notify.error(didNotJoinMessage([current.name], tripAtDecision.name))
+      if (outcome === 'added' && tripAtDecision && failedReleases.length === 0) {
+        if (sameTrip) {
+          filedForThisAdd = tripAtDecision
+        } else {
+          try {
+            const added = await addPlacesToTrip(tripAtDecision.id, [placeId])
+            if (added.successful.includes(placeId)) {
+              filedForThisAdd = tripAtDecision
+            } else {
+              notify.error(didNotJoinMessage([placeName], tripAtDecision.name))
+            }
+          } catch (tripError) {
+            const rollback = previousOutcome === 'added' || previousOutcome === 'archived'
+              ? OUTCOME_STATUS[previousOutcome]
+              : 'inbox'
+            await setPlaceStatus(placeId, rollback).catch(() => undefined)
+            throw tripError
           }
-        } catch (tripError) {
-          const rollback = previousOutcome === 'added' || previousOutcome === 'archived'
-            ? OUTCOME_STATUS[previousOutcome]
-            : 'inbox'
-          await setPlaceStatus(placeId, rollback).catch(() => undefined)
-          throw tripError
         }
       }
       commitStatus(placeId, written)
@@ -718,11 +770,12 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         setTripAssignments((existing) => ({ ...existing, [placeId]: filedTrip }))
         setTripChoice((choice) => (choice === null ? filedTrip.id : choice))
       }
+      if (outcome === 'added' && failedReleases.length > 0) return
       const addedLine = filedForThisAdd
-        ? `Added “${current.name}” to your Library and ${filedForThisAdd.name}`
-        : `Added “${current.name}” to your Library`
+        ? `Added “${placeName}” to your Library and ${filedForThisAdd.name}`
+        : `Added “${placeName}” to your Library`
       notify.success(
-        outcome === 'added' ? addedLine : `Moved “${current.name}” to Archive`,
+        outcome === 'added' ? addedLine : `Moved “${placeName}” to Archive`,
         {
           duration: 8_000,
           cancel: {
@@ -738,7 +791,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     } finally {
       setBusy(false)
     }
-  }, [busy, commitStatus, current, undoDecision])
+  }, [busy, commitStatus, current, releasePreviousFilings, undoDecision])
 
   const skip = React.useCallback(async () => {
     if (viewRef.current.groupMode) {
@@ -757,6 +810,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         commitStatus(placeId, 'inbox')
       }
       if (outcomesRef.current[placeId] === 'removed') return
+      await releasePreviousFilings([placeId], null)
       setOutcomes((existing) => withOutcome(existing, placeId, 'skipped'))
       setPinnedId((pin) => (pin === placeId ? null : pin))
     } catch (skipError) {
@@ -766,7 +820,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     } finally {
       setBusy(false)
     }
-  }, [busy, commitStatus, current])
+  }, [busy, commitStatus, current, releasePreviousFilings])
 
   const previous = React.useCallback(() => {
     const target = previousSelectableId(session, outcomes, shownIdRef.current)
@@ -913,13 +967,21 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
           written.push(placeId)
         }
         if (written.length === 0) return
-        let joinedIds: string[] = []
+        const already = filed
+          ? written.filter((id) => tripAssignmentsRef.current[id]?.id === filed.id)
+          : []
+        const failedReleases = await releasePreviousFilings(written, filed?.id ?? null)
+        const failedSet = new Set(failedReleases)
+        let joinedIds = already.filter((id) => !failedSet.has(id))
         if (filed) {
-          const added = await addPlacesToTrip(filed.id, written)
-          joinedIds = added.successful
-          if (added.failed.length > 0) {
-            const names = added.failed.map((id) => session.find((entry) => entry.placeId === id)?.name || 'A place')
-            notify.error(didNotJoinMessage(names, filed.name))
+          const toPost = written.filter((id) => !failedSet.has(id) && !joinedIds.includes(id))
+          if (toPost.length > 0) {
+            const added = await addPlacesToTrip(filed.id, toPost)
+            joinedIds = [...joinedIds, ...added.successful]
+            if (added.failed.length > 0) {
+              const names = added.failed.map((id) => session.find((entry) => entry.placeId === id)?.name || 'A place')
+              notify.error(didNotJoinMessage(names, filed.name))
+            }
           }
         }
         for (const placeId of written) commitStatus(placeId, 'library')
@@ -929,12 +991,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
           return next
         })
         if (filed && joinedIds.length > 0) {
-          const joined = new Set(joinedIds)
           setTripAssignments((existing) => {
             const next = { ...existing }
-            for (const placeId of written) {
-              if (joined.has(placeId)) next[placeId] = filed
-            }
+            for (const placeId of joinedIds) next[placeId] = filed
             return next
           })
           setTripChoice((choice) => (choice === null ? filed.id : choice))
@@ -945,6 +1004,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         const lead = written.length === 1
           ? `Added “${session.find((entry) => entry.placeId === written[0])?.name ?? 'the place'}” to your Library`
           : `Added ${written.length} places from ${title}`
+        if (failedReleases.length > 0 && joinedIds.length === 0) return
         notify.success(groupAddedMessage(lead, written.length, filed, joinedIds.length), {
           duration: 8_000,
           cancel: {
@@ -973,6 +1033,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
           await setPlaceStatus(placeId, 'archived')
           written.push(placeId)
         }
+        await releasePreviousFilings(written, null)
         for (const placeId of written) commitStatus(placeId, 'archived')
         setOutcomes((existing) => {
           let next = existing
@@ -1000,6 +1061,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       setBusy(true)
       setError(null)
       try {
+        const live: string[] = []
         for (const placeId of ids) {
           const previous = outcomesRef.current[placeId]
           if (previous === 'removed') continue
@@ -1007,7 +1069,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
             await setPlaceStatus(placeId, 'inbox')
             commitStatus(placeId, 'inbox')
           }
+          live.push(placeId)
         }
+        await releasePreviousFilings(live, null)
         setOutcomes((existing) => {
           let next = existing
           for (const placeId of ids) {

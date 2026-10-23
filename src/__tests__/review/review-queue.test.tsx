@@ -1301,6 +1301,8 @@ describe('Review group and batch trip', () => {
     await user.click(screen.getAllByRole('button', { name: /Add 2 to Library \+ trip/i })[0])
 
     await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    expect(screen.getByText(/2 new places are in your Library, 1 of them in London long weekend/)).toBeInTheDocument()
+    expect(screen.queryByText(/and it is in/)).not.toBeInTheDocument()
     expect(notifyError).toHaveBeenCalledWith(expect.stringContaining("Gail's Bakery"))
     const added = notifySuccess.mock.calls.map((call) => String(call[0])).join('\n')
     expect(added).toContain('1 also in London long weekend')
@@ -1405,5 +1407,152 @@ describe('Review group and batch trip', () => {
     expect(notifySuccess.mock.calls.some((call) => String(call[0]).includes('Restored'))).toBe(false)
     expect(deleteCalls()).toHaveLength(2)
     expect(screen.getByTestId('review-group')).toBeInTheDocument()
+  })
+
+  async function fileOneCafe(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getAllByRole('button', { name: /Add to Library \+ trip/i })[0])
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+  }
+
+  async function chooseBatchTrip(user: ReturnType<typeof userEvent.setup>, name: string) {
+    const triggerName = screen.queryAllByRole('button', { name: /Also add to/i })[0]
+      ? 'Also add to'
+      : 'No trip'
+    const trigger = screen.getAllByRole('button', { name: new RegExp(triggerName, 'i') })[0]
+    await user.click(trigger)
+    await user.click(await screen.findByRole('menuitemradio', { name }))
+  }
+
+  it('drops the trip when Skip, Archive, or a Library-only Add revisits a filing', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+
+    const skipped = renderQueue({ trips: [london] })
+    await fileOneCafe(user)
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(deleteCalls().some((call) => call[0] === '/api/collections/col_london/places/plc_one')).toBe(true))
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /Review the skipped/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    await chooseBatchTrip(user, 'No trip')
+    const deletesAfterSkip = deleteCalls().length
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(deleteCalls()).toHaveLength(deletesAfterSkip)
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByText(/2 new places are in your Library\./)).toBeInTheDocument())
+    expect(screen.queryByText(/London long weekend/)).not.toBeInTheDocument()
+    skipped.unmount()
+
+    fetchMock.mockClear()
+    notifySuccess.mockClear()
+    const archived = renderQueue({ trips: [london] })
+    await fileOneCafe(user)
+    fireEvent.keyDown(window, { key: 'n' })
+    await waitFor(() => expect(deleteCalls().some((call) => call[0] === '/api/collections/col_london/places/plc_one')).toBe(true))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    await chooseBatchTrip(user, 'No trip')
+    const deletesAfterArchive = deleteCalls().length
+    const postsAfterArchive = postCalls().length
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(deleteCalls()).toHaveLength(deletesAfterArchive)
+    expect(postCalls()).toHaveLength(postsAfterArchive)
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByText(/2 new places are in your Library\./)).toBeInTheDocument())
+    expect(screen.queryByText(/London long weekend/)).not.toBeInTheDocument()
+    archived.unmount()
+
+    fetchMock.mockClear()
+    const libraryOnly = renderQueue({ trips: [london] })
+    await fileOneCafe(user)
+    await chooseBatchTrip(user, 'No trip')
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(deleteCalls().some((call) => call[0] === '/api/collections/col_london/places/plc_one')).toBe(true))
+    expect(postCalls()).toHaveLength(1)
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByText(/2 new places are in your Library\./)).toBeInTheDocument())
+    expect(screen.queryByText(/London long weekend/)).not.toBeInTheDocument()
+    libraryOnly.unmount()
+  })
+
+  it('moves a filing when Add revisits the place into a different trip', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris'] }
+    renderQueue({ trips: [london, paris] })
+
+    await fileOneCafe(user)
+    await chooseBatchTrip(user, 'Paris weekend')
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(deleteCalls().some((call) => call[0] === '/api/collections/col_london/places/plc_one')).toBe(true))
+    await waitFor(() => expect(postCalls().some((call) =>
+      call[0] === '/api/collections/col_paris/places' &&
+      (call[1] as { body?: string }).body === JSON.stringify({ placeIds: ['plc_one'] })
+    )).toBe(true))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByText(/2 new places are in your Library, 2 of them in Paris weekend/)).toBeInTheDocument())
+    expect(screen.queryByText(/London long weekend/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the filing when Add revisits the place into the same trip', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    renderQueue({ trips: [london] })
+
+    await fileOneCafe(user)
+    const postsAfterFirst = postCalls().length
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    expect(deleteCalls()).toHaveLength(0)
+    expect(postCalls()).toHaveLength(postsAfterFirst)
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByText(/2 new places are in your Library, 2 of them in London long weekend/)).toBeInTheDocument())
+  })
+
+  it('keeps the assignment when a later Skip cannot remove the trip', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    let deleteFails = true
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init as { method?: string } | undefined)?.method
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if (method === 'DELETE' && deleteFails) return jsonResponse({ message: 'Trip busy' }, 500)
+      return jsonResponse({ status: 'success' })
+    })
+    renderQueue({ trips: [london] })
+
+    await fileOneCafe(user)
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(notifyError).toHaveBeenCalledWith('Trip busy'))
+    expect(deleteCalls().some((call) => call[0] === '/api/collections/col_london/places/plc_one')).toBe(true)
+    expect(notifySuccess.mock.calls.some((call) => String(call[0]).includes('Library only'))).toBe(false)
+
+    deleteFails = false
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText("That's everything.")).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /Review the skipped/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    await chooseBatchTrip(user, 'No trip')
+    const deletesBeforeRetry = deleteCalls().length
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(deleteCalls().length).toBeGreaterThan(deletesBeforeRetry))
+    expect(deleteCalls().at(-1)?.[0]).toBe('/api/collections/col_london/places/plc_one')
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByText(/2 new places are in your Library\./)).toBeInTheDocument())
+    expect(screen.queryByText(/London long weekend/)).not.toBeInTheDocument()
   })
 })

@@ -8,7 +8,6 @@ import { Button } from "@/components/adapters/button"
 import { Separator } from "@/components/adapters/separator"
 import {
   Inbox,
-  GitPullRequest,
   Library,
   Archive,
   FolderOpen,
@@ -24,7 +23,6 @@ const navigation = {
   main: [
     { name: 'Inbox', href: '/inbox', icon: Inbox, shortcut: 'I' },
     { name: 'Mass Upload', href: '/mass-upload', icon: CloudUpload, shortcut: 'U' },
-    { name: 'Review', href: '/review', icon: GitPullRequest, shortcut: 'R' },
     { name: 'Duplicates', href: '/duplicates', icon: Copy, shortcut: 'D' },
     { name: 'Explore', href: '/explore', icon: Compass, shortcut: 'E' },
     { name: 'Library', href: '/library', icon: Library, shortcut: 'L' },

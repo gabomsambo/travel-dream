@@ -191,9 +191,13 @@ export function PlaceView({
   onOpenClassic,
   onPrefetchEdit,
   onPhotoAttached,
+  onArchive,
+  onDeleted,
+  onRestored,
   handlesRef,
   trips,
   alsoIn,
+  showMobileActionBar = true,
 }: {
   place: PlaceWithRelations
   editing?: boolean
@@ -202,9 +206,13 @@ export function PlaceView({
   onOpenClassic?: () => void
   onPrefetchEdit?: () => void
   onPhotoAttached: () => void
+  onArchive?: () => void
+  onDeleted?: () => void
+  onRestored?: () => void
   handlesRef?: React.MutableRefObject<PlaceViewHandles | null>
   trips: ExploreCollection[]
   alsoIn: ExplorePlace[]
+  showMobileActionBar?: boolean
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -297,7 +305,7 @@ export function PlaceView({
 
   return (
     <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={editing} onExitEditing={onDoneEditing}>
-      <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} />
+      <PlaceHero place={displayPlace} photos={photos} onEdit={onEdit} onOpenClassic={onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={onPhotoAttached} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} />
       <QuickFacts place={displayPlace} />
       <PlaceColumns
         place={place}
@@ -312,7 +320,7 @@ export function PlaceView({
 
       {place.city && <AlsoInCity city={place.city} places={alsoIn} />}
 
-      <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} />
+      {showMobileActionBar && <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} />}
 
       {photos.length > 0 && (
         <PhotoLightbox photos={photos} open={lightbox !== null} index={lightbox ?? 0} onClose={() => setLightbox(null)} />

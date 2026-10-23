@@ -12,6 +12,7 @@ import { useMapContext } from './map-context'
 import { AddressLink } from './address-link'
 import type { Attachment, PlaceWithRelations } from '@/types/database'
 import { FindImageButton } from '@/components/places/find-image-button'
+import { usablePin } from '@/lib/place-coords'
 import { PhotoAttribution } from '@/components/attribution/photo-attribution'
 
 const PhotoLightbox = dynamic(() =>
@@ -70,11 +71,11 @@ export function MapPlaceDetails() {
     selectPlace(null)
   }
 
+  const pin = usablePin(place?.coords)
+
   const handleGoToPlace = () => {
-    if (place?.coords && typeof place.coords === 'object' && 'lat' in place.coords) {
-      const coords = place.coords as { lat: number; lon: number }
-      flyTo(coords.lon, coords.lat)
-    }
+    if (!pin) return
+    flyTo(pin.lon, pin.lat)
   }
 
   if (!selectedPlaceId) return null
@@ -93,7 +94,7 @@ export function MapPlaceDetails() {
         </Button>
         {place && (
           <div className="flex items-center gap-1">
-            {place.coords && (
+            {pin && (
               <Button
                 variant="default"
                 size="sm"

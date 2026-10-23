@@ -9,7 +9,7 @@ import { formatDateOnly } from "@/lib/place-view/format"
 import { notify } from "@/lib/notify"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
 import type { ExploreCollection, ExplorePlace } from "@/lib/explore/types"
-import { reviewChecks } from "@/lib/review/review-checks"
+import { reviewChecks, type ReviewCheckId } from "@/lib/review/review-checks"
 import { ReviewCheckPanel } from "@/components/review/review-check-panel"
 import { PlaceHero } from "./place-hero"
 import { About, GoodToKnow, Links, Photos, RecordInfo, SectionHeader, Sources, WhyItsHere } from "./place-sections"
@@ -235,7 +235,7 @@ export function PlaceView({
   lead?: React.ReactNode
   /** Review marks the doubtful fields and offers a pin and a city fix. */
   showReviewChecks?: boolean
-  /** Reload the postcard after a pin or city is saved. */
+  /** Reload the review postcard after an edit is saved. */
   onReviewPlaceUpdated?: () => Promise<void> | void
 }) {
   const router = useRouter()
@@ -314,6 +314,32 @@ export function PlaceView({
     }
   }, [handlesRef, flushStatus, displayPlace])
 
+  const [dismissedReviewChecks, setDismissedReviewChecks] = React.useState<ReviewCheckId[]>([])
+  const reviewCheckKey = [
+    place.id,
+    place.city ?? "",
+    place.coords?.lat ?? "",
+    place.coords?.lon ?? "",
+    place.confidence ?? "",
+    place.kind ?? "",
+    place.name ?? "",
+  ].join("\0")
+  const [trackedReviewKey, setTrackedReviewKey] = React.useState(reviewCheckKey)
+  if (trackedReviewKey !== reviewCheckKey) {
+    setTrackedReviewKey(reviewCheckKey)
+    setDismissedReviewChecks([])
+  }
+  const visibleReviewChecks = reviewChecks(place).filter((id) => !dismissedReviewChecks.includes(id))
+  const refreshPlace = React.useCallback(() => {
+    if (!onReviewPlaceUpdated) {
+      router.refresh()
+      return
+    }
+    void Promise.resolve(onReviewPlaceUpdated()).catch(() => {
+      router.refresh()
+    })
+  }, [onReviewPlaceUpdated, router])
+
   const setVisitStatus = (next: VisitStatus) => {
     if (blockWrites) return
     const displayed = (displayPlace.visitStatus as VisitStatus | null) ?? "not_visited"
@@ -332,11 +358,20 @@ export function PlaceView({
   const attachPhoto = blockWrites ? () => {} : onPhotoAttached
 
   return (
-    <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={blockWrites ? false : editing} onExitEditing={onDoneEditing} blockWrites={blockWrites}>
-      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} reviewCheckIds={showReviewChecks ? reviewChecks(place) : undefined} onEdit={editPlace} onOpenClassic={blockWrites ? undefined : onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={attachPhoto} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} blockWrites={blockWrites} />
+    <SectionEditProvider place={place} onRefresh={refreshPlace} handlesRef={sectionHandlesRef} editingAll={blockWrites ? false : editing} onExitEditing={onDoneEditing} blockWrites={blockWrites}>
+      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} reviewCheckIds={showReviewChecks ? visibleReviewChecks : undefined} onEdit={editPlace} onOpenClassic={blockWrites ? undefined : onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={attachPhoto} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} blockWrites={blockWrites} />
       {lead}
       {showReviewChecks && onReviewPlaceUpdated && (
-        <ReviewCheckPanel place={place} onRename={editPlace} onNotAPlace={onArchive} onUpdated={onReviewPlaceUpdated} />
+        <ReviewCheckPanel
+          place={place}
+          onRename={editPlace}
+          onNotAPlace={onArchive}
+          onUpdated={onReviewPlaceUpdated}
+          visibleChecks={visibleReviewChecks}
+          onDismiss={(id) => {
+            setDismissedReviewChecks((current) => current.includes(id) ? current : [...current, id])
+          }}
+        />
       )}
       <QuickFacts place={displayPlace} />
       <PlaceColumns

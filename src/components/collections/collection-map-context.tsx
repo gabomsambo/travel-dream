@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useRef, useCallback, useEffect, ty
 import type { MapRef } from 'react-map-gl/mapbox'
 import type { Place, Collection } from '@/types/database'
 import { calculateBounds } from '@/lib/map-utils'
+import { usablePin } from '@/lib/place-coords'
 import type { LngLatBounds } from 'mapbox-gl'
 
 export type CollectionMapMode = 'itinerary' | 'day'
@@ -102,10 +103,10 @@ export function CollectionMapProvider({
 
   const flyToPlace = useCallback((placeId: string) => {
     const place = currentPlaces.find(p => p.id === placeId)
-    if (place?.coords && mapRef.current) {
-      const coords = place.coords as { lat: number; lon: number }
+    const pin = usablePin(place?.coords)
+    if (pin && mapRef.current) {
       mapRef.current.flyTo({
-        center: [coords.lon, coords.lat],
+        center: [pin.lon, pin.lat],
         zoom: 14,
         duration: 1000
       })

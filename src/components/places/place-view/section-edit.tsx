@@ -115,14 +115,21 @@ function draftFrom(place: PlaceWithRelations): PlaceDraft {
   }
 }
 
+function draftCoords(draft: PlaceDraft): { lat: number; lon: number } | null | "unchanged" {
+  const latText = draft.lat.trim()
+  const lonText = draft.lon.trim()
+  if (latText === "" && lonText === "") return null
+  if (latText === "" || lonText === "") return "unchanged"
+  const lat = Number(latText)
+  const lon = Number(lonText)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "unchanged"
+  return { lat, lon }
+}
+
 /** The place with the section fields the user changed laid over it, so a seed taken mid-edit carries what was typed. */
 function placeWithDraft(place: PlaceWithRelations, draft: PlaceDraft, dirty: ReadonlySet<keyof PlaceDraft>): PlaceWithRelations {
-  let coords = place.coords
-  if (draft.lat.trim() === "" && draft.lon.trim() === "") {
-    coords = null
-  } else if (Number.isFinite(Number(draft.lat)) && Number.isFinite(Number(draft.lon))) {
-    coords = { lat: Number(draft.lat), lon: Number(draft.lon) }
-  }
+  const parsed = draftCoords(draft)
+  const coords = parsed === "unchanged" ? place.coords : parsed
   const overlay: Partial<PlaceWithRelations> = {
     name: draft.name,
     kind: draft.kind,
@@ -189,11 +196,9 @@ function patchFor(draft: PlaceDraft, key: keyof PlaceDraft): FieldPatch {
     return name ? { set: { name }, drop: [] } : { set: {}, drop: ["name"] }
   }
   if (key === "lat" || key === "lon") {
-    if (draft.lat.trim() === "" && draft.lon.trim() === "") return { set: { coords: null }, drop: [] }
-    const lat = Number(draft.lat)
-    const lon = Number(draft.lon)
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { set: {}, drop: [] }
-    return { set: { coords: { lat, lon } }, drop: [] }
+    const parsed = draftCoords(draft)
+    if (parsed === "unchanged") return { set: {}, drop: ["coords"] }
+    return { set: { coords: parsed }, drop: [] }
   }
   return { set: { [key]: draft[key] }, drop: [] }
 }

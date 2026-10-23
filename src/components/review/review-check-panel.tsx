@@ -40,14 +40,34 @@ function suggestionSentence(suggestion: CitySuggestion): string {
   return "We have a pin, and no city."
 }
 
-export function ReviewCheckPanel({ place, onRename, onNotAPlace, onUpdated }: ReviewCheckPanelProps) {
+export function ReviewCheckPanel({
+  place,
+  onRename,
+  onNotAPlace,
+  onUpdated,
+  visibleChecks,
+  onDismiss,
+}: ReviewCheckPanelProps & {
+  visibleChecks?: ReviewCheckId[]
+  onDismiss?: (id: ReviewCheckId) => void
+}) {
   const checks = reviewChecks(place)
   const [dismissed, setDismissed] = React.useState<ReviewCheckId[]>([])
-  const visible = checks.filter((id) => !dismissed.includes(id))
+  const controlled = visibleChecks !== undefined
+  const visible = visibleChecks ?? checks.filter((id) => !dismissed.includes(id))
 
   React.useEffect(() => {
+    if (controlled) return
     setDismissed([])
-  }, [place.id, place.city, place.coords, place.confidence, place.kind, place.name])
+  }, [controlled, place.id, place.city, place.coords, place.confidence, place.kind, place.name])
+
+  const dismiss = (id: ReviewCheckId) => {
+    if (onDismiss) {
+      onDismiss(id)
+      return
+    }
+    setDismissed((current) => current.includes(id) ? current : [...current, id])
+  }
 
   const summary = visible.length === 0
     ? "Nothing to check"
@@ -97,7 +117,7 @@ export function ReviewCheckPanel({ place, onRename, onNotAPlace, onUpdated }: Re
       {visible.includes("city") && (
         <CityCheck
           place={place}
-          onDismiss={() => setDismissed((current) => current.includes("city") ? current : [...current, "city"])}
+          onDismiss={() => dismiss("city")}
           onUpdated={onUpdated}
         />
       )}
@@ -258,13 +278,20 @@ function CityCheck({
   const pin = usablePin(place.coords)
   const lat = pin?.lat
   const lon = pin?.lon
+  const pinKey = lat === undefined || lon === undefined ? `${place.id}:none` : `${place.id}:${lat}:${lon}`
   const [suggestion, setSuggestion] = React.useState<CitySuggestion | null>(null)
+  const [trackedPinKey, setTrackedPinKey] = React.useState(pinKey)
+  if (trackedPinKey !== pinKey) {
+    setTrackedPinKey(pinKey)
+    setSuggestion(null)
+  }
   const [typing, setTyping] = React.useState(false)
   const [city, setCity] = React.useState("")
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
+    setSuggestion(null)
     if (lat === undefined || lon === undefined) return
     const controller = new AbortController()
     let cancelled = false
@@ -272,10 +299,15 @@ function CityCheck({
       try {
         const response = await fetch(`/api/review/places/${encodeURIComponent(place.id)}/city-suggestion`, { signal: controller.signal })
         const body = await response.json().catch(() => null) as { suggestion?: CitySuggestion | null } | null
-        if (cancelled || !response.ok) return
+        if (cancelled) return
+        if (!response.ok) {
+          setSuggestion(null)
+          return
+        }
         setSuggestion(body?.suggestion ?? null)
       } catch (loadError) {
         if (cancelled || (loadError instanceof DOMException && loadError.name === "AbortError")) return
+        setSuggestion(null)
       }
     })()
     return () => {

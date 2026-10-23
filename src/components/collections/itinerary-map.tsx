@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { MapPin } from "lucide-react";
 import type { Place } from "@/types/database";
+import { usablePin } from "@/lib/place-coords";
 
 interface ItineraryMapProps {
   places: Place[];
@@ -19,7 +20,7 @@ export function ItineraryMap({
   transportMode,
 }: ItineraryMapProps) {
   const placesWithCoords = useMemo(
-    () => places.filter((p) => p.coords),
+    () => places.filter((p) => usablePin(p.coords)),
     [places]
   );
 

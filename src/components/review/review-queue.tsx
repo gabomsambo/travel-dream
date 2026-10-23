@@ -884,7 +884,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               }}
               onDoneEditing={() => {
                 setEditingId(null)
-                router.refresh()
+                void reloadPostcard(current.placeId).catch(() => {
+                  router.refresh()
+                })
               }}
               onOpenClassic={openClassic}
               onPrefetchEdit={() => { void import('@/components/places/place-full-view') }}

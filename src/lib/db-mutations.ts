@@ -632,33 +632,40 @@ export async function createPlacesFromSources(
   }, 'createPlacesFromSources');
 }
 
-// Bulk status updates
+const PLACE_STATUS_CHUNK = 50;
+
+export type PlaceStatusUpdate = {
+  updatedCount: number;
+  updatedIds: string[];
+};
+
 export async function bulkUpdatePlaceStatus(
   placeIds: string[],
   status: 'inbox' | 'library' | 'archived' | 'review',
   userId: string
-): Promise<number> {
+): Promise<PlaceStatusUpdate> {
   return withErrorHandling(async () => {
-    if (placeIds.length === 0) return 0;
-
-    const CHUNK_SIZE = 50;
-    let totalUpdated = 0;
+    if (placeIds.length === 0) return { updatedCount: 0, updatedIds: [] };
 
     const now = new Date().toISOString();
-    for (let i = 0; i < placeIds.length; i += CHUNK_SIZE) {
-      const chunk = placeIds.slice(i, i + CHUNK_SIZE);
-      const result = await db.update(places)
-        .set({
-          status,
-          updatedAt: now,
-          archivedAt: archivedAtForStatus(status, now),
-        })
-        .where(and(inArray(places.id, chunk), eq(places.userId, userId)));
+    const updatedIds = await withTransaction(async (tx) => {
+      const ids: string[] = [];
+      for (let i = 0; i < placeIds.length; i += PLACE_STATUS_CHUNK) {
+        const chunk = placeIds.slice(i, i + PLACE_STATUS_CHUNK);
+        const updated = await tx.update(places)
+          .set({
+            status,
+            updatedAt: now,
+            archivedAt: archivedAtForStatus(status, now),
+          })
+          .where(and(inArray(places.id, chunk), eq(places.userId, userId)))
+          .returning({ id: places.id });
+        ids.push(...updated.map((row: { id: string }) => row.id));
+      }
+      return ids;
+    });
 
-      totalUpdated += result.rowsAffected ?? 0;
-    }
-
-    return totalUpdated;
+    return { updatedCount: updatedIds.length, updatedIds };
   }, 'bulkUpdatePlaceStatus');
 }
 
@@ -1560,20 +1567,22 @@ export async function batchSetVisitStatus(
 
 export async function batchArchivePlaces(placeIds: string[], userId: string): Promise<number> {
   if (placeIds.length === 0) return 0;
-  return bulkUpdatePlaceStatus(placeIds, 'archived', userId);
+  const { updatedCount } = await bulkUpdatePlaceStatus(placeIds, 'archived', userId);
+  return updatedCount;
 }
 
 // Enhanced bulk operations for inbox workflow
-export async function bulkConfirmPlaces(placeIds: string[], userId: string): Promise<number> {
+export async function bulkConfirmPlaces(placeIds: string[], userId: string): Promise<PlaceStatusUpdate> {
   return bulkUpdatePlaceStatus(placeIds, 'library', userId);
 }
 
-export async function bulkReturnPlacesToInbox(placeIds: string[], userId: string): Promise<number> {
+export async function bulkReturnPlacesToInbox(placeIds: string[], userId: string): Promise<PlaceStatusUpdate> {
   return bulkUpdatePlaceStatus(placeIds, 'inbox', userId);
 }
 
 export async function bulkMovePlacesToReview(placeIds: string[], userId: string): Promise<number> {
-  return bulkUpdatePlaceStatus(placeIds, 'review', userId);
+  const { updatedCount } = await bulkUpdatePlaceStatus(placeIds, 'review', userId);
+  return updatedCount;
 }
 
 export async function createAttachment(
@@ -1864,7 +1873,8 @@ export async function deleteReservation(id: string, userId: string, placeId: str
 
 export async function batchRestorePlaces(placeIds: string[], userId: string): Promise<number> {
   if (placeIds.length === 0) return 0;
-  return bulkUpdatePlaceStatus(placeIds, 'library', userId);
+  const { updatedCount } = await bulkUpdatePlaceStatus(placeIds, 'library', userId);
+  return updatedCount;
 }
 
 export async function batchDeletePlaces(placeIds: string[], userId: string): Promise<number> {

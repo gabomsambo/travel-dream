@@ -179,4 +179,26 @@ describe('POST /api/mass-upload/cancel', () => {
     expect(whereMentions(sourceWhere.mock.calls[0][0], mockUser.id)).toBe(true);
     expect(whereMentions(inFlightWhere.mock.calls[0][0], mockUser.id)).toBe(true);
   });
+
+  it('closes a session that has not registered a screenshot yet', async () => {
+    const session = createMockSession({ meta: { uploadedFiles: [], errors: [] } });
+    mockDb.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({ get: jest.fn().mockResolvedValue(session) }),
+      }),
+    });
+    const sessionWhere = jest.fn().mockResolvedValue(undefined);
+    const set = jest.fn().mockReturnValue({ where: sessionWhere });
+    mockDb.update.mockReturnValueOnce({ set });
+
+    const res = await POST(createCancelRequest({ sessionId: session.id }) as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.status).toBe('success');
+    expect(data.cancelled).toBe(0);
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }));
+    expect(whereMentions(sessionWhere.mock.calls[0][0], mockUser.id)).toBe(true);
+    expect(mockDel).not.toHaveBeenCalled();
+  });
 });

@@ -43,7 +43,7 @@ describe('/api/places/bulk-actions', () => {
 
   describe('POST /api/places/bulk-actions', () => {
     it('confirms places successfully', async () => {
-      mockBulkConfirmPlaces.mockResolvedValue(2)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 2, updatedIds: ['place-1', 'place-2'] })
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -91,7 +91,7 @@ describe('/api/places/bulk-actions', () => {
     })
 
     it('handles partial success', async () => {
-      mockBulkConfirmPlaces.mockResolvedValue(1)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 1, updatedIds: ['place-1'] })
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -110,11 +110,12 @@ describe('/api/places/bulk-actions', () => {
       expect(response.status).toBe(200)
       expect(data.status).toBe('partial_success')
       expect(data.result.updatedCount).toBe(1)
+      expect(data.result.updatedIds).toEqual(['place-1'])
       expect(data.result.requestedCount).toBe(2)
     })
 
     it('handles complete failure', async () => {
-      mockBulkConfirmPlaces.mockResolvedValue(0)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 0, updatedIds: [] })
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -218,7 +219,7 @@ describe('/api/places/bulk-actions', () => {
     })
 
     it('removes duplicate place IDs', async () => {
-      mockBulkConfirmPlaces.mockResolvedValue(2)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 2, updatedIds: ['place-1', 'place-2'] })
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -354,7 +355,7 @@ describe('Bulk Actions Error Scenarios', () => {
   })
 
   it('handles concurrent request scenarios', async () => {
-    mockBulkConfirmPlaces.mockResolvedValue(1)
+    mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 1, updatedIds: ['place-1'] })
     mockBatchArchivePlaces.mockResolvedValue(1)
 
     const request1 = new NextRequest('http://localhost:3000/api/places/bulk-actions', {

@@ -60,6 +60,17 @@ export async function POST(request: NextRequest) {
     if (session.userId !== user.id) {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
+    if (session.status === 'cancelled') {
+      try {
+        await del(blobUrl);
+      } catch (e) {
+        console.warn('[Register] Failed to delete blob for a closed session:', e);
+      }
+      return NextResponse.json(
+        { status: 'error', message: 'Upload session was closed', timestamp: new Date().toISOString() },
+        { status: 409 }
+      );
+    }
 
     // Compute real SHA-1 content hash from blob
     let sha1Hash: string;
@@ -99,7 +110,13 @@ export async function POST(request: NextRequest) {
       // Keep the skip as a first-class batch outcome. `uploadedFiles` contains
       // only sources actually registered to this session; pointing it at the
       // older source made later rebuilds silently erase the duplicate outcome.
-      await withTransaction(async (tx) => {
+      const closed = await withTransaction(async (tx) => {
+        const [openSession] = await tx.select({ status: uploadSessions.status })
+          .from(uploadSessions)
+          .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
+          .limit(1);
+        if (openSession?.status === 'cancelled') return true;
+
         if (existingSessionId !== sessionId) {
           await tx.update(uploadSessions)
             .set({ completedCount: sql`${uploadSessions.completedCount} + 1` })
@@ -138,7 +155,20 @@ export async function POST(request: NextRequest) {
             },
           })
           .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));
+        return false;
       });
+
+      if (closed) {
+        try {
+          await del(blobUrl);
+        } catch (e) {
+          console.warn('[Register] Failed to delete blob for a closed session:', e);
+        }
+        return NextResponse.json(
+          { status: 'error', message: 'Upload session was closed', timestamp: new Date().toISOString() },
+          { status: 409 }
+        );
+      }
 
       // Delete the duplicate blob that was just uploaded (after tx commits)
       try {
@@ -163,6 +193,12 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     const sourceData = await withTransaction(async (tx) => {
+      const [openSession] = await tx.select({ status: uploadSessions.status })
+        .from(uploadSessions)
+        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
+        .limit(1);
+      if (openSession?.status === 'cancelled') return null;
+
       // Step 1: Create source record
       const [created] = await tx.insert(sourcesCurrentSchema).values({
         id: sourceId,
@@ -226,6 +262,18 @@ export async function POST(request: NextRequest) {
 
       return created;
     });
+
+    if (!sourceData) {
+      try {
+        await del(blobUrl);
+      } catch (e) {
+        console.warn('[Register] Failed to delete blob for a closed session:', e);
+      }
+      return NextResponse.json(
+        { status: 'error', message: 'Upload session was closed', timestamp: new Date().toISOString() },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json({
       status: 'success',

@@ -80,19 +80,32 @@ export function CancelRemaining({ sessionId }: { sessionId: string }) {
   )
 }
 
-const BULK_CHUNK = 50
+type BulkOutcome = {
+  updatedIds: string[]
+  complete: boolean
+  message: string
+}
 
-async function bulkPlaces(action: 'confirm' | 'return-to-inbox', placeIds: string[]): Promise<void> {
-  for (let i = 0; i < placeIds.length; i += BULK_CHUNK) {
-    const response = await fetch('/api/places/bulk-actions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, placeIds: placeIds.slice(i, i + BULK_CHUNK) }),
-    })
-    if (!response.ok) {
-      const body = await response.json().catch(() => null) as { message?: string } | null
-      throw new Error(body?.message || 'Could not update those places')
-    }
+async function bulkPlaces(action: 'confirm' | 'return-to-inbox', placeIds: string[]): Promise<BulkOutcome> {
+  const response = await fetch('/api/places/bulk-actions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, placeIds }),
+  })
+  const body = await response.json().catch(() => null) as {
+    message?: string
+    status?: string
+    result?: { updatedIds?: unknown }
+  } | null
+  const reported = Array.isArray(body?.result?.updatedIds)
+    ? body.result.updatedIds.filter((id): id is string => typeof id === 'string' && placeIds.includes(id))
+    : []
+  const fullSuccess = response.ok && body?.status === 'success'
+  const updatedIds = reported.length > 0 ? reported : (fullSuccess ? placeIds : [])
+  return {
+    updatedIds,
+    complete: fullSuccess && updatedIds.length === placeIds.length,
+    message: body?.message || 'Could not update those places',
   }
 }
 
@@ -104,22 +117,31 @@ export function AddLookRight({ label, placeIds }: { label: string; placeIds: str
   async function add() {
     setPending(true)
     try {
-      await bulkPlaces('confirm', placeIds)
-      const noun = placeIds.length === 1 ? 'place' : 'places'
-      notify.success(`Added ${placeIds.length} ${noun} to your Library`, {
-        cancel: {
-          label: 'Undo',
-          onClick: () => {
-            void bulkPlaces('return-to-inbox', placeIds)
-              .then(() => {
-                notify.success(`Brought ${placeIds.length} ${noun} back to your Inbox`)
-                router.refresh()
-              })
-              .catch(() => notify.error('Could not undo that'))
+      const result = await bulkPlaces('confirm', placeIds)
+      if (result.updatedIds.length > 0) {
+        const moved = result.updatedIds
+        const noun = moved.length === 1 ? 'place' : 'places'
+        notify.success(`Added ${moved.length} ${noun} to your Library`, {
+          cancel: {
+            label: 'Undo',
+            onClick: () => {
+              void bulkPlaces('return-to-inbox', moved)
+                .then((undone) => {
+                  if (undone.updatedIds.length === 0) {
+                    notify.error('Could not undo that')
+                    return
+                  }
+                  const undoNoun = undone.updatedIds.length === 1 ? 'place' : 'places'
+                  notify.success(`Brought ${undone.updatedIds.length} ${undoNoun} back to your Inbox`)
+                  router.refresh()
+                })
+                .catch(() => notify.error('Could not undo that'))
+            },
           },
-        },
-      })
-      router.refresh()
+        })
+        router.refresh()
+      }
+      if (!result.complete) notify.error(result.message)
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Could not add those places')
     } finally {

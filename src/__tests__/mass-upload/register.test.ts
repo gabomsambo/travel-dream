@@ -51,6 +51,8 @@ jest.mock('@vercel/blob', () => ({
 import { POST } from '@/app/api/mass-upload/register/route';
 import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
+import { withTransaction } from '@/lib/db-utils';
+import { del } from '@vercel/blob';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
 
 const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock; transaction: jest.Mock };
@@ -271,5 +273,47 @@ describe('POST /api/mass-upload/register', () => {
 
     expect(res.status).toBe(200);
     expect(data.status).toBe('success');
+  });
+
+  it('does not register a screenshot once the session is closed', async () => {
+    mockSessionSelect(createMockSession({ status: 'cancelled' }));
+
+    const res = await POST(createRegisterRequest(validBody) as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(data.message).toContain('closed');
+    expect(del).toHaveBeenCalledWith(validBody.blobUrl);
+    expect(withTransaction).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('drops a screenshot whose register finishes after the session is closed', async () => {
+    mockSessionSelect(createMockSession());
+    mockBlobFetchSuccess();
+    mockDedupSelectNoMatch();
+    const insert = jest.fn();
+    (withTransaction as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ status: 'cancelled' }]),
+            }),
+          }),
+        }),
+        insert,
+        update: jest.fn(),
+      };
+      return fn(tx);
+    });
+
+    const res = await POST(createRegisterRequest(validBody) as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(data.status).toBe('error');
+    expect(insert).not.toHaveBeenCalled();
+    expect(del).toHaveBeenCalledWith(validBody.blobUrl);
   });
 });

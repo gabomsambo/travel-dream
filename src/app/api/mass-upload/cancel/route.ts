@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
     // tenant accessor, which re-scopes to the caller on its own.
     const sourceIds = found.row.meta?.uploadedFiles || [];
     if (sourceIds.length === 0) {
+      await tdb.update(uploadSessions, { status: 'cancelled' }, eq(uploadSessions.id, sessionId));
       return NextResponse.json({ status: 'success', cancelled: 0, alreadyProcessing: 0 });
     }
 

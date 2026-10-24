@@ -52,6 +52,46 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const CONCURRENT_LIMIT = 3
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
 
+function aborted(): DOMException {
+  return new DOMException('The operation was aborted.', 'AbortError')
+}
+
+function trackInFlight<T>(pending: Set<Promise<unknown>>, promise: Promise<T>): Promise<T> {
+  const tracked = promise.finally(() => {
+    pending.delete(tracked)
+  })
+  pending.add(tracked)
+  return tracked
+}
+
+async function drainInFlight(pending: Set<Promise<unknown>>): Promise<void> {
+  while (pending.size > 0) {
+    await Promise.allSettled(Array.from(pending))
+  }
+}
+
+async function abandonUnstartedSession(
+  sessionId: string,
+  startPromise: Promise<boolean> | null,
+  pending: Set<Promise<unknown>>,
+): Promise<void> {
+  try {
+    if (startPromise) {
+      const started = await startPromise
+      if (started) return
+    }
+    await drainInFlight(pending)
+    await fetch('/api/mass-upload/cancel', {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    })
+  } catch {
+    return
+  }
+}
+
 export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUploadSheetProps) {
   const router = useRouter()
   const [step, setStep] = useState<MassUploadStep>('upload')
@@ -64,6 +104,12 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
   const filesRef = useRef<Map<string, MassUploadFile>>(new Map())
   const listParentRef = useRef<HTMLDivElement>(null)
   const seededFiles = useRef<File[] | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
+  const startedRef = useRef(false)
+  const startPromiseRef = useRef<Promise<boolean> | null>(null)
+  const abortRef = useRef<AbortController>(new AbortController())
+  const inFlightRef = useRef<Set<Promise<unknown>>>(new Set())
+  const epochRef = useRef(0)
 
   const { observeSession } = useActivityJobs()
   const [sessionError, setSessionError] = useState<string | null>(null)
@@ -73,19 +119,35 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
   // A new batch each time the sheet opens. Progress lives on the Inbox card.
   useEffect(() => {
     if (!open) {
+      const sessionId = sessionIdRef.current
+      const startPromise = startPromiseRef.current
+      const alreadyStarted = startedRef.current
+      epochRef.current += 1
+      abortRef.current.abort()
       filesRef.current.forEach(file => {
         if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
       })
       setFiles(new Map())
       setStep('upload')
       setSessionId(null)
+      sessionIdRef.current = null
+      startedRef.current = false
+      startPromiseRef.current = null
+      setIsUploading(false)
+      setIsStarting(false)
       setSessionError(null)
       setBatchError(null)
       setStartError(null)
       seededFiles.current = null
+      if (sessionId && !alreadyStarted) {
+        void abandonUnstartedSession(sessionId, startPromise, inFlightRef.current)
+      }
       return
     }
 
+    const controller = new AbortController()
+    abortRef.current = controller
+    startedRef.current = false
     let cancelled = false
     const create = async () => {
       try {
@@ -93,17 +155,19 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileCount: 0 }),
+          signal: controller.signal,
         })
         const data = await res.json()
-        if (cancelled) return
+        if (cancelled || controller.signal.aborted) return
         if (data.status === 'success' && data.session?.id) {
+          sessionIdRef.current = data.session.id
           setSessionId(data.session.id)
           setSessionError(null)
         } else {
           setSessionError('Failed to create upload session')
         }
       } catch {
-        if (!cancelled) setSessionError('Failed to create upload session')
+        if (!cancelled && !controller.signal.aborted) setSessionError('Failed to create upload session')
       }
     }
     void create()
@@ -146,50 +210,68 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     return { isValid: true }
   }, [])
 
-  const uploadFileToBlob = useCallback(async (file: File, fileId: string): Promise<{ blobUrl: string; sourceId: string }> => {
+  const uploadFileToBlob = useCallback(async (
+    file: File,
+    fileId: string,
+    epoch: number,
+  ): Promise<{ blobUrl: string; sourceId: string }> => {
+    const signal = abortRef.current.signal
     if (!sessionId) throw new Error('No session')
+    if (signal.aborted || epochRef.current !== epoch) throw aborted()
 
     const timestamp = Date.now()
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
     const filename = `screenshots/${sessionId}/${timestamp}-${fileId.slice(0, 8)}.${ext}`
 
-    const blob = await upload(filename, file, {
-      access: 'public',
-      handleUploadUrl: '/api/blob/upload',
-      onUploadProgress: (progress) => {
-        const percent = Math.round((progress.loaded / progress.total) * 100)
-        setFiles(prev => {
-          const newMap = new Map(prev)
-          const existing = newMap.get(fileId)
-          if (existing) {
-            newMap.set(fileId, { ...existing, progress: percent })
-          }
-          return newMap
-        })
-      },
-    })
+    const task = (async () => {
+      const blob = await upload(filename, file, {
+        access: 'public',
+        handleUploadUrl: '/api/blob/upload',
+        abortSignal: signal,
+        onUploadProgress: (progress) => {
+          if (epochRef.current !== epoch) return
+          const percent = Math.round((progress.loaded / progress.total) * 100)
+          setFiles(prev => {
+            const newMap = new Map(prev)
+            const existing = newMap.get(fileId)
+            if (existing) {
+              newMap.set(fileId, { ...existing, progress: percent })
+            }
+            return newMap
+          })
+        },
+      })
 
-    const response = await fetch('/api/mass-upload/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId,
-        blobUrl: blob.url,
-        originalName: file.name,
-        fileSize: file.size,
-        mimeType: file.type,
-      }),
-    })
+      if (signal.aborted || epochRef.current !== epoch) throw aborted()
 
-    if (!response.ok) {
-      throw new Error('Failed to register upload')
-    }
+      const response = await fetch('/api/mass-upload/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          blobUrl: blob.url,
+          originalName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+        }),
+        signal,
+      })
 
-    const result = await response.json()
-    return { blobUrl: blob.url, sourceId: result.sourceId }
+      if (!response.ok) {
+        throw new Error('Failed to register upload')
+      }
+
+      const result = await response.json()
+      return { blobUrl: blob.url, sourceId: result.sourceId as string }
+    })()
+
+    return trackInFlight(inFlightRef.current, task)
   }, [sessionId])
 
   const processFiles = useCallback(async (newFileList: File[]) => {
+    const epoch = epochRef.current
+    const signal = abortRef.current.signal
+    if (signal.aborted || epochRef.current !== epoch) return
     if (!sessionId) {
       setSessionError('Session not ready. Please wait a moment and try again.')
       return
@@ -238,7 +320,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       return
     }
 
-    setIsUploading(true)
+    if (signal.aborted || epochRef.current !== epoch) return
 
     // Add files to state
     const updatedFiles = new Map(files)
@@ -257,51 +339,63 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       updatedFiles.set(fileId, entry)
       newEntries.push([fileId, entry])
     })
-    setFiles(updatedFiles)
-
-    // Upload in batches of CONCURRENT_LIMIT
-    for (let i = 0; i < newEntries.length; i += CONCURRENT_LIMIT) {
-      const batch = newEntries.slice(i, i + CONCURRENT_LIMIT)
-
-      await Promise.allSettled(
-        batch.map(async ([fileId, fileData]) => {
-          try {
-            const result = await uploadFileToBlob(fileData.file, fileId)
-
-            setFiles(prev => {
-              const newMap = new Map(prev)
-              const existing = newMap.get(fileId)
-              if (existing) {
-                newMap.set(fileId, {
-                  ...existing,
-                  status: 'completed',
-                  progress: 100,
-                  blobUrl: result.blobUrl,
-                  sourceId: result.sourceId,
-                })
-              }
-              return newMap
-            })
-
-          } catch (error) {
-            setFiles(prev => {
-              const newMap = new Map(prev)
-              const existing = newMap.get(fileId)
-              if (existing) {
-                newMap.set(fileId, {
-                  ...existing,
-                  status: 'failed',
-                  error: error instanceof Error ? error.message : 'Upload failed',
-                })
-              }
-              return newMap
-            })
-          }
-        })
-      )
+    if (epochRef.current !== epoch) {
+      newEntries.forEach(([, entry]) => {
+        if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
+      })
+      return
     }
+    setFiles(updatedFiles)
+    setIsUploading(true)
 
-    setIsUploading(false)
+    try {
+      // Upload in batches of CONCURRENT_LIMIT
+      for (let i = 0; i < newEntries.length; i += CONCURRENT_LIMIT) {
+        if (signal.aborted || epochRef.current !== epoch) break
+        const batch = newEntries.slice(i, i + CONCURRENT_LIMIT)
+
+        await Promise.allSettled(
+          batch.map(async ([fileId, fileData]) => {
+            try {
+              const result = await uploadFileToBlob(fileData.file, fileId, epoch)
+              if (epochRef.current !== epoch) return
+
+              setFiles(prev => {
+                const newMap = new Map(prev)
+                const existing = newMap.get(fileId)
+                if (existing) {
+                  newMap.set(fileId, {
+                    ...existing,
+                    status: 'completed',
+                    progress: 100,
+                    blobUrl: result.blobUrl,
+                    sourceId: result.sourceId,
+                  })
+                }
+                return newMap
+              })
+
+            } catch (error) {
+              if (signal.aborted || epochRef.current !== epoch) return
+              setFiles(prev => {
+                const newMap = new Map(prev)
+                const existing = newMap.get(fileId)
+                if (existing) {
+                  newMap.set(fileId, {
+                    ...existing,
+                    status: 'failed',
+                    error: error instanceof Error ? error.message : 'Upload failed',
+                  })
+                }
+                return newMap
+              })
+            }
+          })
+        )
+      }
+    } finally {
+      if (epochRef.current === epoch) setIsUploading(false)
+    }
   }, [sessionId, files, validateFile, uploadFileToBlob])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -353,37 +447,49 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
   }, [open, sessionId, initialFiles, processFiles])
 
   const handleStartProcessing = useCallback(async () => {
-    if (!sessionId) return
+    if (!sessionId || startedRef.current) return
 
     setIsStarting(true)
     setStartError(null)
-    try {
-      const res = await fetch('/api/mass-upload/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      })
-      const data = await res.json()
+    const run = (async (): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/mass-upload/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        })
+        const data = await res.json()
 
-      if (data.status === 'success') {
-        observeSession(sessionId)
-        onOpenChange(false)
-        router.push('/inbox')
-        router.refresh()
-      } else {
+        if (data.status === 'success') {
+          startedRef.current = true
+          observeSession(sessionId)
+          onOpenChange(false)
+          router.push('/inbox')
+          router.refresh()
+          return true
+        }
         setStartError(data.message || 'Failed to start processing')
+        return false
+      } catch {
+        setStartError('Failed to start processing')
+        return false
+      } finally {
+        setIsStarting(false)
       }
-    } catch {
-      setStartError('Failed to start processing')
+    })()
+    startPromiseRef.current = run
+    try {
+      await run
     } finally {
-      setIsStarting(false)
+      if (startPromiseRef.current === run) startPromiseRef.current = null
     }
   }, [sessionId, observeSession, onOpenChange, router])
 
   // Task 3: Per-file retry (uses filesRef to avoid stale closure)
   const retryFile = useCallback(async (fileId: string) => {
+    const epoch = epochRef.current
     const fileData = filesRef.current.get(fileId)
-    if (!fileData || !sessionId) return
+    if (!fileData || !sessionId || abortRef.current.signal.aborted) return
 
     setFiles(prev => {
       const updated = new Map(prev)
@@ -395,7 +501,8 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     })
 
     try {
-      const result = await uploadFileToBlob(fileData.file, fileId)
+      const result = await uploadFileToBlob(fileData.file, fileId, epoch)
+      if (epochRef.current !== epoch) return
       setFiles(prev => {
         const updated = new Map(prev)
         const current = prev.get(fileId)
@@ -411,6 +518,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         return updated
       })
     } catch (error) {
+      if (epochRef.current !== epoch || abortRef.current.signal.aborted) return
       setFiles(prev => {
         const updated = new Map(prev)
         const current = prev.get(fileId)

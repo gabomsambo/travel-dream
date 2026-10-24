@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
-import { bulkConfirmPlaces, bulkReturnPlacesToInbox, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces, batchSetVisitStatus } from '@/lib/db-mutations';
+import { bulkConfirmPlaces, bulkReturnPlacesToInbox, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces, batchSetVisitStatus, type PlaceStatusUpdate } from '@/lib/db-mutations';
 import { getOwnedPlaceIds } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
@@ -36,6 +36,7 @@ interface BulkActionResult {
   updatedCount: number;
   requestedCount: number;
   placeIds: string[];
+  updatedIds: string[];
   errors?: string[];
 }
 
@@ -84,16 +85,22 @@ export async function POST(request: NextRequest) {
     }
 
     let updatedCount = 0;
+    let updatedIds: string[] = [];
     let errors: string[] = [];
+
+    const takeStatus = (update: PlaceStatusUpdate) => {
+      updatedCount = update.updatedCount;
+      updatedIds = update.updatedIds;
+    };
 
     // Execute bulk action based on type
     try {
       switch (action) {
         case 'confirm':
-          updatedCount = await bulkConfirmPlaces(uniquePlaceIds, user.id);
+          takeStatus(await bulkConfirmPlaces(uniquePlaceIds, user.id));
           break;
         case 'return-to-inbox':
-          updatedCount = await bulkReturnPlacesToInbox(uniquePlaceIds, user.id);
+          takeStatus(await bulkReturnPlacesToInbox(uniquePlaceIds, user.id));
           break;
         case 'archive':
           updatedCount = await batchArchivePlaces(uniquePlaceIds, user.id);
@@ -131,7 +138,11 @@ export async function POST(request: NextRequest) {
 
     // Invalidate cached library stats — any of confirm/archive/restore/delete affects counts.
     if (updatedCount > 0) {
-      revalidateTag(`library-stats:${user.id}`);
+      try {
+        revalidateTag(`library-stats:${user.id}`);
+      } catch (error) {
+        console.error('Failed to revalidate library stats:', error);
+      }
     }
 
     // Check if operation was partially successful
@@ -149,6 +160,7 @@ export async function POST(request: NextRequest) {
       updatedCount,
       requestedCount: uniquePlaceIds.length,
       placeIds: uniquePlaceIds,
+      updatedIds,
       ...(errors.length > 0 && { errors })
     };
 

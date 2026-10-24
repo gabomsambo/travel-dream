@@ -26,7 +26,13 @@ import {
   SheetTitle,
 } from '@/components/adapters/sheet'
 import { useActivityJobs } from '@/components/activity/activity-provider'
-import { bindUnstartedUpload, cancelUnstartedUpload, cancelUploadSession } from '@/lib/unstarted-upload'
+import {
+  bindUnstartedUpload,
+  cancelUploadSession,
+  discardUnstartedUpload,
+  registerAbandonedUploads,
+  type AbandonedUpload,
+} from '@/lib/unstarted-upload'
 
 interface MassUploadFile {
   id: string
@@ -71,41 +77,12 @@ async function drainInFlight(pending: Set<Promise<unknown>>): Promise<void> {
   }
 }
 
-type AbandonedUpload = {
-  blobUrl: string
-  originalName: string
-  fileSize: number
-  mimeType: string
-}
-
-async function registerAbandonedUploads(sessionId: string, blobs: AbandonedUpload[]): Promise<void> {
-  const unique = new Map<string, AbandonedUpload>()
-  for (const blob of blobs) unique.set(blob.blobUrl, blob)
-  await Promise.all(Array.from(unique.values()).map(async (blob) => {
-    try {
-      await fetch('/api/mass-upload/register', {
-        method: 'POST',
-        keepalive: true,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          blobUrl: blob.blobUrl,
-          originalName: blob.originalName,
-          fileSize: blob.fileSize,
-          mimeType: blob.mimeType,
-        }),
-      })
-    } catch {
-      return
-    }
-  }))
-}
-
 async function abandonUnstartedSession(
   sessionId: string,
   startPromise: Promise<boolean> | null,
   pending: Set<Promise<unknown>>,
   abandoned: AbandonedUpload[],
+  earlyCancel: Promise<Response> | null,
 ): Promise<void> {
   try {
     if (startPromise) {
@@ -113,7 +90,7 @@ async function abandonUnstartedSession(
       if (started) return
     }
     await drainInFlight(pending)
-    const cancel = await cancelUploadSession(sessionId)
+    const cancel = await (earlyCancel ?? cancelUploadSession(sessionId))
     if (!cancel.ok) return
     await registerAbandonedUploads(sessionId, abandoned)
   } catch {
@@ -184,6 +161,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
           releaseBinding = bindUnstartedUpload({
             sessionId: () => sessionIdRef.current,
             startRequested: () => startedRef.current || startPromiseRef.current !== null,
+            abandonedUploads: () => abandonedRef.current,
           })
           setSessionId(data.session.id)
           setSessionError(null)
@@ -197,10 +175,19 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     void create()
     return () => {
       cancelled = true
-      releaseBinding()
       const currentSessionId = sessionIdRef.current
       const startPromise = startPromiseRef.current
       const alreadyStarted = startedRef.current
+      const startWasRequested = alreadyStarted || startPromise !== null
+      let earlyCancel: Promise<Response> | null = null
+      try {
+        if (currentSessionId && !startWasRequested) {
+          earlyCancel = cancelUploadSession(currentSessionId)
+        }
+      } catch {
+        earlyCancel = null
+      }
+      releaseBinding()
       const abandoned = abandonedRef.current
       abandonedRef.current = []
       const pending = inFlightRef.current
@@ -214,7 +201,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       startedRef.current = false
       startPromiseRef.current = null
       if (currentSessionId && !alreadyStarted) {
-        void abandonUnstartedSession(currentSessionId, startPromise, pending, abandoned)
+        void abandonUnstartedSession(currentSessionId, startPromise, pending, abandoned, earlyCancel)
       }
     }
   }, [open])
@@ -247,7 +234,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
 
   useEffect(() => {
     const onPageHide = () => {
-      void cancelUnstartedUpload()
+      discardUnstartedUpload()
     }
     window.addEventListener('pagehide', onPageHide)
     return () => window.removeEventListener('pagehide', onPageHide)
@@ -302,36 +289,28 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         fileSize: file.size,
         mimeType: file.type || 'application/octet-stream',
       }
-      const closing = () => signal.aborted || epochRef.current !== epoch
-      if (closing()) {
-        abandonedSink.push(payload)
-        throw aborted()
+      abandonedSink.push(payload)
+      if (signal.aborted || epochRef.current !== epoch) throw aborted()
+
+      const response = await fetch('/api/mass-upload/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          blobUrl: payload.blobUrl,
+          originalName: payload.originalName,
+          fileSize: payload.fileSize,
+          mimeType: payload.mimeType,
+        }),
+        signal,
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to register upload')
       }
 
-      try {
-        const response = await fetch('/api/mass-upload/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId,
-            blobUrl: payload.blobUrl,
-            originalName: payload.originalName,
-            fileSize: payload.fileSize,
-            mimeType: payload.mimeType,
-          }),
-          signal,
-        })
-
-        if (!response.ok) {
-          throw new Error('Failed to register upload')
-        }
-
-        const result = await response.json()
-        return { blobUrl: blob.url, sourceId: result.sourceId as string }
-      } catch (error) {
-        if (closing()) abandonedSink.push(payload)
-        throw error
-      }
+      const result = await response.json()
+      return { blobUrl: blob.url, sourceId: result.sourceId as string }
     })()
 
     return trackInFlight(inFlightRef.current, task)

@@ -137,7 +137,16 @@ describe('discarding an upload before Start', () => {
     expect(cancels).toHaveLength(1)
     expect(cancels[0][1].keepalive).toBe(true)
     expect(JSON.parse(String(cancels[0][1].body))).toEqual({ sessionId: 'ses_pagehide' })
-    expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(registers)
+    const registersAfter = callsTo('/api/mass-upload/register', 'POST')
+    expect(registersAfter).toHaveLength(registers + 1)
+    const leave = registersAfter[registersAfter.length - 1]
+    expect(leave[1].keepalive).toBe(true)
+    expect(leave[1].signal).toBeUndefined()
+    expect(JSON.parse(String(leave[1].body))).toMatchObject({
+      sessionId: 'ses_pagehide',
+      blobUrl: 'https://teststore.public.blob.vercel-storage.com/coast.jpg',
+      originalName: 'coast.jpg',
+    })
     expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(0)
   })
 
@@ -148,10 +157,12 @@ describe('discarding an upload before Start', () => {
     const user = await reachReview()
     await user.click(screen.getByRole('button', { name: /Start Processing/ }))
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    const registers = callsTo('/api/mass-upload/register', 'POST').length
 
     window.dispatchEvent(new Event('pagehide'))
 
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
+    expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(registers)
     expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(1)
   })
 
@@ -167,9 +178,11 @@ describe('discarding an upload before Start', () => {
     const user = await reachReview()
     await user.click(screen.getByRole('button', { name: /Start Processing/ }))
     await waitFor(() => expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(1))
+    const registers = callsTo('/api/mass-upload/register', 'POST').length
 
     window.dispatchEvent(new Event('pagehide'))
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
+    expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(registers)
 
     await act(async () => {
       finishStart()
@@ -190,6 +203,7 @@ describe('discarding an upload before Start', () => {
         })
       }
       if (url === '/api/mass-upload/register' && method === 'POST') {
+        if (init?.keepalive) order.push('register-leave')
         return Promise.resolve({
           ok: true,
           json: async () => ({ status: 'success', sourceId: 'src_signout' }),
@@ -233,8 +247,15 @@ describe('discarding an upload before Start', () => {
     await act(async () => {
       finishCancel()
     })
-    await waitFor(() => expect(order).toEqual(['cancel', 'cancel-done', 'sign-out']))
+    await waitFor(() => expect(order).toEqual(['cancel', 'cancel-done', 'register-leave', 'sign-out']))
     expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/' })
+    const leave = callsTo('/api/mass-upload/register', 'POST').filter((call) => call[1]?.keepalive)
+    expect(leave).toHaveLength(1)
+    expect(JSON.parse(String(leave[0][1].body))).toMatchObject({
+      sessionId: 'ses_signout',
+      blobUrl: 'https://teststore.public.blob.vercel-storage.com/coast.jpg',
+      originalName: 'coast.jpg',
+    })
   })
 
   it('signs out without cancelling a session Start has already queued', async () => {
@@ -284,9 +305,200 @@ describe('discarding an upload before Start', () => {
       </>,
     )
     await reachReview()
+    const registers = callsTo('/api/mass-upload/register', 'POST').length
     await clickSignOut()
 
     await waitFor(() => expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/' }))
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
+    expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(registers)
+  })
+
+  it('keepalive-cancels as soon as the sheet closes, before an upload finishes', async () => {
+    let finishUpload: (value: { url: string }) => void = () => {}
+    uploadMock.mockImplementation(() => new Promise((resolve) => {
+      finishUpload = resolve
+    }))
+    mockSession('ses_closing')
+    const onOpenChange = jest.fn()
+    const { rerender } = render(
+      <>
+        <Header />
+        <MassUploadSheet open onOpenChange={onOpenChange} initialFiles={[shot()]} />
+      </>,
+    )
+    await waitFor(() => expect(uploadMock).toHaveBeenCalled())
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
+    rerender(
+      <>
+        <Header />
+        <MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={[shot()]} />
+      </>,
+    )
+
+    const cancels = callsTo('/api/mass-upload/cancel', 'POST')
+    expect(cancels).toHaveLength(1)
+    expect(cancels[0][1].keepalive).toBe(true)
+    expect(JSON.parse(String(cancels[0][1].body))).toEqual({ sessionId: 'ses_closing' })
+    expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(0)
+
+    window.dispatchEvent(new Event('pagehide'))
+    await clickSignOut()
+    await waitFor(() => expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/' }))
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
+
+    await act(async () => {
+      finishUpload({ url: 'https://teststore.public.blob.vercel-storage.com/coast.jpg' })
+    })
+    await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(1))
+    const leave = callsTo('/api/mass-upload/register', 'POST')[0]
+    expect(leave[1].keepalive).toBe(true)
+    expect(leave[1].signal).toBeUndefined()
+    expect(JSON.parse(String(leave[1].body))).toMatchObject({
+      sessionId: 'ses_closing',
+      blobUrl: 'https://teststore.public.blob.vercel-storage.com/coast.jpg',
+    })
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
+  })
+
+  it('registers a stored blob when the page is discarded before register finishes', async () => {
+    const blobUrl = 'https://teststore.public.blob.vercel-storage.com/coast.jpg'
+    let finishRegister: () => void = () => {}
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_blob' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        const body = JSON.parse(String(init?.body)) as { blobUrl?: string; sessionId?: string }
+        if (init?.keepalive) {
+          expect(body).toMatchObject({
+            sessionId: 'ses_blob',
+            blobUrl,
+            originalName: 'coast.jpg',
+          })
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: async () => ({ status: 'error', message: 'Upload session was closed' }),
+          })
+        }
+        return new Promise((resolve) => {
+          finishRegister = () => resolve({
+            ok: true,
+            json: async () => ({ status: 'success', sourceId: 'src_blob' }),
+          })
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', cancelled: 0 }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    render(<MassUploadSheet open onOpenChange={jest.fn()} initialFiles={[shot()]} />)
+    await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(1))
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    const registers = callsTo('/api/mass-upload/register', 'POST')
+    expect(registers).toHaveLength(2)
+    expect(registers[1][1].keepalive).toBe(true)
+    expect(registers[1][1].signal).toBeUndefined()
+    const cancels = callsTo('/api/mass-upload/cancel', 'POST')
+    expect(cancels).toHaveLength(1)
+    expect(cancels[0][1].keepalive).toBe(true)
+    expect(JSON.parse(String(cancels[0][1].body))).toEqual({ sessionId: 'ses_blob' })
+
+    await act(async () => {
+      finishRegister()
+    })
+  })
+
+  it('registers a stored blob on sign out after cancel and before sign-out', async () => {
+    const blobUrl = 'https://teststore.public.blob.vercel-storage.com/coast.jpg'
+    const order: string[] = []
+    let finishCancel: () => void = () => {}
+    let finishRegister: () => void = () => {}
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_signout_blob' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        if (init?.keepalive) {
+          order.push('register-leave')
+          const body = JSON.parse(String(init?.body)) as { blobUrl?: string }
+          expect(body.blobUrl).toBe(blobUrl)
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: async () => ({ status: 'error' }),
+          })
+        }
+        order.push('register')
+        return new Promise((resolve) => {
+          finishRegister = () => resolve({
+            ok: true,
+            json: async () => ({ status: 'success', sourceId: 'src_signout_blob' }),
+          })
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        order.push('cancel')
+        return new Promise((resolve) => {
+          finishCancel = () => {
+            order.push('cancel-done')
+            resolve({
+              ok: true,
+              json: async () => ({ status: 'success', cancelled: 0 }),
+            })
+          }
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+    mockSignOut.mockImplementation(() => {
+      order.push('sign-out')
+      return Promise.resolve()
+    })
+
+    render(
+      <>
+        <Header />
+        <MassUploadSheet open onOpenChange={jest.fn()} initialFiles={[shot()]} />
+      </>,
+    )
+    await waitFor(() => expect(order).toEqual(['register']))
+    await clickSignOut()
+
+    await waitFor(() => expect(order).toEqual(['register', 'cancel']))
+    expect(mockSignOut).not.toHaveBeenCalled()
+
+    await act(async () => {
+      finishCancel()
+    })
+    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'cancel-done', 'register-leave', 'sign-out']))
+    expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/' })
+    const leave = callsTo('/api/mass-upload/register', 'POST').filter((call) => call[1]?.keepalive)
+    expect(leave).toHaveLength(1)
+    expect(JSON.parse(String(leave[0][1].body))).toMatchObject({
+      sessionId: 'ses_signout_blob',
+      blobUrl,
+      originalName: 'coast.jpg',
+    })
+
+    await act(async () => {
+      finishRegister()
+    })
   })
 })

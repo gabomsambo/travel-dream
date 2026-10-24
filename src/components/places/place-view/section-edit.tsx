@@ -67,6 +67,7 @@ export interface SectionEditApi {
   error: string | null
   draft: PlaceDraft
   setField: <K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => void
+  setFields: (values: Partial<PlaceDraft>) => boolean
   place: PlaceWithRelations
   refresh: () => void
   noteSaved: () => void
@@ -642,8 +643,7 @@ export function SectionEditProvider({
     }
   }, [handlesRef, save.flush])
 
-  const setField = React.useCallback(<K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => {
-    if (blockWrites) return
+  const markDirty = React.useCallback((key: keyof PlaceDraft, value: PlaceDraft[keyof PlaceDraft]) => {
     const nameCleared = key === "name" && (typeof value !== "string" || value.trim() === "")
     if (key === "lat" || key === "lon") {
       dirtyRef.current.add("lat")
@@ -655,13 +655,37 @@ export function SectionEditProvider({
       if (key === "name") retractedNameRef.current = false
       dirtyRef.current.add(key)
     }
+  }, [])
+
+  const setField = React.useCallback(<K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => {
+    if (blockWrites) return
+    markDirty(key, value)
     setDraft((prev) => {
       const next = { ...prev, [key]: value }
       draftRef.current = next
       save.update(patchFor(next, key))
       return next
     })
-  }, [blockWrites, save])
+  }, [blockWrites, markDirty, save])
+
+  const setFields = React.useCallback((values: Partial<PlaceDraft>) => {
+    if (blockWrites) return false
+    const prev = draftRef.current
+    let next = prev
+    const changed: Array<keyof PlaceDraft> = []
+    for (const key of Object.keys(values) as Array<keyof PlaceDraft>) {
+      const value = values[key]
+      if (value === undefined || Object.is(prev[key], value)) continue
+      markDirty(key, value)
+      next = { ...next, [key]: value } as PlaceDraft
+      changed.push(key)
+    }
+    if (changed.length === 0) return false
+    draftRef.current = next
+    setDraft(next)
+    for (const key of changed) save.update(patchFor(next, key))
+    return true
+  }, [blockWrites, markDirty, save])
 
   const cancelSave = save.cancel
   React.useLayoutEffect(() => {
@@ -727,11 +751,12 @@ export function SectionEditProvider({
     error: save.error,
     draft,
     setField,
+    setFields,
     place,
     refresh: onRefresh,
     noteSaved: save.noteSaved,
     noteError: save.noteError,
-  }), [active, editingAll, mobile, open, close, exitEditing, save.status, save.error, save.noteSaved, save.noteError, draft, setField, place, onRefresh])
+  }), [active, editingAll, mobile, open, close, exitEditing, save.status, save.error, save.noteSaved, save.noteError, draft, setField, setFields, place, onRefresh])
 
   return (
     <SectionEditContext.Provider value={api}>

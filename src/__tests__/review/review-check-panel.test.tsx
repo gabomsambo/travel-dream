@@ -558,6 +558,12 @@ describe('PlaceView review dismissal', () => {
     fetchMock.mockResolvedValue(json({ suggestion: null }))
   })
 
+  afterEach(async () => {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 900))
+    })
+  })
+
   function reviewPlace(current: PlaceWithRelations, onReviewPlaceUpdated: () => void = jest.fn(), editing = false) {
     return (
       <PlaceView
@@ -903,7 +909,182 @@ describe('PlaceView review dismissal', () => {
       country: 'United States',
     })
   })
+
+  it('keeps a town choice when the debounced draft flushes', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/city-suggestion')) {
+        return json({
+          suggestion: { locality: 'Forks', admin: 'Washington', country: 'United States', areaLabel: 'Olympic National Park' },
+          unavailable: false,
+        })
+      }
+      if (init?.method === 'PATCH') return json({ status: 'success' })
+      return json({ message: 'unexpected' }, 500)
+    })
+
+    render(reviewPlace(place({
+      name: 'Hall of Mosses',
+      kind: 'natural',
+      city: null,
+      admin: 'Oregon',
+      country: 'Canada',
+      coords: { lat: 47.86, lon: -123.93 },
+    }), onUpdated, true))
+    expect(await screen.findByRole('button', { name: 'Forks, Washington' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Seattle' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Region' }), { target: { value: '' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Country' }), { target: { value: ' ' } })
+    const patchesBefore = placePatches(fetchMock).length
+    await user.click(screen.getByRole('button', { name: 'Forks, Washington' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'City' })).toHaveValue('Forks')
+      expect(screen.getByRole('textbox', { name: 'Region' })).toHaveValue('Washington')
+      expect(screen.getByRole('textbox', { name: 'Country' })).toHaveValue('United States')
+    })
+    await waitFor(() => expect(placePatches(fetchMock).length).toBeGreaterThan(patchesBefore + 1), { timeout: 2000 })
+    const bodies = placePatches(fetchMock).slice(patchesBefore)
+    expect(bodies[0]).toEqual({
+      city: 'Forks',
+      admin: 'Washington',
+      country: 'United States',
+    })
+    expect(bodies.at(-1)).toMatchObject({
+      city: 'Forks',
+      admin: 'Washington',
+      country: 'United States',
+    })
+    expect(bodies.some((body) => body.city === 'Seattle' || body.admin === '' || body.country === ' ')).toBe(false)
+  })
+
+  it('keeps a branch pin when the debounced draft flushes', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return Promise.resolve(json({
+          candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+          unavailable: false,
+        }))
+      }
+      if (url.includes('/pin')) {
+        return Promise.resolve(json({
+          pin: {
+            googlePlaceId: 'stub-gails-dulwich',
+            name: "Gail's Bakery",
+            address: '91 Lordship Ln',
+            city: 'London',
+            admin: 'England',
+            country: 'United Kingdom',
+            coords: { lat: 51.45, lon: -0.07 },
+          },
+          unavailable: false,
+        }))
+      }
+      if (init?.method === 'PATCH') return Promise.resolve(json({ status: 'success' }))
+      return Promise.resolve(json({ message: 'unexpected' }, 500))
+    })
+
+    render(reviewPlace(place({ coords: null }), onUpdated, true))
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Address' }), { target: { value: '123 New St' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Latitude' }), { target: { value: '1' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Longitude' }), { target: { value: '2' } })
+    const patchesBefore = placePatches(fetchMock).length
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    await user.click(await screen.findByText('91 Lordship Ln, London SE22'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Address' })).toHaveValue('91 Lordship Ln')
+      expect(screen.getByRole('textbox', { name: 'Latitude' })).toHaveValue('51.45')
+      expect(screen.getByRole('textbox', { name: 'Longitude' })).toHaveValue('-0.07')
+      expect(onUpdated).toHaveBeenCalled()
+    })
+    await waitFor(() => expect(placePatches(fetchMock).length).toBeGreaterThan(patchesBefore + 1), { timeout: 2000 })
+    const bodies = placePatches(fetchMock).slice(patchesBefore)
+    const branchSave = bodies.find((body) => body.googlePlaceId === 'stub-gails-dulwich')
+    expect(branchSave).toMatchObject({
+      address: '91 Lordship Ln',
+      coords: { lat: 51.45, lon: -0.07 },
+    })
+    expect(bodies.at(-1)).toMatchObject({
+      address: '91 Lordship Ln',
+      coords: { lat: 51.45, lon: -0.07 },
+    })
+    expect(bodies.some((body) => body.address === '123 New St' || (body.coords as { lat?: number } | undefined)?.lat === 1)).toBe(false)
+  })
+
+  it('drops a branch save when the draft changes after that pin is written into the draft', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    let resolveSave: (value: Response) => void = () => {}
+    let heldSave = false
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return Promise.resolve(json({
+          candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+          unavailable: false,
+        }))
+      }
+      if (url.includes('/pin')) {
+        return Promise.resolve(json({
+          pin: {
+            googlePlaceId: 'stub-gails-dulwich',
+            name: "Gail's Bakery",
+            address: '91 Lordship Ln',
+            city: 'London',
+            admin: 'England',
+            country: 'United Kingdom',
+            coords: { lat: 51.45, lon: -0.07 },
+          },
+          unavailable: false,
+        }))
+      }
+      if (init?.method === 'PATCH') {
+        if (!heldSave) {
+          heldSave = true
+          return new Promise((resolve) => {
+            resolveSave = resolve
+          })
+        }
+        return Promise.resolve(json({ status: 'success' }))
+      }
+      return Promise.resolve(json({ message: 'unexpected' }, 500))
+    })
+
+    render(reviewPlace(place({ coords: null }), onUpdated, true))
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Address' }), { target: { value: '123 New St' } })
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    await user.click(await screen.findByText('91 Lordship Ln, London SE22'))
+
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Address' })).toHaveValue('91 Lordship Ln'))
+    expect(placePatches(fetchMock)).toHaveLength(1)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Region' }), { target: { value: 'Oregon' } })
+    await act(async () => {
+      resolveSave(json({ status: 'success' }))
+    })
+    expect(onUpdated).not.toHaveBeenCalled()
+    expect(screen.getByRole('listitem')).toBeEnabled()
+
+    await waitFor(() => expect(onUpdated).toHaveBeenCalled(), { timeout: 2000 })
+  })
 })
+
+function placePatches(fetchMock: jest.Mock): Record<string, unknown>[] {
+  return fetchMock.mock.calls
+    .filter((call) => {
+      const init = call[1] as RequestInit | undefined
+      return init?.method === 'PATCH' && String(call[0]).includes('/api/places/')
+    })
+    .map((call) => JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>)
+}
 
 function forksPatch(fetchMock: jest.Mock): Record<string, unknown> | null {
   const saves = fetchMock.mock.calls.filter((call) => {

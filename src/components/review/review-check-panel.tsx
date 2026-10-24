@@ -68,6 +68,41 @@ function branchGenerationKey(fields: BranchFields): string {
   return [fields.name, fields.city, fields.country, fields.admin, fields.address, fields.lat, fields.lon].join("\0")
 }
 
+function pinCoords(value: unknown): { lat: number; lon: number } | null {
+  if (!value || typeof value !== "object") return null
+  const coords = value as { lat?: unknown; lon?: unknown }
+  if (typeof coords.lat !== "number" || typeof coords.lon !== "number") return null
+  if (!Number.isFinite(coords.lat) || !Number.isFinite(coords.lon)) return null
+  return { lat: coords.lat, lon: coords.lon }
+}
+
+function fieldsWithPatch(fields: BranchFields, patch: Record<string, unknown>): BranchFields {
+  const next = { ...fields }
+  if (typeof patch.city === "string") next.city = patch.city
+  if (typeof patch.admin === "string") next.admin = patch.admin
+  if (typeof patch.country === "string") next.country = patch.country
+  if (typeof patch.address === "string") next.address = patch.address
+  const coords = pinCoords(patch.coords)
+  if (coords) {
+    next.lat = String(coords.lat)
+    next.lon = String(coords.lon)
+  }
+  return next
+}
+
+function stagedDraft(fields: BranchFields, patch: Record<string, unknown>): { values: Partial<BranchFields>; key: string } | null {
+  const after = fieldsWithPatch(fields, patch)
+  const values: Partial<BranchFields> = {}
+  if (after.city !== fields.city) values.city = after.city
+  if (after.admin !== fields.admin) values.admin = after.admin
+  if (after.country !== fields.country) values.country = after.country
+  if (after.address !== fields.address) values.address = after.address
+  if (after.lat !== fields.lat) values.lat = after.lat
+  if (after.lon !== fields.lon) values.lon = after.lon
+  if (Object.keys(values).length === 0) return null
+  return { values, key: branchGenerationKey(after) }
+}
+
 function townLabel(suggestion: CitySuggestion): string | null {
   if (!suggestion.locality) return null
   return suggestion.admin ? `${suggestion.locality}, ${suggestion.admin}` : suggestion.locality
@@ -200,6 +235,8 @@ function PinCheck({
   const [error, setError] = React.useState<string | null>(null)
   const [other, setOther] = React.useState("")
   const sectionEdit = useSectionEdit()
+  const sectionEditRef = React.useRef(sectionEdit)
+  sectionEditRef.current = sectionEdit
   const hasCity = !blankText(place.city)
   const fields = branchFields(place, sectionEdit?.draft ?? null)
   const fieldsRef = React.useRef(fields)
@@ -209,9 +246,18 @@ function PinCheck({
   const [trackedLookupKey, setTrackedLookupKey] = React.useState(lookupKey)
   const [trackedGenerationKey, setTrackedGenerationKey] = React.useState(generationKey)
   const requestRef = React.useRef(0)
+  const adoptedGenerationRef = React.useRef<string | null>(null)
+  if (
+    adoptedGenerationRef.current !== null &&
+    trackedGenerationKey === generationKey &&
+    adoptedGenerationRef.current === generationKey
+  ) {
+    adoptedGenerationRef.current = null
+  }
   if (trackedLookupKey !== lookupKey || trackedGenerationKey !== generationKey) {
     const lookupChanged = trackedLookupKey !== lookupKey
     const generationChanged = trackedGenerationKey !== generationKey
+    const adoptingGeneration = generationChanged && adoptedGenerationRef.current === generationKey
     if (lookupChanged) {
       setTrackedLookupKey(lookupKey)
       setCandidates(null)
@@ -220,9 +266,13 @@ function PinCheck({
     }
     if (generationChanged) {
       setTrackedGenerationKey(generationKey)
-      if (pending) setPending(null)
-      requestRef.current += 1
+      if (!adoptingGeneration) {
+        adoptedGenerationRef.current = null
+        if (pending) setPending(null)
+        requestRef.current += 1
+      }
     } else if (lookupChanged && pending === "search") {
+      adoptedGenerationRef.current = null
       setPending(null)
       requestRef.current += 1
     }
@@ -275,6 +325,12 @@ function PinCheck({
       if (blankText(current.city) && !blankText(body.pin.city)) patch.city = body.pin.city
       if (blankText(current.admin) && !blankText(body.pin.admin)) patch.admin = body.pin.admin
       if (blankText(current.country) && !blankText(body.pin.country)) patch.country = body.pin.country
+      const staged = stagedDraft(current, patch)
+      const edit = sectionEditRef.current
+      if (staged && edit) {
+        adoptedGenerationRef.current = staged.key
+        if (!edit.setFields(staged.values)) adoptedGenerationRef.current = null
+      }
       const saved = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -367,6 +423,8 @@ function CityCheck({
   onUpdated: () => Promise<void> | void
 }) {
   const sectionEdit = useSectionEdit()
+  const sectionEditRef = React.useRef(sectionEdit)
+  sectionEditRef.current = sectionEdit
   const fields = branchFields(place, sectionEdit?.draft ?? null)
   const fieldsRef = React.useRef(fields)
   fieldsRef.current = fields
@@ -421,6 +479,8 @@ function CityCheck({
       const patch: Record<string, unknown> = { city: trimmed }
       if (blankText(current.admin) && !blankText(extra?.admin)) patch.admin = extra?.admin
       if (blankText(current.country) && !blankText(extra?.country)) patch.country = extra?.country
+      const staged = stagedDraft(current, patch)
+      if (staged) sectionEditRef.current?.setFields(staged.values)
       const response = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

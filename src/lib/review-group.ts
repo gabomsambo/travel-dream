@@ -117,7 +117,7 @@ export function groupCountLabel(count: number, cities: Array<string | null | und
 
 /**
  * The trip to suggest for these places, or null when nothing matches.
- * A single city has to be the strict majority (a tie suggests nothing).
+ * One city has to appear more often than every other (a tie suggests nothing).
  * Each place already in a trip counts once, trimmed and case-folded.
  * The trip with the most places in that city wins, then the trip name.
  * A trip with none is not suggested.

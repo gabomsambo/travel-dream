@@ -43,7 +43,7 @@ interface FiledTrip {
   name: string
 }
 
-/** A membership this action created (`drop`) and the ones it removed (`restore`, then `alsoRestore`). */
+/** A membership this action created (`drop`), the ones it removed (`restore`, then `alsoRestore`), and the filings tracked before the move (`priorFilings`). */
 interface TripMove {
   drop: FiledTrip | null
   restore: FiledTrip | null

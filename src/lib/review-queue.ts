@@ -305,12 +305,6 @@ export async function loadReviewPostcard(userId: string, placeId: string): Promi
   return { place, alsoIn, screenshot }
 }
 
-/**
- * Queue order and light rows for every inbox place, and relations plus the
- * city rail only for `visiblePlaceId` (or the first row, when that id is
- * absent or no longer inbox). `uploadSessionId` keeps the walk inside that
- * upload's inbox places.
- */
 async function loadReviewTrips(userId: string): Promise<ReviewTrip[]> {
   const trips = await getExploreCollections(userId)
   const placeIds = [...new Set(trips.flatMap((trip) => trip.placeIds))]
@@ -328,6 +322,12 @@ async function loadReviewTrips(userId: string): Promise<ReviewTrip[]> {
   }))
 }
 
+/**
+ * Queue order and light rows for every inbox place, and relations plus the
+ * city rail only for `visiblePlaceId` (or the first row, when that id is
+ * absent or no longer inbox). `uploadSessionId` keeps the walk inside that
+ * upload's inbox places.
+ */
 export async function loadReviewQueue(
   userId: string,
   visiblePlaceId?: string,

@@ -1,7 +1,8 @@
 import React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ReviewCheckPanel } from '@/components/review/review-check-panel'
+import { PlaceView } from '@/components/places/place-view/place-view'
 import type { PlaceWithRelations } from '@/types/database'
 
 function place(overrides: Partial<PlaceWithRelations> = {}): PlaceWithRelations {
@@ -282,6 +283,110 @@ describe('ReviewCheckPanel', () => {
     expect(screen.queryByRole('button', { name: /Leave it as/ })).not.toBeInTheDocument()
   })
 
+  it('drops the branch list when the name, city, or country changes', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValue(json({
+      candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+      unavailable: false,
+    }))
+    let current = place({ coords: null })
+    const { rerender } = render(<ReviewCheckPanel place={current} onRename={jest.fn()} onUpdated={jest.fn()} />)
+    const showList = async () => {
+      await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+      expect(await screen.findByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+    }
+    await showList()
+    for (const overrides of [{ name: 'Tartine' }, { city: 'Paris' }, { country: 'France' }]) {
+      current = place({ ...current, ...overrides })
+      rerender(<ReviewCheckPanel place={current} onRename={jest.fn()} onUpdated={jest.fn()} />)
+      expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Look up this place/ })).toBeInTheDocument()
+      await showList()
+    }
+  })
+
+  it('ignores a branch lookup that returns after the name changes', async () => {
+    const user = userEvent.setup()
+    let resolveSearch: (value: Response) => void = () => {}
+    fetchMock.mockImplementation(() => new Promise((resolve) => {
+      resolveSearch = resolve
+    }))
+    const { rerender } = render(
+      <ReviewCheckPanel place={place({ coords: null })} onRename={jest.fn()} onUpdated={jest.fn()} />
+    )
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: /Looking up/ })).toBeInTheDocument()
+
+    rerender(
+      <ReviewCheckPanel
+        place={place({ coords: null, name: 'Tartine' })}
+        onRename={jest.fn()}
+        onUpdated={jest.fn()}
+      />
+    )
+    expect(screen.getByText(/Tartine may have more than one location/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeInTheDocument()
+
+    await act(async () => {
+      resolveSearch(json({
+        candidates: [{ googlePlaceId: 'stub-gails', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+        unavailable: false,
+      }))
+    })
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: "Gail's Bakery" })).not.toBeInTheDocument()
+
+    fetchMock.mockResolvedValue(json({
+      candidates: [{ googlePlaceId: 'stub-tartine', name: 'Tartine', detail: '600 Guerrero St, San Francisco' }],
+      unavailable: false,
+    }))
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    expect(await screen.findByText('600 Guerrero St, San Francisco')).toBeInTheDocument()
+  })
+
+  it('brings back a dismissed missing city when the region changes', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValue(json({ suggestion: null }))
+    const initial = place({
+      name: 'Hall of Mosses',
+      kind: 'natural',
+      city: null,
+      admin: 'Washington',
+      country: 'United States',
+      coords: { lat: 47.86, lon: -123.93 },
+    })
+    const { rerender } = render(<ReviewCheckPanel place={initial} onRename={jest.fn()} onUpdated={jest.fn()} />)
+    expect(await screen.findByRole('button', { name: 'Leave it as Washington' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Leave it as Washington' }))
+    expect(screen.getByText('Nothing to check')).toBeInTheDocument()
+    expect(screen.queryByText('No city')).not.toBeInTheDocument()
+
+    rerender(
+      <ReviewCheckPanel
+        place={place({ ...initial, admin: 'Oregon' })}
+        onRename={jest.fn()}
+        onUpdated={jest.fn()}
+      />
+    )
+    expect(await screen.findByRole('button', { name: 'Leave it as Oregon' })).toBeInTheDocument()
+    expect(screen.getByText('No city')).toBeInTheDocument()
+    expect(screen.getByText('1 thing to check')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Leave it as Oregon' }))
+    expect(screen.getByText('Nothing to check')).toBeInTheDocument()
+    rerender(
+      <ReviewCheckPanel
+        place={place({ ...initial, admin: null })}
+        onRename={jest.fn()}
+        onUpdated={jest.fn()}
+      />
+    )
+    expect(await screen.findByText('No city')).toBeInTheDocument()
+    expect(screen.getByText('1 thing to check')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Leave it as/ })).not.toBeInTheDocument()
+  })
+
   it('marks a shaky name and a tip', () => {
     render(
       <ReviewCheckPanel
@@ -294,5 +399,53 @@ describe('ReviewCheckPanel', () => {
     expect(screen.getByText(/Is “Gail's Bakery” the right name/)).toBeInTheDocument()
     expect(screen.getByText('This looks like a tip, not a place')).toBeInTheDocument()
     expect(screen.getByText('4 things to check')).toBeInTheDocument()
+  })
+})
+
+describe('PlaceView review dismissal', () => {
+  const fetchMock = global.fetch as jest.Mock
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue(json({ suggestion: null }))
+  })
+
+  function reviewPlace(current: PlaceWithRelations) {
+    return (
+      <PlaceView
+        place={current}
+        trips={[]}
+        alsoIn={[]}
+        onEdit={jest.fn()}
+        onPhotoAttached={jest.fn()}
+        showMobileActionBar={false}
+        showReviewChecks
+        onReviewPlaceUpdated={jest.fn()}
+      />
+    )
+  }
+
+  it('shows the city marker again when the region that dismissed it changes', async () => {
+    const user = userEvent.setup()
+    const initial = place({
+      name: 'Hall of Mosses',
+      kind: 'natural',
+      city: null,
+      admin: 'Washington',
+      country: 'United States',
+      coords: { lat: 47.86, lon: -123.93 },
+    })
+    const { rerender } = render(reviewPlace(initial))
+    expect(await screen.findByRole('button', { name: 'Leave it as Washington' })).toBeInTheDocument()
+    expect(screen.getAllByText('No city').length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: 'Leave it as Washington' }))
+    expect(screen.getByText('Nothing to check')).toBeInTheDocument()
+    expect(screen.queryByText('No city')).not.toBeInTheDocument()
+
+    rerender(reviewPlace(place({ ...initial, admin: null })))
+    expect(screen.getAllByText('No city').length).toBeGreaterThan(0)
+    expect(screen.getByText('1 thing to check')).toBeInTheDocument()
+    expect(screen.queryByText('Nothing to check')).not.toBeInTheDocument()
   })
 })

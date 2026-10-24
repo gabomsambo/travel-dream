@@ -63,7 +63,7 @@ export function ReviewCheckPanel({
   React.useEffect(() => {
     if (controlled) return
     setDismissed([])
-  }, [controlled, place.id, place.city, place.coords, place.confidence, place.kind, place.name])
+  }, [controlled, place.id, place.city, place.admin, place.coords, place.confidence, place.kind, place.name])
 
   const dismiss = (id: ReviewCheckId) => {
     if (onDismiss) {
@@ -152,9 +152,21 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
   const [error, setError] = React.useState<string | null>(null)
   const [other, setOther] = React.useState("")
   const hasCity = !blankText(place.city)
+  const placeKey = [place.name ?? "", place.city ?? "", place.country ?? ""].join("\0")
+  const [trackedPlaceKey, setTrackedPlaceKey] = React.useState(placeKey)
+  const requestRef = React.useRef(0)
+  if (trackedPlaceKey !== placeKey) {
+    setTrackedPlaceKey(placeKey)
+    setCandidates(null)
+    setUnavailable(false)
+    setError(null)
+    if (pending === "search") setPending(null)
+    requestRef.current += 1
+  }
 
   const search = async (query: string) => {
     if (pending) return
+    const requestId = ++requestRef.current
     setPending("search")
     setError(null)
     setUnavailable(false)
@@ -162,14 +174,16 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
       const params = new URLSearchParams({ q: query })
       const response = await fetch(`/api/review/places/${encodeURIComponent(place.id)}/branches?${params}`)
       const body = await response.json().catch(() => null) as { candidates?: BranchCandidate[]; unavailable?: boolean; message?: string } | null
+      if (requestId !== requestRef.current) return
       if (!response.ok) throw new Error(body?.message || "We couldn't look this up. Try again.")
       setCandidates(body?.candidates ?? [])
       setUnavailable(Boolean(body?.unavailable))
     } catch (searchError) {
+      if (requestId !== requestRef.current) return
       setCandidates([])
       setError(searchError instanceof Error ? searchError.message : "We couldn't look this up. Try again.")
     } finally {
-      setPending(null)
+      if (requestId === requestRef.current) setPending(null)
     }
   }
 

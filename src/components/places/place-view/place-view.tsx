@@ -323,6 +323,7 @@ export function PlaceView({
     place.confidence ?? "",
     place.kind ?? "",
     place.name ?? "",
+    place.admin ?? "",
   ].join("\0")
   const [trackedReviewKey, setTrackedReviewKey] = React.useState(reviewCheckKey)
   if (trackedReviewKey !== reviewCheckKey) {

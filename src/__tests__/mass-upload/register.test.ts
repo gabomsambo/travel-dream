@@ -298,7 +298,7 @@ describe('POST /api/mass-upload/register', () => {
 
     expect(res.status).toBe(409);
     expect(data.message).toContain('closed');
-    expect(mockDb.select).toHaveBeenCalledTimes(4);
+    expect(mockDb.select).toHaveBeenCalledTimes(5);
     expect(del).toHaveBeenCalledTimes(1);
     expect(del).toHaveBeenCalledWith(validBody.blobUrl);
     expect(withTransaction).not.toHaveBeenCalled();
@@ -345,7 +345,7 @@ describe('POST /api/mass-upload/register', () => {
     expect(res.status).toBe(409);
     expect(data.status).toBe('error');
     expect(insert).not.toHaveBeenCalled();
-    expect(mockDb.select).toHaveBeenCalledTimes(5);
+    expect(mockDb.select).toHaveBeenCalledTimes(6);
     expect(del).toHaveBeenCalledTimes(1);
     expect(del).toHaveBeenCalledWith(validBody.blobUrl);
   });

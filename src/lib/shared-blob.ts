@@ -9,7 +9,7 @@
 import { del } from '@vercel/blob';
 import { and, eq, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { attachments, places, sources } from '@/db/schema';
+import { attachments, collections, places, sources } from '@/db/schema';
 
 export type BlobReferenceExclusions = {
   /** Sources already removed or about to be removed in the same operation */
@@ -174,7 +174,17 @@ export async function isBlobUrlReferencedByAnyTenant(
     .where(and(...sourceThumbPredicates))
     .limit(1);
 
-  return Boolean(sourceThumbHit);
+  if (sourceThumbHit) {
+    return true;
+  }
+
+  const [coverHit] = await db
+    .select({ id: collections.id })
+    .from(collections)
+    .where(eq(collections.coverImageUrl, url))
+    .limit(1);
+
+  return Boolean(coverHit);
 }
 
 /**

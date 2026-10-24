@@ -8,6 +8,15 @@ import { z } from 'zod';
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 1 minute for bulk operations
 
+const BULK_ACTION_PLACE_CAP = 500;
+const STATUS_CHANGE_PLACE_CAP = 5000;
+
+function placeIdCap(action: string): number {
+  return action === 'confirm' || action === 'return-to-inbox'
+    ? STATUS_CHANGE_PLACE_CAP
+    : BULK_ACTION_PLACE_CAP;
+}
+
 const BulkActionSchema = z.object({
   action: z.enum(['confirm', 'archive', 'restore', 'delete', 'set-visit-status', 'return-to-inbox'], {
     required_error: 'Action is required',
@@ -18,10 +27,23 @@ const BulkActionSchema = z.object({
   placeIds: z.array(z.string().min(1, 'Place ID cannot be empty'), {
     required_error: 'Place IDs are required',
     invalid_type_error: 'Place IDs must be an array of strings'
-  }).min(1, 'At least one place ID is required').max(500, 'Cannot process more than 500 places at once')
-}).refine((b) => b.action !== 'set-visit-status' || b.visitStatus !== undefined, {
-  message: 'visitStatus is required for "set-visit-status"',
-  path: ['visitStatus'],
+  }).min(1, 'At least one place ID is required').max(STATUS_CHANGE_PLACE_CAP, `Cannot process more than ${STATUS_CHANGE_PLACE_CAP} places at once`)
+}).superRefine((b, ctx) => {
+  const cap = placeIdCap(b.action);
+  if (b.placeIds.length > cap) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['placeIds'],
+      message: `Cannot process more than ${cap} places at once`,
+    });
+  }
+  if (b.action === 'set-visit-status' && b.visitStatus === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['visitStatus'],
+      message: 'visitStatus is required for "set-visit-status"',
+    });
+  }
 });
 
 interface BulkActionRequest {
@@ -245,7 +267,7 @@ export async function GET() {
         description: 'Perform bulk operations on multiple places',
         requestBody: {
           action: 'confirm | archive | restore | delete | set-visit-status | return-to-inbox',
-          placeIds: 'string[] (1-500 items)',
+          placeIds: 'string[] (1-500 items, or 1-5000 for confirm and return-to-inbox)',
           visitStatus: 'not_visited | planned | visited (set-visit-status only)'
         },
         actions: {

@@ -364,6 +364,67 @@ describe('register duplicate branch scopes its rebuild sweep', () => {
       { originalName: 'alice-duplicate.png', duplicateOf: duplicateId },
     ]);
   });
+
+  it('deletes an unreferenced blob when the open session already has those bytes', async () => {
+    const orphan = 'https://store.public.blob.vercel-storage.com/duplicate-orphan.jpg';
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO sources
+        (id,user_id,type,uri,hash,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['src_alice_same_bytes', ALICE.id, 'screenshot', FIXTURE.aliceSourceBlob,
+       JSON.stringify({ sha1: '05fe405753166f125559e7c9ac558654f107c7e9' }), 'uploaded',
+       JSON.stringify({ uploadInfo: { sessionId: 'session_alice_previous' } }), now, now]
+    );
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: orphan,
+        originalName: 'same-bytes.jpg',
+        fileSize: 8,
+        mimeType: 'image/jpeg',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('duplicate');
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(orphan);
+  });
+
+  it('leaves another tenant collection cover when the open session already has those bytes', async () => {
+    const cover = 'https://store.public.blob.vercel-storage.com/bob-collection-cover.jpg';
+    const now = new Date().toISOString();
+    await execute('UPDATE collections SET cover_image_url = ? WHERE id = ?', [cover, FIXTURE.bobCollection]);
+    await execute(
+      `INSERT INTO sources
+        (id,user_id,type,uri,hash,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['src_alice_same_bytes', ALICE.id, 'screenshot', FIXTURE.aliceSourceBlob,
+       JSON.stringify({ sha1: '05fe405753166f125559e7c9ac558654f107c7e9' }), 'uploaded',
+       JSON.stringify({ uploadInfo: { sessionId: 'session_alice_previous' } }), now, now]
+    );
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: cover,
+        originalName: 'same-bytes.jpg',
+        fileSize: 8,
+        mimeType: 'image/jpeg',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('duplicate');
+    expect(del).not.toHaveBeenCalled();
+    expect(await readCell('SELECT cover_image_url FROM collections WHERE id = ?', [FIXTURE.bobCollection])).toBe(cover);
+  });
 });
 
 describe('cancel follows the session id, and a closed register will not delete a foreign blob', () => {
@@ -422,6 +483,28 @@ describe('cancel follows the session id, and a closed register will not delete a
     expect(response.status).toBe(409);
     expect(del).toHaveBeenCalledTimes(1);
     expect(del).toHaveBeenCalledWith(orphan);
+  });
+
+  it('returns 409 and leaves another tenant collection cover in place', async () => {
+    const cover = 'https://store.public.blob.vercel-storage.com/bob-collection-cover.jpg';
+    await execute('UPDATE collections SET cover_image_url = ? WHERE id = ?', [cover, FIXTURE.bobCollection]);
+    await execute('UPDATE upload_sessions SET status = ? WHERE id = ?', ['cancelled', FIXTURE.aliceSession]);
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: cover,
+        originalName: 'not-the-cover.jpg',
+        fileSize: 8,
+        mimeType: 'image/jpeg',
+      })
+    );
+
+    expect(response.status).toBe(409);
+    expect(del).not.toHaveBeenCalled();
+    expect(await readCell('SELECT cover_image_url FROM collections WHERE id = ?', [FIXTURE.bobCollection])).toBe(cover);
   });
 });
 

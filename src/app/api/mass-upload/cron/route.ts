@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processQueue } from '@/lib/mass-upload/queue-processor';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
-import { requeueStaleUploadedSources } from '@/lib/db-mutations';
+import { requeueReadyStalledSources, requeueStaleUploadedSources } from '@/lib/db-mutations';
 import { QUEUE_CONFIG } from '@/lib/mass-upload/queue-config';
 
 export const runtime = 'nodejs';
@@ -24,7 +24,8 @@ export const maxDuration = 300;
  * `uploaded` while their batch is still being assembled.
  *
  * It runs on a slow schedule (see vercel.json) because it is a backstop, not
- * the primary path.
+ * the primary path. Stalled rows whose backoff has elapsed go back to `queued`
+ * here, before workers are dispatched, so Still trying retries on its own.
  */
 export async function GET(request: NextRequest) {
   // ── Auth: Verify Vercel Cron secret ────────────────────────────────────
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
     const recoveredUploads = await requeueStaleUploadedSources(
       new Date(Date.now() - QUEUE_CONFIG.uploadedStaleMs).toISOString()
     );
+    const resumedStalled = await requeueReadyStalledSources(new Date().toISOString());
     // Add workers for whatever is waiting, then take a share of the work in
     // this invocation too, so the queue drains even if fan-out is unavailable.
     const dispatch = await dispatchProcessors('safety-net-cron', 'grow');
@@ -59,6 +61,7 @@ export async function GET(request: NextRequest) {
       remaining: result.remaining,
       placesCreated: result.placesCreated,
       uploadedRequeued: recoveredUploads.requeued,
+      stalledRequeued: resumedStalled.requeued,
       // Reliability detail: interruptions are NOT failures.
       interrupted: result.interrupted,
       stalled: result.stalled,

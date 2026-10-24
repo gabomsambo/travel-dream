@@ -108,9 +108,11 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
     new Date(now() - QUEUE_CONFIG.leaseTtlMs).toISOString(),
     QUEUE_CONFIG.maxInterruptions
   );
+  const reclaimedFailed = reclaimed.failed ?? 0;
   result.reclaimed = { requeued: reclaimed.requeued, stalled: reclaimed.stalled };
   result.stalled += reclaimed.stalled;
-  if (reclaimed.requeued + reclaimed.stalled > 0) {
+  result.failed += reclaimedFailed;
+  if (reclaimed.requeued + reclaimed.stalled + reclaimedFailed > 0) {
     console.log(
       `[MassUpload ${workerId}] reclaimed ${reclaimed.requeued} interrupted source(s), parked ${reclaimed.stalled} as stalled`
     );
@@ -272,6 +274,7 @@ async function processOne(
       );
       if (outcome === 'lease-lost') result.leaseLost++;
       else if (outcome === 'stalled') result.stalled++;
+      else if (outcome === 'failed') result.failed++;
       else result.interrupted++;
       console.warn(`[MassUpload] ${source.id} interrupted (${outcome}): ${interruption.message}`);
       return;

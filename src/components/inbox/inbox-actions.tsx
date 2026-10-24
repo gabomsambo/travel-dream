@@ -124,20 +124,29 @@ export function InboxActions({ actions }: { actions: InboxAction[] }) {
 
   function dismiss(shots: InboxShotRef[]) {
     const ids = shots.map((shot) => shot.id)
-    const names = namesOf(shots)
     void run(async () => {
       const result = await postJson('/api/inbox/dismiss', { sourceIds: ids, dismissed: true })
       if (!result.ok) {
         notify.error(result.message || "Couldn't dismiss that screenshot.")
         return
       }
+      const hiddenIds = new Set(result.sourceIds)
+      const hidden = shots.filter((shot) => hiddenIds.has(shot.id))
+      if (hidden.length === 0) {
+        notify.error("Couldn't dismiss that screenshot.")
+        return
+      }
+      const names = namesOf(hidden)
       setSheet(null)
       notify.success(dismissMessage(names), {
         duration: NOTIFY_DURATION.warning,
         action: {
           label: 'Undo',
           onClick: () => {
-            void postJson('/api/inbox/dismiss', { sourceIds: ids, dismissed: false }).then((undone) => {
+            void postJson('/api/inbox/dismiss', {
+              sourceIds: hidden.map((shot) => shot.id),
+              dismissed: false,
+            }).then((undone) => {
               if (!undone.ok) {
                 notify.error(undone.message || "Couldn't put that screenshot back.")
                 return

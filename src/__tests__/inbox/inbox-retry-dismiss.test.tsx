@@ -224,6 +224,47 @@ describe('inbox try again and dismiss', () => {
     expect(notify.success).not.toHaveBeenCalledWith('Put IMG_3017.jpg back.')
   })
 
+  it('names and undoes only the screenshots this dismiss hid', async () => {
+    const emptyA = shot({ sourceId: 'src_empty_a', name: 'terrace.jpg', outcome: 'noPlaceFound' })
+    const emptyB = shot({ sourceId: 'src_empty_b', name: 'harbor.jpg', outcome: 'noPlaceFound' })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'success', sourceIds: ['src_empty_b'], dismissed: true }),
+    })
+    render(<InboxScreen model={show(batch({
+      noPlaceFound: { sourceIds: ['src_empty_a', 'src_empty_b'] },
+    }, [emptyA, emptyB]))} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith(
+        'Dismissed harbor.jpg. The screenshot is kept.',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) })
+      )
+    })
+    expect(notify.success).not.toHaveBeenCalledWith(
+      'Dismissed 2 screenshots. The files are kept.',
+      expect.anything()
+    )
+    expect(global.fetch).toHaveBeenCalledWith('/api/inbox/dismiss', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ sourceIds: ['src_empty_a', 'src_empty_b'], dismissed: true }),
+    }))
+
+    const hidden = (notify.success as jest.Mock).mock.calls.find((call) => String(call[0]).startsWith('Dismissed'))
+    hidden?.[1]?.action.onClick()
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith('Put harbor.jpg back.')
+    })
+    expect(global.fetch).toHaveBeenCalledWith('/api/inbox/dismiss', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ sourceIds: ['src_empty_b'], dismissed: false }),
+    }))
+    expect(global.fetch).not.toHaveBeenCalledWith('/api/inbox/dismiss', expect.objectContaining({
+      body: JSON.stringify({ sourceIds: ['src_empty_a', 'src_empty_b'], dismissed: false }),
+    }))
+  })
+
   it('dismisses a no-place screenshot and offers undo', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,

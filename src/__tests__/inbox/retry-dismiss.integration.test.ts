@@ -81,6 +81,18 @@ function retryPost(body: unknown): Promise<RetryResponse> {
   return POST(apiRequest('http://t/api/mass-upload/retry', 'POST', body));
 }
 
+type DismissResponse = {
+  status: number;
+  json: () => Promise<{ sourceIds?: string[]; dismissed?: boolean; message?: string }>;
+};
+
+function dismissPost(body: unknown): Promise<DismissResponse> {
+  const { POST } = require('@/app/api/inbox/dismiss/route') as {
+    POST: (request: Request) => Promise<DismissResponse>;
+  };
+  return POST(apiRequest('http://t/api/inbox/dismiss', 'POST', body));
+}
+
 const DISMISSED_AT = '2026-10-23T15:00:00.000Z';
 
 type SqlQuery = string | { sql: string; args?: unknown[] };
@@ -108,6 +120,44 @@ async function dismissAfterNextSourcesRead(sourceId: string, run: () => Promise<
         });
       }
       return result;
+    };
+  };
+  client.execute = wrap(originalExecute);
+  client.transaction = async (...args: unknown[]) => {
+    const tx = await originalTransaction(...args);
+    const originalTxExecute = tx.execute.bind(tx);
+    tx.execute = wrap(originalTxExecute);
+    return tx;
+  };
+  try {
+    await run();
+  } finally {
+    client.execute = originalExecute;
+    client.transaction = originalTransaction;
+  }
+}
+
+async function changeMetaBeforeNextSourcesUpdate(
+  statement: { sql: string; args: unknown[] },
+  run: () => Promise<void>
+): Promise<void> {
+  const { client } = require('@/db') as {
+    client: {
+      execute: (query: SqlQuery) => Promise<unknown>;
+      transaction: (...args: unknown[]) => Promise<SqlTx>;
+    };
+  };
+  const originalExecute = client.execute.bind(client);
+  const originalTransaction = client.transaction.bind(client);
+  let pending = true;
+  const wrap = (execute: (query: SqlQuery) => Promise<unknown>) => {
+    return async (query: SqlQuery) => {
+      const text = typeof query === 'string' ? query : query.sql;
+      if (pending && /^\s*update\b/i.test(text) && /\bsources\b/i.test(text)) {
+        pending = false;
+        await execute(statement);
+      }
+      return execute(query);
     };
   };
   client.execute = wrap(originalExecute);
@@ -505,5 +555,104 @@ describe('POST /api/inbox/dismiss', () => {
     expect(await readCell('SELECT meta FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe(before);
     expect(await readCell('SELECT uri FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe(FIXTURE.bobSourceBlob);
     expect(del).not.toHaveBeenCalled();
+  });
+
+  it('patches dismissedAt without dropping meta written while the dismiss is in flight', async () => {
+    await seedFailed('completed');
+    const previous = {
+      processingStatus: 'failed',
+      processingAttempts: 3,
+      processingInterruptions: 4,
+      processingError: 'reader confused',
+    };
+    const extraction = { places: [{ name: 'Injected Terrace' }] };
+
+    let response: DismissResponse | undefined;
+    await changeMetaBeforeNextSourcesUpdate(
+      {
+        sql: `UPDATE sources SET meta = json_set(
+                COALESCE(meta, '{}'),
+                '$.retry.previous', json(?),
+                '$.massUpload.extraction', json(?)
+              ) WHERE id = ?`,
+        args: [JSON.stringify(previous), JSON.stringify(extraction), 'src_retry'],
+      },
+      async () => {
+        response = await dismissPost({ sourceIds: ['src_retry'], dismissed: true });
+      }
+    );
+
+    expect(response?.status).toBe(200);
+    expect((await response?.json())?.sourceIds).toEqual(['src_retry']);
+    const stored = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']));
+    expect(stored.inbox?.dismissedAt).toEqual(expect.any(String));
+    expect(stored.retry?.previous).toEqual(previous);
+    expect(stored.massUpload?.extraction).toEqual(extraction);
+    expect(stored.uploadInfo).toEqual({ sessionId: 'session_retry', originalName: 'IMG_3017.jpg' });
+
+    const undo = await dismissPost({ sourceIds: ['src_retry'], dismissed: false });
+    expect(undo.status).toBe(200);
+    expect((await undo.json()).sourceIds).toEqual(['src_retry']);
+    const restored = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']));
+    expect(restored.inbox).toBeUndefined();
+    expect(restored.retry?.previous).toEqual(previous);
+    expect(restored.massUpload?.extraction).toEqual(extraction);
+    expect(String(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']))).not.toContain('dismissedAt');
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('changes only screenshots that are not already in the requested state', async () => {
+    await seedFailed('completed');
+    const secondMeta = meta({ uploadInfo: { sessionId: 'session_retry', originalName: 'IMG_3024.jpg' } });
+    await execute(
+      `INSERT INTO sources
+         (id,user_id,type,uri,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,'screenshot',?,?,?,?,?)`,
+      [
+        'src_retry_2',
+        ALICE.id,
+        'https://store.public.blob.vercel-storage.com/src_retry_2.jpg',
+        'completed',
+        secondMeta,
+        '2026-10-23T13:14:00.000Z',
+        '2026-10-23T13:14:00.000Z',
+      ]
+    );
+    await execute(
+      `UPDATE sources SET meta = json_set(COALESCE(meta, '{}'), '$.inbox.dismissedAt', ?), updated_at = ? WHERE id = ?`,
+      [DISMISSED_AT, '2026-10-23T13:13:00.000Z', 'src_retry']
+    );
+    const hiddenUpdatedAt = await readCell('SELECT updated_at FROM sources WHERE id = ?', ['src_retry']);
+
+    const dismissed = await dismissPost({ sourceIds: ['src_retry', 'src_retry_2'], dismissed: true });
+    expect(dismissed.status).toBe(200);
+    expect((await dismissed.json()).sourceIds).toEqual(['src_retry_2']);
+    expect(asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry'])).inbox?.dismissedAt).toBe(DISMISSED_AT);
+    expect(await readCell('SELECT updated_at FROM sources WHERE id = ?', ['src_retry'])).toBe(hiddenUpdatedAt);
+    const freshlyHidden = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry_2']));
+    expect(freshlyHidden.inbox?.dismissedAt).toEqual(expect.any(String));
+    expect(freshlyHidden.massUpload?.extraction).toEqual(EXTRACTION);
+
+    await execute(
+      `INSERT INTO sources
+         (id,user_id,type,uri,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,'screenshot',?,?,?,?,?)`,
+      [
+        'src_visible',
+        ALICE.id,
+        'https://store.public.blob.vercel-storage.com/src_visible.jpg',
+        'completed',
+        meta(),
+        '2026-10-23T13:15:00.000Z',
+        '2026-10-23T13:15:00.000Z',
+      ]
+    );
+    const visibleBefore = await readCell('SELECT meta FROM sources WHERE id = ?', ['src_visible']);
+    const putBack = await dismissPost({ sourceIds: ['src_retry_2', 'src_visible'], dismissed: false });
+    expect(putBack.status).toBe(200);
+    expect((await putBack.json()).sourceIds).toEqual(['src_retry_2']);
+    expect(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_visible'])).toBe(visibleBefore);
+    expect(asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry_2'])).inbox).toBeUndefined();
+    expect(asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry'])).inbox?.dismissedAt).toBe(DISMISSED_AT);
   });
 });

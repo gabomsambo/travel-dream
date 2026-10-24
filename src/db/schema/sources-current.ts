@@ -103,8 +103,8 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
   // Mass upload processing queue
   processingStatus: text('processing_status').default('pending'),
   // Values: 'pending' | 'uploaded' | 'queued' | 'extracting' | 'enriching' | 'completed'
-  //       | 'failed' (the image itself could not be processed)
-  //       | 'stalled' (repeatedly interrupted by clock-outs/restarts — retryable, never a verdict on the image)
+  //       | 'failed' (a genuine verdict on the image, or interruptions past the cap)
+  //       | 'stalled' (at the interruption cap, with a backoff — the cron queues it again)
   //       | 'cancelled'
   // Genuine processing failures only — a clock-out never consumes an attempt.
   processingAttempts: integer('processing_attempts').default(0),

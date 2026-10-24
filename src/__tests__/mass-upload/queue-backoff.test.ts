@@ -113,14 +113,22 @@ describe('retry backoff', () => {
     expect(fourth).toBeGreaterThan(first);
   });
 
-  it('does not schedule a retry for a source it parks as stalled', async () => {
-    selectRows = [{ interruptions: 4 }];
+  it('backs off a source it marks still trying, and fails the one past the cap', async () => {
     updateRows = [{ id: 'src_1' }];
+    const before = Date.now();
 
-    const outcome = await recordSourceInterruption('src_1', 'w:lease', 'Gemini 503', 5);
+    selectRows = [{ interruptions: 4 }];
+    const stalled = await recordSourceInterruption('src_1', 'w:lease', 'Gemini 503', 5);
+    expect(stalled).toBe('stalled');
+    expect(updateSets[0].processingStatus).toBe('stalled');
+    expect(new Date(updateSets[0].nextAttemptAt as string).getTime()).toBeGreaterThan(before);
 
-    expect(outcome).toBe('stalled');
-    expect(updateSets[0].nextAttemptAt).toBeNull();
+    selectRows = [{ interruptions: 5 }];
+    const failed = await recordSourceInterruption('src_1', 'w:lease', 'Gemini 503', 5);
+    expect(failed).toBe('failed');
+    expect(updateSets[1].processingStatus).toBe('failed');
+    expect(updateSets[1].nextAttemptAt).toBeNull();
+    expect(updateSets[1].processingAttempts).toBeUndefined();
   });
 
   it('backs a genuine failure off before its retry, but not once it is failed', async () => {

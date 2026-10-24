@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
@@ -13,21 +13,21 @@ const DismissSchema = z.object({
   dismissed: z.boolean().optional().default(true),
 });
 
-type SourceMeta = NonNullable<(typeof sourcesCurrentSchema.$inferSelect)['meta']>;
-
-function withDismissedAt(meta: SourceMeta | null, dismissedAt: string | null): SourceMeta {
-  const next: SourceMeta = { ...(meta ?? {}) };
-  const inbox = { ...(next.inbox ?? {}) };
-  if (dismissedAt) inbox.dismissedAt = dismissedAt;
-  else delete inbox.dismissedAt;
-  if (Object.keys(inbox).length === 0) delete next.inbox;
-  else next.inbox = inbox;
-  return next;
+/** Patch `$.inbox.dismissedAt` on the row as it is at commit time. */
+function metaSettingDismissedAt(dismissedAt: string) {
+  return sql`json_set(COALESCE(${sourcesCurrentSchema.meta}, '{}'), '$.inbox.dismissedAt', ${dismissedAt})`;
 }
 
-function dismissedAtOf(meta: SourceMeta | null): string | null {
-  const at = meta?.inbox?.dismissedAt;
-  return typeof at === 'string' && at.length > 0 ? at : null;
+/** Drop `$.inbox.dismissedAt`, and drop `$.inbox` when that leaves it empty. */
+function metaClearingDismissedAt() {
+  const meta = sourcesCurrentSchema.meta;
+  const strip = () => sql`json_remove(${meta}, '$.inbox.dismissedAt')`;
+  return sql`CASE
+    WHEN json_extract(${meta}, '$.inbox.dismissedAt') IS NULL THEN ${meta}
+    WHEN json_extract(${strip()}, '$.inbox') = '{}'
+    THEN json_remove(${strip()}, '$.inbox')
+    ELSE ${strip()}
+  END`;
 }
 
 /**
@@ -57,32 +57,22 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     const changed = await tdb.transaction(async (tx) => {
-      const rows = await tx.selectFields(
+      const written = await tx.update(
         sourcesCurrentSchema,
-        { id: sourcesCurrentSchema.id, meta: sourcesCurrentSchema.meta },
+        {
+          meta: dismissed ? metaSettingDismissedAt(now) : metaClearingDismissedAt(),
+          updatedAt: now,
+        },
         and(
           inArray(sourcesCurrentSchema.id, sourceIds),
-          eq(sourcesCurrentSchema.type, 'screenshot')
+          eq(sourcesCurrentSchema.type, 'screenshot'),
+          dismissed
+            ? sql`json_extract(${sourcesCurrentSchema.meta}, '$.inbox.dismissedAt') IS NULL`
+            : sql`json_extract(${sourcesCurrentSchema.meta}, '$.inbox.dismissedAt') IS NOT NULL`
         )
-      );
-      const byId = new Map(rows.map((row) => [row.id, row]));
-      const updated: string[] = [];
-      for (const id of sourceIds) {
-        const row = byId.get(id);
-        if (!row) continue;
-        const already = dismissedAtOf(row.meta);
-        if (!dismissed && !already) continue;
-        await tx.update(
-          sourcesCurrentSchema,
-          {
-            meta: withDismissedAt(row.meta, dismissed ? now : null),
-            updatedAt: now,
-          },
-          eq(sourcesCurrentSchema.id, id)
-        );
-        updated.push(id);
-      }
-      return updated;
+      ).returning({ id: sourcesCurrentSchema.id });
+      const updated = new Set(written.map((row) => row.id));
+      return sourceIds.filter((id) => updated.has(id));
     });
 
     if (changed.length === 0) {

@@ -507,12 +507,21 @@ function tripSentence(
   }
   const parts = [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   if (parts.length === 0) return { text: '', primary: null }
+  const primary = { id: parts[0].id, name: parts[0].name }
+  if (added.length === 1) {
+    const seen = new Set<string>()
+    const names: string[] = []
+    for (const trip of assignments[added[0].placeId] ?? []) {
+      if (seen.has(trip.id)) continue
+      seen.add(trip.id)
+      names.push(trip.name)
+    }
+    return { text: `, and it is in ${joinedNames(names)}`, primary }
+  }
   const text = parts.length === 1
-    ? added.length === 1
-      ? `, and it is in ${parts[0].name}`
-      : `, ${parts[0].count} of them in ${parts[0].name}`
+    ? `, ${parts[0].count} of them in ${parts[0].name}`
     : `, ${parts.map((part) => `${part.count} in ${part.name}`).join(' and ')}`
-  return { text, primary: { id: parts[0].id, name: parts[0].name } }
+  return { text, primary }
 }
 
 function ReviewSummary({
@@ -968,7 +977,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         }
       }
       const releaseFailed = outcome === 'added' && !tripAtDecision && Boolean(previousFiling) && !move.restore
-      if (releaseFailed || moveReverted) return
+      if (releaseFailed || (moveReverted && previousOutcome === 'added')) return
       const mentioned = committedFiling ? (move.drop ?? tripAtDecision) : (onlyThisTrip ? tripAtDecision : null)
       const addedLine = mentioned
         ? `Added “${placeName}” to your Library and ${mentioned.name}`

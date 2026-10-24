@@ -2368,4 +2368,126 @@ describe('Review group and batch trip', () => {
     await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't remove 2 places from their trips."))
     expect(notifyError).not.toHaveBeenCalledWith("Couldn't remove 4 places from their trips.")
   })
+
+  function undoOf(call: unknown[] | undefined) {
+    return (call?.[1] as { cancel?: { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } } | undefined)?.cancel?.onClick
+  }
+
+  it('offers a Library undo when a rolled-back move follows a failed trip removal', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris'] }
+    let failLondonDelete = false
+    fetchMock.mockImplementation(async (input, init) => {
+      const postcard = postcardFetch(input)
+      if (postcard) return postcard
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init as { method?: string } | undefined)?.method
+      if (method === 'DELETE' && failLondonDelete && url.includes('/col_london/')) {
+        return jsonResponse({ message: 'Trip busy' }, 500)
+      }
+      return jsonResponse({ status: 'success' })
+    })
+    renderQueue({ trips: [london, paris] })
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalled())
+    failLondonDelete = true
+    const firstUndo = undoOf(notifySuccess.mock.calls.find((call) => String(call[0]).includes('London long weekend')))
+    await act(async () => { firstUndo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'inbox')
+
+    await chooseBatchTrip(user, 'Paris weekend')
+    const successBefore = notifySuccess.mock.calls.length
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(notifySuccess.mock.calls.length).toBe(successBefore + 1))
+    const libraryToast = notifySuccess.mock.calls[successBefore]
+    expect(String(libraryToast?.[0])).toContain('to your Library')
+    expect(String(libraryToast?.[0])).not.toContain('Paris')
+    expect(String(libraryToast?.[0])).not.toContain('London')
+
+    const parisDeletes = deleteCalls().filter((call) => call[0] === '/api/collections/col_paris/places/plc_one').length
+    const londonDeletes = deleteCalls().filter((call) => call[0] === '/api/collections/col_london/places/plc_one').length
+    const parisPosts = postCalls().filter((call) => call[0] === '/api/collections/col_paris/places').length
+    await act(async () => { undoOf(libraryToast)?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(notifySuccess.mock.calls.some((call) => String(call[0]).includes('Restored') && String(call[0]).includes('Inbox'))).toBe(true))
+    expect(deleteCalls().filter((call) => call[0] === '/api/collections/col_paris/places/plc_one')).toHaveLength(parisDeletes)
+    expect(deleteCalls().filter((call) => call[0] === '/api/collections/col_london/places/plc_one')).toHaveLength(londonDeletes)
+    expect(postCalls().filter((call) => call[0] === '/api/collections/col_paris/places')).toHaveLength(parisPosts)
+    expect(patchCalls().filter((call) => call[0] === '/api/places/plc_one').at(-1)?.[1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ status: 'inbox' }),
+    }))
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(deleteCalls().filter((call) => call[0] === '/api/collections/col_london/places/plc_one')).toHaveLength(londonDeletes + 1))
+  })
+
+  it('offers a Library undo when a rolled-back move follows Archive', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris'] }
+    let failLondonDelete = false
+    fetchMock.mockImplementation(async (input, init) => {
+      const postcard = postcardFetch(input)
+      if (postcard) return postcard
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init as { method?: string } | undefined)?.method
+      if (method === 'DELETE' && failLondonDelete && url.includes('/col_london/')) {
+        return jsonResponse({ message: 'Trip busy' }, 500)
+      }
+      return jsonResponse({ status: 'success' })
+    })
+    renderQueue({ trips: [london, paris] })
+
+    await fileOneCafe(user)
+    failLondonDelete = true
+    fireEvent.keyDown(window, { key: 'n' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+
+    await chooseBatchTrip(user, 'Paris weekend')
+    const successBefore = notifySuccess.mock.calls.length
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(notifySuccess.mock.calls.length).toBe(successBefore + 1))
+    const libraryToast = notifySuccess.mock.calls[successBefore]
+    expect(String(libraryToast?.[0])).toContain('to your Library')
+    expect(String(libraryToast?.[0])).not.toContain('Paris')
+    expect(String(libraryToast?.[0])).not.toContain('London')
+
+    const parisDeletes = deleteCalls().filter((call) => call[0] === '/api/collections/col_paris/places/plc_one').length
+    const londonDeletes = deleteCalls().filter((call) => call[0] === '/api/collections/col_london/places/plc_one').length
+    const parisPosts = postCalls().filter((call) => call[0] === '/api/collections/col_paris/places').length
+    await act(async () => { undoOf(libraryToast)?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(notifySuccess.mock.calls.some((call) => String(call[0]).includes('Restored') && String(call[0]).includes('Archive'))).toBe(true))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-status', 'archived')
+    expect(deleteCalls().filter((call) => call[0] === '/api/collections/col_paris/places/plc_one')).toHaveLength(parisDeletes)
+    expect(deleteCalls().filter((call) => call[0] === '/api/collections/col_london/places/plc_one')).toHaveLength(londonDeletes)
+    expect(postCalls().filter((call) => call[0] === '/api/collections/col_paris/places')).toHaveLength(parisPosts)
+  })
+
+  it('says one added place is in each tracked trip', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris'] }
+    fetchMock.mockImplementation(async (input, init) => {
+      const postcard = postcardFetch(input)
+      if (postcard) return postcard
+      const method = (init as { method?: string } | undefined)?.method
+      if (method === 'DELETE') return jsonResponse({ message: 'Trip busy' }, 500)
+      return jsonResponse({ status: 'success' })
+    })
+    renderQueue({ trips: [london, paris] })
+
+    await fileOneCafe(user)
+    await chooseBatchTrip(user, 'Paris weekend')
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(screen.getByText(
+      /1 new place is in your Library, and it is in London long weekend and Paris weekend\./,
+    )).toBeInTheDocument())
+    expect(screen.queryByText(/1 in London long weekend and 1 in Paris weekend/)).not.toBeInTheDocument()
+  })
 })

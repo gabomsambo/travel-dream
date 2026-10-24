@@ -17,9 +17,12 @@ import {
 import { Button } from '@/components/adapters/button'
 import { editorialFont } from '@/components/explore/fonts'
 import { PlaceView, type PlaceViewHandles } from '@/components/places/place-view/place-view'
+import { BatchTripChevron, BatchTripChip } from '@/components/review/batch-trip-menu'
+import { ReviewGroupView } from '@/components/review/review-group-view'
 import { ScreenshotEvidence } from '@/components/review/screenshot-evidence'
 import { placeClassicHref } from '@/lib/place-view/edit-link'
 import { notify } from '@/lib/notify'
+import { resolveBatchTripId, screenshotTitle, suggestBatchTrip } from '@/lib/review-group'
 import type { ExploreCollection } from '@/lib/explore/types'
 import type { ReviewPostcard, ReviewQueueEntry } from '@/lib/review-queue'
 
@@ -30,9 +33,107 @@ type SessionEntry = ReviewQueueEntry & { postcard?: ReviewPostcard; postcardErro
 interface ReviewQueueProps {
   entries: ReviewQueueEntry[]
   postcard: ReviewPostcard | null
-  trips: ExploreCollection[]
+  trips: Array<ExploreCollection & { cities?: string[] }>
   initialPlaceId?: string
   uploadSessionId?: string
+}
+
+interface FiledTrip {
+  id: string
+  name: string
+}
+
+/** A membership this action created (`drop`), the ones it removed (`restore`, then `alsoRestore`), and the filings tracked before the move (`priorFilings`). */
+interface TripMove {
+  drop: FiledTrip | null
+  restore: FiledTrip | null
+  alsoRestore?: FiledTrip[]
+  priorFilings?: FiledTrip[]
+}
+
+function sameFilings(left: readonly FiledTrip[], right: readonly FiledTrip[]): boolean {
+  return left.length === right.length && left.every((trip, index) => trip.id === right[index]?.id)
+}
+
+function writeFilings(
+  existing: Record<string, FiledTrip[]>,
+  placeId: string,
+  updated: readonly FiledTrip[],
+): Record<string, FiledTrip[]> {
+  const current = existing[placeId] ?? []
+  if (sameFilings(current, updated)) return existing
+  const next = { ...existing }
+  if (updated.length === 0) delete next[placeId]
+  else next[placeId] = [...updated]
+  return next
+}
+
+function dropFiling(
+  existing: Record<string, FiledTrip[]>,
+  placeId: string,
+  tripId: string,
+): Record<string, FiledTrip[]> {
+  const list = existing[placeId]
+  if (!list?.some((trip) => trip.id === tripId)) return existing
+  return writeFilings(existing, placeId, list.filter((trip) => trip.id !== tripId))
+}
+
+function putBackFilings(
+  existing: readonly FiledTrip[],
+  restored: readonly FiledTrip[],
+  prior?: readonly FiledTrip[],
+): FiledTrip[] {
+  if (prior && prior.length > 0) {
+    const back = new Set(restored.map((trip) => trip.id))
+    const still = new Set(existing.map((trip) => trip.id))
+    const seen = new Set<string>()
+    const next: FiledTrip[] = []
+    for (const trip of prior) {
+      if (!back.has(trip.id) && !still.has(trip.id)) continue
+      if (seen.has(trip.id)) continue
+      seen.add(trip.id)
+      next.push(trip)
+    }
+    for (const trip of [...existing, ...restored]) {
+      if (seen.has(trip.id)) continue
+      seen.add(trip.id)
+      next.push(trip)
+    }
+    return next
+  }
+  const seen = new Set<string>()
+  const next: FiledTrip[] = []
+  for (const trip of [...restored, ...existing]) {
+    if (seen.has(trip.id)) continue
+    seen.add(trip.id)
+    next.push(trip)
+  }
+  return next
+}
+
+function filingsAfterMove(
+  existing: readonly FiledTrip[],
+  nextTrip: FiledTrip,
+  settled: { committed: boolean; move: TripMove },
+): FiledTrip[] {
+  const removedIds = new Set(restoredTrips(settled.move).map((trip) => trip.id))
+  const survivors = existing.filter((trip) => !removedIds.has(trip.id))
+  if (settled.committed) {
+    return [nextTrip, ...survivors.filter((trip) => trip.id !== nextTrip.id)]
+  }
+  const dropped = settled.move.drop
+  if (dropped && !survivors.some((trip) => trip.id === dropped.id)) {
+    return [...survivors, dropped]
+  }
+  return survivors
+}
+
+function restoredTrips(move: TripMove | null | undefined): FiledTrip[] {
+  if (!move) return []
+  return [
+    ...(move.restore ? [move.restore] : []),
+    ...(move.alsoRestore ?? []),
+  ]
 }
 
 const OUTCOME_STATUS: Record<Exclude<ReviewOutcome, 'skipped' | 'removed'>, 'library' | 'archived'> = {
@@ -130,6 +231,143 @@ async function setPlaceStatus(placeId: string, status: 'inbox' | 'library' | 'ar
   if (response.ok) return
   const body = await response.json().catch(() => null) as { message?: string } | null
   throw new Error(body?.message || "We couldn't update this place. Try again.")
+}
+
+async function readError(response: Response, fallback: string): Promise<never> {
+  const body = await response.json().catch(() => null) as { message?: string } | null
+  throw new Error(body?.message || fallback)
+}
+
+interface TripAddResult {
+  successful: string[]
+  failed: string[]
+}
+
+async function addPlacesToTrip(tripId: string, placeIds: string[]): Promise<TripAddResult> {
+  const response = await fetch(`/api/collections/${encodeURIComponent(tripId)}/places`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ placeIds }),
+  })
+  const body = await response.json().catch(() => null) as {
+    status?: string
+    message?: string
+    results?: { successful?: unknown }
+  } | null
+  if (!response.ok) {
+    throw new Error(body?.message || "We couldn't add these places to the trip.")
+  }
+  if (body?.status === 'success') return { successful: [...placeIds], failed: [] }
+  const successful = Array.isArray(body?.results?.successful)
+    ? body.results.successful.filter((id): id is string => typeof id === 'string' && placeIds.includes(id))
+    : []
+  const joined = new Set(successful)
+  return { successful, failed: placeIds.filter((id) => !joined.has(id)) }
+}
+
+function joinedNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? ''
+  if (names.length === 2) return `${names[0]} and ${names[1]}`
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
+}
+
+function didNotJoinMessage(names: readonly string[], tripName: string): string {
+  const labels = names.map((name) => `“${name}”`)
+  const list = labels.length === 0
+    ? 'A place'
+    : labels.length === 1
+      ? labels[0]
+      : labels.length === 2
+        ? `${labels[0]} and ${labels[1]}`
+        : `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`
+  return `${list} did not join ${tripName}.`
+}
+
+function groupAddedMessage(
+  lead: string,
+  writtenCount: number,
+  filed: FiledTrip | null,
+  joinedCount: number,
+): string {
+  if (!filed || joinedCount === 0) return lead
+  if (joinedCount === writtenCount) {
+    return `${lead}${writtenCount === 1 ? ` and ${filed.name}` : ` to your Library and ${filed.name}`}`
+  }
+  const clause = joinedCount === 1 ? `1 also in ${filed.name}` : `${joinedCount} also in ${filed.name}`
+  return `${lead}, and ${clause}`
+}
+
+async function removePlaceFromTrip(tripId: string, placeId: string): Promise<void> {
+  const response = await fetch(
+    `/api/collections/${encodeURIComponent(tripId)}/places/${encodeURIComponent(placeId)}`,
+    { method: 'DELETE' },
+  )
+  if (response.ok) return
+  return readError(response, "We couldn't remove this place from the trip.")
+}
+
+function moveFromRelease(
+  drop: FiledTrip | null,
+  removed: readonly FiledTrip[],
+  prior: readonly FiledTrip[],
+): TripMove {
+  return {
+    drop,
+    restore: removed[0] ?? null,
+    ...(removed.length > 1 ? { alsoRestore: removed.slice(1) } : {}),
+    ...(prior.length > 0 ? { priorFilings: [...prior] } : {}),
+  }
+}
+
+async function finishTripMove(
+  placeId: string,
+  nextTrip: FiledTrip,
+  tracked: readonly FiledTrip[],
+): Promise<{ move: TripMove; committed: boolean }> {
+  const alreadyTracked = tracked.some((trip) => trip.id === nextTrip.id)
+  const others = tracked.filter((trip) => trip.id !== nextTrip.id)
+  if (others.length === 0) {
+    return {
+      move: { drop: alreadyTracked ? null : nextTrip, restore: null },
+      committed: true,
+    }
+  }
+
+  const removed: FiledTrip[] = []
+  for (const trip of others) {
+    try {
+      await removePlaceFromTrip(trip.id, placeId)
+      removed.push(trip)
+    } catch (releaseError) {
+      notify.error(releaseError instanceof Error ? releaseError.message : "Couldn't remove it from the trip.")
+    }
+  }
+
+  const releasedAll = removed.length === others.length
+  if (alreadyTracked || releasedAll) {
+    return {
+      move: moveFromRelease(alreadyTracked ? null : nextTrip, removed, tracked),
+      committed: releasedAll,
+    }
+  }
+
+  try {
+    await removePlaceFromTrip(nextTrip.id, placeId)
+  } catch (rollbackError) {
+    notify.error(rollbackError instanceof Error ? rollbackError.message : "Couldn't remove it from the trip.")
+    return { move: moveFromRelease(nextTrip, removed, tracked), committed: false }
+  }
+  return { move: moveFromRelease(null, removed, tracked), committed: false }
+}
+
+function rangeLabel(entries: ReviewQueueEntry[], members: ReviewQueueEntry[]): string {
+  const indexes = members
+    .map((member) => entries.findIndex((entry) => entry.placeId === member.placeId))
+    .filter((index) => index >= 0)
+  if (indexes.length === 0) return '0'
+  const first = Math.min(...indexes) + 1
+  const last = Math.max(...indexes) + 1
+  return first === last ? String(first) : `${first}–${last}`
 }
 
 function withPostcardStatus(
@@ -252,14 +490,50 @@ function scopedFinishLine(added: number, skipped: number): string {
   return `${skipped} ${skipped === 1 ? 'place from this upload is' : 'places from this upload are'} still waiting.`
 }
 
+function tripSentence(
+  added: ReviewQueueEntry[],
+  assignments: Record<string, FiledTrip[]>,
+): { text: string; primary: FiledTrip | null } {
+  const counts = new Map<string, FiledTrip & { count: number }>()
+  for (const entry of added) {
+    const seen = new Set<string>()
+    for (const trip of assignments[entry.placeId] ?? []) {
+      if (seen.has(trip.id)) continue
+      seen.add(trip.id)
+      const row = counts.get(trip.id) ?? { ...trip, count: 0 }
+      row.count += 1
+      counts.set(trip.id, row)
+    }
+  }
+  const parts = [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  if (parts.length === 0) return { text: '', primary: null }
+  const primary = { id: parts[0].id, name: parts[0].name }
+  if (added.length === 1) {
+    const seen = new Set<string>()
+    const names: string[] = []
+    for (const trip of assignments[added[0].placeId] ?? []) {
+      if (seen.has(trip.id)) continue
+      seen.add(trip.id)
+      names.push(trip.name)
+    }
+    return { text: `, and it is in ${joinedNames(names)}`, primary }
+  }
+  const text = parts.length === 1
+    ? `, ${parts[0].count} of them in ${parts[0].name}`
+    : `, ${parts.map((part) => `${part.count} in ${part.name}`).join(' and ')}`
+  return { text, primary }
+}
+
 function ReviewSummary({
   entries,
   outcomes,
+  tripAssignments,
   onReview,
   scoped,
 }: {
   entries: ReviewQueueEntry[]
   outcomes: Record<string, ReviewOutcome>
+  tripAssignments: Record<string, FiledTrip[]>
   onReview: (placeId: string) => void
   scoped: boolean
 }) {
@@ -270,6 +544,7 @@ function ReviewSummary({
     removed: entries.filter((entry) => outcomes[entry.placeId] === 'removed'),
   }
   const firstSkipped = grouped.skipped[0]
+  const filed = tripSentence(grouped.added, tripAssignments)
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-4xl flex-col justify-center py-10">
@@ -282,11 +557,11 @@ function ReviewSummary({
           {scoped ? 'This upload is reviewed.' : "That's everything."}
         </h1>
         <p className="mx-auto mt-3 max-w-xl text-center text-lg text-muted-foreground">
-          {scoped
-            ? scopedFinishLine(grouped.added.length, grouped.skipped.length)
-            : grouped.added.length === 0
-              ? 'Your Inbox is sorted for now.'
-              : `${grouped.added.length} new ${grouped.added.length === 1 ? 'place is' : 'places are'} in your Library.`}
+          {grouped.added.length === 0
+            ? (scoped ? scopedFinishLine(0, grouped.skipped.length) : 'Your Inbox is sorted for now.')
+            : scoped
+              ? `${grouped.added.length} new ${grouped.added.length === 1 ? 'place from this upload is' : 'places from this upload are'} in your Library${filed.text}.`
+              : `${grouped.added.length} new ${grouped.added.length === 1 ? 'place is' : 'places are'} in your Library${filed.text}.`}
         </p>
 
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -331,6 +606,11 @@ function ReviewSummary({
 
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           {firstSkipped && <Button variant="outline" onClick={() => onReview(firstSkipped.placeId)}>Review the skipped {grouped.skipped.length === 1 ? 'one' : 'places'}</Button>}
+          {filed.primary && (
+            <Button variant="outline" asChild>
+              <Link href={`/collections/${filed.primary.id}`}>Open {filed.primary.name}</Link>
+            </Button>
+          )}
           {scoped && <Button variant="outline" asChild><Link href="/inbox"><Inbox className="mr-2 h-4 w-4" />Back to Inbox</Link></Button>}
           <Button asChild><Link href="/library">See them in your Library</Link></Button>
         </div>
@@ -349,6 +629,25 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const [outcomes, setOutcomes] = React.useState<Record<string, ReviewOutcome>>({})
   const outcomesRef = React.useRef(outcomes)
   outcomesRef.current = outcomes
+  const [tripChoice, setTripChoice] = React.useState<string | 'none' | null>(null)
+  const [tripAssignments, setTripAssignments] = React.useState<Record<string, FiledTrip[]>>({})
+  const tripAssignmentsRef = React.useRef(tripAssignments)
+  tripAssignmentsRef.current = tripAssignments
+  const [soloId, setSoloId] = React.useState<string | null>(null)
+  const [excluded, setExcluded] = React.useState<Record<string, boolean>>({})
+  const viewRef = React.useRef({
+    groupMode: false,
+    memberIds: [] as string[],
+    selectedIds: [] as string[],
+    tripId: null as string | null,
+    tripName: null as string | null,
+    title: '',
+  })
+  const groupApiRef = React.useRef({
+    add: async () => {},
+    archive: async () => {},
+    skip: async () => {},
+  })
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [editingId, setEditingId] = React.useState<string | null>(null)
@@ -362,6 +661,45 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const commitStatus = React.useCallback((placeId: string, status: PlaceStatus) => {
     writtenStatusRef.current = { ...writtenStatusRef.current, [placeId]: status }
     setSession((prev) => withPostcardStatus(prev, placeId, status))
+  }, [])
+
+  const releasePreviousFilings = React.useCallback(async (
+    placeIds: readonly string[],
+    keepTripId: string | null,
+  ): Promise<{ failed: string[]; removed: Record<string, FiledTrip[]>; prior: Record<string, FiledTrip[]> }> => {
+    const failed: string[] = []
+    const removed: Record<string, FiledTrip[]> = {}
+    const prior: Record<string, FiledTrip[]> = {}
+    const failedTrips = new Map<string, string>()
+    let singleMessage: string | null = null
+    for (const placeId of placeIds) {
+      const filings = [...(tripAssignmentsRef.current[placeId] ?? [])]
+      if (filings.length > 0) prior[placeId] = filings
+      for (const filed of filings) {
+        if (keepTripId !== null && filed.id === keepTripId) continue
+        try {
+          await removePlaceFromTrip(filed.id, placeId)
+          removed[placeId] = [...(removed[placeId] ?? []), filed]
+          const tripId = filed.id
+          setTripAssignments((existing) => dropFiling(existing, placeId, tripId))
+        } catch (error) {
+          if (!failed.includes(placeId)) failed.push(placeId)
+          if (!failedTrips.has(filed.id)) failedTrips.set(filed.id, filed.name)
+          singleMessage = error instanceof Error ? error.message : "Couldn't remove it from the trip."
+        }
+      }
+    }
+    const tripNames = [...failedTrips.values()]
+    if (failed.length === 1 && tripNames.length > 1) {
+      notify.error(`Couldn't remove it from ${joinedNames(tripNames)}.`)
+    } else if (failed.length === 1 && singleMessage) {
+      notify.error(singleMessage)
+    } else if (failed.length > 1 && tripNames.length === 1) {
+      notify.error(`Couldn't remove ${failed.length} places from ${tripNames[0]}.`)
+    } else if (failed.length > 1) {
+      notify.error(`Couldn't remove ${failed.length} places from their trips.`)
+    }
+    return { failed, removed, prior }
   }, [])
 
   React.useEffect(() => {
@@ -432,6 +770,10 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   }, [derivedId])
 
   React.useEffect(() => {
+    setSoloId((solo) => (solo && solo !== derivedId ? null : solo))
+  }, [derivedId])
+
+  React.useEffect(() => {
     setSession((prev) => {
       let changed = false
       const next = prev.map((entry) => {
@@ -467,6 +809,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const undoDecision = React.useCallback(async (
     placeId: string,
     previousOutcome: ReviewOutcome | undefined,
+    move?: TripMove | null,
   ) => {
     const entry = session.find((item) => item.placeId === placeId)
     if (!entry) return
@@ -487,35 +830,166 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         }
         return withOutcome(existing, entry.placeId, previousOutcome)
       })
+      let tripUndoFailed = false
+      if (move?.drop) {
+        try {
+          await removePlaceFromTrip(move.drop.id, placeId)
+          const droppedId = move.drop.id
+          setTripAssignments((existing) => dropFiling(existing, placeId, droppedId))
+        } catch (tripError) {
+          tripUndoFailed = true
+          notify.error(tripError instanceof Error ? tripError.message : "Couldn't remove it from the trip.")
+        }
+      }
+      const restoring = restoredTrips(move)
+      if (restoring.length > 0) {
+        const kept: FiledTrip[] = []
+        for (const trip of restoring) {
+          try {
+            const added = await addPlacesToTrip(trip.id, [placeId])
+            if (!added.successful.includes(placeId)) {
+              tripUndoFailed = true
+              notify.error(didNotJoinMessage([entry.name], trip.name))
+            } else {
+              kept.push(trip)
+            }
+          } catch (tripError) {
+            tripUndoFailed = true
+            notify.error(tripError instanceof Error ? tripError.message : "Couldn't add it back to the trip.")
+          }
+        }
+        if (kept.length > 0) {
+          const prior = move?.priorFilings
+          setTripAssignments((existing) => writeFilings(
+            existing,
+            placeId,
+            putBackFilings(existing[placeId] ?? [], kept, prior),
+          ))
+        }
+      }
+      setSoloId(placeId)
       selectPlace(placeId, true)
-      notify.success(`Restored “${entry.name}” to your ${RESTORED_LABEL[restoreStatus]}`)
+      if (!tripUndoFailed) {
+        notify.success(`Restored “${entry.name}” to your ${RESTORED_LABEL[restoreStatus]}`)
+      }
     } catch (undoError) {
       notify.error(undoError instanceof Error ? undoError.message : "Couldn't undo that change.")
     }
   }, [commitStatus, session, selectPlace])
 
+  const members = current?.sourceId
+    ? session.filter((entry) => entry.sourceId === current.sourceId && !outcomes[entry.placeId])
+    : []
+  const groupMode = Boolean(
+    current
+    && !outcomes[current.placeId]
+    && soloId !== current.placeId
+    && members.length >= 2,
+  )
+  const suggestionPool = groupMode ? members : current ? [current] : []
+  const suggestedTripId = suggestBatchTrip(
+    trips.map((trip) => ({ id: trip.id, name: trip.name, cities: trip.cities ?? [] })),
+    suggestionPool.map((entry) => entry.city),
+  )
+  const effectiveTripId = resolveBatchTripId(tripChoice, suggestedTripId, trips.map((trip) => trip.id))
+  const effectiveTrip = trips.find((trip) => trip.id === effectiveTripId) ?? null
+  viewRef.current = {
+    groupMode,
+    memberIds: members.map((entry) => entry.placeId),
+    selectedIds: members.filter((entry) => !excluded[entry.placeId]).map((entry) => entry.placeId),
+    tripId: effectiveTrip?.id ?? null,
+    tripName: effectiveTrip?.name ?? null,
+    title: screenshotTitle(current?.screenshotName),
+  }
+
   const decide = React.useCallback(async (outcome: 'added' | 'archived') => {
+    if (viewRef.current.groupMode) {
+      if (busy) return
+      if (outcome === 'added') await groupApiRef.current.add()
+      else await groupApiRef.current.archive()
+      return
+    }
     if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
     const placeId = current.placeId
+    const placeName = current.name
     const previousOutcome = outcomesRef.current[placeId]
+    const tripAtDecision = outcome === 'added' && viewRef.current.tripId && viewRef.current.tripName
+      ? { id: viewRef.current.tripId, name: viewRef.current.tripName }
+      : null
+    const tracked = [...(tripAssignmentsRef.current[placeId] ?? [])]
+    const previousFiling = tracked[0] ?? null
+    const onDestination = Boolean(tripAtDecision && tracked.some((trip) => trip.id === tripAtDecision.id))
+    const onlyThisTrip = Boolean(
+      tripAtDecision && tracked.length > 0 && tracked.every((trip) => trip.id === tripAtDecision.id),
+    )
     setBusy(true)
     setError(null)
     try {
       const written = OUTCOME_STATUS[outcome]
       await setPlaceStatus(placeId, written)
       if (outcomesRef.current[placeId] === 'removed') return
+      let move: TripMove = { drop: null, restore: null }
+      let committedFiling = false
+      let moveReverted = false
+      let settledMove: { move: TripMove; committed: boolean } | null = null
+      if (outcome === 'added' && tripAtDecision && !onlyThisTrip) {
+        try {
+          let joined = onDestination
+          if (!onDestination) {
+            const added = await addPlacesToTrip(tripAtDecision.id, [placeId])
+            joined = added.successful.includes(placeId)
+            if (!joined) notify.error(didNotJoinMessage([placeName], tripAtDecision.name))
+          }
+          if (joined) {
+            const settled = await finishTripMove(placeId, tripAtDecision, tracked)
+            move = settled.move
+            committedFiling = settled.committed
+            moveReverted = !settled.committed && !settled.move.drop && restoredTrips(settled.move).length === 0
+            settledMove = settled
+          }
+        } catch (tripError) {
+          const rollback = previousOutcome === 'added' || previousOutcome === 'archived'
+            ? OUTCOME_STATUS[previousOutcome]
+            : 'inbox'
+          await setPlaceStatus(placeId, rollback).catch(() => undefined)
+          throw tripError
+        }
+      } else if (!onlyThisTrip && previousFiling) {
+        const released = await releasePreviousFilings([placeId], null)
+        const restored = released.removed[placeId] ?? []
+        if (restored[0]) move.restore = restored[0]
+        if (restored.length > 1) move.alsoRestore = restored.slice(1)
+        if (released.prior[placeId]) move.priorFilings = released.prior[placeId]
+      }
       commitStatus(placeId, written)
       setOutcomes((existing) => withOutcome(existing, placeId, outcome))
       setPinnedId((pin) => (pin === placeId ? null : pin))
+      if (settledMove && tripAtDecision) {
+        const nextTrip = tripAtDecision
+        const settled = settledMove
+        setTripAssignments((existing) => writeFilings(
+          existing,
+          placeId,
+          filingsAfterMove(existing[placeId] ?? [], nextTrip, settled),
+        ))
+        if (committedFiling) {
+          setTripChoice((choice) => (choice === null ? nextTrip.id : choice))
+        }
+      }
+      const releaseFailed = outcome === 'added' && !tripAtDecision && Boolean(previousFiling) && !move.restore
+      if (releaseFailed || (moveReverted && previousOutcome === 'added')) return
+      const mentioned = committedFiling ? (move.drop ?? tripAtDecision) : (onlyThisTrip ? tripAtDecision : null)
+      const addedLine = mentioned
+        ? `Added “${placeName}” to your Library and ${mentioned.name}`
+        : `Added “${placeName}” to your Library`
+      const reversible = move.drop || move.restore ? move : null
       notify.success(
-        outcome === 'added'
-          ? `Added “${current.name}” to your Library`
-          : `Moved “${current.name}” to Archive`,
+        outcome === 'added' ? addedLine : `Moved “${placeName}” to Archive`,
         {
           duration: 8_000,
           cancel: {
             label: 'Undo',
-            onClick: () => void undoDecision(placeId, previousOutcome),
+            onClick: () => void undoDecision(placeId, previousOutcome, reversible),
           },
         }
       )
@@ -526,9 +1000,13 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     } finally {
       setBusy(false)
     }
-  }, [busy, commitStatus, current, undoDecision])
+  }, [busy, commitStatus, current, releasePreviousFilings, undoDecision])
 
   const skip = React.useCallback(async () => {
+    if (viewRef.current.groupMode) {
+      if (!busy) await groupApiRef.current.skip()
+      return
+    }
     if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
     const placeId = current.placeId
     const previousOutcome = outcomesRef.current[placeId]
@@ -541,6 +1019,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         commitStatus(placeId, 'inbox')
       }
       if (outcomesRef.current[placeId] === 'removed') return
+      await releasePreviousFilings([placeId], null)
       setOutcomes((existing) => withOutcome(existing, placeId, 'skipped'))
       setPinnedId((pin) => (pin === placeId ? null : pin))
     } catch (skipError) {
@@ -550,7 +1029,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     } finally {
       setBusy(false)
     }
-  }, [busy, commitStatus, current])
+  }, [busy, commitStatus, current, releasePreviousFilings])
 
   const previous = React.useCallback(() => {
     const target = previousSelectableId(session, outcomes, shownIdRef.current)
@@ -624,17 +1103,327 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [decide, previous, skip])
 
+  const undoGroup = async (placeIds: string[], moves: Readonly<Record<string, TripMove>>) => {
+    const restored: string[] = []
+    try {
+      for (const placeId of placeIds) {
+        if (outcomesRef.current[placeId] === 'removed') continue
+        await setPlaceStatus(placeId, 'inbox')
+        commitStatus(placeId, 'inbox')
+        restored.push(placeId)
+      }
+      setOutcomes((existing) => {
+        const next = { ...existing }
+        for (const placeId of restored) {
+          if (next[placeId] !== 'removed') delete next[placeId]
+        }
+        return next
+      })
+      let removalError: string | null = null
+      const removedFromTrip: string[] = []
+      const stuck: Array<{ placeId: string; trip: FiledTrip }> = []
+      for (const placeId of restored) {
+        const drop = moves[placeId]?.drop
+        if (!drop) continue
+        try {
+          await removePlaceFromTrip(drop.id, placeId)
+          removedFromTrip.push(placeId)
+        } catch (error) {
+          stuck.push({ placeId, trip: drop })
+          removalError = error instanceof Error ? error.message : "Couldn't remove it from the trip."
+        }
+      }
+      if (removedFromTrip.length > 0) {
+        setTripAssignments((existing) => {
+          let next = existing
+          for (const placeId of removedFromTrip) {
+            const dropId = moves[placeId]?.drop?.id
+            if (!dropId) continue
+            next = dropFiling(next, placeId, dropId)
+          }
+          return next
+        })
+      }
+      if (stuck.length > 1) {
+        const sameTrip = stuck.every((row) => row.trip.id === stuck[0]?.trip.id)
+        removalError = sameTrip
+          ? `Couldn't remove ${stuck.length} places from ${stuck[0]?.trip.name}.`
+          : `Couldn't remove ${stuck.length} places from their trips.`
+      }
+      const putBack = new Map<string, FiledTrip[]>()
+      for (const placeId of restored) {
+        const trips = restoredTrips(moves[placeId])
+        if (trips.length === 0) continue
+        const kept: FiledTrip[] = []
+        for (const trip of trips) {
+          try {
+            const added = await addPlacesToTrip(trip.id, [placeId])
+            if (!added.successful.includes(placeId)) {
+              const name = session.find((entry) => entry.placeId === placeId)?.name || 'A place'
+              removalError = didNotJoinMessage([name], trip.name)
+            } else {
+              kept.push(trip)
+            }
+          } catch (error) {
+            removalError = error instanceof Error ? error.message : "Couldn't add it back to the trip."
+          }
+        }
+        if (kept.length > 0) putBack.set(placeId, kept)
+      }
+      if (putBack.size > 0) {
+        setTripAssignments((existing) => {
+          let next = existing
+          for (const [placeId, trips] of putBack) {
+            next = writeFilings(
+              next,
+              placeId,
+              putBackFilings(next[placeId] ?? [], trips, moves[placeId]?.priorFilings),
+            )
+          }
+          return next
+        })
+      }
+      setSoloId(null)
+      setPinnedId(null)
+      if (restored[0]) selectPlace(restored[0], false)
+      if (removalError) {
+        notify.error(removalError)
+        return
+      }
+      notify.success(
+        restored.length === 1
+          ? `Restored “${session.find((entry) => entry.placeId === restored[0])?.name ?? 'the place'}” to your Inbox`
+          : `Restored ${restored.length} places to your Inbox`,
+      )
+    } catch (undoError) {
+      notify.error(undoError instanceof Error ? undoError.message : "Couldn't undo that change.")
+    }
+  }
+
+  groupApiRef.current = {
+    add: async () => {
+      const { selectedIds, memberIds, tripId, tripName, title } = viewRef.current
+      if (busy || selectedIds.length === 0) return
+      const ids = [...selectedIds]
+      const filed = tripId && tripName ? { id: tripId, name: tripName } : null
+      const written: string[] = []
+      setBusy(true)
+      setError(null)
+      try {
+        for (const placeId of ids) {
+          if (outcomesRef.current[placeId] === 'removed') continue
+          await setPlaceStatus(placeId, 'library')
+          written.push(placeId)
+        }
+        if (written.length === 0) return
+        const moves: Record<string, TripMove> = {}
+        let joinedIds: string[] = []
+        let unreleased = 0
+        let removedCount = 0
+        const moveRows: Array<{ placeId: string; settled: { move: TripMove; committed: boolean } }> = []
+        if (filed) {
+          const toPost: string[] = []
+          const toSettle: string[] = []
+          for (const placeId of written) {
+            const tracked = tripAssignmentsRef.current[placeId] ?? []
+            const onDestination = tracked.some((trip) => trip.id === filed.id)
+            const onlyDestination = onDestination && tracked.every((trip) => trip.id === filed.id)
+            if (onlyDestination) {
+              moves[placeId] = { drop: null, restore: null }
+              joinedIds = [...joinedIds, placeId]
+              continue
+            }
+            if (onDestination) toSettle.push(placeId)
+            else toPost.push(placeId)
+          }
+          if (toPost.length > 0) {
+            const added = await addPlacesToTrip(filed.id, toPost)
+            if (added.failed.length > 0) {
+              const names = added.failed.map((id) => session.find((entry) => entry.placeId === id)?.name || 'A place')
+              notify.error(didNotJoinMessage(names, filed.name))
+            }
+            toSettle.push(...added.successful)
+          }
+          for (const placeId of toSettle) {
+            const tracked = [...(tripAssignmentsRef.current[placeId] ?? [])]
+            const settled = await finishTripMove(placeId, filed, tracked)
+            moveRows.push({ placeId, settled })
+            if (settled.move.drop || settled.move.restore) moves[placeId] = settled.move
+            if (settled.committed) joinedIds = [...joinedIds, placeId]
+          }
+        } else {
+          const released = await releasePreviousFilings(written, null)
+          unreleased = released.failed.length
+          removedCount = Object.keys(released.removed).length
+          for (const [placeId, trips] of Object.entries(released.removed)) {
+            if (!trips[0]) continue
+            moves[placeId] = {
+              drop: null,
+              restore: trips[0],
+              ...(trips.length > 1 ? { alsoRestore: trips.slice(1) } : {}),
+              ...(released.prior[placeId] ? { priorFilings: released.prior[placeId] } : {}),
+            }
+          }
+        }
+        for (const placeId of written) commitStatus(placeId, 'library')
+        setOutcomes((existing) => {
+          let next = existing
+          for (const placeId of written) next = withOutcome(next, placeId, 'added')
+          return next
+        })
+        if (filed && moveRows.length > 0) {
+          const trip = filed
+          setTripAssignments((existing) => {
+            let next = existing
+            for (const row of moveRows) {
+              next = writeFilings(
+                next,
+                row.placeId,
+                filingsAfterMove(next[row.placeId] ?? [], trip, row.settled),
+              )
+            }
+            return next
+          })
+        }
+        if (filed && joinedIds.length > 0) {
+          setTripChoice((choice) => (choice === null ? filed.id : choice))
+        }
+        const earliest = memberIds.find((id) => !written.includes(id) && !outcomesRef.current[id]) ?? null
+        setPinnedId(earliest)
+        setSoloId(null)
+        const lead = written.length === 1
+          ? `Added “${session.find((entry) => entry.placeId === written[0])?.name ?? 'the place'}” to your Library`
+          : `Added ${written.length} places from ${title}`
+        if (!filed && unreleased > 0 && removedCount === 0) return
+        notify.success(groupAddedMessage(lead, written.length, filed, joinedIds.length), {
+          duration: 8_000,
+          cancel: {
+            label: 'Undo',
+            onClick: () => void undoGroup(written, moves),
+          },
+        })
+      } catch (addError) {
+        for (const placeId of written) await setPlaceStatus(placeId, 'inbox').catch(() => undefined)
+        const message = addError instanceof Error ? addError.message : "We couldn't update these places."
+        setError(message)
+        notify.error(message)
+      } finally {
+        setBusy(false)
+      }
+    },
+    archive: async () => {
+      const ids = [...viewRef.current.memberIds]
+      if (busy || ids.length === 0) return
+      const written: string[] = []
+      setBusy(true)
+      setError(null)
+      try {
+        for (const placeId of ids) {
+          if (outcomesRef.current[placeId] === 'removed') continue
+          await setPlaceStatus(placeId, 'archived')
+          written.push(placeId)
+        }
+        const released = await releasePreviousFilings(written, null)
+        const moves: Record<string, TripMove> = {}
+        for (const [placeId, trips] of Object.entries(released.removed)) {
+          if (!trips[0]) continue
+          moves[placeId] = {
+            drop: null,
+            restore: trips[0],
+            ...(trips.length > 1 ? { alsoRestore: trips.slice(1) } : {}),
+            ...(released.prior[placeId] ? { priorFilings: released.prior[placeId] } : {}),
+          }
+        }
+        for (const placeId of written) commitStatus(placeId, 'archived')
+        setOutcomes((existing) => {
+          let next = existing
+          for (const placeId of written) next = withOutcome(next, placeId, 'archived')
+          return next
+        })
+        setPinnedId(null)
+        setSoloId(null)
+        notify.success(
+          `Moved ${written.length} ${written.length === 1 ? 'place' : 'places'} to Archive`,
+          { duration: 8_000, cancel: { label: 'Undo', onClick: () => void undoGroup(written, moves) } },
+        )
+      } catch (archiveError) {
+        for (const placeId of written) await setPlaceStatus(placeId, 'inbox').catch(() => undefined)
+        const message = archiveError instanceof Error ? archiveError.message : "We couldn't update these places."
+        setError(message)
+        notify.error(message)
+      } finally {
+        setBusy(false)
+      }
+    },
+    skip: async () => {
+      const ids = [...viewRef.current.memberIds]
+      if (busy || ids.length === 0) return
+      setBusy(true)
+      setError(null)
+      try {
+        const live: string[] = []
+        for (const placeId of ids) {
+          const previous = outcomesRef.current[placeId]
+          if (previous === 'removed') continue
+          if (previous === 'added' || previous === 'archived') {
+            await setPlaceStatus(placeId, 'inbox')
+            commitStatus(placeId, 'inbox')
+          }
+          live.push(placeId)
+        }
+        await releasePreviousFilings(live, null)
+        setOutcomes((existing) => {
+          let next = existing
+          for (const placeId of ids) {
+            if (next[placeId] === 'removed') continue
+            next = withOutcome(next, placeId, 'skipped')
+          }
+          return next
+        })
+        setPinnedId(null)
+        setSoloId(null)
+      } catch (skipError) {
+        const message = skipError instanceof Error ? skipError.message : "We couldn't skip these places."
+        setError(message)
+        notify.error(message)
+      } finally {
+        setBusy(false)
+      }
+    },
+  }
+
   const scoped = Boolean(uploadSessionId)
   if (session.length === 0) return <EmptyReview scoped={scoped} />
   if (!current) {
-    return <ReviewSummary entries={session} outcomes={outcomes} onReview={resumeSkipped} scoped={scoped} />
+    return <ReviewSummary entries={session} outcomes={outcomes} tripAssignments={tripAssignments} onReview={resumeSkipped} scoped={scoped} />
   }
 
   const currentIndex = session.findIndex((entry) => entry.placeId === current.placeId)
+  const groupEndIndex = groupMode
+    ? Math.max(...members.map((member) => session.findIndex((entry) => entry.placeId === member.placeId)))
+    : currentIndex
   const previousPlaceId = previousSelectableId(session, outcomes, current.placeId)
-  const progress = ((currentIndex + 1) / session.length) * 100
+  const progress = ((Math.max(groupEndIndex, 0) + 1) / session.length) * 100
   const shot = current.postcard?.screenshot ?? null
   const queuePlaceIds = new Set(session.map((entry) => entry.placeId))
+  const withTrip = Boolean(effectiveTrip)
+  const includedCount = members.filter((member) => !excluded[member.placeId]).length
+  const addLabel = groupMode
+    ? `Add ${includedCount} to Library${withTrip ? ' + trip' : ''}`
+    : `Add to Library${withTrip ? ' + trip' : ''}`
+  const archiveLabel = groupMode ? 'None of these' : 'Not a place'
+  const addDisabled = busy || (groupMode && includedCount === 0)
+  const positionLabel = groupMode ? rangeLabel(session, members) : String(currentIndex + 1)
+  const tripHint = !effectiveTrip
+    ? 'Adds go to your Library only.'
+    : tripChoice === null
+      ? `You already have “${effectiveTrip?.name ?? 'a trip'}”, so we suggest it.`
+      : `Every place you add in this batch also goes into ${effectiveTrip?.name ?? 'that trip'}.`
+  const chooseTrip = (choice: string | 'none') => setTripChoice(choice === 'none' ? 'none' : choice)
+  const openMember = (placeId: string) => {
+    setSoloId(placeId)
+    selectPlace(placeId, true)
+  }
 
   const openClassic = () => {
     const handles = viewHandlesRef.current
@@ -659,12 +1448,24 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
           </Button>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-3">
-              <p className="truncate text-sm font-semibold">{currentIndex + 1} of {session.length} from {current.uploadLabel}</p>
-              <span className="hidden text-xs text-muted-foreground sm:inline">{current.screenshotName ?? 'Screenshot'}</span>
+              <p className="truncate text-sm font-semibold">{positionLabel} of {session.length} from {current.uploadLabel}</p>
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                {groupMode
+                  ? `One screenshot, ${members.length} places. Decide them together or one by one.`
+                  : (current.screenshotName ?? 'Screenshot')}
+              </span>
             </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={session.length} aria-valuenow={currentIndex + 1}>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={session.length} aria-valuenow={groupEndIndex + 1}>
               <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progress}%` }} />
             </div>
+          </div>
+          <div className="hidden sm:block">
+            <BatchTripChip
+              trips={trips}
+              selectedId={effectiveTrip?.id ?? null}
+              selectedName={effectiveTrip?.name ?? null}
+              onSelect={chooseTrip}
+            />
           </div>
           <Button variant="ghost" size="sm" asChild className="hidden sm:inline-flex">
             <Link href="/inbox"><Inbox className="mr-1.5 h-4 w-4" />Back to Inbox</Link>
@@ -672,6 +1473,23 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         </div>
       </header>
 
+      {groupMode ? (
+        <div className="mx-auto max-w-[1560px] px-3 py-5 sm:px-6">
+          <ReviewGroupView
+            members={members}
+            excluded={excluded}
+            onToggle={(placeId) => setExcluded((existing) => ({ ...existing, [placeId]: !existing[placeId] }))}
+            onOpen={openMember}
+            trips={trips}
+            selectedTripId={effectiveTrip?.id ?? null}
+            selectedTripName={effectiveTrip?.name ?? null}
+            tripHint={tripHint}
+            onSelectTrip={chooseTrip}
+            zoomOpen={zoomOpen}
+            onZoomOpenChange={setZoomOpen}
+          />
+        </div>
+      ) : (
       <div className="mx-auto grid max-w-[1560px] gap-5 px-3 py-5 sm:px-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 overflow-hidden rounded-[1.75rem] border bg-background shadow-sm">
           {current.postcard ? (
@@ -718,30 +1536,44 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
           currentPlaceId={current.placeId}
           queuePlaceIds={queuePlaceIds}
           outcomes={outcomes}
-          onOpenInQueue={(placeId) => selectPlace(placeId, true)}
+          onOpenInQueue={openMember}
           zoomOpen={zoomOpen}
           onZoomOpenChange={setZoomOpen}
         />
       </div>
+      )}
 
       {error && <p role="alert" className="fixed bottom-32 left-1/2 z-50 -translate-x-1/2 rounded-full bg-destructive px-4 py-2 text-sm text-destructive-foreground shadow-lg sm:bottom-24">{error}</p>}
 
       <div className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-10px_30px_-20px_rgba(0,0,0,0.4)] backdrop-blur md:left-64 sm:px-6">
         <div className="mx-auto max-w-[1560px]">
+          {!groupMode && (
+            <div className="mb-2 sm:hidden">
+              <BatchTripChip
+                trips={trips}
+                selectedId={effectiveTrip?.id ?? null}
+                selectedName={effectiveTrip?.name ?? null}
+                onSelect={chooseTrip}
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2 sm:hidden">
-            <Button className="col-span-2 h-12 text-base" onClick={() => void decide('added')} disabled={busy}>
-              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />} Add to Library
+            <Button className="col-span-2 h-12 text-base" onClick={() => void decide('added')} disabled={addDisabled}>
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />} {addLabel}
             </Button>
-            <Button variant="outline" className="h-11" onClick={() => void decide('archived')} disabled={busy}><Archive className="mr-2 h-4 w-4" />Not a place</Button>
+            <Button variant="outline" className="h-11" onClick={() => void decide('archived')} disabled={busy}><Archive className="mr-2 h-4 w-4" />{archiveLabel}</Button>
             <Button variant="outline" className="h-11" onClick={() => void skip()} disabled={busy}><SkipForward className="mr-2 h-4 w-4" />Skip for now</Button>
           </div>
           <div className="hidden items-center gap-3 sm:flex">
-            <Button variant="outline" onClick={() => void decide('archived')} disabled={busy}><Archive className="mr-2 h-4 w-4" />Not a place <kbd className="ml-2 text-xs opacity-60">N</kbd></Button>
+            <Button variant="outline" onClick={() => void decide('archived')} disabled={busy}><Archive className="mr-2 h-4 w-4" />{archiveLabel} <kbd className="ml-2 text-xs opacity-60">N</kbd></Button>
             <Button variant="outline" onClick={() => void skip()} disabled={busy}><SkipForward className="mr-2 h-4 w-4" />Skip for now <kbd className="ml-2 text-xs opacity-60">S</kbd></Button>
             <span className="ml-auto text-xs text-muted-foreground"><kbd>←</kbd> previous</span>
-            <Button className="min-w-48" onClick={() => void decide('added')} disabled={busy}>
-              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />} Add to Library <kbd className="ml-2 text-xs opacity-70">Enter</kbd>
-            </Button>
+            <div className="flex">
+              <Button className="min-w-48 rounded-r-none" onClick={() => void decide('added')} disabled={addDisabled}>
+                {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />} {addLabel} <kbd className="ml-2 text-xs opacity-70">Enter</kbd>
+              </Button>
+              <BatchTripChevron trips={trips} selectedId={effectiveTrip?.id ?? null} onSelect={chooseTrip} />
+            </div>
           </div>
         </div>
       </div>

@@ -3,7 +3,15 @@ import { places, sources, sourcesToPlaces } from '@/db/schema'
 import { coverPhoto } from '@/lib/cover-photo'
 import { getPlaceWithRelations } from '@/lib/db-queries'
 import { getExploreCollections, getExplorePlacesInCity } from '@/lib/explore/queries'
-import { compareReviewRank, rankingSource } from '@/lib/review-order'
+import { rankingSource } from '@/lib/review-order'
+import {
+  compareExtractionOrder,
+  extractionOrderByPlaceId,
+  namesFromExtraction,
+  namesFromPlaces,
+  placeHasPin,
+  reviewQuote,
+} from '@/lib/review-group'
 import { forUser } from '@/lib/tenant-db'
 import type { ExploreCollection, ExplorePlace } from '@/lib/explore/types'
 import type { PlaceWithRelations } from '@/types/database'
@@ -14,9 +22,22 @@ export interface ReviewQueueEntry {
   name: string
   createdAt: string
   userId: string
+  /** Screenshot this row was read from. Empty when the place has no source. Shared by a group. */
+  sourceId: string
   screenshotUrl: string | null
   screenshotName: string | null
+  screenshotCreatedAt: string | null
   uploadLabel: string
+  kind: string
+  city: string | null
+  /** One line from the place description: the post's words, for a group row. */
+  quote: string | null
+  hasPin: boolean
+}
+
+/** A trip the batch can file into. `cities` lists one city per member place that has one. */
+export interface ReviewTrip extends ExploreCollection {
+  cities: string[]
 }
 
 interface QueueSource {
@@ -28,6 +49,8 @@ interface QueueSource {
   uploadFilename: string | null
   filename: string | null
   sessionId: string | null
+  /** Place names in Gemini's order. Never the rest of the extraction cache. */
+  extractionNames: string[]
 }
 
 /** Another place found in the same screenshot, including the one on screen. */
@@ -62,7 +85,7 @@ export interface ReviewPostcard {
 export interface ReviewQueueData {
   entries: ReviewQueueEntry[]
   postcard: ReviewPostcard | null
-  trips: ExploreCollection[]
+  trips: ReviewTrip[]
 }
 
 function textOrNull(value: unknown): string | null {
@@ -93,14 +116,24 @@ export function isSharedScreenshotCover(
   return coverPhoto(attachments)?.uri === screenshotUrl
 }
 
-function compareSiblings(a: ReviewScreenshotSibling, b: ReviewScreenshotSibling): number {
-  return a.createdAt.localeCompare(b.createdAt) || a.placeId.localeCompare(b.placeId)
+function compareEntries(
+  a: ReviewQueueEntry & { sourceCreatedAt: string; extractionIndex: number | null },
+  b: ReviewQueueEntry & { sourceCreatedAt: string; extractionIndex: number | null },
+): number {
+  const bySourceTime = b.sourceCreatedAt.localeCompare(a.sourceCreatedAt)
+  if (bySourceTime !== 0) return bySourceTime
+  const bySource = a.sourceId.localeCompare(b.sourceId)
+  if (bySource !== 0) return bySource
+  const order = new Map<string, number>()
+  if (a.extractionIndex != null) order.set(a.placeId, a.extractionIndex)
+  if (b.extractionIndex != null) order.set(b.placeId, b.extractionIndex)
+  return compareExtractionOrder(a, b, order)
 }
 
 /**
- * Inbox rows in screenshot order, from two scoped reads (places, then their
- * sources). Extraction order belongs to the later group-review PR because the
- * join table itself has no ordering column.
+ * Inbox rows in screenshot order. Within one screenshot the order is Gemini's
+ * `extraction.places` list; places that list does not name keep created-at
+ * order after the ones it does. The join table has no order column.
  */
 async function loadReviewEntries(userId: string, uploadSessionId?: string): Promise<ReviewQueueEntry[]> {
   const scoped = forUser(userId)
@@ -109,6 +142,10 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
     name: places.name,
     createdAt: places.createdAt,
     userId: places.userId,
+    kind: places.kind,
+    city: places.city,
+    description: places.description,
+    coords: places.coords,
   }, eq(places.status, 'inbox'))
   if (inbox.length === 0) return []
 
@@ -129,6 +166,7 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
         uploadFilename: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.filename')`,
         filename: sql<string | null>`json_extract(${sources.meta}, '$.filename')`,
         sessionId: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.sessionId')`,
+        extractionPlaces: sql<unknown>`json_extract(${sources.meta}, '$.massUpload.extraction.places')`,
       }, inArray(sources.id, sourceIds))
     : []
   const sourcesById = new Map(sourceRows.map((source) => [source.id, {
@@ -140,6 +178,7 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
     uploadFilename: textOrNull(source.uploadFilename),
     filename: textOrNull(source.filename),
     sessionId: textOrNull(source.sessionId),
+    extractionNames: namesFromPlaces(source.extractionPlaces),
   } satisfies QueueSource]))
   const sourcesByPlace = new Map<string, QueueSource[]>()
   for (const link of links) {
@@ -148,6 +187,19 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
     const list = sourcesByPlace.get(link.placeId) ?? []
     list.push(source)
     sourcesByPlace.set(link.placeId, list)
+  }
+
+  const placesBySource = new Map<string, Array<{ id: string; name: string; createdAt: string }>>()
+  for (const link of links) {
+    const place = inbox.find((row) => row.id === link.placeId)
+    if (!place) continue
+    const list = placesBySource.get(link.sourceId) ?? []
+    list.push({ id: place.id, name: place.name, createdAt: place.createdAt })
+    placesBySource.set(link.sourceId, list)
+  }
+  const orderBySource = new Map<string, Map<string, number>>()
+  for (const [sourceId, group] of placesBySource) {
+    orderBySource.set(sourceId, extractionOrderByPlaceId(sourcesById.get(sourceId)?.extractionNames ?? [], group))
   }
 
   return inbox.flatMap((row) => {
@@ -162,18 +214,30 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
       userId: row.userId,
       sourceCreatedAt: source?.createdAt ?? '',
       sourceId: source?.id ?? '',
+      extractionIndex: source ? orderBySource.get(source.id)?.get(row.id) ?? null : null,
       screenshotUrl: source?.uri ?? null,
       screenshotName: name,
+      screenshotCreatedAt: source?.createdAt ?? null,
       uploadLabel: name ?? 'your upload',
+      kind: row.kind,
+      city: row.city,
+      quote: reviewQuote(row.description),
+      hasPin: placeHasPin(row.coords),
     }]
-  }).sort(compareReviewRank).map((draft) => ({
+  }).sort(compareEntries).map((draft) => ({
     placeId: draft.placeId,
     name: draft.name,
     createdAt: draft.createdAt,
     userId: draft.userId,
+    sourceId: draft.sourceId,
     screenshotUrl: draft.screenshotUrl,
     screenshotName: draft.screenshotName,
+    screenshotCreatedAt: draft.screenshotCreatedAt,
     uploadLabel: draft.uploadLabel,
+    kind: draft.kind,
+    city: draft.city,
+    quote: draft.quote,
+    hasPin: draft.hasPin,
   }))
 }
 
@@ -213,7 +277,11 @@ async function loadScreenshot(userId: string, place: PlaceWithRelations): Promis
       createdAt: place.createdAt,
     })
   }
-  siblings.sort(compareSiblings)
+  const extractionOrder = extractionOrderByPlaceId(
+    namesFromExtraction(source.meta?.massUpload?.extraction),
+    siblings.map((sibling) => ({ id: sibling.placeId, name: sibling.name, createdAt: sibling.createdAt })),
+  )
+  siblings.sort((a, b) => compareExtractionOrder(a, b, extractionOrder))
   return {
     sourceId: source.id,
     url: source.uri,
@@ -237,6 +305,23 @@ export async function loadReviewPostcard(userId: string, placeId: string): Promi
   return { place, alsoIn, screenshot }
 }
 
+async function loadReviewTrips(userId: string): Promise<ReviewTrip[]> {
+  const trips = await getExploreCollections(userId)
+  const placeIds = [...new Set(trips.flatMap((trip) => trip.placeIds))]
+  const scoped = forUser(userId)
+  const rows = placeIds.length
+    ? await scoped.selectFields(places, { id: places.id, city: places.city }, inArray(places.id, placeIds))
+    : []
+  const cityByPlace = new Map(rows.map((row) => [row.id, row.city]))
+  return trips.map((trip) => ({
+    ...trip,
+    cities: trip.placeIds.flatMap((placeId) => {
+      const city = cityByPlace.get(placeId)?.trim()
+      return city ? [city] : []
+    }),
+  }))
+}
+
 /**
  * Queue order and light rows for every inbox place, and relations plus the
  * city rail only for `visiblePlaceId` (or the first row, when that id is
@@ -251,7 +336,7 @@ export async function loadReviewQueue(
   const upload = uploadSessionId?.trim() || undefined
   const [entries, trips] = await Promise.all([
     loadReviewEntries(userId, upload),
-    getExploreCollections(userId),
+    loadReviewTrips(userId),
   ])
   const visible = visiblePlaceId && entries.some((entry) => entry.placeId === visiblePlaceId)
     ? visiblePlaceId

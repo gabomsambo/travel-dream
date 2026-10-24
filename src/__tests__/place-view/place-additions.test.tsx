@@ -463,4 +463,50 @@ describe('PlaceView blocked writes', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Want to go' }))
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('saves a note already flushing when the postcard unmounts, and a later flush fails', async () => {
+    let releaseStatus: (response: Response) => void = () => {}
+    const statusGate = new Promise<Response>((resolve) => {
+      releaseStatus = resolve
+    })
+    const fetchMock = jest.fn().mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) as { visitStatus?: string } : null
+      if (body && 'visitStatus' in body) return statusGate
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const handlesRef: React.MutableRefObject<PlaceViewHandles | null> = { current: null }
+    const view = render(
+      <PlaceView place={place} trips={trips} alsoIn={[]} onEdit={() => {}} onPhotoAttached={() => {}} handlesRef={handlesRef} />
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit About' }))
+    const description = screen.getByLabelText('Description')
+    await userEvent.clear(description)
+    await userEvent.type(description, 'A mountain of gates.')
+    fireEvent.click(screen.getByRole('radio', { name: 'Been' }))
+
+    view.rerender(
+      <PlaceView place={place} trips={trips} alsoIn={[]} onEdit={() => {}} onPhotoAttached={() => {}} handlesRef={handlesRef} blockWrites />
+    )
+
+    const sectionsPromise = handlesRef.current!.flushSections()
+    const statusPromise = handlesRef.current!.flushStatus()
+    view.unmount()
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)))).toContainEqual({
+      description: 'A mountain of gates.',
+    })
+
+    await act(async () => {
+      releaseStatus({ ok: true, json: async () => ({ status: 'success' }) } as Response)
+      await sectionsPromise
+      await statusPromise
+    })
+    await expect(sectionsPromise).resolves.toBe(true)
+    await expect(handlesRef.current!.flushSections()).resolves.toBe(false)
+  })
 })

@@ -127,7 +127,7 @@ export function ReviewDuplicateNote({
       notify.error(await readError(response, "Couldn't undo that."))
       return
     }
-    setKept(null)
+    if (aliveRef.current) setKept(null)
     notify.success('Put back')
   }, [])
 
@@ -146,12 +146,10 @@ export function ReviewDuplicateNote({
         body: JSON.stringify({ pairs }),
       })
       if (!response.ok) throw new Error(await readError(response, "Couldn't keep both."))
-      if (!stillThisPlace()) return
       const body = await response.json().catch(() => null) as { inserted?: Array<{ placeId1: string; placeId2: string }> } | null
       const inserted = body?.inserted?.length ? body.inserted : pairs
-      if (!stillThisPlace()) return
-      setKept({ name: keptName, pairs: inserted })
-      notify.success(`Keeping ${placeName} and ${keptName} separate`, {
+      if (stillThisPlace()) setKept({ name: keptName, pairs: inserted })
+      notify.success(`Kept both: ${placeName} and ${keptName}`, {
         duration: 8_000,
         cancel: { label: 'Undo', onClick: () => void undoKeep(inserted) },
       })

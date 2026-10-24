@@ -76,9 +76,11 @@ export function PlacePage({
 
   // The classic form saves a full snapshot, so anything still in flight has to land first.
   const enterClassic = React.useCallback(async () => {
-    await viewHandlesRef.current?.flushStatus()
-    if (viewHandlesRef.current && !(await viewHandlesRef.current.flushSections())) return
-    const seeded = viewHandlesRef.current?.displayPlace() ?? place
+    const handles = viewHandlesRef.current
+    const sectionsSaved = handles?.flushSections() ?? Promise.resolve(true)
+    await handles?.flushStatus()
+    if (handles && !(await sectionsSaved)) return
+    const seeded = handles?.displayPlace() ?? place
     if (!seeded.name.trim()) return
     setEditSeed(seeded)
     setMode("classic")

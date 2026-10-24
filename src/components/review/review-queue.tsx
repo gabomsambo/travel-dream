@@ -524,8 +524,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const beforeMerge = React.useCallback(async () => {
     const handles = viewHandlesRef.current
     if (!handles) return true
+    const sectionsSaved = handles.flushSections()
     await handles.flushStatus()
-    return handles.flushSections()
+    return sectionsSaved
   }, [])
 
   const undoDecision = React.useCallback(async (
@@ -795,8 +796,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       return
     }
     void (async () => {
+      const sectionsSaved = handles.flushSections()
       await handles.flushStatus()
-      if (!(await handles.flushSections())) return
+      if (!(await sectionsSaved)) return
       router.push(placeClassicHref(placeId))
     })()
   }

@@ -300,7 +300,7 @@ export function PlaceView({
     if (handlesRef) {
       handlesRef.current = {
         flushStatus,
-        flushSections: () => sectionHandlesRef.current?.flush() ?? Promise.resolve(true),
+        flushSections: () => sectionHandlesRef.current?.flush() ?? Promise.resolve(false),
         displayPlace: () => sectionHandlesRef.current?.withDraft(displayPlace) ?? displayPlace,
       }
     }

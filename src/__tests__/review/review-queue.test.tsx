@@ -1250,7 +1250,7 @@ describe('Review duplicate note', () => {
       { pairs: [{ placeId1: 'plc_one', placeId2: 'plc_lib' }] },
     ]))
     expect(await screen.findByText(/Fjellheisen and One Cafe stay separate/)).toBeInTheDocument()
-    const toast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Keeping'))
+    const toast = notifySuccess.mock.calls.find((call) => call[0] === 'Kept both: One Cafe and Fjellheisen')
     expect(toast?.[1]).toEqual(expect.objectContaining({ cancel: expect.objectContaining({ label: 'Undo' }) }))
 
     await user.click(screen.getByRole('button', { name: 'Undo' }))
@@ -1372,6 +1372,10 @@ describe('Review duplicate note', () => {
 
   it('saves postcard edits before merging and blocks writes while that request runs', async () => {
     const order: string[] = []
+    let releaseStatus: () => void = () => {}
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatus = resolve
+    })
     let releaseSections: (saved: boolean) => void = () => {}
     const sectionsGate = new Promise<boolean>((resolve) => {
       releaseSections = resolve
@@ -1380,8 +1384,9 @@ describe('Review duplicate note', () => {
     const mergeGate = new Promise<Response>((resolve) => {
       releaseMerge = resolve
     })
-    mockPostcardFlush.status = async () => {
+    mockPostcardFlush.status = () => {
       order.push('status')
+      return statusGate
     }
     mockPostcardFlush.sections = () => {
       order.push('sections')
@@ -1403,14 +1408,17 @@ describe('Review duplicate note', () => {
     const mergeButton = await screen.findByRole('button', { name: 'Merge into Fjellheisen' })
     await act(async () => { mergeButton.click() })
 
-    expect(order).toEqual(['status', 'sections'])
+    expect(order).toEqual(['sections', 'status'])
     expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(0)
     expect(screen.queryByRole('button', { name: 'Edit postcard' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Attach photo' })).not.toBeInTheDocument()
 
+    await act(async () => { releaseStatus() })
+    expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(0)
+
     await act(async () => { releaseSections(true) })
     await waitFor(() => expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(1))
-    expect(order).toEqual(['status', 'sections', 'merge'])
+    expect(order).toEqual(['sections', 'status', 'merge'])
     expect(screen.queryByRole('button', { name: 'Edit postcard' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Attach photo' })).not.toBeInTheDocument()
 
@@ -1548,12 +1556,14 @@ describe('Review duplicate note', () => {
     expect(screen.getByRole('button', { name: 'Merge into Fjellheisen' })).toBeEnabled()
   })
 
-  it('does not apply Keep both after leaving that place', async () => {
+  it('offers Undo after Keep both when the reviewer leaves, and Undo restores the note', async () => {
     const user = userEvent.setup()
     let releaseDismiss: (response: Response) => void = () => {}
     const dismissGate = new Promise<Response>((resolve) => {
       releaseDismiss = resolve
     })
+    const dismissed = new Set<string>()
+    const pairKey = (pair: { placeId1: string; placeId2: string }) => [pair.placeId1, pair.placeId2].sort().join('|')
     const sharedShot = {
       sourceId: 'src_shared',
       url: 'https://example.test/shared.jpg',
@@ -1561,15 +1571,29 @@ describe('Review duplicate note', () => {
       createdAt: '2026-10-18T12:00:00.000Z',
       softCover: false,
       siblings: [
-        { placeId: 'plc_one', name: 'One Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:01.000Z' },
-        { placeId: 'plc_two', name: 'Two Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:02.000Z' },
+        { placeId: 'plc_two', name: 'Two Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:01.000Z' },
+        { placeId: 'plc_one', name: 'One Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:02.000Z' },
       ],
     }
     const previous = fetchMock.getMockImplementation()
     fetchMock.mockImplementation(async (input, init) => {
       const url = requestUrl(input)
       const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
-      if (url === '/api/places/dismiss-duplicate' && method === 'POST') return dismissGate
+      if (url.includes('/duplicate-check')) {
+        const hidden = dismissed.has(pairKey({ placeId1: 'plc_one', placeId2: 'plc_lib' }))
+        const match = url.includes('plc_one') && !hidden ? fjellMatch : null
+        return jsonResponse({ status: 'success', match })
+      }
+      if (url === '/api/places/dismiss-duplicate' && method === 'POST') {
+        const body = JSON.parse(String((init as { body?: string }).body)) as { pairs: Array<{ placeId1: string; placeId2: string }> }
+        for (const pair of body.pairs) dismissed.add(pairKey(pair))
+        return dismissGate
+      }
+      if (url === '/api/places/dismiss-duplicate' && method === 'DELETE') {
+        const body = JSON.parse(String((init as { body?: string }).body)) as { pairs: Array<{ placeId1: string; placeId2: string }> }
+        for (const pair of body.pairs) dismissed.delete(pairKey(pair))
+        return jsonResponse({ status: 'success' })
+      }
       if (url.startsWith('/api/review/postcard/')) {
         const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
         const row = placesById.get(id)
@@ -1581,11 +1605,13 @@ describe('Review duplicate note', () => {
     })
 
     renderQueue({
+      entries: [entryFrom(placeTwo, secondSource), entryFrom(placeOne, firstSource)],
       postcard: { ...postcardFor(placeOne), screenshot: sharedShot },
+      initialPlaceId: 'plc_one',
     })
     await user.click(await screen.findByRole('button', { name: 'Keep both' }))
     await waitFor(() => expect(posted('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1))
-    await user.click(screen.getByRole('button', { name: /Two Cafe/ }))
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
 
     await act(async () => {
@@ -1596,9 +1622,32 @@ describe('Review duplicate note', () => {
       await dismissGate
     })
 
+    const toast = notifySuccess.mock.calls.find((call) => call[0] === 'Kept both: One Cafe and Fjellheisen')
+    const undo = (toast?.[1]?.cancel as { onClick?: () => void } | undefined)?.onClick
+    expect(undo).toBeInstanceOf(Function)
     expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe')
     expect(screen.queryByText(/stay separate/)).not.toBeInTheDocument()
-    expect(notifySuccess.mock.calls.some((call) => String(call[0]).includes('Keeping'))).toBe(false)
-    expect(posted('/api/places/dismiss-duplicate', 'DELETE')).toHaveLength(0)
+
+    const checks = () => fetchMock.mock.calls.filter((call) => requestUrl(call[0] as RequestInfo).includes('/duplicate-check')).length
+    const checksBeforeReturn = checks()
+    await user.click(screen.getByRole('button', { name: /One Cafe/ }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    await waitFor(() => expect(checks()).toBeGreaterThan(checksBeforeReturn))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('button', { name: 'Merge into Fjellheisen' })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await act(async () => { undo?.() })
+    await waitFor(() => expect(posted('/api/places/dismiss-duplicate', 'DELETE')).toEqual([
+      { pairs: [{ placeId1: 'plc_one', placeId2: 'plc_lib' }] },
+    ]))
+
+    await user.click(screen.getByRole('button', { name: /One Cafe/ }))
+    expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
   })
 })

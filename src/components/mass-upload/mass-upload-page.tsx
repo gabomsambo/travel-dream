@@ -26,6 +26,7 @@ import {
   SheetTitle,
 } from '@/components/adapters/sheet'
 import { useActivityJobs } from '@/components/activity/activity-provider'
+import { bindUnstartedUpload, cancelUnstartedUpload, cancelUploadSession } from '@/lib/unstarted-upload'
 
 interface MassUploadFile {
   id: string
@@ -112,12 +113,7 @@ async function abandonUnstartedSession(
       if (started) return
     }
     await drainInFlight(pending)
-    const cancel = await fetch('/api/mass-upload/cancel', {
-      method: 'POST',
-      keepalive: true,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
-    })
+    const cancel = await cancelUploadSession(sessionId)
     if (!cancel.ok) return
     await registerAbandonedUploads(sessionId, abandoned)
   } catch {
@@ -171,6 +167,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     abortRef.current = controller
     startedRef.current = false
     let cancelled = false
+    let releaseBinding = () => {}
     const create = async () => {
       try {
         const res = await fetch('/api/upload/sessions', {
@@ -183,6 +180,11 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         if (cancelled || controller.signal.aborted) return
         if (data.status === 'success' && data.session?.id) {
           sessionIdRef.current = data.session.id
+          releaseBinding()
+          releaseBinding = bindUnstartedUpload({
+            sessionId: () => sessionIdRef.current,
+            startRequested: () => startedRef.current || startPromiseRef.current !== null,
+          })
           setSessionId(data.session.id)
           setSessionError(null)
         } else {
@@ -195,6 +197,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     void create()
     return () => {
       cancelled = true
+      releaseBinding()
       const currentSessionId = sessionIdRef.current
       const startPromise = startPromiseRef.current
       const alreadyStarted = startedRef.current
@@ -241,6 +244,14 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [isUploading])
+
+  useEffect(() => {
+    const onPageHide = () => {
+      void cancelUnstartedUpload()
+    }
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
+  }, [])
 
   const validateFile = useCallback((file: File): { isValid: boolean; error?: string } => {
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -516,6 +527,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       try {
         const res = await fetch('/api/mass-upload/start', {
           method: 'POST',
+          keepalive: true,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId }),
         })

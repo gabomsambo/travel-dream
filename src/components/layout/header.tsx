@@ -7,6 +7,7 @@ import { Upload, Plus, LogOut } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { openUploadSheet } from "@/lib/upload-sheet"
+import { cancelUnstartedUpload } from "@/lib/unstarted-upload"
 import { ActivityBell } from "@/components/activity/activity-bell"
 import { MobileNav } from "@/components/navigation/mobile-nav"
 import { SearchBar } from "@/components/search/search-bar"
@@ -71,7 +72,12 @@ function UserMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="cursor-pointer text-destructive focus:text-destructive"
-          onClick={() => signOut({ callbackUrl: "/" })}
+          onClick={() => {
+            void (async () => {
+              await cancelUnstartedUpload()
+              await signOut({ callbackUrl: "/" })
+            })()
+          }}
         >
           <LogOut className="mr-2 h-4 w-4" />
           Sign out

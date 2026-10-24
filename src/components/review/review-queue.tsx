@@ -213,6 +213,32 @@ async function removePlaceFromTrip(tripId: string, placeId: string): Promise<voi
   return readError(response, "We couldn't remove this place from the trip.")
 }
 
+async function finishTripMove(
+  placeId: string,
+  nextTrip: FiledTrip,
+  previous: FiledTrip | null,
+): Promise<{ move: TripMove; committed: boolean }> {
+  if (!previous) {
+    return { move: { drop: nextTrip, restore: null }, committed: true }
+  }
+  if (previous.id === nextTrip.id) {
+    return { move: { drop: null, restore: null }, committed: true }
+  }
+  try {
+    await removePlaceFromTrip(previous.id, placeId)
+    return { move: { drop: nextTrip, restore: previous }, committed: true }
+  } catch (releaseError) {
+    notify.error(releaseError instanceof Error ? releaseError.message : "Couldn't remove it from the trip.")
+    try {
+      await removePlaceFromTrip(nextTrip.id, placeId)
+    } catch (rollbackError) {
+      notify.error(rollbackError instanceof Error ? rollbackError.message : "Couldn't remove it from the trip.")
+      return { move: { drop: nextTrip, restore: null }, committed: false }
+    }
+    return { move: { drop: null, restore: null }, committed: false }
+  }
+}
+
 function rangeLabel(entries: ReviewQueueEntry[], members: ReviewQueueEntry[]): string {
   const indexes = members
     .map((member) => entries.findIndex((entry) => entry.placeId === member.placeId))
@@ -761,21 +787,19 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       await setPlaceStatus(placeId, written)
       if (outcomesRef.current[placeId] === 'removed') return
       const move: TripMove = { drop: null, restore: null }
+      let committedFiling = false
+      let moveReverted = false
       if (outcome === 'added' && tripAtDecision && !sameTrip) {
         try {
           const added = await addPlacesToTrip(tripAtDecision.id, [placeId])
           if (!added.successful.includes(placeId)) {
             notify.error(didNotJoinMessage([placeName], tripAtDecision.name))
           } else {
-            move.drop = tripAtDecision
-            if (previousFiling) {
-              try {
-                await removePlaceFromTrip(previousFiling.id, placeId)
-                move.restore = previousFiling
-              } catch (releaseError) {
-                notify.error(releaseError instanceof Error ? releaseError.message : "Couldn't remove it from the trip.")
-              }
-            }
+            const settled = await finishTripMove(placeId, tripAtDecision, previousFiling)
+            move.drop = settled.move.drop
+            move.restore = settled.move.restore
+            committedFiling = settled.committed
+            moveReverted = !settled.committed && !settled.move.drop
           }
         } catch (tripError) {
           const rollback = previousOutcome === 'added' || previousOutcome === 'archived'
@@ -791,14 +815,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       commitStatus(placeId, written)
       setOutcomes((existing) => withOutcome(existing, placeId, outcome))
       setPinnedId((pin) => (pin === placeId ? null : pin))
-      if (move.drop) {
+      if (committedFiling && move.drop) {
         const filedTrip = move.drop
         setTripAssignments((existing) => ({ ...existing, [placeId]: filedTrip }))
         setTripChoice((choice) => (choice === null ? filedTrip.id : choice))
       }
       const releaseFailed = outcome === 'added' && !tripAtDecision && Boolean(previousFiling) && !move.restore
-      if (releaseFailed) return
-      const mentioned = move.drop ?? (sameTrip ? tripAtDecision : null)
+      if (releaseFailed || moveReverted) return
+      const mentioned = committedFiling ? move.drop : (sameTrip ? tripAtDecision : null)
       const addedLine = mentioned
         ? `Added “${placeName}” to your Library and ${mentioned.name}`
         : `Added “${placeName}” to your Library`
@@ -1031,7 +1055,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
           : []
         for (const placeId of already) moves[placeId] = { drop: null, restore: null }
         let joinedIds = [...already]
-        let releaseFailed = 0
+        let unreleased = 0
+        let removedCount = 0
         if (filed) {
           const toPost = written.filter((id) => !already.includes(id))
           if (toPost.length > 0) {
@@ -1042,22 +1067,19 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
             }
             for (const placeId of added.successful) {
               const previous = tripAssignmentsRef.current[placeId] ?? null
-              const move: TripMove = { drop: filed, restore: null }
-              if (previous && previous.id !== filed.id) {
-                try {
-                  await removePlaceFromTrip(previous.id, placeId)
-                  move.restore = previous
-                } catch (releaseError) {
-                  notify.error(releaseError instanceof Error ? releaseError.message : "Couldn't remove it from the trip.")
-                }
+              if (previous?.id === filed.id) {
+                if (!joinedIds.includes(placeId)) joinedIds = [...joinedIds, placeId]
+                continue
               }
-              moves[placeId] = move
-              joinedIds = [...joinedIds, placeId]
+              const settled = await finishTripMove(placeId, filed, previous)
+              if (settled.move.drop || settled.move.restore) moves[placeId] = settled.move
+              if (settled.committed) joinedIds = [...joinedIds, placeId]
             }
           }
         } else {
           const released = await releasePreviousFilings(written, null)
-          releaseFailed = released.failed.length
+          unreleased = released.failed.length
+          removedCount = Object.keys(released.removed).length
           for (const [placeId, trip] of Object.entries(released.removed)) {
             moves[placeId] = { drop: null, restore: trip }
           }
@@ -1084,7 +1106,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         const lead = written.length === 1
           ? `Added “${session.find((entry) => entry.placeId === written[0])?.name ?? 'the place'}” to your Library`
           : `Added ${written.length} places from ${title}`
-        if (!filed && releaseFailed > 0 && joinedIds.length === 0) return
+        if (!filed && unreleased > 0 && removedCount === 0) return
         notify.success(groupAddedMessage(lead, written.length, filed, joinedIds.length), {
           duration: 8_000,
           cancel: {

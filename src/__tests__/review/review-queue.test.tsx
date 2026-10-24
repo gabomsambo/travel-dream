@@ -1677,4 +1677,245 @@ describe('Review group and batch trip', () => {
     await waitFor(() => expect(notifySuccess.mock.calls.some((call) => String(call[0]).includes('Restored'))).toBe(true))
     expect(deleteCalls()).toHaveLength(0)
   })
+
+  it('rolls a new trip back when the previous one cannot be removed', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris'] }
+    renderQueue({ trips: [london, paris] })
+
+    await fileOneCafe(user)
+    await chooseBatchTrip(user, 'Paris weekend')
+    const successBefore = notifySuccess.mock.calls.length
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init as { method?: string } | undefined)?.method
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if (method === 'DELETE' && url.includes('/col_london/')) return jsonResponse({ message: 'Trip busy' }, 500)
+      return jsonResponse({ status: 'success' })
+    })
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalledWith('Trip busy'))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    const moveDeletes = deleteCalls().map((call) => call[0])
+    expect(moveDeletes).toEqual([
+      '/api/collections/col_london/places/plc_one',
+      '/api/collections/col_paris/places/plc_one',
+    ])
+    expect(postCalls().some((call) => call[0] === '/api/collections/col_paris/places')).toBe(true)
+    expect(notifySuccess.mock.calls.slice(successBefore)).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: /Previous/i }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    const deletesBeforeSkip = deleteCalls().length
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(deleteCalls().length).toBeGreaterThan(deletesBeforeSkip))
+    expect(deleteCalls().at(-1)?.[0]).toBe('/api/collections/col_london/places/plc_one')
+  })
+
+  it('keeps the previous trip when rolling back the new one also fails', async () => {
+    const user = userEvent.setup()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris'] }
+    renderQueue({ trips: [london, paris] })
+
+    await fileOneCafe(user)
+    await chooseBatchTrip(user, 'Paris weekend')
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init as { method?: string } | undefined)?.method
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if (method === 'DELETE' && url.includes('/col_london/')) return jsonResponse({ message: 'Trip busy' }, 500)
+      if (method === 'DELETE' && url.includes('/col_paris/')) return jsonResponse({ message: 'Paris stayed' }, 500)
+      return jsonResponse({ status: 'success' })
+    })
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalledWith('Paris stayed'))
+    expect(notifyError).toHaveBeenCalledWith('Trip busy')
+    const moveToast = [...notifySuccess.mock.calls].reverse().find((call) => {
+      const text = String(call[0])
+      return text.includes('One Cafe') && !text.includes('London long weekend')
+    })
+    expect(moveToast).toBeTruthy()
+    expect(String(moveToast?.[0])).not.toContain('Paris')
+    const parisDeletesBeforeUndo = deleteCalls().filter((call) => call[0] === '/api/collections/col_paris/places/plc_one').length
+    expect(parisDeletesBeforeUndo).toBe(1)
+
+    const undo = (moveToast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    expect(deleteCalls().filter((call) => call[0] === '/api/collections/col_paris/places/plc_one')).toHaveLength(2)
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(deleteCalls().filter((call) => call[0] === '/api/collections/col_london/places/plc_one').length).toBeGreaterThan(1))
+  })
+
+  it('leaves a group on its previous trip when the replacement cannot be removed', async () => {
+    const user = userEvent.setup()
+    const { entries: groupEntries, dutch } = sharedShot()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London', 'London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris', 'Paris'] }
+    let failLondonDelete = true
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init as { method?: string } | undefined)?.method
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if (method === 'DELETE' && failLondonDelete && url.includes('/col_london/')) {
+        return jsonResponse({ message: 'Trip busy' }, 500)
+      }
+      return jsonResponse({ status: 'success' })
+    })
+    render(<ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[london, paris]} />)
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalled())
+    const firstUndo = (notifySuccess.mock.calls.find((call) => String(call[0]).includes('London long weekend'))?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { firstUndo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(screen.getByTestId('review-group')).toBeInTheDocument())
+
+    failLondonDelete = false
+    fetchMock.mockClear()
+    notifySuccess.mockClear()
+    notifyError.mockClear()
+    failLondonDelete = true
+    await chooseBatchTrip(user, 'Paris weekend')
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => expect(screen.getByText(/2 of them in London long weekend/)).toBeInTheDocument())
+    expect(screen.queryByText(/Paris weekend/)).not.toBeInTheDocument()
+    expect(deleteCalls().map((call) => call[0]).sort()).toEqual([
+      '/api/collections/col_london/places/plc_dutch',
+      '/api/collections/col_london/places/plc_gails',
+      '/api/collections/col_paris/places/plc_dutch',
+      '/api/collections/col_paris/places/plc_gails',
+    ].sort())
+    const moveToast = notifySuccess.mock.calls.find((call) => String(call[0]).includes('Added 2 places'))
+    expect(moveToast).toBeTruthy()
+    expect(String(moveToast?.[0])).not.toContain('Paris')
+    const deletesAfterMove = deleteCalls().length
+
+    const undo = (moveToast?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(screen.getByTestId('review-group')).toBeInTheDocument())
+    expect(deleteCalls()).toHaveLength(deletesAfterMove)
+
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(deleteCalls().length).toBeGreaterThan(deletesAfterMove))
+    const skipped = deleteCalls().slice(deletesAfterMove).map((call) => call[0]).sort()
+    expect(skipped).toEqual([
+      '/api/collections/col_london/places/plc_dutch',
+      '/api/collections/col_london/places/plc_gails',
+    ].sort())
+  })
+
+  it('offers undo for the trips a library-only group add did release', async () => {
+    const user = userEvent.setup()
+    const { entries: groupEntries, dutch } = sharedShot()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London', 'London'] }
+    let mode: 'stick' | 'partial' = 'stick'
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init as { method?: string } | undefined)?.method
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if (mode === 'stick' && method === 'DELETE') return jsonResponse({ message: 'Trip busy' }, 500)
+      if (mode === 'partial' && method === 'DELETE' && url.includes('plc_gails')) {
+        return jsonResponse({ message: 'Trip busy' }, 500)
+      }
+      return jsonResponse({ status: 'success' })
+    })
+    render(<ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[london]} />)
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalled())
+    const firstUndo = (notifySuccess.mock.calls.find((call) => String(call[0]).includes('London long weekend'))?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { firstUndo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(screen.getByTestId('review-group')).toBeInTheDocument())
+
+    mode = 'partial'
+    fetchMock.mockClear()
+    notifySuccess.mockClear()
+    notifyError.mockClear()
+    await chooseBatchTrip(user, 'No trip')
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalled())
+    expect(notifyError).toHaveBeenCalledWith('Trip busy')
+    expect(deleteCalls().map((call) => call[0]).sort()).toEqual([
+      '/api/collections/col_london/places/plc_dutch',
+      '/api/collections/col_london/places/plc_gails',
+    ].sort())
+    const undo = (notifySuccess.mock.calls[0]?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { undo?.({} as React.MouseEvent<HTMLButtonElement>) })
+
+    await waitFor(() => expect(postCalls().map((call) => (call[1] as { body?: string }).body)).toEqual([
+      JSON.stringify({ placeIds: ['plc_dutch'] }),
+    ]))
+    await waitFor(() => expect(screen.getByTestId('review-group')).toBeInTheDocument())
+    const deletesBeforeSkip = deleteCalls().length
+    fireEvent.keyDown(window, { key: 's' })
+    await waitFor(() => expect(deleteCalls().length).toBeGreaterThan(deletesBeforeSkip))
+    expect(deleteCalls().slice(deletesBeforeSkip).map((call) => call[0]).sort()).toEqual([
+      '/api/collections/col_london/places/plc_dutch',
+      '/api/collections/col_london/places/plc_gails',
+    ].sort())
+  })
+
+  it('stays quiet when a library-only group add cannot release any trip', async () => {
+    const user = userEvent.setup()
+    const { entries: groupEntries, dutch } = sharedShot()
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London', 'London'] }
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init as { method?: string } | undefined)?.method
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse(postcardFor(row))
+      }
+      if (method === 'DELETE') return jsonResponse({ message: 'Trip busy' }, 500)
+      return jsonResponse({ status: 'success' })
+    })
+    render(<ReviewQueue entries={groupEntries} postcard={postcardFor(dutch)} trips={[london]} />)
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalled())
+    const firstUndo = (notifySuccess.mock.calls.find((call) => String(call[0]).includes('London long weekend'))?.[1]?.cancel as { onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void } | undefined)?.onClick
+    await act(async () => { firstUndo?.({} as React.MouseEvent<HTMLButtonElement>) })
+    await waitFor(() => expect(screen.getByTestId('review-group')).toBeInTheDocument())
+
+    fetchMock.mockClear()
+    notifySuccess.mockClear()
+    notifyError.mockClear()
+    await chooseBatchTrip(user, 'No trip')
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => expect(screen.getByText(/2 of them in London long weekend/)).toBeInTheDocument())
+    expect(notifyError).toHaveBeenCalledWith("Couldn't remove 2 places from London long weekend.")
+    expect(notifySuccess).not.toHaveBeenCalled()
+  })
 })

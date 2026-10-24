@@ -39,6 +39,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       blockWrites,
       handlesRef,
       onReviewPlaceUpdated,
+      onPhotoAttached,
     }: {
       place: PlaceWithRelations
       editing?: boolean
@@ -59,6 +60,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
         displayPlace: () => PlaceWithRelations
       } | null>
       onReviewPlaceUpdated?: () => Promise<void> | void
+      onPhotoAttached?: () => void
     }) => {
       const mountedId = React.useRef(place.id)
       React.useEffect(() => {
@@ -81,12 +83,14 @@ jest.mock('@/components/places/place-view/place-view', () => {
           data-mounted-id={mountedId.current}
           data-editing={editing ? 'yes' : 'no'}
           data-soft-cover={softCover ? 'yes' : 'no'}
+          data-photos={String(place.attachments.length)}
         >
           {place.name}
           {lead}
           {!blockWrites && <button type="button" onClick={() => onEdit?.()}>Edit postcard</button>}
           {!blockWrites && <button type="button" onClick={() => onPhotoAttached?.()}>Attach photo</button>}
           <button type="button" onClick={() => { void onReviewPlaceUpdated?.() }}>Save section</button>
+          <button type="button" onClick={() => onPhotoAttached?.()}>Find a photo</button>
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
           {!blockRestore && (
@@ -1150,6 +1154,85 @@ describe('ReviewQueue decisions', () => {
     )
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Newest'))
     expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'park')
+  })
+
+  it('keeps a found photo when a same-timestamp refresh arrives later', async () => {
+    const user = userEvent.setup()
+    const pending: Array<(response: Response) => void> = []
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        return await new Promise<Response>((resolve) => {
+          pending.push(resolve)
+        })
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    const view = renderQueue()
+    await user.click(screen.getByRole('button', { name: 'Find a photo' }))
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    const withPhoto = {
+      ...placeOne,
+      attachments: [{
+        id: 'att_photo',
+        placeId: placeOne.id,
+        type: 'photo',
+        uri: 'https://example.test/photo.jpg',
+        filename: 'photo.jpg',
+        mimeType: 'image/jpeg',
+        fileSize: 12,
+        width: 8,
+        height: 8,
+        thumbnailUri: null,
+        caption: null,
+        takenAt: null,
+        isPrimary: 1,
+        createdAt: placeOne.updatedAt,
+        source: 'wikimedia',
+        sourceId: 'file',
+        attribution: null,
+      }],
+    }
+    await act(async () => {
+      pending[0](jsonResponse(postcardFor(withPhoto)))
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '1'))
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(placeOne)}
+        trips={[]}
+      />
+    )
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '1')
+
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(placeOne)}
+        trips={[]}
+      />
+    )
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '1')
+
+    const newer = {
+      ...placeOne,
+      name: 'One Cafe Newer',
+      updatedAt: '2026-10-18T12:00:05.000Z',
+    }
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(newer)}
+        trips={[]}
+      />
+    )
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Newer'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '0')
   })
 })
 

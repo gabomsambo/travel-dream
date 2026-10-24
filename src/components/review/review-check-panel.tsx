@@ -28,6 +28,18 @@ function blankText(value: string | null | undefined): boolean {
   return value == null || value.trim() === ""
 }
 
+function branchLookupKey(place: PlaceWithRelations): string {
+  return [place.name ?? "", place.city ?? "", place.country ?? ""].join("\0")
+}
+
+function branchEditKey(place: PlaceWithRelations): string {
+  const coords = place.coords
+  const coordKey = coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)
+    ? `${coords.lat}\0${coords.lon}`
+    : ""
+  return [place.admin ?? "", place.address ?? "", coordKey].join("\0")
+}
+
 function townLabel(suggestion: CitySuggestion): string | null {
   if (!suggestion.locality) return null
   return suggestion.admin ? `${suggestion.locality}, ${suggestion.admin}` : suggestion.locality
@@ -117,7 +129,7 @@ export function ReviewCheckPanel({
           </Actions>
         </CheckBox>
       )}
-      {visible.includes("pin") && <PinCheck place={place} onUpdated={onUpdated} />}
+      <PinCheck place={place} onUpdated={onUpdated} open={visible.includes("pin")} />
       {visible.includes("city") && (
         <CityCheck
           place={place}
@@ -145,21 +157,34 @@ function Actions({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-wrap gap-2 pt-1">{children}</div>
 }
 
-function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: () => Promise<void> | void }) {
+function PinCheck({
+  place,
+  onUpdated,
+  open,
+}: {
+  place: PlaceWithRelations
+  onUpdated: () => Promise<void> | void
+  open: boolean
+}) {
   const [candidates, setCandidates] = React.useState<BranchCandidate[] | null>(null)
   const [unavailable, setUnavailable] = React.useState(false)
   const [pending, setPending] = React.useState<"search" | "pin" | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [other, setOther] = React.useState("")
   const hasCity = !blankText(place.city)
-  const placeKey = [place.name ?? "", place.city ?? "", place.country ?? ""].join("\0")
-  const [trackedPlaceKey, setTrackedPlaceKey] = React.useState(placeKey)
+  const lookupKey = branchLookupKey(place)
+  const editKey = branchEditKey(place)
+  const [trackedLookupKey, setTrackedLookupKey] = React.useState(lookupKey)
+  const [trackedEditKey, setTrackedEditKey] = React.useState(editKey)
   const requestRef = React.useRef(0)
-  if (trackedPlaceKey !== placeKey) {
-    setTrackedPlaceKey(placeKey)
-    setCandidates(null)
-    setUnavailable(false)
-    setError(null)
+  if (trackedLookupKey !== lookupKey || trackedEditKey !== editKey) {
+    if (trackedLookupKey !== lookupKey) {
+      setTrackedLookupKey(lookupKey)
+      setCandidates(null)
+      setUnavailable(false)
+      setError(null)
+    }
+    if (trackedEditKey !== editKey) setTrackedEditKey(editKey)
     if (pending) setPending(null)
     requestRef.current += 1
   }
@@ -225,6 +250,8 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
       if (requestId === requestRef.current) setPending(null)
     }
   }
+
+  if (!open) return null
 
   return (
     <CheckBox title={hasCity ? "Which one?" : "Where is it?"}>

@@ -99,9 +99,15 @@ function refreshSuperseded(
   if (!entry.postcard) return false
   const currentAt = entry.postcard.place.updatedAt
   const incomingAt = incoming.place.updatedAt
+  if (currentAt && incomingAt && incomingAt > currentAt) return false
+  if (
+    entry.postcardGeneration !== undefined
+    && (refreshEpoch === null || refreshEpoch <= entry.postcardGeneration)
+  ) {
+    return true
+  }
   if (currentAt && incomingAt && incomingAt < currentAt) return true
-  if (refreshEpoch === null || entry.postcardGeneration === undefined) return false
-  return refreshEpoch < entry.postcardGeneration
+  return false
 }
 
 function withInstalledPostcard(
@@ -976,7 +982,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               onPrefetchEdit={() => { void import('@/components/places/place-full-view') }}
               onPhotoAttached={() => {
                 if (placeMerged || placeMerging) return
-                router.refresh()
+                void reloadPostcard(current.placeId).catch(() => {
+                  router.refresh()
+                })
               }}
               blockWrites={placeMerged || placeMerging}
               onArchive={() => { void decide('archived') }}

@@ -7,7 +7,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { forUser } from './tenant-db';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId, NotFoundError, ConflictError } from './db-utils';
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
-import { metaWithoutRetryPrevious } from './mass-upload/retry-previous';
+import { metaDroppingRetryPrevious } from './mass-upload/retry-previous';
 import { isClaimableNow } from './mass-upload/queue-sql';
 import { archivedAtForStatus } from './place-status';
 import { usablePin } from './place-coords';
@@ -2261,7 +2261,6 @@ export async function claimNextQueuedSource(
     const nowIso = new Date().toISOString();
     const candidates = await db.select({
       id: sourcesCurrentSchema.id,
-      meta: sourcesCurrentSchema.meta,
     })
       .from(sourcesCurrentSchema)
       .where(and(
@@ -2272,7 +2271,6 @@ export async function claimNextQueuedSource(
       .limit(candidateLimit);
 
     for (const candidate of candidates) {
-      const meta = metaWithoutRetryPrevious(candidate.meta);
       const [claimed] = await db.update(sourcesCurrentSchema)
         .set({
           processingStatus: 'extracting',
@@ -2280,7 +2278,7 @@ export async function claimNextQueuedSource(
           processingLeaseId: leaseId,
           nextAttemptAt: null,
           updatedAt: new Date().toISOString(),
-          ...(meta ? { meta } : {}),
+          meta: metaDroppingRetryPrevious(),
         })
         .where(and(
           eq(sourcesCurrentSchema.id, candidate.id),

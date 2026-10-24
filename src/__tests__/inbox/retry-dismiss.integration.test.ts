@@ -52,6 +52,7 @@ function meta(extra: Record<string, unknown> = {}) {
 interface StoredMeta {
   uploadInfo?: unknown;
   massUpload?: { extraction?: unknown };
+  inbox?: { dismissedAt?: string };
   retry?: {
     previous?: {
       processingStatus: string;
@@ -78,6 +79,50 @@ function retryPost(body: unknown): Promise<RetryResponse> {
     POST: (request: Request) => Promise<RetryResponse>;
   };
   return POST(apiRequest('http://t/api/mass-upload/retry', 'POST', body));
+}
+
+const DISMISSED_AT = '2026-10-23T15:00:00.000Z';
+
+type SqlQuery = string | { sql: string; args?: unknown[] };
+type SqlTx = { execute: (query: SqlQuery) => Promise<unknown> };
+
+async function dismissAfterNextSourcesRead(sourceId: string, run: () => Promise<void>): Promise<void> {
+  const { client } = require('@/db') as {
+    client: {
+      execute: (query: SqlQuery) => Promise<unknown>;
+      transaction: (...args: unknown[]) => Promise<SqlTx>;
+    };
+  };
+  const originalExecute = client.execute.bind(client);
+  const originalTransaction = client.transaction.bind(client);
+  let pending = true;
+  const wrap = (execute: (query: SqlQuery) => Promise<unknown>) => {
+    return async (query: SqlQuery) => {
+      const result = await execute(query);
+      const text = typeof query === 'string' ? query : query.sql;
+      if (pending && /^\s*select\b/i.test(text) && /\bsources\b/i.test(text)) {
+        pending = false;
+        await execute({
+          sql: `UPDATE sources SET meta = json_set(COALESCE(meta, '{}'), '$.inbox.dismissedAt', ?) WHERE id = ?`,
+          args: [DISMISSED_AT, sourceId],
+        });
+      }
+      return result;
+    };
+  };
+  client.execute = wrap(originalExecute);
+  client.transaction = async (...args: unknown[]) => {
+    const tx = await originalTransaction(...args);
+    const originalTxExecute = tx.execute.bind(tx);
+    tx.execute = wrap(originalTxExecute);
+    return tx;
+  };
+  try {
+    await run();
+  } finally {
+    client.execute = originalExecute;
+    client.transaction = originalTransaction;
+  }
 }
 
 const execute = (sql: string, args: unknown[] = []) => {
@@ -208,6 +253,57 @@ describe('POST /api/mass-upload/retry', () => {
     expect(JSON.stringify(body)).not.toMatch(/bob/i);
     expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe(bobBefore);
     expect(await readCell('SELECT processing_error FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe('bob failed');
+  });
+
+  it('keeps a dismiss that lands while a retry is being claimed', async () => {
+    await seedFailed('failed');
+    expect((await retryPost({ sourceIds: ['src_retry'] })).status).toBe(200);
+
+    await dismissAfterNextSourcesRead('src_retry', async () => {
+      const claim = await claimNextQueuedSource('lease_dismiss');
+      expect(claim.source?.id).toBe('src_retry');
+    });
+
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', ['src_retry'])).toBe('extracting');
+    expect(await readCell('SELECT processing_lease_id FROM sources WHERE id = ?', ['src_retry'])).toBe('lease_dismiss');
+    const stored = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']));
+    expect(stored.inbox?.dismissedAt).toBe(DISMISSED_AT);
+    expect(stored.retry).toBeUndefined();
+    expect(stored.massUpload?.extraction).toEqual(EXTRACTION);
+
+    const hidden = await getInboxUploads(ALICE.id);
+    const batch = hidden.uploads.find((upload) => upload.sessionId === 'session_retry');
+    expect(batch?.dismissedCount).toBe(1);
+    expect(batch?.screenshotCount).toBe(1);
+    expect(batch?.screenshots).toEqual([]);
+    expect(batch?.rows.stillReading.sourceIds).toEqual([]);
+  });
+
+  it('keeps a dismiss that lands while undo puts the screenshot back', async () => {
+    await seedFailed('failed');
+    expect((await retryPost({ sourceIds: ['src_retry'] })).status).toBe(200);
+
+    let undone: RetryResponse | undefined;
+    await dismissAfterNextSourcesRead('src_retry', async () => {
+      undone = await retryPost({ sourceIds: ['src_retry'], undo: true });
+    });
+
+    expect(undone?.status).toBe(200);
+    expect((await undone?.json())?.sourceIds).toEqual(['src_retry']);
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', ['src_retry'])).toBe('failed');
+    expect(await readCell('SELECT processing_attempts FROM sources WHERE id = ?', ['src_retry'])).toBe(3);
+    expect(await readCell('SELECT processing_interruptions FROM sources WHERE id = ?', ['src_retry'])).toBe(4);
+    expect(await readCell('SELECT processing_error FROM sources WHERE id = ?', ['src_retry'])).toBe('reader confused');
+    const stored = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']));
+    expect(stored.inbox?.dismissedAt).toBe(DISMISSED_AT);
+    expect(stored.retry).toBeUndefined();
+    expect(stored.massUpload?.extraction).toEqual(EXTRACTION);
+
+    const hidden = await getInboxUploads(ALICE.id);
+    const batch = hidden.uploads.find((upload) => upload.sessionId === 'session_retry');
+    expect(batch?.dismissedCount).toBe(1);
+    expect(batch?.screenshots).toEqual([]);
+    expect(batch?.rows.couldNotRead.sourceIds).toEqual([]);
   });
 
   it('undo before a worker claims the row restores the failed screenshot', async () => {

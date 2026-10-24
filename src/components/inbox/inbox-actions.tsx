@@ -42,14 +42,19 @@ function seedFrom(shot: InboxShotRef): AddPlaceSeed {
   }
 }
 
-async function postJson(url: string, body: unknown): Promise<{ ok: boolean; message?: string }> {
+function sourceIdsOf(payload: { sourceIds?: unknown } | null): string[] {
+  if (!payload || !Array.isArray(payload.sourceIds)) return []
+  return payload.sourceIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
+
+async function postJson(url: string, body: unknown): Promise<{ ok: boolean; message?: string; sourceIds: string[] }> {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  const payload = await response.json().catch(() => null) as { message?: string } | null
-  return { ok: response.ok, message: payload?.message }
+  const payload = await response.json().catch(() => null) as { message?: string; sourceIds?: unknown } | null
+  return { ok: response.ok, message: payload?.message, sourceIds: sourceIdsOf(payload) }
 }
 
 export function InboxActions({ actions }: { actions: InboxAction[] }) {
@@ -80,20 +85,29 @@ export function InboxActions({ actions }: { actions: InboxAction[] }) {
 
   function retry(shots: InboxShotRef[]) {
     const ids = shots.map((shot) => shot.id)
-    const names = namesOf(shots)
     void run(async () => {
       const result = await postJson('/api/mass-upload/retry', { sourceIds: ids })
       if (!result.ok) {
         notify.error(result.message || "Couldn't try that again.")
         return
       }
+      const queuedIds = new Set(result.sourceIds)
+      const queued = shots.filter((shot) => queuedIds.has(shot.id))
+      if (queued.length === 0) {
+        notify.error("Couldn't try that again.")
+        return
+      }
+      const names = namesOf(queued)
       setSheet(null)
       notify.success(retryMessage(names), {
         duration: NOTIFY_DURATION.warning,
         action: {
           label: 'Undo',
           onClick: () => {
-            void postJson('/api/mass-upload/retry', { sourceIds: ids, undo: true }).then((undone) => {
+            void postJson('/api/mass-upload/retry', {
+              sourceIds: queued.map((shot) => shot.id),
+              undo: true,
+            }).then((undone) => {
               if (!undone.ok) {
                 notify.error(undone.message || "Couldn't put that screenshot back.")
                 return

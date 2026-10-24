@@ -4,10 +4,9 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import {
-  metaWithRetryPrevious,
-  metaWithoutRetryPrevious,
+  metaDroppingRetryPrevious,
+  metaStoringRetryPrevious,
   retryPreviousOf,
-  type SourceMeta,
   type SourceRetryPrevious,
 } from '@/lib/mass-upload/retry-previous';
 import { forUser } from '@/lib/tenant-db';
@@ -83,51 +82,27 @@ export async function POST(request: NextRequest) {
 async function requeue(tdb: Tenant, sourceIds: string[]) {
   const now = new Date().toISOString();
   const queuedIds = await tdb.transaction(async (tx) => {
-    const rows = await tx.selectFields(
+    const written = await tx.update(
       sourcesCurrentSchema,
       {
-        id: sourcesCurrentSchema.id,
-        meta: sourcesCurrentSchema.meta,
-        processingStatus: sourcesCurrentSchema.processingStatus,
-        processingAttempts: sourcesCurrentSchema.processingAttempts,
-        processingInterruptions: sourcesCurrentSchema.processingInterruptions,
-        processingError: sourcesCurrentSchema.processingError,
+        processingStatus: 'queued',
+        processingAttempts: 0,
+        processingInterruptions: 0,
+        processingError: null,
+        processingLeaseId: null,
+        processingStartedAt: null,
+        nextAttemptAt: null,
+        meta: metaStoringRetryPrevious(),
+        updatedAt: now,
       },
       and(
         inArray(sourcesCurrentSchema.id, sourceIds),
         eq(sourcesCurrentSchema.type, 'screenshot'),
         inArray(sourcesCurrentSchema.processingStatus, ['failed', 'stalled'])
       )
-    );
-    const updated: string[] = [];
-    for (const row of rows) {
-      if (row.processingStatus !== 'failed' && row.processingStatus !== 'stalled') continue;
-      const written = await tx.update(
-        sourcesCurrentSchema,
-        {
-          processingStatus: 'queued',
-          processingAttempts: 0,
-          processingInterruptions: 0,
-          processingError: null,
-          processingLeaseId: null,
-          processingStartedAt: null,
-          nextAttemptAt: null,
-          meta: metaWithRetryPrevious(row.meta, {
-            processingStatus: row.processingStatus,
-            processingAttempts: row.processingAttempts ?? 0,
-            processingInterruptions: row.processingInterruptions ?? 0,
-            processingError: row.processingError ?? null,
-          }),
-          updatedAt: now,
-        },
-        and(
-          eq(sourcesCurrentSchema.id, row.id),
-          inArray(sourcesCurrentSchema.processingStatus, ['failed', 'stalled'])
-        )
-      ).returning({ id: sourcesCurrentSchema.id });
-      if (written.length > 0) updated.push(row.id);
-    }
-    return sourceIds.filter((id) => updated.includes(id));
+    ).returning({ id: sourcesCurrentSchema.id });
+    const updated = new Set(written.map((row) => row.id));
+    return sourceIds.filter((id) => updated.has(id));
   });
 
   if (queuedIds.length === 0) {
@@ -171,15 +146,14 @@ async function undoRetry(tdb: Tenant, sourceIds: string[]) {
         )
       );
       const byId = new Map(rows.map((row) => [row.id, row]));
-      const ready: Array<{ id: string; previous: SourceRetryPrevious; meta: SourceMeta }> = [];
+      const ready: Array<{ id: string; previous: SourceRetryPrevious }> = [];
       for (const id of sourceIds) {
         const row = byId.get(id);
         if (!row) continue;
         const previous = retryPreviousOf(row.meta);
-        const cleared = metaWithoutRetryPrevious(row.meta);
         const waiting = row.processingStatus === 'queued' && row.processingLeaseId == null;
-        if (!previous || !cleared || !waiting) throw new RetryAlreadyStarted();
-        ready.push({ id, previous, meta: cleared });
+        if (!previous || !waiting) throw new RetryAlreadyStarted();
+        ready.push({ id, previous });
       }
       if (ready.length === 0) return [];
       const restoredIds: string[] = [];
@@ -194,7 +168,7 @@ async function undoRetry(tdb: Tenant, sourceIds: string[]) {
             processingLeaseId: null,
             processingStartedAt: null,
             nextAttemptAt: null,
-            meta: item.meta,
+            meta: metaDroppingRetryPrevious(),
             updatedAt: now,
           },
           and(

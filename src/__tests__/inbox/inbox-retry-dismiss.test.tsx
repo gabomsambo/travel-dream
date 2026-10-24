@@ -135,6 +135,65 @@ describe('inbox try again and dismiss', () => {
     }))
   })
 
+  it('names and undoes only the screenshots the server requeued', async () => {
+    const failedA = shot({
+      sourceId: 'src_fail_a',
+      name: 'IMG_a.jpg',
+      outcome: 'couldNotRead',
+      processingStatus: 'failed',
+    })
+    const failedB = shot({
+      sourceId: 'src_fail_b',
+      name: 'IMG_b.jpg',
+      outcome: 'couldNotRead',
+      processingStatus: 'failed',
+    })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'success', sourceIds: ['src_fail_b'] }),
+    })
+    render(<InboxScreen model={show(batch({
+      couldNotRead: {
+        sourceIds: ['src_fail_a', 'src_fail_b'],
+        items: [
+          { sourceId: 'src_fail_a', status: 'failed', error: 'confused', attempts: 2 },
+          { sourceId: 'src_fail_b', status: 'failed', error: 'confused', attempts: 2 },
+        ],
+      },
+    }, [failedA, failedB]))} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    const dialog = await screen.findByRole('dialog', { name: /couldn't read these/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: /One more read/ }))
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith(
+        'Queued IMG_b.jpg for another read.',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) })
+      )
+    })
+    expect(notify.success).not.toHaveBeenCalledWith(
+      'Queued 2 screenshots for another read.',
+      expect.anything()
+    )
+    expect(global.fetch).toHaveBeenCalledWith('/api/mass-upload/retry', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ sourceIds: ['src_fail_a', 'src_fail_b'] }),
+    }))
+
+    const queued = (notify.success as jest.Mock).mock.calls.find((call) => String(call[0]).startsWith('Queued'))
+    queued?.[1]?.action.onClick()
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith('Put IMG_b.jpg back.')
+    })
+    expect(global.fetch).toHaveBeenCalledWith('/api/mass-upload/retry', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ sourceIds: ['src_fail_b'], undo: true }),
+    }))
+    expect(global.fetch).not.toHaveBeenCalledWith('/api/mass-upload/retry', expect.objectContaining({
+      body: JSON.stringify({ sourceIds: ['src_fail_a', 'src_fail_b'], undo: true }),
+    }))
+  })
+
   it('says processing already started when undo can no longer put the screenshot back', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({

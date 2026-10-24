@@ -1,3 +1,5 @@
+import { sql, type SQL } from 'drizzle-orm';
+import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import type { Source } from '@/types/database';
 
 export type SourceMeta = NonNullable<Source['meta']>;
@@ -20,23 +22,29 @@ export function retryPreviousOf(meta: SourceMeta | null | undefined): SourceRetr
   };
 }
 
-export function metaWithRetryPrevious(
-  meta: SourceMeta | null | undefined,
-  previous: SourceRetryPrevious
-): SourceMeta {
-  return {
-    ...(meta ?? {}),
-    retry: { ...(meta?.retry ?? {}), previous },
-  };
+/** `meta.retry.previous` set from the row's current failed or stalled columns. */
+export function metaStoringRetryPrevious(): SQL {
+  const row = sourcesCurrentSchema;
+  return sql`json_set(
+    COALESCE(${row.meta}, '{}'),
+    '$.retry.previous',
+    json_object(
+      'processingStatus', ${row.processingStatus},
+      'processingAttempts', COALESCE(${row.processingAttempts}, 0),
+      'processingInterruptions', COALESCE(${row.processingInterruptions}, 0),
+      'processingError', ${row.processingError}
+    )
+  )`;
 }
 
-/** A copy of `meta` without `retry.previous`, or null when there was nothing to drop. */
-export function metaWithoutRetryPrevious(meta: SourceMeta | null | undefined): SourceMeta | null {
-  if (!meta?.retry?.previous) return null;
-  const next: SourceMeta = { ...meta };
-  const retry = { ...(next.retry ?? {}) };
-  delete retry.previous;
-  if (Object.keys(retry).length === 0) delete next.retry;
-  else next.retry = retry;
-  return next;
+/** Drop `retry.previous` on the row being updated, and drop `retry` when that leaves it empty. */
+export function metaDroppingRetryPrevious(): SQL {
+  const meta = sourcesCurrentSchema.meta;
+  const strip = () => sql`json_remove(${meta}, '$.retry.previous')`;
+  return sql`CASE
+    WHEN json_extract(${meta}, '$.retry.previous') IS NULL THEN ${meta}
+    WHEN json_extract(${strip()}, '$.retry') = '{}'
+    THEN json_remove(${strip()}, '$.retry')
+    ELSE ${strip()}
+  END`;
 }

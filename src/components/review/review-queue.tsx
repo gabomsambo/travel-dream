@@ -482,6 +482,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   }, [postcard, entries])
 
   React.useEffect(() => {
+    mountedRef.current = true
     return () => {
       mountedRef.current = false
       releaseRefreshWaiter()

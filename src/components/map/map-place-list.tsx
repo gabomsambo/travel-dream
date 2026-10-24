@@ -29,11 +29,9 @@ export function MapPlaceList() {
 
   const handlePlaceClick = useCallback((placeId: string) => {
     const place = filteredPlaces.find(p => p.id === placeId)
+    selectPlace(placeId)
     const pin = usablePin(place?.coords)
-    if (pin) {
-      selectPlace(placeId)
-      flyTo(pin.lon, pin.lat)
-    }
+    if (pin) flyTo(pin.lon, pin.lat)
   }, [filteredPlaces, selectPlace, flyTo])
 
   if (filteredPlaces.length === 0) {

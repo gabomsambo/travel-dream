@@ -183,7 +183,9 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
       const patch: Record<string, unknown> = {
         coords: body.pin.coords,
         googlePlaceId: body.pin.googlePlaceId,
-        address: body.pin.address,
+      }
+      if (typeof body.pin.address === "string" && body.pin.address.length > 0) {
+        patch.address = body.pin.address
       }
       if (!place.city && body.pin.city) patch.city = body.pin.city
       if (!place.admin && body.pin.admin) patch.admin = body.pin.admin

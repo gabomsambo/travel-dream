@@ -1515,7 +1515,6 @@ describe('Review duplicate note', () => {
     })
     const previous = fetchMock.getMockImplementation()
     fetchMock.mockImplementation(async (input, init) => {
-      const url = requestUrl(input)
       const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
       if (method === 'PATCH') {
         const body = JSON.parse(String((init as { body?: string }).body)) as { status?: string }

@@ -1,4 +1,4 @@
-import { eq, and, inArray, count, sql, desc, lt } from 'drizzle-orm';
+import { eq, and, inArray, count, sql, desc, lt, type SQL } from 'drizzle-orm';
 import { db } from '@/db';
 import { releaseBlobIfUnreferenced, releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks, dismissedDuplicates } from '@/db/schema';
@@ -2308,6 +2308,24 @@ export async function markSourceEnriching(sourceId: string, leaseId: string): Pr
   }, 'markSourceEnriching');
 }
 
+function metaCachingProcessingWork(
+  work: { extraction?: unknown; thumbnailUrl?: string },
+  extractedAt: string
+): SQL | null {
+  const meta = sourcesCurrentSchema.meta;
+  const pairs: SQL[] = [];
+  if (work.extraction !== undefined) {
+    pairs.push(sql`'$.massUpload.extraction', json(${JSON.stringify(work.extraction)})`);
+    pairs.push(sql`'$.massUpload.extractedAt', ${extractedAt}`);
+  }
+  if (work.thumbnailUrl) {
+    pairs.push(sql`'$.massUpload.thumbnailUrl', ${work.thumbnailUrl}`);
+    pairs.push(sql`'$.uploadInfo.thumbnailPath', ${work.thumbnailUrl}`);
+  }
+  if (pairs.length === 0) return null;
+  return sql`json_set(COALESCE(${meta}, '{}'), ${sql.join(pairs, sql`, `)})`;
+}
+
 /**
  * Persist work already paid for (Gemini extraction, thumbnail) onto the source
  * so a later retry reuses it instead of calling the API again.
@@ -2318,40 +2336,10 @@ export async function cacheSourceProcessingWork(
   work: { extraction?: unknown; thumbnailUrl?: string }
 ): Promise<boolean> {
   return withErrorHandling(async () => {
-    const [current] = await db.select({ meta: sourcesCurrentSchema.meta })
-      .from(sourcesCurrentSchema)
-      .where(and(
-        eq(sourcesCurrentSchema.id, sourceId),
-        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
-      ))
-      .limit(1);
-
-    if (!current) return false;
-
-    const meta = (current.meta ?? {}) as Record<string, unknown>;
-    const massUpload = (meta.massUpload ?? {}) as Record<string, unknown>;
-    const uploadInfo = (meta.uploadInfo ?? {}) as Record<string, unknown>;
-
-    const nextMassUpload = {
-      ...massUpload,
-      ...(work.extraction !== undefined
-        ? { extraction: work.extraction, extractedAt: new Date().toISOString() }
-        : {}),
-      ...(work.thumbnailUrl ? { thumbnailUrl: work.thumbnailUrl } : {}),
-    };
-
+    const now = new Date().toISOString();
+    const meta = metaCachingProcessingWork(work, now);
     const updated = await db.update(sourcesCurrentSchema)
-      .set({
-        meta: {
-          ...meta,
-          massUpload: nextMassUpload,
-          // Keep the attachment-facing field in sync with the cached thumbnail.
-          uploadInfo: work.thumbnailUrl
-            ? { ...uploadInfo, thumbnailPath: work.thumbnailUrl }
-            : uploadInfo,
-        } as Source['meta'],
-        updatedAt: new Date().toISOString(),
-      })
+      .set(meta ? { meta, updatedAt: now } : { updatedAt: now })
       .where(and(
         eq(sourcesCurrentSchema.id, sourceId),
         eq(sourcesCurrentSchema.processingLeaseId, leaseId)

@@ -75,13 +75,13 @@ export function computeEta(
 ): { estimatedMinutesRemaining: number | null; processingRate: number; timing: EtaTiming } {
   const completedNow = terminalSourceCount(counts)
   const remaining = total - completedNow
-  const isActive = activeSourceCount(counts) > 0
+  const moving = counts.queued + counts.extracting + counts.enriching > 0
 
   let nextTiming = timing
   let estimatedMinutesRemaining: number | null = null
   let processingRate = 0
 
-  if (isActive && completedNow > 0) {
+  if (moving && completedNow > 0) {
     if (timing.startMs === null) {
       nextTiming = { startMs: nowMs, initialCompleted: completedNow }
     }

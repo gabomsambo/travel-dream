@@ -160,7 +160,7 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
     setCandidates(null)
     setUnavailable(false)
     setError(null)
-    if (pending === "search") setPending(null)
+    if (pending) setPending(null)
     requestRef.current += 1
   }
 
@@ -189,12 +189,14 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
 
   const choose = async (candidate: BranchCandidate) => {
     if (pending) return
+    const requestId = ++requestRef.current
     setPending("pin")
     setError(null)
     try {
       const params = new URLSearchParams({ googlePlaceId: candidate.googlePlaceId })
       const response = await fetch(`/api/review/places/${encodeURIComponent(place.id)}/pin?${params}`)
       const body = await response.json().catch(() => null) as { pin?: PinDetails | null; unavailable?: boolean; message?: string } | null
+      if (requestId !== requestRef.current) return
       if (!response.ok) throw new Error(body?.message || "We couldn't pin that one. Try again.")
       if (body?.unavailable || !body?.pin) throw new Error("Place search isn't available right now.")
       if (!body.pin.coords) throw new Error("That match has no pin. Try another.")
@@ -213,12 +215,14 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       })
+      if (requestId !== requestRef.current) return
       if (!saved.ok) throw new Error(await readError(saved, "We couldn't save that pin. Try again."))
       await onUpdated()
     } catch (chooseError) {
+      if (requestId !== requestRef.current) return
       setError(chooseError instanceof Error ? chooseError.message : "We couldn't pin that one. Try again.")
     } finally {
-      setPending(null)
+      if (requestId === requestRef.current) setPending(null)
     }
   }
 

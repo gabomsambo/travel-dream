@@ -345,6 +345,87 @@ describe('ReviewCheckPanel', () => {
     expect(await screen.findByText('600 Guerrero St, San Francisco')).toBeInTheDocument()
   })
 
+  it('does not save a branch chosen before the name changes', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    let resolvePin: (value: Response) => void = () => {}
+    let resolveNextSearch: (value: Response) => void = () => {}
+    let branchLookups = 0
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        branchLookups += 1
+        if (branchLookups === 1) {
+          return Promise.resolve(json({
+            candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+            unavailable: false,
+          }))
+        }
+        return new Promise((resolve) => {
+          resolveNextSearch = resolve
+        })
+      }
+      if (url.includes('/pin')) {
+        return new Promise((resolve) => {
+          resolvePin = resolve
+        })
+      }
+      if (init?.method === 'PATCH') return Promise.resolve(json({ status: 'success' }))
+      return Promise.resolve(json({ message: 'unexpected' }, 500))
+    })
+
+    const { rerender } = render(
+      <ReviewCheckPanel place={place({ coords: null })} onRename={jest.fn()} onUpdated={onUpdated} />
+    )
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    await user.click(await screen.findByText('91 Lordship Ln, London SE22'))
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/pin'))).toBe(true))
+
+    rerender(
+      <ReviewCheckPanel
+        place={place({ coords: null, name: 'Tartine' })}
+        onRename={jest.fn()}
+        onUpdated={onUpdated}
+      />
+    )
+    expect(screen.getByText(/Tartine may have more than one location/)).toBeInTheDocument()
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    const lookup = screen.getByRole('button', { name: /Look up this place/ })
+    expect(lookup).toBeEnabled()
+
+    await user.click(lookup)
+    expect(screen.getByRole('button', { name: /Looking up/ })).toBeInTheDocument()
+
+    await act(async () => {
+      resolvePin(json({
+        pin: {
+          googlePlaceId: 'stub-gails-dulwich',
+          name: "Gail's Bakery",
+          address: '91 Lordship Ln',
+          city: 'London',
+          admin: 'England',
+          country: 'United Kingdom',
+          coords: { lat: 51.45, lon: -0.07 },
+        },
+        unavailable: false,
+      }))
+    })
+
+    expect(fetchMock.mock.calls.some((call) => (call[1] as RequestInit | undefined)?.method === 'PATCH')).toBe(false)
+    expect(onUpdated).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Looking up/ })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveNextSearch(json({
+        candidates: [{ googlePlaceId: 'stub-tartine', name: 'Tartine', detail: '600 Guerrero St, San Francisco' }],
+        unavailable: false,
+      }))
+    })
+    expect(await screen.findByText('600 Guerrero St, San Francisco')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some((call) => (call[1] as RequestInit | undefined)?.method === 'PATCH')).toBe(false)
+  })
+
   it('brings back a dismissed missing city when the region changes', async () => {
     const user = userEvent.setup()
     fetchMock.mockResolvedValue(json({ suggestion: null }))

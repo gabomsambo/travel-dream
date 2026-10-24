@@ -213,7 +213,6 @@ export function InboxActions({ actions }: { actions: InboxAction[] }) {
               </DialogTitle>
               <DialogDescription className="mt-1.5 text-sm text-muted-foreground">
                 {triedSentence(one?.attempts ?? sheetShots.find((shot) => (shot.attempts ?? 0) > 0)?.attempts)}
-                {one?.error ? ` ${one.error}.` : ''}
                 {' '}A second read often works; if not, add the place yourself.
               </DialogDescription>
               {sheetShots.length > 1 && (

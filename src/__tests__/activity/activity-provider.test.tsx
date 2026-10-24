@@ -124,9 +124,29 @@ describe('ActivityProvider', () => {
     expect(mockedToast).not.toHaveBeenCalled()
   })
 
-  it('announces a terminal job once, persists it, and keeps it after remount', async () => {
+  it('keeps polling a batch that is still trying and does not announce it', async () => {
     mockNetwork({
       status: statusPayload({ completed: 487, failed: 9, stalled: 4 }, 500, 118),
+    })
+
+    render(
+      <ActivityProvider ownerUserId="user_a">
+        <JobProbe />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phases')).toHaveTextContent('active')
+    })
+    expect(screen.getByTestId('summaries')).toHaveTextContent('Processing 500 of 500 · 118 places found')
+    expect(mockedToast).not.toHaveBeenCalled()
+    const patches = (global.fetch as jest.Mock).mock.calls.filter((call) => call[1]?.method === 'PATCH')
+    expect(patches).toHaveLength(0)
+  })
+
+  it('announces a terminal job once, persists it, and keeps it after remount', async () => {
+    mockNetwork({
+      status: statusPayload({ completed: 487, failed: 9 }, 496, 118),
     })
 
     const { unmount } = render(
@@ -140,14 +160,14 @@ describe('ActivityProvider', () => {
       expect(screen.getByTestId('phases')).toHaveTextContent('complete')
     })
     expect(screen.getByTestId('summaries')).toHaveTextContent(
-      '487 processed · 9 failed · 4 need retry · 118 places found'
+      '487 processed · 9 failed · 118 places found'
     )
     expect(screen.queryByText(/Processing /)).not.toBeInTheDocument()
     expect(mockedToast).toHaveBeenCalledTimes(1)
     expect(mockedToast).toHaveBeenCalledWith(
-      'Processing finished · 487 processed · 4 need retry.',
-      '/mass-upload',
-      { type: 'warning', actionLabel: 'Review upload' }
+      'Processing complete! 118 places found from 487 screenshots.',
+      '/library',
+      { actionLabel: 'View library' }
     )
     expect(localStorage.getItem(activityJobsStorageKey('user_a'))).toContain('session_bell-1')
 

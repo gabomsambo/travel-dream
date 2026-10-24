@@ -111,26 +111,23 @@ describe('mass upload UI — stalled screenshots surface as "needs retry"', () =
     await dumpEvidence('ui-processing-needs-retry', 'Processing — 3 screenshots surfaced as "needs retry", none failed')
   })
 
-  it('explains on the completion screen that stalled images are not bad images', async () => {
+  it('keeps a finished-plus-stalled batch on the processing screen', async () => {
     mockApis(statusPayload({ completed: 497, stalled: 3 }, 500, 698))
     render(<MassUploadPage />)
 
-    await waitFor(() => expect(screen.getByText('Processing Complete!')).toBeInTheDocument())
-    expect(
-      screen.getByText(/3 screenshots kept getting interrupted/i)
-    ).toBeInTheDocument()
-    expect(screen.getByText(/Nothing is wrong with those images/i)).toBeInTheDocument()
-    expect(screen.queryByText(/failed to process/i)).not.toBeInTheDocument()
-
-    await dumpEvidence('ui-complete-needs-retry', 'Complete — 497 completed, 3 "needs retry", 0 failed')
+    expect(await screen.findByText('Processing Screenshots')).toBeInTheDocument()
+    expect(screen.getByText('3 needs retry')).toBeInTheDocument()
+    expect(screen.queryByText('Processing Complete!')).not.toBeInTheDocument()
+    expect(screen.queryByText(/upload them again to retry/i)).not.toBeInTheDocument()
   })
 
-  it('still finishes the run when every remaining screenshot stalled', async () => {
+  it('keeps polling when every remaining screenshot is still trying', async () => {
     mockApis(statusPayload({ completed: 0, stalled: 2 }, 2, 0))
     render(<MassUploadPage />)
 
-    // A run that ends entirely in `stalled` must not poll forever.
-    await waitFor(() => expect(screen.getByText('Processing Complete!')).toBeInTheDocument())
-    expect(screen.getByText(/upload them again to retry/i)).toBeInTheDocument()
+    expect(await screen.findByText('Processing Screenshots')).toBeInTheDocument()
+    expect(screen.getByText('2 needs retry')).toBeInTheDocument()
+    expect(screen.queryByText('Processing Complete!')).not.toBeInTheDocument()
+    expect(screen.queryByText(/upload them again to retry/i)).not.toBeInTheDocument()
   })
 })

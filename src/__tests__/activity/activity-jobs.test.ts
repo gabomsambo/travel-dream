@@ -11,10 +11,14 @@ import {
 } from '@/lib/activity-jobs'
 import { emptyMassUploadCounts } from '@/lib/mass-upload/status-view'
 
-const counts = {
+const finished = {
   ...emptyMassUploadCounts,
   completed: 487,
   failed: 9,
+}
+
+const counts = {
+  ...finished,
   stalled: 4,
 }
 
@@ -50,8 +54,15 @@ describe('activity job copy', () => {
 })
 
 describe('activity job persistence', () => {
+  it('stays in progress while any screenshot is still trying', () => {
+    const waiting = toActivityJob('ses_stalled', counts, 500, 118, null, false)
+    expect(waiting.phase).toBe('active')
+    expect(waiting.summary).toContain('Processing 500 of 500')
+    expect(persistableJobs([waiting], 'user_a')).toEqual([])
+  })
+
   it('round-trips complete jobs and drops in-flight ones', () => {
-    const complete = toActivityJob('ses_done', counts, 500, 118, null, true)
+    const complete = toActivityJob('ses_done', finished, 496, 118, null, true)
     const active = toActivityJob(
       'ses_live',
       { ...emptyMassUploadCounts, queued: 3, completed: 1 },
@@ -81,7 +92,7 @@ describe('activity job persistence', () => {
   })
 
   it('does not revive another user\'s persisted jobs', () => {
-    const stored = persistableJobs([toActivityJob('ses_done', counts, 500, 118, null, true)], 'user_a')
+    const stored = persistableJobs([toActivityJob('ses_done', finished, 496, 118, null, true)], 'user_a')
     expect(parsePersistedJobs(JSON.stringify(stored), 'user_b')).toEqual([])
   })
 
@@ -92,8 +103,8 @@ describe('activity job persistence', () => {
 
   it('keeps each user\'s persisted jobs in an independent namespace', () => {
     window.localStorage.clear()
-    const userAJob = toActivityJob('ses_a', counts, 500, 118, null, true)
-    const userBJob = toActivityJob('ses_b', counts, 500, 118, null, true)
+    const userAJob = toActivityJob('ses_a', finished, 496, 118, null, true)
+    const userBJob = toActivityJob('ses_b', finished, 496, 118, null, true)
 
     writePersistedJobs([userAJob], 'user_a')
     writePersistedJobs([userBJob], 'user_b')

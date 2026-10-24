@@ -5,6 +5,20 @@ import { notify } from '@/lib/notify'
 import { buildInboxScreen } from '@/lib/inbox-page-model'
 import type { InboxUploadBatch, InboxUploadPlace, InboxUploadScreenshot } from '@/types/inbox-uploads'
 
+const mockRefresh = jest.fn()
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    prefetch: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh: mockRefresh,
+  }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => '',
+}))
+
 const NOW = new Date('2026-10-23T15:00:00.000Z')
 
 function place(partial: Pick<InboxUploadPlace, 'id' | 'name' | 'status'>): InboxUploadPlace {
@@ -300,6 +314,61 @@ describe('inbox try again and dismiss', () => {
     expect(within(dialog).getByText('Istanbul, Turkey')).toBeInTheDocument()
   })
 
+  it('uses the screenshot error when a failed read never counted an attempt', async () => {
+    const clockedOut = shot({
+      sourceId: 'src_clock',
+      name: 'IMG_clock.jpg',
+      outcome: 'couldNotRead',
+      processingStatus: 'failed',
+    })
+    render(<InboxScreen model={show(batch({
+      couldNotRead: {
+        sourceIds: ['src_clock'],
+        items: [{
+          sourceId: 'src_clock',
+          status: 'failed',
+          error: 'AI service was unavailable after multiple attempts',
+          attempts: 0,
+        }],
+      },
+    }, [clockedOut]))} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    const dialog = await screen.findByRole('dialog', { name: /couldn't read this one/i })
+    expect(within(dialog).getByText(/AI service was unavailable after multiple attempts/)).toBeInTheDocument()
+    expect(within(dialog).queryByText(/didn't make sense/)).not.toBeInTheDocument()
+  })
+
+  it('uses each error when every screenshot in the sheet has no counted attempts', async () => {
+    const first = shot({
+      sourceId: 'src_clock_a',
+      name: 'IMG_a.jpg',
+      outcome: 'couldNotRead',
+      processingStatus: 'failed',
+    })
+    const second = shot({
+      sourceId: 'src_clock_b',
+      name: 'IMG_b.jpg',
+      outcome: 'couldNotRead',
+      processingStatus: 'failed',
+    })
+    render(<InboxScreen model={show(batch({
+      couldNotRead: {
+        sourceIds: ['src_clock_a', 'src_clock_b'],
+        items: [
+          { sourceId: 'src_clock_a', status: 'failed', error: 'AI service was unavailable after multiple attempts', attempts: 0 },
+          { sourceId: 'src_clock_b', status: 'failed', error: 'Processing timed out after multiple attempts', attempts: 0 },
+        ],
+      },
+    }, [first, second]))} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    const dialog = await screen.findByRole('dialog', { name: /couldn't read these/i })
+    expect(within(dialog).getByText(/AI service was unavailable after multiple attempts/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Processing timed out after multiple attempts/)).toBeInTheDocument()
+    expect(within(dialog).queryByText(/didn't make sense/)).not.toBeInTheDocument()
+  })
+
   it('leaves a stalled screenshot as still trying, with no try again', () => {
     const stalled = shot({
       sourceId: 'src_stalled',
@@ -317,6 +386,65 @@ describe('inbox try again and dismiss', () => {
     expect(screen.getByText('still trying')).toBeInTheDocument()
     expect(screen.getByText(/retries on its own/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+  })
+
+  it('keeps refreshing the inbox while a screenshot is still trying', () => {
+    const stalled = shot({
+      sourceId: 'src_stalled',
+      name: 'IMG_hold.jpg',
+      outcome: 'couldNotRead',
+      processingStatus: 'stalled',
+    })
+    const upload = batch({
+      couldNotRead: {
+        sourceIds: ['src_stalled'],
+        items: [{ sourceId: 'src_stalled', status: 'stalled', error: 'hold', attempts: 0 }],
+      },
+    }, [stalled])
+    jest.useFakeTimers()
+    try {
+      mockRefresh.mockClear()
+      const home = show(upload)
+      expect(home.live).toBe(true)
+      const homeView = render(<InboxScreen model={home} />)
+      jest.advanceTimersByTime(5000)
+      expect(mockRefresh).toHaveBeenCalled()
+      homeView.unmount()
+      mockRefresh.mockClear()
+
+      const detail = buildInboxScreen({
+        uploads: [upload],
+        toReviewPlaceIds: [],
+        addedAnotherWay: [],
+        now: NOW,
+        uploadId: upload.sessionId,
+      })
+      expect(detail.live).toBe(true)
+      const detailView = render(<InboxScreen model={detail} />)
+      jest.advanceTimersByTime(5000)
+      expect(mockRefresh).toHaveBeenCalled()
+      detailView.unmount()
+      mockRefresh.mockClear()
+
+      const failed = shot({
+        sourceId: 'src_fail_done',
+        name: 'IMG_done.jpg',
+        outcome: 'couldNotRead',
+        processingStatus: 'failed',
+      })
+      const settled = show(batch({
+        couldNotRead: {
+          sourceIds: ['src_fail_done'],
+          items: [{ sourceId: 'src_fail_done', status: 'failed', error: 'the reader got confused', attempts: 3 }],
+        },
+      }, [failed]))
+      expect(settled.live).toBe(false)
+      render(<InboxScreen model={settled} />)
+      jest.advanceTimersByTime(5000)
+      expect(mockRefresh).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('counts dismissed screenshots on a finished upload without a row for them', () => {

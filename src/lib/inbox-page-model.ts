@@ -405,6 +405,13 @@ function isOpen(batch: InboxUploadBatch): boolean {
   );
 }
 
+function stillInProgress(batch: InboxUploadBatch): boolean {
+  return (
+    batch.rows.stillReading.sourceIds.length > 0 ||
+    batch.rows.couldNotRead.items.some((item) => item.status === 'stalled')
+  );
+}
+
 function seeThemHref(places: Array<{ id: string }>): string {
   if (places.length === 1) return `/place/${places[0].id}`;
   return '/library';
@@ -993,7 +1000,7 @@ function buildDetail(batch: InboxUploadBatch, now: Date | null): InboxDetailMode
     rows,
     dock: href ? { label: `Review ${plural(count, 'place')}`, href } : null,
     enterHref: href,
-    live: batch.rows.stillReading.sourceIds.length > 0,
+    live: stillInProgress(batch),
   };
 }
 
@@ -1037,7 +1044,7 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
   const finished = uploads.filter((upload) => !isOpen(upload));
   const reviewIds = [...toReviewPlaceIds, ...addedAnotherWay.map((place) => place.id)];
   const reviewCount = reviewIds.length;
-  const live = readingBatch != null;
+  const live = uploads.some(stillInProgress);
 
   let hero: InboxHero;
   let dock: InboxLink | null = null;
@@ -1156,7 +1163,7 @@ function buildHome(input: BuildInboxScreenInput): InboxHomeModel {
     hero,
     live,
     reading: readingBatch ? readingCard(readingBatch, now) : null,
-    uploadsHeading: open.length > 0 ? (live ? 'While you wait' : 'Your uploads') : null,
+    uploadsHeading: open.length > 0 ? (readingBatch != null ? 'While you wait' : 'Your uploads') : null,
     uploads: open.map((upload) => uploadCard(upload, now)),
     addedAnotherWay: addedCard,
     earlierHeading: showEarlier ? (allFinished ? 'Recent uploads' : 'Earlier') : null,

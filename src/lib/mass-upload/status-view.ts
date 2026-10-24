@@ -5,7 +5,7 @@ export interface MassUploadStatusCounts {
   enriching: number
   completed: number
   failed: number
-  /** Repeatedly interrupted before finishing — retryable, not a bad image. */
+  /** Interrupted before a verdict and waiting to try again. Still in progress. */
   stalled: number
   cancelled: number
 }
@@ -49,11 +49,11 @@ export function normalizeCounts(
 }
 
 export function activeSourceCount(counts: MassUploadStatusCounts): number {
-  return counts.queued + counts.extracting + counts.enriching
+  return counts.queued + counts.extracting + counts.enriching + counts.stalled
 }
 
 export function terminalSourceCount(counts: MassUploadStatusCounts): number {
-  return counts.completed + counts.failed + counts.stalled + counts.cancelled
+  return counts.completed + counts.failed + counts.cancelled
 }
 
 export function isSessionComplete(

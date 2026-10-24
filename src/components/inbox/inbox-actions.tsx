@@ -25,9 +25,20 @@ function dismissMessage(names: string[]): string {
   return `Dismissed ${names.length} screenshots. The files are kept.`
 }
 
-function triedSentence(attempts: number | undefined): string {
-  if (!attempts || attempts < 1) return "The reader's answer didn't make sense."
+function triedSentence(attempts: number): string {
   return `We tried ${attempts} ${attempts === 1 ? 'time' : 'times'} and the reader's answer didn't make sense.`
+}
+
+function sheetLead(shots: InboxShotRef[]): string {
+  const tried = shots.find((shot) => (shot.attempts ?? 0) > 0)
+  if (tried?.attempts) return triedSentence(tried.attempts)
+  const errors = Array.from(new Set(
+    shots
+      .map((shot) => shot.error?.trim() ?? '')
+      .filter((error) => error.length > 0)
+  ))
+  if (errors.length === 0) return "Couldn't be read."
+  return errors.join(' · ')
 }
 
 function seedFrom(shot: InboxShotRef): AddPlaceSeed {
@@ -250,7 +261,7 @@ export function InboxActions({ actions }: { actions: InboxAction[] }) {
                 {one ? "We couldn't read this one" : `We couldn't read these ${sheetShots.length}`}
               </DialogTitle>
               <DialogDescription className="mt-1.5 text-sm text-muted-foreground">
-                {triedSentence(one?.attempts ?? sheetShots.find((shot) => (shot.attempts ?? 0) > 0)?.attempts)}
+                {sheetLead(sheetShots)}
                 {' '}A second read often works; if not, add the place yourself.
               </DialogDescription>
               {sheetShots.length > 1 && (

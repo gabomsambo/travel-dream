@@ -73,6 +73,15 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
     inbox?: {
       dismissedAt?: string;
     };
+    // The failed or stalled row a manual retry can still undo, until a worker claims it.
+    retry?: {
+      previous?: {
+        processingStatus: 'failed' | 'stalled';
+        processingAttempts: number;
+        processingInterruptions: number;
+        processingError: string | null;
+      };
+    };
     llmProcessing?: {
       processed: boolean;
       model: string;

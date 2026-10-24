@@ -774,6 +774,55 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
         because:
           "A list is not an authorization boundary: the foreign id is skipped, Alice's own failed source is requeued, and the 200 names only her id.",
       },
+      {
+        name: 'undo a retry before it is claimed',
+        slots: ['source'],
+        setup: async () => {
+          const run = dbExec();
+          await run({
+            sql: `UPDATE sources SET processing_status = 'queued', processing_attempts = 0,
+                    processing_interruptions = 0, processing_error = NULL,
+                    processing_lease_id = NULL, next_attempt_at = NULL, meta = ?
+                  WHERE id = ?`,
+            args: [JSON.stringify({
+              uploadInfo: { sessionId: FIXTURE.aliceSession, originalName: 'alice.png' },
+              retry: {
+                previous: {
+                  processingStatus: 'failed',
+                  processingAttempts: 3,
+                  processingInterruptions: 2,
+                  processingError: 'reader confused',
+                },
+              },
+            }), FIXTURE.aliceSource],
+          });
+          await run({
+            sql: `UPDATE sources SET processing_status = 'queued', processing_attempts = 0,
+                    processing_interruptions = 0, processing_error = NULL,
+                    processing_lease_id = NULL, next_attempt_at = NULL, meta = ?
+                  WHERE id = ?`,
+            args: [JSON.stringify({
+              uploadInfo: { sessionId: FIXTURE.bobSession, originalName: 'bob-passport.png' },
+              retry: {
+                previous: {
+                  processingStatus: 'failed',
+                  processingAttempts: 3,
+                  processingInterruptions: 1,
+                  processingError: 'bob failed',
+                },
+              },
+            }), FIXTURE.bobSource],
+          });
+          return [FIXTURE.bobSource];
+        },
+        request: (t) => ({
+          url: `${API}/mass-upload/retry`,
+          body: { sourceIds: [FIXTURE.aliceSource, t.source], undo: true },
+        }),
+        refuses: [200],
+        because:
+          "A list is not an authorization boundary: the foreign screenshot is skipped, only Alice's queued retry is undone, and the 200 names only her id.",
+      },
     ],
   },
   'mass-upload/start': {

@@ -176,6 +176,7 @@ export interface InboxDetailModel {
   sessionId: string;
   title: string;
   subtitle: string;
+  dismissedCount: number;
   chips: InboxChip[];
   rows: InboxShotRow[];
   dock: InboxLink | null;
@@ -987,6 +988,7 @@ function buildDetail(batch: InboxUploadBatch, now: Date | null): InboxDetailMode
     sessionId: batch.sessionId,
     title: when.heading || plural(batch.screenshotCount, 'screenshot'),
     subtitle: detailSubtitle(batch),
+    dismissedCount: batch.dismissedCount ?? 0,
     chips: detailChips(rows),
     rows,
     dock: href ? { label: `Review ${plural(count, 'place')}`, href } : null,

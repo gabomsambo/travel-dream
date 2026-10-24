@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { InboxScreen } from '@/components/inbox/inbox-screen'
+import { InboxUploadDetail } from '@/components/inbox/inbox-upload-detail'
 import { notify } from '@/lib/notify'
 import { buildInboxScreen } from '@/lib/inbox-page-model'
 import type { InboxUploadBatch, InboxUploadPlace, InboxUploadScreenshot } from '@/types/inbox-uploads'
@@ -98,7 +99,7 @@ describe('inbox try again and dismiss', () => {
     }, [empty, failed]))} />)
   }
 
-  it('opens the couldn\'t-read sheet and confirms a retry with no undo', async () => {
+  it('opens the couldn\'t-read sheet and confirms a retry with undo', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({ status: 'success', sourceIds: ['src_fail'] }),
@@ -113,14 +114,55 @@ describe('inbox try again and dismiss', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: /One more read/ }))
     await waitFor(() => {
-      expect(notify.success).toHaveBeenCalledWith('Queued IMG_3017.jpg for another read.')
+      expect(notify.success).toHaveBeenCalledWith(
+        'Queued IMG_3017.jpg for another read.',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) })
+      )
     })
     expect(global.fetch).toHaveBeenCalledWith('/api/mass-upload/retry', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ sourceIds: ['src_fail'] }),
     }))
+
     const queued = (notify.success as jest.Mock).mock.calls.find((call) => String(call[0]).startsWith('Queued'))
-    expect(queued?.[1]?.action).toBeUndefined()
+    queued?.[1]?.action.onClick()
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith('Put IMG_3017.jpg back.')
+    })
+    expect(global.fetch).toHaveBeenCalledWith('/api/mass-upload/retry', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ sourceIds: ['src_fail'], undo: true }),
+    }))
+  })
+
+  it('says processing already started when undo can no longer put the screenshot back', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'success', sourceIds: ['src_fail'] }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ status: 'error', message: 'Processing already started.' }),
+      })
+    renderCard()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    const dialog = await screen.findByRole('dialog', { name: /couldn't read this one/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: /One more read/ }))
+    await waitFor(() => {
+      expect(notify.success).toHaveBeenCalledWith(
+        'Queued IMG_3017.jpg for another read.',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) })
+      )
+    })
+
+    const queued = (notify.success as jest.Mock).mock.calls.find((call) => String(call[0]).startsWith('Queued'))
+    queued?.[1]?.action.onClick()
+    await waitFor(() => {
+      expect(notify.error).toHaveBeenCalledWith('Processing already started.')
+    })
+    expect(notify.success).not.toHaveBeenCalledWith('Put IMG_3017.jpg back.')
   })
 
   it('dismisses a no-place screenshot and offers undo', async () => {
@@ -189,5 +231,105 @@ describe('inbox try again and dismiss', () => {
 
     expect(screen.getByText(/2 dismissed/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument()
+  })
+
+  it('names add-by-hand the same way for couldn\'t-read and no-place screenshots', async () => {
+    const failedA = shot({
+      sourceId: 'src_fail_a',
+      name: 'IMG_a.jpg',
+      outcome: 'couldNotRead',
+      processingStatus: 'failed',
+    })
+    const failedB = shot({
+      sourceId: 'src_fail_b',
+      name: 'IMG_b.jpg',
+      outcome: 'couldNotRead',
+      processingStatus: 'failed',
+    })
+    const { unmount } = render(<InboxScreen model={show(batch({
+      couldNotRead: {
+        sourceIds: ['src_fail_a', 'src_fail_b'],
+        items: [
+          { sourceId: 'src_fail_a', status: 'failed', error: 'confused', attempts: 2 },
+          { sourceId: 'src_fail_b', status: 'failed', error: 'confused', attempts: 2 },
+        ],
+      },
+    }, [failedA, failedB]))} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    const sheet = await screen.findByRole('dialog', { name: /couldn't read these/i })
+    fireEvent.click(within(sheet).getByRole('button', { name: /Add the place by hand/ }))
+    const fromFailed = await screen.findByRole('dialog', { name: 'Add the place by hand' })
+    expect(within(fromFailed).getByText('Pick the screenshot to add by hand.')).toBeInTheDocument()
+    expect(within(fromFailed).getByText('IMG_a.jpg')).toBeInTheDocument()
+    expect(within(fromFailed).getByText('IMG_b.jpg')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'No place found' })).not.toBeInTheDocument()
+    unmount()
+
+    const emptyA = shot({ sourceId: 'src_empty_a', name: 'terrace.jpg', outcome: 'noPlaceFound' })
+    const emptyB = shot({ sourceId: 'src_empty_b', name: 'harbor.jpg', outcome: 'noPlaceFound' })
+    render(<InboxScreen model={show(batch({
+      noPlaceFound: { sourceIds: ['src_empty_a', 'src_empty_b'] },
+    }, [emptyA, emptyB]))} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add by hand' }))
+    const fromEmpty = await screen.findByRole('dialog', { name: 'Add the place by hand' })
+    expect(within(fromEmpty).getByText('Pick the screenshot to add by hand.')).toBeInTheDocument()
+    expect(within(fromEmpty).getByText('terrace.jpg')).toBeInTheDocument()
+    expect(within(fromEmpty).getByText('harbor.jpg')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'No place found' })).not.toBeInTheDocument()
+  })
+
+  it('says the screenshots were dismissed when that is the whole upload', () => {
+    function detail(count: number) {
+      return buildInboxScreen({
+        uploads: [{
+          ...batch({}, []),
+          dismissedCount: count,
+          screenshotCount: count,
+        }],
+        toReviewPlaceIds: [],
+        addedAnotherWay: [],
+        now: NOW,
+        uploadId: 'session_today',
+      })
+    }
+
+    const { unmount } = render(<InboxScreen model={detail(1)} />)
+    expect(screen.getByText('1 screenshot · 1 dismissed')).toBeInTheDocument()
+    expect(screen.getByText('1 screenshot was dismissed.')).toBeInTheDocument()
+    expect(screen.queryByText('No screenshots in this filter.')).not.toBeInTheDocument()
+    unmount()
+
+    render(<InboxScreen model={detail(2)} />)
+    expect(screen.getByText('2 screenshots · 2 dismissed')).toBeInTheDocument()
+    expect(screen.getByText('2 screenshots were dismissed.')).toBeInTheDocument()
+    expect(screen.queryByText('No screenshots in this filter.')).not.toBeInTheDocument()
+  })
+
+  it('still says a filter excluded screenshots when a chip matches none', () => {
+    render(
+      <InboxUploadDetail
+        chips={[
+          { id: 'all', label: 'All 1', count: 1 },
+          { id: 'new', label: 'Found new places 0', count: 0 },
+        ]}
+        rows={[{
+          id: 'src',
+          kind: 'added',
+          kinds: ['added'],
+          imageUrl: null,
+          alt: 'saved.jpg',
+          title: 'Plaza',
+          line: '1 place added',
+          places: [],
+          actions: [],
+        }]}
+        dismissedCount={0}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Found new places 0' }))
+    expect(screen.getByText('No screenshots in this filter.')).toBeInTheDocument()
+    expect(screen.queryByText(/was dismissed/)).not.toBeInTheDocument()
   })
 })

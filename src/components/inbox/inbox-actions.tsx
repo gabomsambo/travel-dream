@@ -88,7 +88,22 @@ export function InboxActions({ actions }: { actions: InboxAction[] }) {
         return
       }
       setSheet(null)
-      notify.success(retryMessage(names))
+      notify.success(retryMessage(names), {
+        duration: NOTIFY_DURATION.warning,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            void postJson('/api/mass-upload/retry', { sourceIds: ids, undo: true }).then((undone) => {
+              if (!undone.ok) {
+                notify.error(undone.message || "Couldn't put that screenshot back.")
+                return
+              }
+              notify.success(names.length === 1 ? `Put ${names[0]} back.` : `Put ${names.length} screenshots back.`)
+              router.refresh()
+            })
+          },
+        },
+      })
       router.refresh()
     })
   }
@@ -266,7 +281,7 @@ export function InboxActions({ actions }: { actions: InboxAction[] }) {
 
       <Dialog open={chooser !== null} onOpenChange={(open) => { if (!open) setChooser(null) }}>
         <DialogContent className="max-w-md">
-          <DialogTitle>No place found</DialogTitle>
+          <DialogTitle>Add the place by hand</DialogTitle>
           <DialogDescription>Pick the screenshot to add by hand.</DialogDescription>
           <ul className="flex flex-col gap-2">
             {(chooser ?? []).map((shot) => (

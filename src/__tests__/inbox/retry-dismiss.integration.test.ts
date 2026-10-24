@@ -25,6 +25,7 @@ jest.mock('@/lib/auth-helpers', () => ({
 
 import { del } from '@vercel/blob';
 import { requireAuthForApi } from '@/lib/auth-helpers';
+import { claimNextQueuedSource } from '@/lib/db-mutations';
 import { getInboxUploads } from '@/lib/inbox-uploads';
 
 const EXTRACTION = {
@@ -46,6 +47,37 @@ function meta(extra: Record<string, unknown> = {}) {
     massUpload: { extraction: EXTRACTION, thumbnailUrl: 'https://store.public.blob.vercel-storage.com/thumb.jpg' },
     ...extra,
   });
+}
+
+interface StoredMeta {
+  uploadInfo?: unknown;
+  massUpload?: { extraction?: unknown };
+  retry?: {
+    previous?: {
+      processingStatus: string;
+      processingAttempts: number;
+      processingInterruptions: number;
+      processingError: string | null;
+    };
+  };
+}
+
+function asMeta(value: unknown): StoredMeta {
+  if (typeof value === 'string') return JSON.parse(value) as StoredMeta;
+  if (value && typeof value === 'object') return value as StoredMeta;
+  throw new Error('source meta missing');
+}
+
+type RetryResponse = {
+  status: number;
+  json: () => Promise<{ sourceIds?: string[]; message?: string }>;
+};
+
+function retryPost(body: unknown): Promise<RetryResponse> {
+  const { POST } = require('@/app/api/mass-upload/retry/route') as {
+    POST: (request: Request) => Promise<RetryResponse>;
+  };
+  return POST(apiRequest('http://t/api/mass-upload/retry', 'POST', body));
 }
 
 const execute = (sql: string, args: unknown[] = []) => {
@@ -98,7 +130,7 @@ beforeEach(async () => {
 describe('POST /api/mass-upload/retry', () => {
   it('requeues a failed screenshot, resets counters, and keeps the cached read', async () => {
     await seedFailed('failed');
-    const before = await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']);
+    const before = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']));
 
     const { POST } = require('@/app/api/mass-upload/retry/route') as {
       POST: (request: Request) => Promise<{ status: number; json: () => Promise<{ sourceIds: string[] }> }>;
@@ -116,7 +148,15 @@ describe('POST /api/mass-upload/retry', () => {
     expect(await readCell('SELECT uri FROM sources WHERE id = ?', ['src_retry'])).toBe(
       'https://store.public.blob.vercel-storage.com/src_retry.jpg'
     );
-    expect(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry'])).toBe(before);
+    const stored = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']));
+    expect(stored.uploadInfo).toEqual(before.uploadInfo);
+    expect(stored.massUpload).toEqual(before.massUpload);
+    expect(stored.retry?.previous).toEqual({
+      processingStatus: 'failed',
+      processingAttempts: 3,
+      processingInterruptions: 4,
+      processingError: 'reader confused',
+    });
     expect(del).not.toHaveBeenCalled();
   });
 
@@ -129,6 +169,12 @@ describe('POST /api/mass-upload/retry', () => {
     expect(response.status).toBe(200);
     expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', ['src_retry'])).toBe('queued');
     expect(await readCell('SELECT processing_interruptions FROM sources WHERE id = ?', ['src_retry'])).toBe(0);
+    expect(asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry'])).retry?.previous).toMatchObject({
+      processingStatus: 'stalled',
+      processingAttempts: 3,
+      processingInterruptions: 4,
+      processingError: 'reader confused',
+    });
   });
 
   it('does not requeue a finished or still-uploading screenshot', async () => {
@@ -162,6 +208,138 @@ describe('POST /api/mass-upload/retry', () => {
     expect(JSON.stringify(body)).not.toMatch(/bob/i);
     expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe(bobBefore);
     expect(await readCell('SELECT processing_error FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe('bob failed');
+  });
+
+  it('undo before a worker claims the row restores the failed screenshot', async () => {
+    await seedFailed('failed');
+    const queued = await retryPost({ sourceIds: ['src_retry'] });
+    expect(queued.status).toBe(200);
+
+    const undone = await retryPost({ sourceIds: ['src_retry'], undo: true });
+    expect(undone.status).toBe(200);
+    expect((await undone.json()).sourceIds).toEqual(['src_retry']);
+
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', ['src_retry'])).toBe('failed');
+    expect(await readCell('SELECT processing_attempts FROM sources WHERE id = ?', ['src_retry'])).toBe(3);
+    expect(await readCell('SELECT processing_interruptions FROM sources WHERE id = ?', ['src_retry'])).toBe(4);
+    expect(await readCell('SELECT processing_error FROM sources WHERE id = ?', ['src_retry'])).toBe('reader confused');
+    expect(await readCell('SELECT processing_lease_id FROM sources WHERE id = ?', ['src_retry'])).toBeNull();
+    expect(await readCell('SELECT next_attempt_at FROM sources WHERE id = ?', ['src_retry'])).toBeNull();
+    const stored = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']));
+    expect(stored.retry).toBeUndefined();
+    expect(stored.massUpload?.extraction).toEqual(EXTRACTION);
+    expect(await readCell('SELECT uri FROM sources WHERE id = ?', ['src_retry'])).toBe(
+      'https://store.public.blob.vercel-storage.com/src_retry.jpg'
+    );
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('undo after a worker claims the row says processing already started and changes nothing', async () => {
+    await seedFailed('failed');
+    expect((await retryPost({ sourceIds: ['src_retry'] })).status).toBe(200);
+
+    const claim = await claimNextQueuedSource('lease_undo');
+    expect(claim.source?.id).toBe('src_retry');
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', ['src_retry'])).toBe('extracting');
+    expect(await readCell('SELECT processing_lease_id FROM sources WHERE id = ?', ['src_retry'])).toBe('lease_undo');
+    const claimed = asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']));
+    expect(claimed.retry).toBeUndefined();
+    expect(claimed.massUpload?.extraction).toEqual(EXTRACTION);
+
+    const before = {
+      status: await readCell('SELECT processing_status FROM sources WHERE id = ?', ['src_retry']),
+      attempts: await readCell('SELECT processing_attempts FROM sources WHERE id = ?', ['src_retry']),
+      interruptions: await readCell('SELECT processing_interruptions FROM sources WHERE id = ?', ['src_retry']),
+      error: await readCell('SELECT processing_error FROM sources WHERE id = ?', ['src_retry']),
+      lease: await readCell('SELECT processing_lease_id FROM sources WHERE id = ?', ['src_retry']),
+      nextAttemptAt: await readCell('SELECT next_attempt_at FROM sources WHERE id = ?', ['src_retry']),
+      meta: await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry']),
+      updatedAt: await readCell('SELECT updated_at FROM sources WHERE id = ?', ['src_retry']),
+    };
+
+    const undone = await retryPost({ sourceIds: ['src_retry'], undo: true });
+    expect(undone.status).toBe(409);
+    expect((await undone.json()).message).toBe('Processing already started.');
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', ['src_retry'])).toBe(before.status);
+    expect(await readCell('SELECT processing_attempts FROM sources WHERE id = ?', ['src_retry'])).toBe(before.attempts);
+    expect(await readCell('SELECT processing_interruptions FROM sources WHERE id = ?', ['src_retry'])).toBe(before.interruptions);
+    expect(await readCell('SELECT processing_error FROM sources WHERE id = ?', ['src_retry'])).toBe(before.error);
+    expect(await readCell('SELECT processing_lease_id FROM sources WHERE id = ?', ['src_retry'])).toBe(before.lease);
+    expect(await readCell('SELECT next_attempt_at FROM sources WHERE id = ?', ['src_retry'])).toBe(before.nextAttemptAt);
+    expect(await readCell('SELECT meta FROM sources WHERE id = ?', ['src_retry'])).toBe(before.meta);
+    expect(await readCell('SELECT updated_at FROM sources WHERE id = ?', ['src_retry'])).toBe(before.updatedAt);
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it("undo does not restore another user's screenshot", async () => {
+    await seedFailed('failed');
+    const bobMeta = JSON.stringify({
+      uploadInfo: { sessionId: 'session_bob', originalName: 'bob-passport.png' },
+      retry: {
+        previous: {
+          processingStatus: 'failed',
+          processingAttempts: 2,
+          processingInterruptions: 1,
+          processingError: 'bob failed',
+        },
+      },
+    });
+    await execute(
+      `UPDATE sources SET processing_status = 'queued', processing_attempts = 0,
+         processing_interruptions = 0, processing_error = NULL, processing_lease_id = NULL,
+         next_attempt_at = NULL, meta = ? WHERE id = ?`,
+      [bobMeta, FIXTURE.bobSource]
+    );
+    expect((await retryPost({ sourceIds: ['src_retry'] })).status).toBe(200);
+
+    const undone = await retryPost({ sourceIds: ['src_retry', FIXTURE.bobSource], undo: true });
+    expect(undone.status).toBe(200);
+    const body = await undone.json();
+    expect(body.sourceIds).toEqual(['src_retry']);
+    expect(JSON.stringify(body)).not.toMatch(/bob/i);
+
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', ['src_retry'])).toBe('failed');
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe('queued');
+    expect(await readCell('SELECT processing_error FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBeNull();
+    expect(await readCell('SELECT meta FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe(bobMeta);
+    expect(await readCell('SELECT uri FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe(FIXTURE.bobSourceBlob);
+  });
+
+  it('undo of a batch changes nothing once any screenshot was claimed', async () => {
+    await seedFailed('failed');
+    await execute(
+      `INSERT INTO sources
+         (id,user_id,type,uri,processing_status,processing_attempts,processing_interruptions,
+          processing_error,meta,created_at,updated_at)
+       VALUES (?,?,'screenshot',?,?,?,?,?,?,?,?)`,
+      [
+        'src_retry_2',
+        ALICE.id,
+        'https://store.public.blob.vercel-storage.com/src_retry_2.jpg',
+        'failed',
+        3,
+        4,
+        'reader confused',
+        meta(),
+        '2026-10-23T13:14:00.000Z',
+        '2026-10-23T13:14:00.000Z',
+      ]
+    );
+    expect((await retryPost({ sourceIds: ['src_retry', 'src_retry_2'] })).status).toBe(200);
+    const claim = await claimNextQueuedSource('lease_one');
+    expect(['src_retry', 'src_retry_2']).toContain(claim.source?.id);
+
+    const waitingId = claim.source?.id === 'src_retry' ? 'src_retry_2' : 'src_retry';
+    const waitingBefore = await readCell('SELECT meta FROM sources WHERE id = ?', [waitingId]);
+    const undone = await retryPost({ sourceIds: ['src_retry', 'src_retry_2'], undo: true });
+    expect(undone.status).toBe(409);
+    expect((await undone.json()).message).toBe('Processing already started.');
+
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [claim.source?.id])).toBe('extracting');
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [waitingId])).toBe('queued');
+    expect(await readCell('SELECT processing_attempts FROM sources WHERE id = ?', [waitingId])).toBe(0);
+    expect(asMeta(await readCell('SELECT meta FROM sources WHERE id = ?', [waitingId])).retry?.previous?.processingStatus).toBe('failed');
+    expect(await readCell('SELECT meta FROM sources WHERE id = ?', [waitingId])).toBe(waitingBefore);
   });
 });
 

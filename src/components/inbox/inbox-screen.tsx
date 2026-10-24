@@ -361,7 +361,7 @@ function DetailView({ model }: { model: Extract<InboxScreenModel, { view: 'detai
         Inbox
       </Link>
       <PageTitle title={model.title} description={model.subtitle} />
-      <InboxUploadDetail chips={model.chips} rows={model.rows} />
+      <InboxUploadDetail chips={model.chips} rows={model.rows} dismissedCount={model.dismissedCount} />
     </>
   )
 }

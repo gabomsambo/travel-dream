@@ -787,4 +787,131 @@ describe('PlaceView review dismissal', () => {
     expect(onUpdated).toHaveBeenCalled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('looks up the draft and ignores that search once the saved place catches up', async () => {
+    const user = userEvent.setup()
+    let resolveSearch: (value: Response) => void = () => {}
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return new Promise((resolve) => {
+          resolveSearch = resolve
+        })
+      }
+      return Promise.resolve(json({ status: 'success' }))
+    })
+
+    const initial = place({ coords: null, city: ' ', country: ' ' })
+    const onUpdated = jest.fn()
+    const { rerender } = render(reviewPlace(initial, onUpdated, true))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Place name' }), { target: { value: 'Tartine' } })
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Paris' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Country' }), { target: { value: '   ' } })
+
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    const lookupCall = fetchMock.mock.calls.find((call) => String(call[0]).includes('/branches'))
+    expect(new URL(String(lookupCall?.[0]), 'http://localhost').searchParams.get('q')).toBe('Tartine, Paris')
+    expect(screen.getByRole('button', { name: /Looking up/ })).toBeInTheDocument()
+
+    rerender(reviewPlace(place({
+      ...initial,
+      name: 'Tartine',
+      city: 'Paris',
+      country: ' ',
+    }), onUpdated, true))
+    expect(screen.getByText(/Tartine may have more than one location/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /Looking up/ })).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveSearch(json({
+        candidates: [{ googlePlaceId: 'stub-gails', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+        unavailable: false,
+      }))
+    })
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeEnabled()
+  })
+
+  it('keeps a typed region and country when the town button saves the city', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/city-suggestion')) {
+        return json({
+          suggestion: { locality: 'Forks', admin: 'Washington', country: 'United States', areaLabel: 'Olympic National Park' },
+          unavailable: false,
+        })
+      }
+      if (init?.method === 'PATCH') return json({ status: 'success' })
+      return json({ message: 'unexpected' }, 500)
+    })
+
+    render(reviewPlace(place({
+      name: 'Hall of Mosses',
+      kind: 'natural',
+      city: null,
+      admin: null,
+      country: null,
+      coords: { lat: 47.86, lon: -123.93 },
+    }), onUpdated, true))
+    expect(await screen.findByRole('button', { name: 'Forks, Washington' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Region' }), { target: { value: 'Oregon' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Country' }), { target: { value: 'Canada' } })
+    await user.click(screen.getByRole('button', { name: 'Forks, Washington' }))
+
+    await waitFor(() => expect(forksPatch(fetchMock)).not.toBeNull())
+    expect(forksPatch(fetchMock)).toEqual({ city: 'Forks' })
+  })
+
+  it('fills a region the draft cleared even when the saved place still has one', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/city-suggestion')) {
+        return json({
+          suggestion: { locality: 'Forks', admin: 'Washington', country: 'United States', areaLabel: 'Olympic National Park' },
+          unavailable: false,
+        })
+      }
+      if (init?.method === 'PATCH') return json({ status: 'success' })
+      return json({ message: 'unexpected' }, 500)
+    })
+
+    render(reviewPlace(place({
+      name: 'Hall of Mosses',
+      kind: 'natural',
+      city: null,
+      admin: 'Oregon',
+      country: 'Canada',
+      coords: { lat: 47.86, lon: -123.93 },
+    }), onUpdated, true))
+    expect(await screen.findByRole('button', { name: 'Forks, Washington' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Region' }), { target: { value: '' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Country' }), { target: { value: ' ' } })
+    await user.click(screen.getByRole('button', { name: 'Forks, Washington' }))
+
+    await waitFor(() => expect(forksPatch(fetchMock)).not.toBeNull())
+    expect(forksPatch(fetchMock)).toEqual({
+      city: 'Forks',
+      admin: 'Washington',
+      country: 'United States',
+    })
+  })
 })
+
+function forksPatch(fetchMock: jest.Mock): Record<string, unknown> | null {
+  const saves = fetchMock.mock.calls.filter((call) => {
+    const init = call[1] as RequestInit | undefined
+    if (init?.method !== 'PATCH') return false
+    const body = JSON.parse(String(init.body)) as { city?: unknown }
+    return body.city === 'Forks'
+  })
+  if (saves.length !== 1) return null
+  return JSON.parse(String((saves[0][1] as RequestInit).body)) as Record<string, unknown>
+}

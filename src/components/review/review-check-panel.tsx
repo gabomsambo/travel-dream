@@ -35,6 +35,10 @@ function branchLookupKey(place: PlaceWithRelations): string {
 
 type BranchFields = Pick<PlaceDraft, "name" | "city" | "country" | "admin" | "address" | "lat" | "lon">
 
+function branchQuery(fields: Pick<BranchFields, "name" | "city" | "country">): string {
+  return [fields.name, fields.city, fields.country].filter((part) => !blankText(part)).join(", ")
+}
+
 function branchFields(place: PlaceWithRelations, draft: BranchFields | null): BranchFields {
   if (draft) {
     return {
@@ -206,15 +210,20 @@ function PinCheck({
   const [trackedGenerationKey, setTrackedGenerationKey] = React.useState(generationKey)
   const requestRef = React.useRef(0)
   if (trackedLookupKey !== lookupKey || trackedGenerationKey !== generationKey) {
-    if (trackedLookupKey !== lookupKey) {
+    const lookupChanged = trackedLookupKey !== lookupKey
+    const generationChanged = trackedGenerationKey !== generationKey
+    if (lookupChanged) {
       setTrackedLookupKey(lookupKey)
       setCandidates(null)
       setUnavailable(false)
       setError(null)
     }
-    if (trackedGenerationKey !== generationKey) {
+    if (generationChanged) {
       setTrackedGenerationKey(generationKey)
       if (pending) setPending(null)
+      requestRef.current += 1
+    } else if (lookupChanged && pending === "search") {
+      setPending(null)
       requestRef.current += 1
     }
   }
@@ -293,7 +302,7 @@ function PinCheck({
       </p>
       {candidates === null ? (
         <Actions>
-          <Button type="button" variant="outline" size="sm" disabled={pending !== null} onClick={() => void search([place.name, place.city, place.country].filter((part) => !blankText(part)).join(", "))}>
+          <Button type="button" variant="outline" size="sm" disabled={pending !== null} onClick={() => void search(branchQuery(fields))}>
             <Search className="mr-1.5 h-3.5 w-3.5" aria-hidden />
             {pending === "search" ? "Looking up…" : "Look up this place"}
           </Button>
@@ -357,6 +366,10 @@ function CityCheck({
   onDismiss: () => void
   onUpdated: () => Promise<void> | void
 }) {
+  const sectionEdit = useSectionEdit()
+  const fields = branchFields(place, sectionEdit?.draft ?? null)
+  const fieldsRef = React.useRef(fields)
+  fieldsRef.current = fields
   const pin = usablePin(place.coords)
   const lat = pin?.lat
   const lon = pin?.lon
@@ -404,9 +417,10 @@ function CityCheck({
     setPending(true)
     setError(null)
     try {
+      const current = fieldsRef.current
       const patch: Record<string, unknown> = { city: trimmed }
-      if (blankText(place.admin) && !blankText(extra?.admin)) patch.admin = extra?.admin
-      if (blankText(place.country) && !blankText(extra?.country)) patch.country = extra?.country
+      if (blankText(current.admin) && !blankText(extra?.admin)) patch.admin = extra?.admin
+      if (blankText(current.country) && !blankText(extra?.country)) patch.country = extra?.country
       const response = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

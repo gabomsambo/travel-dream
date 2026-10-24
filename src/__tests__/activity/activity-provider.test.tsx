@@ -138,7 +138,7 @@ describe('ActivityProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('phases')).toHaveTextContent('active')
     })
-    expect(screen.getByTestId('summaries')).toHaveTextContent('Processing 500 of 500 · 118 places found')
+    expect(screen.getByTestId('summaries')).toHaveTextContent('Processing 496 of 500 · 118 places found')
     expect(mockedToast).not.toHaveBeenCalled()
     const patches = (global.fetch as jest.Mock).mock.calls.filter((call) => call[1]?.method === 'PATCH')
     expect(patches).toHaveLength(0)

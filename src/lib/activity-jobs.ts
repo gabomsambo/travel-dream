@@ -1,6 +1,7 @@
 import {
   isSessionComplete,
   normalizeCounts,
+  processedSourceCount,
   type MassUploadStatusCounts,
 } from '@/lib/mass-upload/status-view'
 
@@ -51,7 +52,7 @@ export function formatActiveSummary(job: {
 }): string {
   const cancelled = job.counts.cancelled || 0
   const adjustedTotal = Math.max(0, job.total - cancelled)
-  const processed = job.counts.completed + job.counts.failed + job.counts.stalled
+  const processed = processedSourceCount(job.counts)
   const parts = [
     `Processing ${processed} of ${adjustedTotal}`,
     `${job.placesCreated} ${placeWord(job.placesCreated)} found`,

@@ -1,8 +1,8 @@
 /**
  * The `stalled` status is new product surface, not an internal detail: an image
  * that was interrupted too many times must reach the owner as "needs retry",
- * visibly distinct from `failed`, and must count towards progress so the run can
- * finish.
+ * visibly distinct from `failed`. It is still in progress, so the processed
+ * count and the bar leave it out and the run stays on this screen.
  *
  * This renders the real page against the real polling hook, with only `fetch`
  * stubbed with the payload `/api/mass-upload/status` returns.
@@ -104,8 +104,11 @@ describe('mass upload UI — stalled screenshots surface as "needs retry"', () =
     render(<MassUploadPage />)
 
     expect(await screen.findByText('3 needs retry')).toBeInTheDocument()
-    // Stalled items count as processed so the bar reflects real progress.
-    expect(screen.getByText('484 of 500 processed')).toBeInTheDocument()
+    expect(screen.getByText('481 of 500 processed')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Overall processing progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '96'
+    )
     expect(screen.queryByText(/failed/i)).not.toBeInTheDocument()
 
     await dumpEvidence('ui-processing-needs-retry', 'Processing — 3 screenshots surfaced as "needs retry", none failed')
@@ -116,6 +119,11 @@ describe('mass upload UI — stalled screenshots surface as "needs retry"', () =
     render(<MassUploadPage />)
 
     expect(await screen.findByText('Processing Screenshots')).toBeInTheDocument()
+    expect(screen.getByText('497 of 500 processed')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Overall processing progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '99'
+    )
     expect(screen.getByText('3 needs retry')).toBeInTheDocument()
     expect(screen.queryByText('Processing Complete!')).not.toBeInTheDocument()
     expect(screen.queryByText(/upload them again to retry/i)).not.toBeInTheDocument()
@@ -126,6 +134,11 @@ describe('mass upload UI — stalled screenshots surface as "needs retry"', () =
     render(<MassUploadPage />)
 
     expect(await screen.findByText('Processing Screenshots')).toBeInTheDocument()
+    expect(screen.getByText('0 of 2 processed')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Overall processing progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '0'
+    )
     expect(screen.getByText('2 needs retry')).toBeInTheDocument()
     expect(screen.queryByText('Processing Complete!')).not.toBeInTheDocument()
     expect(screen.queryByText(/upload them again to retry/i)).not.toBeInTheDocument()

@@ -56,6 +56,10 @@ export function terminalSourceCount(counts: MassUploadStatusCounts): number {
   return counts.completed + counts.failed + counts.cancelled
 }
 
+export function processedSourceCount(counts: MassUploadStatusCounts): number {
+  return counts.completed + counts.failed
+}
+
 export function isSessionComplete(
   counts: MassUploadStatusCounts,
   total: number

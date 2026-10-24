@@ -432,6 +432,9 @@ describe('inbox page model', () => {
     expect(screen.getByText('✓ 1 place set aside')).toBeInTheDocument()
     expect(screen.queryByText(/in Library/)).not.toBeInTheDocument()
     expect(screen.getByText('So far: 1 new place · 1 added · 1 not a place · 1 uploaded before · 1 still trying · 1 cancelled')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '3 of 6 read' })).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: '3 of 6 read' })).toHaveAttribute('aria-valuenow', '3')
+    expect(screen.getByRole('progressbar', { name: '3 of 6 read' })).toHaveAttribute('aria-valuemax', '6')
   })
 
   it('counts a set-aside place in the reading footer when that is the only decision so far', () => {

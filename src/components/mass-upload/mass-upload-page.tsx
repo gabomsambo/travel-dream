@@ -20,6 +20,7 @@ import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Card } from "@/components/adapters/card"
 import { useMassUploadStatus } from '@/hooks/use-mass-upload-status'
+import { processedSourceCount } from '@/lib/mass-upload/status-view'
 import { useActivityJobs } from '@/components/activity/activity-provider'
 import { notify } from '@/lib/notify'
 import Link from 'next/link'
@@ -520,7 +521,7 @@ export function MassUploadPage() {
 
   // Step 3: Processing
   if (step === 'processing') {
-    const processed = status.counts.completed + status.counts.failed + status.counts.stalled
+    const processed = processedSourceCount(status.counts)
     const progressPercent = status.total > 0 ? Math.round((processed / status.total) * 100) : 0
 
     return (

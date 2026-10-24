@@ -57,7 +57,7 @@ describe('activity job persistence', () => {
   it('stays in progress while any screenshot is still trying', () => {
     const waiting = toActivityJob('ses_stalled', counts, 500, 118, null, false)
     expect(waiting.phase).toBe('active')
-    expect(waiting.summary).toContain('Processing 500 of 500')
+    expect(waiting.summary).toBe('Processing 496 of 500 · 118 places found')
     expect(persistableJobs([waiting], 'user_a')).toEqual([])
   })
 

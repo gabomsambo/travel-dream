@@ -761,7 +761,9 @@ function readingCard(batch: InboxUploadBatch, now: Date | null): InboxReadingCar
 
 function readCount(batch: InboxUploadBatch): number {
   // Skips live beside the screenshots, and they are already decided.
-  const waiting = batch.rows.stillReading.sourceIds.length + batch.rows.cancelled.sourceIds.length;
+  const stalled = batch.rows.couldNotRead.items.filter((item) => item.status === 'stalled').length;
+  const waiting =
+    batch.rows.stillReading.sourceIds.length + batch.rows.cancelled.sourceIds.length + stalled;
   return Math.max(0, batch.screenshotCount - waiting);
 }
 

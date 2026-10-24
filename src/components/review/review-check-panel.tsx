@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Check, CircleAlert, Pencil, Search } from "lucide-react"
 import { Button } from "@/components/adapters/button"
-import { useSectionEdit } from "@/components/places/place-view/section-edit"
+import { useSectionEdit, type PlaceDraft } from "@/components/places/place-view/section-edit"
 import { usablePin } from "@/lib/place-coords"
 import { reviewChecks, type ReviewCheckId } from "@/lib/review/review-checks"
 import type { BranchCandidate, CitySuggestion, PinDetails } from "@/lib/review/lookup-types"
@@ -33,17 +33,35 @@ function branchLookupKey(place: PlaceWithRelations): string {
   return [place.name ?? "", place.city ?? "", place.country ?? ""].join("\0")
 }
 
-function branchEditKey(
-  place: PlaceWithRelations,
-  draft: { admin: string; address: string; lat: string; lon: string } | null,
-): string {
+type BranchFields = Pick<PlaceDraft, "name" | "city" | "country" | "admin" | "address" | "lat" | "lon">
+
+function branchFields(place: PlaceWithRelations, draft: BranchFields | null): BranchFields {
+  if (draft) {
+    return {
+      name: draft.name,
+      city: draft.city,
+      country: draft.country,
+      admin: draft.admin,
+      address: draft.address,
+      lat: draft.lat,
+      lon: draft.lon,
+    }
+  }
   const coords = place.coords
-  const coordKey = coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)
-    ? `${coords.lat}\0${coords.lon}`
-    : ""
-  const placeKey = [place.admin ?? "", place.address ?? "", coordKey].join("\0")
-  if (!draft) return placeKey
-  return [placeKey, draft.admin, draft.address, draft.lat, draft.lon].join("\0")
+  const located = coords != null && Number.isFinite(coords.lat) && Number.isFinite(coords.lon) ? coords : null
+  return {
+    name: place.name ?? "",
+    city: place.city ?? "",
+    country: place.country ?? "",
+    admin: place.admin ?? "",
+    address: place.address ?? "",
+    lat: located ? String(located.lat) : "",
+    lon: located ? String(located.lon) : "",
+  }
+}
+
+function branchGenerationKey(fields: BranchFields): string {
+  return [fields.name, fields.city, fields.country, fields.admin, fields.address, fields.lat, fields.lon].join("\0")
 }
 
 function townLabel(suggestion: CitySuggestion): string | null {
@@ -179,21 +197,26 @@ function PinCheck({
   const [other, setOther] = React.useState("")
   const sectionEdit = useSectionEdit()
   const hasCity = !blankText(place.city)
+  const fields = branchFields(place, sectionEdit?.draft ?? null)
+  const fieldsRef = React.useRef(fields)
+  fieldsRef.current = fields
   const lookupKey = branchLookupKey(place)
-  const editKey = branchEditKey(place, sectionEdit?.draft ?? null)
+  const generationKey = branchGenerationKey(fields)
   const [trackedLookupKey, setTrackedLookupKey] = React.useState(lookupKey)
-  const [trackedEditKey, setTrackedEditKey] = React.useState(editKey)
+  const [trackedGenerationKey, setTrackedGenerationKey] = React.useState(generationKey)
   const requestRef = React.useRef(0)
-  if (trackedLookupKey !== lookupKey || trackedEditKey !== editKey) {
+  if (trackedLookupKey !== lookupKey || trackedGenerationKey !== generationKey) {
     if (trackedLookupKey !== lookupKey) {
       setTrackedLookupKey(lookupKey)
       setCandidates(null)
       setUnavailable(false)
       setError(null)
     }
-    if (trackedEditKey !== editKey) setTrackedEditKey(editKey)
-    if (pending) setPending(null)
-    requestRef.current += 1
+    if (trackedGenerationKey !== generationKey) {
+      setTrackedGenerationKey(generationKey)
+      if (pending) setPending(null)
+      requestRef.current += 1
+    }
   }
 
   const search = async (query: string) => {
@@ -232,6 +255,7 @@ function PinCheck({
       if (!response.ok) throw new Error(body?.message || "We couldn't pin that one. Try again.")
       if (body?.unavailable || !body?.pin) throw new Error("Place search isn't available right now.")
       if (!body.pin.coords) throw new Error("That match has no pin. Try another.")
+      const current = fieldsRef.current
       const patch: Record<string, unknown> = {
         coords: body.pin.coords,
         googlePlaceId: body.pin.googlePlaceId,
@@ -239,9 +263,9 @@ function PinCheck({
       if (typeof body.pin.address === "string" && body.pin.address.length > 0) {
         patch.address = body.pin.address
       }
-      if (blankText(place.city) && !blankText(body.pin.city)) patch.city = body.pin.city
-      if (blankText(place.admin) && !blankText(body.pin.admin)) patch.admin = body.pin.admin
-      if (blankText(place.country) && !blankText(body.pin.country)) patch.country = body.pin.country
+      if (blankText(current.city) && !blankText(body.pin.city)) patch.city = body.pin.city
+      if (blankText(current.admin) && !blankText(body.pin.admin)) patch.admin = body.pin.admin
+      if (blankText(current.country) && !blankText(body.pin.country)) patch.country = body.pin.country
       const saved = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

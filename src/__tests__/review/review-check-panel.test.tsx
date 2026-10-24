@@ -558,10 +558,11 @@ describe('PlaceView review dismissal', () => {
     fetchMock.mockResolvedValue(json({ suggestion: null }))
   })
 
-  function reviewPlace(current: PlaceWithRelations, onReviewPlaceUpdated: () => void = jest.fn()) {
+  function reviewPlace(current: PlaceWithRelations, onReviewPlaceUpdated: () => void = jest.fn(), editing = false) {
     return (
       <PlaceView
         place={current}
+        editing={editing}
         trips={[]}
         alsoIn={[]}
         onEdit={jest.fn()}
@@ -601,6 +602,8 @@ describe('PlaceView review dismissal', () => {
     ['region', 'Region', 'Oregon'],
     ['street address', 'Address', '123 New St'],
     ['latitude', 'Latitude', '45.52'],
+    ['city', 'City', 'Paris'],
+    ['country', 'Country', 'France'],
   ])('does not save a branch chosen before the %s draft changes', async (_label, field, value) => {
     const user = userEvent.setup()
     const onUpdated = jest.fn()
@@ -654,6 +657,134 @@ describe('PlaceView review dismissal', () => {
     })
     expect(branchSaves).toHaveLength(0)
     expect(onUpdated).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('does not save a branch chosen before the name draft changes', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    let resolvePin: (value: Response) => void = () => {}
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return Promise.resolve(json({
+          candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+          unavailable: false,
+        }))
+      }
+      if (url.includes('/pin')) {
+        return new Promise((resolve) => {
+          resolvePin = resolve
+        })
+      }
+      if (init?.method === 'PATCH') return Promise.resolve(json({ status: 'success' }))
+      return Promise.resolve(json({ message: 'unexpected' }, 500))
+    })
+
+    render(reviewPlace(place({ coords: null }), onUpdated, true))
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    await user.click(await screen.findByText('91 Lordship Ln, London SE22'))
+    await waitFor(() => expect(screen.getByRole('listitem')).toBeDisabled())
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Place name' }), { target: { value: 'Tartine' } })
+
+    expect(screen.getByRole('listitem')).toBeEnabled()
+    expect(screen.getByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+
+    await act(async () => {
+      resolvePin(json({
+        pin: {
+          googlePlaceId: 'stub-gails-dulwich',
+          name: "Gail's Bakery",
+          address: '91 Lordship Ln',
+          city: 'London',
+          admin: 'England',
+          country: 'United Kingdom',
+          coords: { lat: 51.45, lon: -0.07 },
+        },
+        unavailable: false,
+      }))
+    })
+
+    const branchSaves = fetchMock.mock.calls.filter((call) => {
+      const init = call[1] as RequestInit | undefined
+      return init?.method === 'PATCH' && String(init.body).includes('googlePlaceId')
+    })
+    expect(branchSaves).toHaveLength(0)
+    expect(onUpdated).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('saves a branch chosen after a draft edit when that edit is echoed back', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    let resolvePin: (value: Response) => void = () => {}
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return Promise.resolve(json({
+          candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+          unavailable: false,
+        }))
+      }
+      if (url.includes('/pin')) {
+        return new Promise((resolve) => {
+          resolvePin = resolve
+        })
+      }
+      if (init?.method === 'PATCH') return Promise.resolve(json({ status: 'success' }))
+      return Promise.resolve(json({ message: 'unexpected' }, 500))
+    })
+
+    const initial = place({ coords: null, city: null, admin: null, country: null })
+    const { rerender } = render(reviewPlace(initial, onUpdated, true))
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    expect(await screen.findByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Paris' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Region' }), { target: { value: 'Oregon' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Country' }), { target: { value: 'France' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Place name' }), { target: { value: 'Tartine' } })
+    await user.click(screen.getByRole('listitem'))
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/pin'))).toBe(true))
+
+    rerender(reviewPlace(place({
+      ...initial,
+      name: 'Tartine',
+      city: 'Paris',
+      admin: 'Oregon',
+      country: 'France',
+    }), onUpdated, true))
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeDisabled()
+
+    await act(async () => {
+      resolvePin(json({
+        pin: {
+          googlePlaceId: 'stub-gails-dulwich',
+          name: "Gail's Bakery",
+          address: '91 Lordship Ln',
+          city: 'London',
+          admin: 'England',
+          country: 'United Kingdom',
+          coords: { lat: 51.45, lon: -0.07 },
+        },
+        unavailable: false,
+      }))
+    })
+
+    const branchSaves = fetchMock.mock.calls.filter((call) => {
+      const init = call[1] as RequestInit | undefined
+      return init?.method === 'PATCH' && String(init.body).includes('googlePlaceId')
+    })
+    expect(branchSaves).toHaveLength(1)
+    const body = JSON.parse(String((branchSaves[0][1] as RequestInit).body)) as Record<string, unknown>
+    expect(body.googlePlaceId).toBe('stub-gails-dulwich')
+    expect(body.coords).toEqual({ lat: 51.45, lon: -0.07 })
+    expect(body.city).toBeUndefined()
+    expect(body.admin).toBeUndefined()
+    expect(body.country).toBeUndefined()
+    expect(onUpdated).toHaveBeenCalled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

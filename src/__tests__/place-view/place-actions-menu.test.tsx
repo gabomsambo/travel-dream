@@ -98,6 +98,16 @@ describe('PlaceActionsMenu', () => {
     expect(mockRouter.back).not.toHaveBeenCalled()
   })
 
+  it('does not offer Restore when a merged place must stay archived', async () => {
+    const onRestored = jest.fn()
+    render(<PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="archived" blockRestore onRestored={onRestored} />)
+    await openMenu()
+    expect(screen.queryByRole('menuitem', { name: /Restore to library/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /^Archive$/ })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onRestored).not.toHaveBeenCalled()
+  })
+
   it('does not tell Review to restore when the request fails', async () => {
     const onRestored = jest.fn()
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ message: 'Place not found' }) })
@@ -206,7 +216,7 @@ describe('postcard menu inside Review', () => {
     Object.defineProperty(window.history, 'length', { configurable: true, get: () => 3 })
   })
 
-  function renderHero(onArchive: () => void, onDeleted: () => void, onRestored?: () => void, status = 'inbox') {
+  function renderHero(onArchive: () => void, onDeleted: () => void, onRestored?: () => void, status = 'inbox', blockRestore = false, blockWrites = false) {
     const place = {
       id: 'plc_fushimi',
       name: 'Fushimi Inari-taisha',
@@ -229,6 +239,8 @@ describe('postcard menu inside Review', () => {
         onArchive={onArchive}
         onDeleted={onDeleted}
         onRestored={onRestored}
+        blockRestore={blockRestore}
+        blockWrites={blockWrites}
       />
     )
   }
@@ -268,5 +280,45 @@ describe('postcard menu inside Review', () => {
     expect(order).toEqual(['restored', 'refresh'])
     expect(mockRouter.back).not.toHaveBeenCalled()
     expect(mockRouter.push).not.toHaveBeenCalled()
+  })
+
+  it('hides Restore on a merged archived hero', async () => {
+    renderHero(jest.fn(), jest.fn(), jest.fn(), 'archived', true)
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.queryByRole('menuitem', { name: /Restore to library/ })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('hides edit and photo attach while a merged place must stay untouched', () => {
+    renderHero(jest.fn(), jest.fn(), undefined, 'archived', true, true)
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Find Image' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More actions' })).toBeInTheDocument()
+  })
+
+  it('closes an open delete confirm when writes become blocked', async () => {
+    const onDeleted = jest.fn()
+    const { rerender } = render(
+      <PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="inbox" onDeleted={onDeleted} />
+    )
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: /Delete/ }))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+
+    rerender(
+      <PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="inbox" onDeleted={onDeleted} blockWrites />
+    )
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onDeleted).not.toHaveBeenCalled()
+  })
+
+  it('does not offer Delete while a merged place must stay untouched', async () => {
+    renderHero(jest.fn(), jest.fn(), undefined, 'archived', true, true)
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.queryByRole('menuitem', { name: /Delete/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Restore to library/ })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

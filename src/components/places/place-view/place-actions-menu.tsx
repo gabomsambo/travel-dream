@@ -28,7 +28,9 @@ async function failureMessage(response: Response, fallback: string) {
  * onDeleted still deletes, then skips leave(). onRestored runs after a
  * successful restore, before the refresh. Review uses all three so the queue
  * stays mounted: Archive is Not a place, Delete advances after confirmation,
- * and Restore counts as added.
+ * and Restore counts as added. blockWrites hides Delete and closes an open
+ * confirm. blockRestore hides Restore on an archived place. Review sets both
+ * while the postcard is merged, and blockWrites for the whole merge request.
  */
 export function PlaceActionsMenu({
   placeId,
@@ -40,6 +42,8 @@ export function PlaceActionsMenu({
   onArchive,
   onDeleted,
   onRestored,
+  blockRestore = false,
+  blockWrites = false,
 }: {
   placeId: string
   placeName: string
@@ -50,10 +54,17 @@ export function PlaceActionsMenu({
   onArchive?: () => void
   onDeleted?: () => void
   onRestored?: () => void
+  blockRestore?: boolean
+  blockWrites?: boolean
 }) {
   const router = useRouter()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
   const [busy, setBusy] = React.useState<"archive" | "restore" | "delete" | null>(null)
+
+  React.useLayoutEffect(() => {
+    if (!blockWrites) return
+    setConfirmDelete(false)
+  }, [blockWrites])
 
   // Back to wherever the user came from (Explore, Library, Inbox…), refreshed so the place
   // they just archived or deleted is gone there too. A direct visit has nowhere to go back
@@ -95,6 +106,10 @@ export function PlaceActionsMenu({
   }
 
   const deletePlace = async () => {
+    if (blockWrites) {
+      setConfirmDelete(false)
+      return
+    }
     setBusy("delete")
     try {
       const response = await fetch(`/api/places/${placeId}`, { method: "DELETE" })
@@ -129,20 +144,24 @@ export function PlaceActionsMenu({
           <DropdownMenuItem onSelect={() => onOpenClassic?.()}>
             <PencilLine className="mr-2 h-4 w-4" aria-hidden /> Open classic editor
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {status === "archived" ? (
+          {!(status === "archived" && blockRestore) && <DropdownMenuSeparator />}
+          {status === "archived" && !blockRestore ? (
             <DropdownMenuItem onSelect={() => setStatus("library")}>
               <ArchiveRestore className="mr-2 h-4 w-4" aria-hidden /> Restore to library
             </DropdownMenuItem>
-          ) : (
+          ) : status !== "archived" ? (
             <DropdownMenuItem onSelect={() => { if (onArchive) onArchive(); else void setStatus("archived") }}>
               <Archive className="mr-2 h-4 w-4" aria-hidden /> Archive
             </DropdownMenuItem>
+          ) : null}
+          {!blockWrites && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setConfirmDelete(true)} className="text-destructive focus:text-destructive">
+                <Trash2 className="mr-2 h-4 w-4" aria-hidden /> Delete…
+              </DropdownMenuItem>
+            </>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setConfirmDelete(true)} className="text-destructive focus:text-destructive">
-            <Trash2 className="mr-2 h-4 w-4" aria-hidden /> Delete…
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

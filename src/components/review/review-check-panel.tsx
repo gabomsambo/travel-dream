@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Check, CircleAlert, Pencil, Search } from "lucide-react"
 import { Button } from "@/components/adapters/button"
+import { useSectionEdit } from "@/components/places/place-view/section-edit"
 import { usablePin } from "@/lib/place-coords"
 import { reviewChecks, type ReviewCheckId } from "@/lib/review/review-checks"
 import type { BranchCandidate, CitySuggestion, PinDetails } from "@/lib/review/lookup-types"
@@ -32,12 +33,17 @@ function branchLookupKey(place: PlaceWithRelations): string {
   return [place.name ?? "", place.city ?? "", place.country ?? ""].join("\0")
 }
 
-function branchEditKey(place: PlaceWithRelations): string {
+function branchEditKey(
+  place: PlaceWithRelations,
+  draft: { admin: string; address: string; lat: string; lon: string } | null,
+): string {
   const coords = place.coords
   const coordKey = coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)
     ? `${coords.lat}\0${coords.lon}`
     : ""
-  return [place.admin ?? "", place.address ?? "", coordKey].join("\0")
+  const placeKey = [place.admin ?? "", place.address ?? "", coordKey].join("\0")
+  if (!draft) return placeKey
+  return [placeKey, draft.admin, draft.address, draft.lat, draft.lon].join("\0")
 }
 
 function townLabel(suggestion: CitySuggestion): string | null {
@@ -171,9 +177,10 @@ function PinCheck({
   const [pending, setPending] = React.useState<"search" | "pin" | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [other, setOther] = React.useState("")
+  const sectionEdit = useSectionEdit()
   const hasCity = !blankText(place.city)
   const lookupKey = branchLookupKey(place)
-  const editKey = branchEditKey(place)
+  const editKey = branchEditKey(place, sectionEdit?.draft ?? null)
   const [trackedLookupKey, setTrackedLookupKey] = React.useState(lookupKey)
   const [trackedEditKey, setTrackedEditKey] = React.useState(editKey)
   const requestRef = React.useRef(0)

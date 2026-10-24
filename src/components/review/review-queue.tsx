@@ -982,8 +982,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               onPrefetchEdit={() => { void import('@/components/places/place-full-view') }}
               onPhotoAttached={() => {
                 if (placeMerged || placeMerging) return
-                void reloadPostcard(current.placeId).catch(() => {
-                  router.refresh()
+                const placeId = current.placeId
+                void reloadPostcard(placeId).catch(() => {
+                  void reloadPostcard(placeId).catch(() => undefined)
                 })
               }}
               blockWrites={placeMerged || placeMerging}

@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ReviewCheckPanel } from '@/components/review/review-check-panel'
 import { PlaceView } from '@/components/places/place-view/place-view'
@@ -558,7 +558,7 @@ describe('PlaceView review dismissal', () => {
     fetchMock.mockResolvedValue(json({ suggestion: null }))
   })
 
-  function reviewPlace(current: PlaceWithRelations) {
+  function reviewPlace(current: PlaceWithRelations, onReviewPlaceUpdated: () => void = jest.fn()) {
     return (
       <PlaceView
         place={current}
@@ -568,7 +568,7 @@ describe('PlaceView review dismissal', () => {
         onPhotoAttached={jest.fn()}
         showMobileActionBar={false}
         showReviewChecks
-        onReviewPlaceUpdated={jest.fn()}
+        onReviewPlaceUpdated={onReviewPlaceUpdated}
       />
     )
   }
@@ -595,5 +595,65 @@ describe('PlaceView review dismissal', () => {
     expect(screen.getAllByText('No city').length).toBeGreaterThan(0)
     expect(screen.getByText('1 thing to check')).toBeInTheDocument()
     expect(screen.queryByText('Nothing to check')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['region', 'Region', 'Oregon'],
+    ['street address', 'Address', '123 New St'],
+    ['latitude', 'Latitude', '45.52'],
+  ])('does not save a branch chosen before the %s draft changes', async (_label, field, value) => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    let resolvePin: (value: Response) => void = () => {}
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return Promise.resolve(json({
+          candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+          unavailable: false,
+        }))
+      }
+      if (url.includes('/pin')) {
+        return new Promise((resolve) => {
+          resolvePin = resolve
+        })
+      }
+      if (init?.method === 'PATCH') return Promise.resolve(json({ status: 'success' }))
+      return Promise.resolve(json({ message: 'unexpected' }, 500))
+    })
+
+    render(reviewPlace(place({ coords: null }), onUpdated))
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    await user.click(await screen.findByText('91 Lordship Ln, London SE22'))
+    await waitFor(() => expect(screen.getByRole('listitem')).toBeDisabled())
+
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: field }), { target: { value } })
+
+    expect(screen.getByRole('listitem')).toBeEnabled()
+    expect(screen.getByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+
+    await act(async () => {
+      resolvePin(json({
+        pin: {
+          googlePlaceId: 'stub-gails-dulwich',
+          name: "Gail's Bakery",
+          address: '91 Lordship Ln',
+          city: 'London',
+          admin: 'England',
+          country: 'United Kingdom',
+          coords: { lat: 51.45, lon: -0.07 },
+        },
+        unavailable: false,
+      }))
+    })
+
+    const branchSaves = fetchMock.mock.calls.filter((call) => {
+      const init = call[1] as RequestInit | undefined
+      return init?.method === 'PATCH' && String(init.body).includes('googlePlaceId')
+    })
+    expect(branchSaves).toHaveLength(0)
+    expect(onUpdated).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

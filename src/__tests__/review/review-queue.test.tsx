@@ -1234,6 +1234,52 @@ describe('ReviewQueue decisions', () => {
     await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Newer'))
     expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '0')
   })
+
+  it('retries a postcard reload when attaching a photo fails to refresh', async () => {
+    const user = userEvent.setup()
+    let postcardCalls = 0
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        postcardCalls += 1
+        if (postcardCalls === 1) {
+          return jsonResponse(postcardFor({ ...placeOne, name: 'One Cafe Saved' }))
+        }
+        if (postcardCalls === 2) throw new Error('network')
+        return jsonResponse(postcardFor({
+          ...placeOne,
+          attachments: [{
+            id: 'att_photo',
+            placeId: placeOne.id,
+            type: 'photo',
+            uri: 'https://example.test/photo.jpg',
+            filename: 'photo.jpg',
+            mimeType: 'image/jpeg',
+            fileSize: 12,
+            width: 8,
+            height: 8,
+            thumbnailUri: null,
+            caption: null,
+            takenAt: null,
+            isPrimary: 1,
+            createdAt: placeOne.updatedAt,
+            source: 'wikimedia',
+            sourceId: 'file',
+            attribution: null,
+          }],
+        }))
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    renderQueue()
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Saved'))
+
+    await user.click(screen.getByRole('button', { name: 'Find a photo' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '1'))
+    expect(postcardCalls).toBe(3)
+  })
 })
 
 const fjellMatch = {

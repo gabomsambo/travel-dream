@@ -382,14 +382,14 @@ export function PlaceView({
         trips={trips}
         onEdit={editPlace}
         onStatusChange={setVisitStatus}
-        onTripsChanged={() => router.refresh()}
+        onTripsChanged={refreshPlace}
         onOpenPhoto={setLightbox}
         blockWrites={blockWrites}
       />
 
       {place.city && <AlsoInCity city={place.city} places={alsoIn} />}
 
-      {showMobileActionBar && <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} blockWrites={blockWrites} />}
+      {showMobileActionBar && <MobileActionBar place={place} trips={trips} onChanged={refreshPlace} blockWrites={blockWrites} />}
 
       {photos.length > 0 && (
         <PhotoLightbox photos={photos} open={lightbox !== null} index={lightbox ?? 0} onClose={() => setLightbox(null)} />

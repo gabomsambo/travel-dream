@@ -88,7 +88,7 @@ describe('ReviewCheckPanel', () => {
     expect(await screen.findByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0][0])).toContain('/branches?')
-    expect(String(fetchMock.mock.calls[0][0])).toContain('q=')
+    expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('q')).toBe("Gail's Bakery, London, United Kingdom")
   })
 
   it('loads a city suggestion from the pin and saves the town the user picks', async () => {
@@ -121,6 +121,7 @@ describe('ReviewCheckPanel', () => {
     )
     expect(await screen.findByText(/Olympic National Park, Washington/)).toBeInTheDocument()
     expect(screen.getByText('No city')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Leave it as Washington' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     await user.click(screen.getByRole('button', { name: 'Forks, Washington' }))
@@ -166,6 +167,7 @@ describe('ReviewCheckPanel', () => {
     )
     expect(screen.getByText('Where is it?')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('q')).toBe("Gail's Bakery")
     await user.click(await screen.findByText('91 Lordship Ln, London'))
     await waitFor(() => expect(onUpdated).toHaveBeenCalled())
     const patch = fetchMock.mock.calls.find((call) => (call[1] as RequestInit | undefined)?.method === 'PATCH')
@@ -260,6 +262,24 @@ describe('ReviewCheckPanel', () => {
       admin: 'Washington',
       country: 'United States',
     })
+  })
+
+  it('does not offer leave-it-as when the region is blank', async () => {
+    fetchMock.mockResolvedValue(json({ suggestion: null }))
+    render(
+      <ReviewCheckPanel
+        place={place({
+          city: ' ',
+          admin: ' ',
+          coords: { lat: 47.86, lon: -123.93 },
+        })}
+        onRename={jest.fn()}
+        onUpdated={jest.fn()}
+      />
+    )
+    expect(await screen.findByText('No city')).toBeInTheDocument()
+    expect(screen.getByText('1 thing to check')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Leave it as/ })).not.toBeInTheDocument()
   })
 
   it('marks a shaky name and a tip', () => {

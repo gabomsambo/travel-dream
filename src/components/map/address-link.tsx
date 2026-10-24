@@ -2,6 +2,7 @@
 
 import { MapPin, ExternalLink } from "lucide-react";
 import { getMapsUrl, getFallbackMapsUrl } from "@/lib/maps-url";
+import { usablePin } from "@/lib/place-coords";
 import type { PlaceWithRelations } from "@/types/database";
 
 function narrowCoords(coords: PlaceWithRelations["coords"]): { lat: number; lon: number } | null {
@@ -14,7 +15,7 @@ function narrowCoords(coords: PlaceWithRelations["coords"]): { lat: number; lon:
   ) {
     const c = coords as { lat: unknown; lon: unknown };
     if (typeof c.lat === "number" && typeof c.lon === "number") {
-      return { lat: c.lat, lon: c.lon };
+      return usablePin({ lat: c.lat, lon: c.lon });
     }
   }
   return null;

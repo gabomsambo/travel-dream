@@ -217,7 +217,7 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
       </p>
       {candidates === null ? (
         <Actions>
-          <Button type="button" variant="outline" size="sm" disabled={pending !== null} onClick={() => void search([place.name, place.city, place.country].filter(Boolean).join(", "))}>
+          <Button type="button" variant="outline" size="sm" disabled={pending !== null} onClick={() => void search([place.name, place.city, place.country].filter((part) => !blankText(part)).join(", "))}>
             <Search className="mr-1.5 h-3.5 w-3.5" aria-hidden />
             {pending === "search" ? "Looking up…" : "Look up this place"}
           </Button>
@@ -357,7 +357,7 @@ function CityCheck({
               {pending ? "Saving…" : town}
             </Button>
           )}
-          {place.admin && (
+          {!blankText(place.admin) && (
             <Button type="button" variant="ghost" size="sm" onClick={onDismiss}>Leave it as {place.admin}</Button>
           )}
           <Button type="button" variant="ghost" size="sm" onClick={() => setTyping(true)}>Type a city</Button>

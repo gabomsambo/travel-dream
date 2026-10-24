@@ -23,7 +23,11 @@ jest.mock('@/lib/db-utils', () => ({
       }),
       update: jest.fn().mockReturnValue({
         set: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue(undefined),
+          where: jest.fn().mockImplementation(() => {
+            const pending = Promise.resolve(undefined) as Promise<undefined> & { returning: jest.Mock };
+            pending.returning = jest.fn().mockResolvedValue([{ status: 'active' }]);
+            return pending;
+          }),
         }),
       }),
       select: jest.fn().mockReturnValue({
@@ -113,12 +117,23 @@ function mockDedupSelectNoMatch() {
   mockDb.select.mockReturnValueOnce(dedupChain);
 }
 
+function referenceSelect(rows: Array<{ id: string }>) {
+  return {
+    from: jest.fn().mockReturnValue({
+      where: jest.fn().mockReturnValue({
+        limit: jest.fn().mockResolvedValue(rows),
+      }),
+    }),
+  };
+}
+
 describe('POST /api/mass-upload/register', () => {
   const mockUser = createMockUser();
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockRequireAuth.mockResolvedValue(mockUser);
+    mockDb.select.mockImplementation(() => referenceSelect([]));
   });
 
   it('rejects unauthenticated request', async () => {
@@ -283,7 +298,23 @@ describe('POST /api/mass-upload/register', () => {
 
     expect(res.status).toBe(409);
     expect(data.message).toContain('closed');
+    expect(mockDb.select).toHaveBeenCalledTimes(4);
+    expect(del).toHaveBeenCalledTimes(1);
     expect(del).toHaveBeenCalledWith(validBody.blobUrl);
+    expect(withTransaction).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps a blob another tenant still references when the session is closed', async () => {
+    mockSessionSelect(createMockSession({ status: 'cancelled' }));
+    mockDb.select.mockReturnValueOnce(referenceSelect([{ id: 'src_other_tenant' }]));
+
+    const res = await POST(createRegisterRequest(validBody) as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(data.message).toContain('closed');
+    expect(del).not.toHaveBeenCalled();
     expect(withTransaction).not.toHaveBeenCalled();
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -295,15 +326,15 @@ describe('POST /api/mass-upload/register', () => {
     const insert = jest.fn();
     (withTransaction as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
-        select: jest.fn().mockReturnValue({
-          from: jest.fn().mockReturnValue({
+        update: jest.fn().mockReturnValue({
+          set: jest.fn().mockReturnValue({
             where: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue([{ status: 'cancelled' }]),
+              returning: jest.fn().mockResolvedValue([{ status: 'cancelled' }]),
             }),
           }),
         }),
         insert,
-        update: jest.fn(),
+        select: jest.fn(),
       };
       return fn(tx);
     });
@@ -314,6 +345,35 @@ describe('POST /api/mass-upload/register', () => {
     expect(res.status).toBe(409);
     expect(data.status).toBe('error');
     expect(insert).not.toHaveBeenCalled();
+    expect(mockDb.select).toHaveBeenCalledTimes(5);
+    expect(del).toHaveBeenCalledTimes(1);
     expect(del).toHaveBeenCalledWith(validBody.blobUrl);
+  });
+
+  it('keeps a referenced blob when register loses the race to cancel', async () => {
+    mockSessionSelect(createMockSession());
+    mockBlobFetchSuccess();
+    mockDedupSelectNoMatch();
+    mockDb.select.mockReturnValueOnce(referenceSelect([{ id: 'att_other_tenant' }]));
+    const insert = jest.fn();
+    (withTransaction as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        update: jest.fn().mockReturnValue({
+          set: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              returning: jest.fn().mockResolvedValue([{ status: 'cancelled' }]),
+            }),
+          }),
+        }),
+        insert,
+      };
+      return fn(tx);
+    });
+
+    const res = await POST(createRegisterRequest(validBody) as never);
+
+    expect(res.status).toBe(409);
+    expect(insert).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
   });
 });

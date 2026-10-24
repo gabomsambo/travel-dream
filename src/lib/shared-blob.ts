@@ -114,3 +114,87 @@ export async function releaseBlobsIfUnreferenced(
     await releaseBlobIfUnreferenced(userId, url, exclusions, logPrefix);
   }
 }
+
+/**
+ * True when any tenant still stores this URL. A caller-supplied blob URL is not
+ * owned by the caller — a same-tenant check would delete another user's object.
+ */
+export async function isBlobUrlReferencedByAnyTenant(
+  url: string,
+  exclusions: BlobReferenceExclusions = {}
+): Promise<boolean> {
+  if (!url.startsWith('https://')) {
+    return false;
+  }
+
+  const { excludeSourceIds = [], excludeAttachmentIds = [] } = exclusions;
+
+  const attachmentPredicates = [
+    or(eq(attachments.uri, url), eq(attachments.thumbnailUri, url)),
+  ];
+  if (excludeAttachmentIds.length > 0) {
+    attachmentPredicates.push(notInArray(attachments.id, excludeAttachmentIds));
+  }
+
+  const [attachmentHit] = await db
+    .select({ id: attachments.id })
+    .from(attachments)
+    .where(and(...attachmentPredicates))
+    .limit(1);
+
+  if (attachmentHit) {
+    return true;
+  }
+
+  const sourceUriPredicates = [eq(sources.uri, url)];
+  if (excludeSourceIds.length > 0) {
+    sourceUriPredicates.push(notInArray(sources.id, excludeSourceIds));
+  }
+
+  const [sourceUriHit] = await db
+    .select({ id: sources.id })
+    .from(sources)
+    .where(and(...sourceUriPredicates))
+    .limit(1);
+
+  if (sourceUriHit) {
+    return true;
+  }
+
+  const sourceThumbPredicates = [
+    sql`json_extract(${sources.meta}, '$.uploadInfo.thumbnailPath') = ${url}`,
+  ];
+  if (excludeSourceIds.length > 0) {
+    sourceThumbPredicates.push(notInArray(sources.id, excludeSourceIds));
+  }
+
+  const [sourceThumbHit] = await db
+    .select({ id: sources.id })
+    .from(sources)
+    .where(and(...sourceThumbPredicates))
+    .limit(1);
+
+  return Boolean(sourceThumbHit);
+}
+
+/**
+ * Best-effort delete of a caller-supplied blob URL when no row in any tenant references it.
+ */
+export async function releaseBlobIfUnreferencedByAnyTenant(
+  url: string | null | undefined,
+  exclusions: BlobReferenceExclusions,
+  logPrefix: string
+): Promise<void> {
+  if (!url?.startsWith('https://')) {
+    return;
+  }
+  if (await isBlobUrlReferencedByAnyTenant(url, exclusions)) {
+    return;
+  }
+
+  try {
+    await del(url);
+  } catch (cleanupError) {
+    console.warn(`${logPrefix} Failed to delete blob ${url}:`, cleanupError);
+  }
+}

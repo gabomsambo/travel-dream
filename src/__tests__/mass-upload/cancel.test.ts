@@ -4,7 +4,7 @@
 
 // ── Module mocks (BEFORE imports) ──────────────────────────────────────
 jest.mock('@/db', () => ({
-  db: { select: jest.fn(), update: jest.fn() },
+  db: { select: jest.fn(), update: jest.fn(), transaction: jest.fn() },
 }));
 
 jest.mock('@/lib/auth-helpers', () => ({
@@ -22,7 +22,7 @@ import { del } from '@vercel/blob';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
 import { mockSelect, whereMentions } from '../helpers/authz-helpers';
 
-const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock };
+const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock; transaction: jest.Mock };
 
 const mockRequireAuth = requireAuthForApi as jest.MockedFunction<typeof requireAuthForApi>;
 const mockDel = del as jest.MockedFunction<typeof del>;
@@ -42,6 +42,12 @@ describe('POST /api/mass-upload/cancel', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRequireAuth.mockResolvedValue(mockUser);
+    mockDb.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+      select: mockDb.select,
+      update: mockDb.update,
+      insert: jest.fn(),
+      delete: jest.fn(),
+    }));
   });
 
   it('rejects unauthenticated request', async () => {
@@ -108,26 +114,20 @@ describe('POST /api/mass-upload/cancel', () => {
     };
     mockDb.select.mockReturnValueOnce(selectChain);
 
-    // Cancel queued/uploaded sources → returning cancelled ones
-    const cancelChain = {
-      set: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          returning: jest.fn().mockResolvedValue([
-            { id: 'src_test-1' },
-            { id: 'src_test-2' },
-          ]),
-        }),
-      }),
-    };
-    mockDb.update.mockReturnValueOnce(cancelChain);
+    const sessionWhere = jest.fn().mockResolvedValue(undefined);
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: sessionWhere }),
+    });
 
-    // Mark session as cancelled
-    const sessionUpdateChain = {
-      set: jest.fn().mockReturnValue({
-        where: jest.fn().mockResolvedValue(undefined),
-      }),
-    };
-    mockDb.update.mockReturnValueOnce(sessionUpdateChain);
+    const sourceWhere = jest.fn().mockReturnValue({
+      returning: jest.fn().mockResolvedValue([
+        { id: 'src_test-1' },
+        { id: 'src_test-2' },
+      ]),
+    });
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: sourceWhere }),
+    });
 
     // Count in-flight sources
     const inFlightChain = {
@@ -145,6 +145,10 @@ describe('POST /api/mass-upload/cancel', () => {
     expect(data.status).toBe('success');
     expect(data.cancelled).toBe(2);
     expect(data.alreadyProcessing).toBe(1);
+    expect(whereMentions(sessionWhere.mock.calls[0][0], session.id)).toBe(true);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], session.id)).toBe(true);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], 'src_test-1')).toBe(false);
+    expect(mockDb.transaction).toHaveBeenCalledTimes(1);
   });
 
   it('does not cancel or delete a planted source owned by another tenant', async () => {
@@ -155,14 +159,15 @@ describe('POST /api/mass-upload/cancel', () => {
       }),
     });
 
+    const sessionWhere = jest.fn().mockResolvedValue(undefined);
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: sessionWhere }),
+    });
     const sourceWhere = jest.fn().mockReturnValue({
       returning: jest.fn().mockResolvedValue([]),
     });
     mockDb.update.mockReturnValueOnce({
       set: jest.fn().mockReturnValue({ where: sourceWhere }),
-    });
-    mockDb.update.mockReturnValueOnce({
-      set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
     });
     const inFlightWhere = jest.fn().mockResolvedValue([{ count: 0 }]);
     mockDb.select.mockReturnValueOnce({
@@ -176,8 +181,12 @@ describe('POST /api/mass-upload/cancel', () => {
     expect(data.cancelled).toBe(0);
     expect(data.alreadyProcessing).toBe(0);
     expect(mockDel).not.toHaveBeenCalled();
+    expect(whereMentions(sessionWhere.mock.calls[0][0], mockUser.id)).toBe(true);
     expect(whereMentions(sourceWhere.mock.calls[0][0], mockUser.id)).toBe(true);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], session.id)).toBe(true);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], 'src_victim')).toBe(false);
     expect(whereMentions(inFlightWhere.mock.calls[0][0], mockUser.id)).toBe(true);
+    expect(whereMentions(inFlightWhere.mock.calls[0][0], session.id)).toBe(true);
   });
 
   it('closes a session that has not registered a screenshot yet', async () => {
@@ -190,6 +199,17 @@ describe('POST /api/mass-upload/cancel', () => {
     const sessionWhere = jest.fn().mockResolvedValue(undefined);
     const set = jest.fn().mockReturnValue({ where: sessionWhere });
     mockDb.update.mockReturnValueOnce({ set });
+    const sourceWhere = jest.fn().mockReturnValue({
+      returning: jest.fn().mockResolvedValue([]),
+    });
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: sourceWhere }),
+    });
+    mockDb.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue([{ count: 0 }]),
+      }),
+    });
 
     const res = await POST(createCancelRequest({ sessionId: session.id }) as never);
     const data = await res.json();
@@ -199,6 +219,8 @@ describe('POST /api/mass-upload/cancel', () => {
     expect(data.cancelled).toBe(0);
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }));
     expect(whereMentions(sessionWhere.mock.calls[0][0], mockUser.id)).toBe(true);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], session.id)).toBe(true);
+    expect(mockDb.transaction).toHaveBeenCalledTimes(1);
     expect(mockDel).not.toHaveBeenCalled();
   });
 });

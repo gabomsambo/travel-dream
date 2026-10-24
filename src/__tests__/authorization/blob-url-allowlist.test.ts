@@ -26,7 +26,13 @@ jest.mock('@/lib/db-utils', () => ({
         }),
       }),
       update: jest.fn().mockReturnValue({
-        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockImplementation(() => {
+            const pending = Promise.resolve(undefined) as Promise<undefined> & { returning: jest.Mock };
+            pending.returning = jest.fn().mockResolvedValue([{ status: 'active' }]);
+            return pending;
+          }),
+        }),
       }),
       select: jest.fn().mockReturnValue({
         from: jest.fn().mockReturnValue({

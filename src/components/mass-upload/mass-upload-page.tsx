@@ -70,10 +70,41 @@ async function drainInFlight(pending: Set<Promise<unknown>>): Promise<void> {
   }
 }
 
+type AbandonedUpload = {
+  blobUrl: string
+  originalName: string
+  fileSize: number
+  mimeType: string
+}
+
+async function registerAbandonedUploads(sessionId: string, blobs: AbandonedUpload[]): Promise<void> {
+  const unique = new Map<string, AbandonedUpload>()
+  for (const blob of blobs) unique.set(blob.blobUrl, blob)
+  await Promise.all(Array.from(unique.values()).map(async (blob) => {
+    try {
+      await fetch('/api/mass-upload/register', {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          blobUrl: blob.blobUrl,
+          originalName: blob.originalName,
+          fileSize: blob.fileSize,
+          mimeType: blob.mimeType,
+        }),
+      })
+    } catch {
+      return
+    }
+  }))
+}
+
 async function abandonUnstartedSession(
   sessionId: string,
   startPromise: Promise<boolean> | null,
   pending: Set<Promise<unknown>>,
+  abandoned: AbandonedUpload[],
 ): Promise<void> {
   try {
     if (startPromise) {
@@ -87,6 +118,7 @@ async function abandonUnstartedSession(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     })
+    await registerAbandonedUploads(sessionId, abandoned)
   } catch {
     return
   }
@@ -109,6 +141,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
   const startPromiseRef = useRef<Promise<boolean> | null>(null)
   const abortRef = useRef<AbortController>(new AbortController())
   const inFlightRef = useRef<Set<Promise<unknown>>>(new Set())
+  const abandonedRef = useRef<AbandonedUpload[]>([])
   const epochRef = useRef(0)
 
   const { observeSession } = useActivityJobs()
@@ -122,6 +155,10 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       const sessionId = sessionIdRef.current
       const startPromise = startPromiseRef.current
       const alreadyStarted = startedRef.current
+      const abandoned = abandonedRef.current
+      abandonedRef.current = []
+      const pending = inFlightRef.current
+      inFlightRef.current = new Set()
       epochRef.current += 1
       abortRef.current.abort()
       filesRef.current.forEach(file => {
@@ -140,7 +177,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       setStartError(null)
       seededFiles.current = null
       if (sessionId && !alreadyStarted) {
-        void abandonUnstartedSession(sessionId, startPromise, inFlightRef.current)
+        void abandonUnstartedSession(sessionId, startPromise, pending, abandoned)
       }
       return
     }
@@ -224,6 +261,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     const filename = `screenshots/${sessionId}/${timestamp}-${fileId.slice(0, 8)}.${ext}`
 
     const task = (async () => {
+      const abandonedSink = abandonedRef.current
       const blob = await upload(filename, file, {
         access: 'public',
         handleUploadUrl: '/api/blob/upload',
@@ -242,27 +280,42 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         },
       })
 
-      if (signal.aborted || epochRef.current !== epoch) throw aborted()
-
-      const response = await fetch('/api/mass-upload/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          blobUrl: blob.url,
-          originalName: file.name,
-          fileSize: file.size,
-          mimeType: file.type,
-        }),
-        signal,
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to register upload')
+      const payload: AbandonedUpload = {
+        blobUrl: blob.url,
+        originalName: file.name || 'screenshot',
+        fileSize: file.size,
+        mimeType: file.type || 'application/octet-stream',
+      }
+      const closing = () => signal.aborted || epochRef.current !== epoch
+      if (closing()) {
+        abandonedSink.push(payload)
+        throw aborted()
       }
 
-      const result = await response.json()
-      return { blobUrl: blob.url, sourceId: result.sourceId as string }
+      try {
+        const response = await fetch('/api/mass-upload/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            blobUrl: payload.blobUrl,
+            originalName: payload.originalName,
+            fileSize: payload.fileSize,
+            mimeType: payload.mimeType,
+          }),
+          signal,
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to register upload')
+        }
+
+        const result = await response.json()
+        return { blobUrl: blob.url, sourceId: result.sourceId as string }
+      } catch (error) {
+        if (closing()) abandonedSink.push(payload)
+        throw error
+      }
     })()
 
     return trackInFlight(inFlightRef.current, task)

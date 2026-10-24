@@ -14,9 +14,30 @@ import { eq, and, sql } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { withTransaction, generateSourceId } from '@/lib/db-utils';
 import { isAllowedBlobUrl, BLOB_URL_REJECTED_MESSAGE } from '@/lib/blob-url';
-import { del } from '@vercel/blob';
+import { releaseBlobIfUnreferencedByAnyTenant } from '@/lib/shared-blob';
 
 export const runtime = 'nodejs';
+
+async function sessionStillOpen(
+  tx: Pick<typeof db, 'update'>,
+  sessionId: string,
+  userId: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .update(uploadSessions)
+    .set({ fileCount: sql`${uploadSessions.fileCount}` })
+    .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, userId)))
+    .returning({ status: uploadSessions.status });
+  return row != null && row.status !== 'cancelled';
+}
+
+async function rejectClosedSession(blobUrl: string) {
+  await releaseBlobIfUnreferencedByAnyTenant(blobUrl, {}, '[Register]');
+  return NextResponse.json(
+    { status: 'error', message: 'Upload session was closed', timestamp: new Date().toISOString() },
+    { status: 409 }
+  );
+}
 
 const RegisterSchema = z.object({
   sessionId: z.string().min(1),
@@ -61,15 +82,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
     if (session.status === 'cancelled') {
-      try {
-        await del(blobUrl);
-      } catch (e) {
-        console.warn('[Register] Failed to delete blob for a closed session:', e);
-      }
-      return NextResponse.json(
-        { status: 'error', message: 'Upload session was closed', timestamp: new Date().toISOString() },
-        { status: 409 }
-      );
+      return rejectClosedSession(blobUrl);
     }
 
     // Compute real SHA-1 content hash from blob
@@ -111,11 +124,7 @@ export async function POST(request: NextRequest) {
       // only sources actually registered to this session; pointing it at the
       // older source made later rebuilds silently erase the duplicate outcome.
       const closed = await withTransaction(async (tx) => {
-        const [openSession] = await tx.select({ status: uploadSessions.status })
-          .from(uploadSessions)
-          .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
-          .limit(1);
-        if (openSession?.status === 'cancelled') return true;
+        if (!(await sessionStillOpen(tx, sessionId, user.id))) return true;
 
         if (existingSessionId !== sessionId) {
           await tx.update(uploadSessions)
@@ -159,23 +168,10 @@ export async function POST(request: NextRequest) {
       });
 
       if (closed) {
-        try {
-          await del(blobUrl);
-        } catch (e) {
-          console.warn('[Register] Failed to delete blob for a closed session:', e);
-        }
-        return NextResponse.json(
-          { status: 'error', message: 'Upload session was closed', timestamp: new Date().toISOString() },
-          { status: 409 }
-        );
+        return rejectClosedSession(blobUrl);
       }
 
-      // Delete the duplicate blob that was just uploaded (after tx commits)
-      try {
-        await del(blobUrl);
-      } catch (e) {
-        console.warn('[Register] Failed to delete duplicate blob:', e);
-      }
+      await releaseBlobIfUnreferencedByAnyTenant(blobUrl, {}, '[Register]');
 
       return NextResponse.json({
         status: 'duplicate',
@@ -193,11 +189,7 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     const sourceData = await withTransaction(async (tx) => {
-      const [openSession] = await tx.select({ status: uploadSessions.status })
-        .from(uploadSessions)
-        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
-        .limit(1);
-      if (openSession?.status === 'cancelled') return null;
+      if (!(await sessionStillOpen(tx, sessionId, user.id))) return null;
 
       // Step 1: Create source record
       const [created] = await tx.insert(sourcesCurrentSchema).values({
@@ -264,15 +256,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!sourceData) {
-      try {
-        await del(blobUrl);
-      } catch (e) {
-        console.warn('[Register] Failed to delete blob for a closed session:', e);
-      }
-      return NextResponse.json(
-        { status: 'error', message: 'Upload session was closed', timestamp: new Date().toISOString() },
-        { status: 409 }
-      );
+      return rejectClosedSession(blobUrl);
     }
 
     return NextResponse.json({

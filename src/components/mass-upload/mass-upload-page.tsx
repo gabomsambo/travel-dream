@@ -144,6 +144,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
   const inFlightRef = useRef<Set<Promise<unknown>>>(new Set())
   const abandonedRef = useRef<AbandonedUpload[]>([])
   const epochRef = useRef(0)
+  const openingIdRef = useRef(0)
 
   const { observeSession } = useActivityJobs()
   const [sessionError, setSessionError] = useState<string | null>(null)
@@ -153,36 +154,19 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
   // A new batch each time the sheet opens. Progress lives on the Inbox card.
   useEffect(() => {
     if (!open) {
-      const sessionId = sessionIdRef.current
-      const startPromise = startPromiseRef.current
-      const alreadyStarted = startedRef.current
-      const abandoned = abandonedRef.current
-      abandonedRef.current = []
-      const pending = inFlightRef.current
-      inFlightRef.current = new Set()
-      epochRef.current += 1
-      abortRef.current.abort()
-      filesRef.current.forEach(file => {
-        if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
-      })
       setFiles(new Map())
       setStep('upload')
       setSessionId(null)
-      sessionIdRef.current = null
-      startedRef.current = false
-      startPromiseRef.current = null
       setIsUploading(false)
       setIsStarting(false)
       setSessionError(null)
       setBatchError(null)
       setStartError(null)
       seededFiles.current = null
-      if (sessionId && !alreadyStarted) {
-        void abandonUnstartedSession(sessionId, startPromise, pending, abandoned)
-      }
       return
     }
 
+    openingIdRef.current += 1
     const controller = new AbortController()
     abortRef.current = controller
     startedRef.current = false
@@ -209,7 +193,27 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       }
     }
     void create()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      const currentSessionId = sessionIdRef.current
+      const startPromise = startPromiseRef.current
+      const alreadyStarted = startedRef.current
+      const abandoned = abandonedRef.current
+      abandonedRef.current = []
+      const pending = inFlightRef.current
+      inFlightRef.current = new Set()
+      epochRef.current += 1
+      abortRef.current.abort()
+      filesRef.current.forEach(file => {
+        if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
+      })
+      sessionIdRef.current = null
+      startedRef.current = false
+      startPromiseRef.current = null
+      if (currentSessionId && !alreadyStarted) {
+        void abandonUnstartedSession(currentSessionId, startPromise, pending, abandoned)
+      }
+    }
   }, [open])
 
   // Task 2: Sync filesRef with files state (for unmount cleanup)
@@ -506,6 +510,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     setIsStarting(true)
     setStartError(null)
     const epoch = epochRef.current
+    const openingId = openingIdRef.current
     const run = (async (): Promise<boolean> => {
       const stillThisOpening = () => epochRef.current === epoch
       try {
@@ -517,12 +522,13 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         const data = await res.json()
 
         if (data.status === 'success') {
-          if (!stillThisOpening()) return true
-          startedRef.current = true
           observeSession(sessionId)
-          onOpenChange(false)
           router.push('/inbox')
           router.refresh()
+          if (openingIdRef.current === openingId) {
+            startedRef.current = true
+            onOpenChange(false)
+          }
           return true
         }
         if (stillThisOpening()) setStartError(data.message || 'Failed to start processing')

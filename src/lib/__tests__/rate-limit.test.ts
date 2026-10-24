@@ -162,6 +162,13 @@ describe('rate-limit', () => {
       expect(getRouteTier('/api/google-places/details')).toBe('standard');
     });
 
+    test('returns standard tier for review place lookups', () => {
+      expect(getRouteTier('/api/review/places/plc/pin')).toBe('standard');
+      expect(getRouteTier('/api/review/places/plc/branches')).toBe('standard');
+      expect(getRouteTier('/api/review/places/plc/city-suggestion')).toBe('standard');
+      expect(getRouteTier('/api/review/postcard/plc')).toBe('relaxed');
+    });
+
     test('returns relaxed tier for unknown routes', () => {
       expect(getRouteTier('/api/some-other-route')).toBe('relaxed');
     });

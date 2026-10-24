@@ -129,6 +129,139 @@ describe('ReviewCheckPanel', () => {
     expect(JSON.parse(String((patch?.[1] as RequestInit).body))).toMatchObject({ city: 'Forks' })
   })
 
+  it('fills a whitespace city, admin, and country from the chosen branch', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return json({
+          candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London' }],
+          unavailable: false,
+        })
+      }
+      if (url.includes('/pin')) {
+        return json({
+          pin: {
+            googlePlaceId: 'stub-gails-dulwich',
+            name: "Gail's Bakery",
+            address: '',
+            city: 'London',
+            admin: 'England',
+            country: 'United Kingdom',
+            coords: { lat: 51.45, lon: -0.07 },
+          },
+          unavailable: false,
+        })
+      }
+      if (init?.method === 'PATCH') return json({ status: 'success' })
+      return json({ message: 'unexpected' }, 500)
+    })
+    render(
+      <ReviewCheckPanel
+        place={place({ coords: null, city: ' ', admin: ' ', country: ' ' })}
+        onRename={jest.fn()}
+        onUpdated={onUpdated}
+      />
+    )
+    expect(screen.getByText('Where is it?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    await user.click(await screen.findByText('91 Lordship Ln, London'))
+    await waitFor(() => expect(onUpdated).toHaveBeenCalled())
+    const patch = fetchMock.mock.calls.find((call) => (call[1] as RequestInit | undefined)?.method === 'PATCH')
+    expect(JSON.parse(String((patch?.[1] as RequestInit).body))).toEqual({
+      coords: { lat: 51.45, lon: -0.07 },
+      googlePlaceId: 'stub-gails-dulwich',
+      city: 'London',
+      admin: 'England',
+      country: 'United Kingdom',
+    })
+  })
+
+  it('keeps a real city and still fills a blank region from the chosen branch', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return json({
+          candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London' }],
+          unavailable: false,
+        })
+      }
+      if (url.includes('/pin')) {
+        return json({
+          pin: {
+            googlePlaceId: 'stub-gails-dulwich',
+            name: "Gail's Bakery",
+            address: null,
+            city: 'London',
+            admin: 'England',
+            country: 'United Kingdom',
+            coords: { lat: 51.45, lon: -0.07 },
+          },
+          unavailable: false,
+        })
+      }
+      if (init?.method === 'PATCH') return json({ status: 'success' })
+      return json({ message: 'unexpected' }, 500)
+    })
+    render(
+      <ReviewCheckPanel
+        place={place({ coords: null, city: 'Paris', admin: ' ', country: null })}
+        onRename={jest.fn()}
+        onUpdated={onUpdated}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    await user.click(await screen.findByText('91 Lordship Ln, London'))
+    await waitFor(() => expect(onUpdated).toHaveBeenCalled())
+    const patch = fetchMock.mock.calls.find((call) => (call[1] as RequestInit | undefined)?.method === 'PATCH')
+    const body = JSON.parse(String((patch?.[1] as RequestInit).body)) as Record<string, unknown>
+    expect(body.city).toBeUndefined()
+    expect(body.admin).toBe('England')
+    expect(body.country).toBe('United Kingdom')
+    expect(body.address).toBeUndefined()
+  })
+
+  it('fills a whitespace region when the suggested town is saved', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/city-suggestion')) {
+        return json({
+          suggestion: { locality: 'Forks', admin: 'Washington', country: 'United States', areaLabel: 'Olympic National Park' },
+          unavailable: false,
+        })
+      }
+      if (init?.method === 'PATCH') return json({ status: 'success' })
+      return json({ message: 'unexpected' }, 500)
+    })
+    render(
+      <ReviewCheckPanel
+        place={place({
+          name: 'Hall of Mosses',
+          kind: 'natural',
+          city: ' ',
+          admin: ' ',
+          country: ' ',
+          coords: { lat: 47.86, lon: -123.93 },
+        })}
+        onRename={jest.fn()}
+        onUpdated={onUpdated}
+      />
+    )
+    await user.click(await screen.findByRole('button', { name: 'Forks, Washington' }))
+    await waitFor(() => expect(onUpdated).toHaveBeenCalled())
+    const patch = fetchMock.mock.calls.find((call) => (call[1] as RequestInit | undefined)?.method === 'PATCH')
+    expect(JSON.parse(String((patch?.[1] as RequestInit).body))).toEqual({
+      city: 'Forks',
+      admin: 'Washington',
+      country: 'United States',
+    })
+  })
+
   it('marks a shaky name and a tip', () => {
     render(
       <ReviewCheckPanel

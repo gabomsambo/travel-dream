@@ -38,6 +38,7 @@ const ROUTE_TIERS: Record<string, RateLimitTier> = {
   '/api/upload/sessions': 'standard',
   '/api/upload/blob-complete': 'standard',
   '/api/google-places': 'standard',
+  '/api/review/places': 'standard',
   '/api/photos/search': 'photo-search',
   '/api/photos/resolve': 'photo-resolve',
 };

@@ -24,6 +24,10 @@ async function readError(response: Response, fallback: string): Promise<string> 
   return body?.message || fallback
 }
 
+function blankText(value: string | null | undefined): boolean {
+  return value == null || value.trim() === ""
+}
+
 function townLabel(suggestion: CitySuggestion): string | null {
   if (!suggestion.locality) return null
   return suggestion.admin ? `${suggestion.locality}, ${suggestion.admin}` : suggestion.locality
@@ -147,7 +151,7 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
   const [pending, setPending] = React.useState<"search" | "pin" | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [other, setOther] = React.useState("")
-  const hasCity = Boolean(place.city && place.city.trim())
+  const hasCity = !blankText(place.city)
 
   const search = async (query: string) => {
     if (pending) return
@@ -187,9 +191,9 @@ function PinCheck({ place, onUpdated }: { place: PlaceWithRelations; onUpdated: 
       if (typeof body.pin.address === "string" && body.pin.address.length > 0) {
         patch.address = body.pin.address
       }
-      if (!place.city && body.pin.city) patch.city = body.pin.city
-      if (!place.admin && body.pin.admin) patch.admin = body.pin.admin
-      if (!place.country && body.pin.country) patch.country = body.pin.country
+      if (blankText(place.city) && !blankText(body.pin.city)) patch.city = body.pin.city
+      if (blankText(place.admin) && !blankText(body.pin.admin)) patch.admin = body.pin.admin
+      if (blankText(place.country) && !blankText(body.pin.country)) patch.country = body.pin.country
       const saved = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -325,8 +329,8 @@ function CityCheck({
     setError(null)
     try {
       const patch: Record<string, unknown> = { city: trimmed }
-      if (!place.admin && extra?.admin) patch.admin = extra.admin
-      if (!place.country && extra?.country) patch.country = extra.country
+      if (blankText(place.admin) && !blankText(extra?.admin)) patch.admin = extra?.admin
+      if (blankText(place.country) && !blankText(extra?.country)) patch.country = extra?.country
       const response = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

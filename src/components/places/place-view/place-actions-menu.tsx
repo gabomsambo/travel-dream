@@ -28,7 +28,9 @@ async function failureMessage(response: Response, fallback: string) {
  * onDeleted still deletes, then skips leave(). onRestored runs after a
  * successful restore, before the refresh. Review uses all three so the queue
  * stays mounted: Archive is Not a place, Delete advances after confirmation,
- * and Restore counts as added.
+ * and Restore counts as added. blockWrites hides Delete and closes an open
+ * confirm. blockRestore hides Restore on an archived place. Review sets both
+ * while the postcard is merged, and blockWrites for the whole merge request.
  */
 export function PlaceActionsMenu({
   placeId,

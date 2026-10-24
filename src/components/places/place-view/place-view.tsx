@@ -28,7 +28,7 @@ type VisitStatus = "not_visited" | "planned" | "visited"
 export interface PlaceViewHandles {
   /** Resolves once no one-tap visit-status write is in flight or queued. */
   flushStatus: () => Promise<void>
-  /** Resolves true once in-flight Postcard and section edits are saved; false if a save failed. */
+  /** True once in-flight section edits are saved. False when a save failed or the section editor is not mounted. */
   flushSections: () => Promise<boolean>
   /** The place as currently displayed, including a confirmed status override and section edits. */
   displayPlace: () => PlaceWithRelations

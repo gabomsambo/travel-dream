@@ -5,7 +5,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { eq, and, sql } from 'drizzle-orm';
 import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import { releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
+import { releaseBlobIfUnreferencedByAnyTenant } from '@/lib/shared-blob';
 
 export const runtime = 'nodejs';
 
@@ -71,17 +71,21 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    const blobUrls = cancelled
-      .map(s => s.uri)
-      .filter((uri): uri is string => !!uri && uri.startsWith('https://'));
+    const blobUrls = [...new Set(
+      cancelled
+        .map(s => s.uri)
+        .filter((uri): uri is string => !!uri && uri.startsWith('https://'))
+    )];
     if (blobUrls.length > 0) {
+      const excludeSourceIds = cancelled.map((s) => s.id);
       try {
-        await releaseBlobsIfUnreferenced(
-          user.id,
-          blobUrls,
-          { excludeSourceIds: cancelled.map((s) => s.id) },
-          '[MassUpload Cancel]'
-        );
+        for (const url of blobUrls) {
+          await releaseBlobIfUnreferencedByAnyTenant(
+            url,
+            { excludeSourceIds },
+            '[MassUpload Cancel]'
+          );
+        }
       } catch (e) {
         console.warn(`[MassUpload Cancel] Failed to delete ${blobUrls.length} blobs:`, e);
       }

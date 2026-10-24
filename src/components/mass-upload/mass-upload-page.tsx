@@ -112,12 +112,13 @@ async function abandonUnstartedSession(
       if (started) return
     }
     await drainInFlight(pending)
-    await fetch('/api/mass-upload/cancel', {
+    const cancel = await fetch('/api/mass-upload/cancel', {
       method: 'POST',
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     })
+    if (!cancel.ok) return
     await registerAbandonedUploads(sessionId, abandoned)
   } catch {
     return
@@ -504,7 +505,9 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
 
     setIsStarting(true)
     setStartError(null)
+    const epoch = epochRef.current
     const run = (async (): Promise<boolean> => {
+      const stillThisOpening = () => epochRef.current === epoch
       try {
         const res = await fetch('/api/mass-upload/start', {
           method: 'POST',
@@ -514,6 +517,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         const data = await res.json()
 
         if (data.status === 'success') {
+          if (!stillThisOpening()) return true
           startedRef.current = true
           observeSession(sessionId)
           onOpenChange(false)
@@ -521,13 +525,13 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
           router.refresh()
           return true
         }
-        setStartError(data.message || 'Failed to start processing')
+        if (stillThisOpening()) setStartError(data.message || 'Failed to start processing')
         return false
       } catch {
-        setStartError('Failed to start processing')
+        if (stillThisOpening()) setStartError('Failed to start processing')
         return false
       } finally {
-        setIsStarting(false)
+        if (stillThisOpening()) setIsStarting(false)
       }
     })()
     startPromiseRef.current = run

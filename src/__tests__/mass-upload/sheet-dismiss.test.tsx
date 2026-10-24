@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { upload } from '@vercel/blob/client'
 import { MassUploadSheet } from '@/components/mass-upload/mass-upload-page'
@@ -145,6 +145,65 @@ describe('upload sheet dismiss', () => {
     expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(0)
   })
 
+  it('does not register abandoned blobs when cancel does not succeed', async () => {
+    const order: string[] = []
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_cancel_failed' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        if (init?.signal) {
+          order.push('register')
+          return new Promise((_resolve, reject) => {
+            const fail = () => {
+              order.push('register-abort')
+              reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }))
+            }
+            if (init.signal?.aborted) {
+              fail()
+              return
+            }
+            init.signal?.addEventListener('abort', fail, { once: true })
+          })
+        }
+        order.push('register-closed')
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          json: async () => ({ status: 'error' }),
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        order.push('cancel')
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => ({ status: 'error', message: 'Cancel failed' }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    const files = [shot()]
+    const onOpenChange = jest.fn()
+    const { rerender } = render(
+      <MassUploadSheet open onOpenChange={onOpenChange} initialFiles={files} />,
+    )
+    await waitFor(() => expect(order).toContain('register'))
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
+    rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={files} />)
+
+    await waitFor(() => expect(order).toEqual(['register', 'register-abort', 'cancel']))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(order).toEqual(['register', 'register-abort', 'cancel'])
+  })
+
   it('leaves the session alone after Start has queued it', async () => {
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
@@ -182,5 +241,82 @@ describe('upload sheet dismiss', () => {
     rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={files} />)
     await waitFor(() => expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(1))
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
+  })
+
+  it('leaves a queued session and the sheet opened after that Start began', async () => {
+    let finishStart: () => void = () => {}
+    let sessions = 0
+    const order: string[] = []
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        sessions += 1
+        const id = sessions === 1 ? 'ses_first' : 'ses_second'
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', sourceId: 'src_started' }),
+        })
+      }
+      if (url === '/api/mass-upload/start' && method === 'POST') {
+        return new Promise((resolve) => {
+          finishStart = () => resolve({
+            ok: true,
+            json: async () => {
+              order.push('start-ok')
+              return { status: 'success', queued: 1 }
+            },
+          })
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        order.push('cancel')
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', cancelled: 0 }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    const files = [shot()]
+    const onOpenChange = jest.fn()
+    const { rerender } = render(
+      <MassUploadSheet open onOpenChange={onOpenChange} initialFiles={files} />,
+    )
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Continue to Review' }))
+    await user.click(screen.getByRole('button', { name: /Start Processing/ }))
+    await waitFor(() => expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(1))
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    onOpenChange.mockClear()
+    rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={files} />)
+    rerender(<MassUploadSheet open onOpenChange={onOpenChange} />)
+    await waitFor(() => expect(callsTo('/api/upload/sessions', 'POST')).toHaveLength(2))
+    expect(await screen.findByRole('heading', { name: 'Upload screenshots' })).toBeInTheDocument()
+
+    await act(async () => {
+      finishStart()
+    })
+    await waitFor(() => expect(order).toContain('start-ok'))
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
+    expect(screen.getByRole('heading', { name: 'Upload screenshots' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} />)
+    await waitFor(() => expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1))
+    expect(JSON.parse(String(callsTo('/api/mass-upload/cancel', 'POST')[0][1].body))).toEqual({
+      sessionId: 'ses_second',
+    })
+    expect(JSON.parse(String(callsTo('/api/mass-upload/start', 'POST')[0][1].body))).toEqual({
+      sessionId: 'ses_first',
+    })
   })
 })

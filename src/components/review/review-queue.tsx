@@ -389,6 +389,13 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const [mergedByPlace, setMergedByPlace] = React.useState<Record<string, MergedDuplicate>>({})
   const mergedRef = React.useRef(mergedByPlace)
   mergedRef.current = mergedByPlace
+  const [duplicateCheckEpoch, setDuplicateCheckEpoch] = React.useState<Record<string, number>>({})
+  const invalidateDuplicateCheck = React.useCallback((placeId: string) => {
+    setDuplicateCheckEpoch((existing) => ({
+      ...existing,
+      [placeId]: (existing[placeId] ?? 0) + 1,
+    }))
+  }, [])
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [editingId, setEditingId] = React.useState<string | null>(null)
@@ -851,6 +858,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
                   onPending={setBusy}
                   onMerged={noteMerged}
                   onMergeUndone={undoMerge}
+                  checkEpoch={duplicateCheckEpoch[current.placeId] ?? 0}
+                  onDuplicateCheckInvalidated={invalidateDuplicateCheck}
                 />
               )}
               onEdit={() => {

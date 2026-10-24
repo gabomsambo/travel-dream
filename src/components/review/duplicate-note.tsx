@@ -66,6 +66,8 @@ export function ReviewDuplicateNote({
   onPending,
   onMerged,
   onMergeUndone,
+  checkEpoch,
+  onDuplicateCheckInvalidated,
 }: {
   placeId: string
   placeName: string
@@ -79,9 +81,13 @@ export function ReviewDuplicateNote({
   onPending: (pending: boolean) => void
   onMerged: (merged: MergedDuplicate) => void
   onMergeUndone: (merged: MergedDuplicate) => Promise<void>
+  checkEpoch: number
+  onDuplicateCheckInvalidated: (placeId: string) => void
 }) {
   const placeIdRef = React.useRef(placeId)
   placeIdRef.current = placeId
+  const invalidateCheckRef = React.useRef(onDuplicateCheckInvalidated)
+  invalidateCheckRef.current = onDuplicateCheckInvalidated
   const aliveRef = React.useRef(true)
   React.useEffect(() => {
     aliveRef.current = true
@@ -98,26 +104,36 @@ export function ReviewDuplicateNote({
   const [compareLoading, setCompareLoading] = React.useState(false)
 
   React.useEffect(() => {
+    setKept(null)
+  }, [placeId])
+
+  React.useEffect(() => {
     if (merged) return
     const controller = new AbortController()
+    let cancelled = false
     setMatch(null)
-    setKept(null)
     ;(async () => {
       try {
         const response = await fetch(`/api/places/${encodeURIComponent(placeId)}/duplicate-check`, {
           signal: controller.signal,
         })
         const body = await response.json().catch(() => null) as { match?: ReviewDuplicateMatch | null } | null
-        if (controller.signal.aborted || !response.ok || !body?.match) return
-        setMatch(body.match)
+        if (cancelled || controller.signal.aborted || !response.ok) return
+        setMatch(body?.match ?? null)
       } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return
+        if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return
       }
     })()
-    return () => controller.abort()
-  }, [placeId, merged])
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [placeId, merged, checkEpoch])
 
-  const undoKeep = React.useCallback(async (pairs: Array<{ placeId1: string; placeId2: string }>) => {
+  const undoKeep = React.useCallback(async (
+    pairs: Array<{ placeId1: string; placeId2: string }>,
+    ownerPlaceId: string,
+  ) => {
     const response = await fetch('/api/places/dismiss-duplicate', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -127,7 +143,8 @@ export function ReviewDuplicateNote({
       notify.error(await readError(response, "Couldn't undo that."))
       return
     }
-    if (aliveRef.current) setKept(null)
+    if (aliveRef.current && placeIdRef.current === ownerPlaceId) setKept(null)
+    invalidateCheckRef.current(ownerPlaceId)
     notify.success('Put back')
   }, [])
 
@@ -149,9 +166,10 @@ export function ReviewDuplicateNote({
       const body = await response.json().catch(() => null) as { inserted?: Array<{ placeId1: string; placeId2: string }> } | null
       const inserted = body?.inserted?.length ? body.inserted : pairs
       if (stillThisPlace()) setKept({ name: keptName, pairs: inserted })
+      invalidateCheckRef.current(requestedPlaceId)
       notify.success(`Kept both: ${placeName} and ${keptName}`, {
         duration: 8_000,
-        cancel: { label: 'Undo', onClick: () => void undoKeep(inserted) },
+        cancel: { label: 'Undo', onClick: () => void undoKeep(inserted, requestedPlaceId) },
       })
     } catch (error) {
       if (!stillThisPlace()) return
@@ -262,7 +280,7 @@ export function ReviewDuplicateNote({
         <p className="min-w-0 flex-1">
           <span className="font-semibold">Kept both.</span> {kept.name} and {placeName} stay separate.
         </p>
-        <Button type="button" variant="ghost" size="sm" onClick={() => void undoKeep(kept.pairs)} disabled={disabled || pending !== null}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => void undoKeep(kept.pairs, placeId)} disabled={disabled || pending !== null}>
           Undo
         </Button>
       </div>

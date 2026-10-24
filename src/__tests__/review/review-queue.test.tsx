@@ -1650,4 +1650,169 @@ describe('Review duplicate note', () => {
     expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
     expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
   })
+
+  function pairKey(pair: { placeId1: string; placeId2: string }) {
+    return [pair.placeId1, pair.placeId2].sort().join('|')
+  }
+
+  function installDismissedPairFetch(options?: {
+    holdOneChecks?: () => boolean
+    dismissGate?: Promise<void>
+  }) {
+    const dismissed = new Set<string>()
+    const pendingChecks: Array<() => void> = []
+    const sharedShot = {
+      sourceId: 'src_shared',
+      url: 'https://example.test/shared.jpg',
+      name: 'shared.jpg',
+      createdAt: '2026-10-18T12:00:00.000Z',
+      softCover: false,
+      siblings: [
+        { placeId: 'plc_two', name: 'Two Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:01.000Z' },
+        { placeId: 'plc_one', name: 'One Cafe', status: 'inbox' as const, createdAt: '2026-10-18T12:00:02.000Z' },
+      ],
+    }
+    const previous = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input)
+      const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
+      if (url.includes('/duplicate-check')) {
+        const hidden = dismissed.has(pairKey({ placeId1: 'plc_one', placeId2: 'plc_lib' }))
+        const match = url.includes('plc_one') && !hidden ? fjellMatch : null
+        if (options?.holdOneChecks?.() && url.includes('plc_one')) {
+          const snapshot = match
+          return new Promise((resolve) => {
+            pendingChecks.push(() => resolve(jsonResponse({ status: 'success', match: snapshot })))
+          })
+        }
+        return jsonResponse({ status: 'success', match })
+      }
+      if (url === '/api/places/dismiss-duplicate' && method === 'POST') {
+        const body = JSON.parse(String((init as { body?: string }).body)) as { pairs: Array<{ placeId1: string; placeId2: string }> }
+        const finish = () => {
+          for (const pair of body.pairs) dismissed.add(pairKey(pair))
+          return jsonResponse({ status: 'success', inserted: body.pairs })
+        }
+        if (options?.dismissGate) return options.dismissGate.then(finish)
+        return finish()
+      }
+      if (url === '/api/places/dismiss-duplicate' && method === 'DELETE') {
+        const body = JSON.parse(String((init as { body?: string }).body)) as { pairs: Array<{ placeId1: string; placeId2: string }> }
+        for (const pair of body.pairs) dismissed.delete(pairKey(pair))
+        return jsonResponse({ status: 'success' })
+      }
+      if (url.startsWith('/api/review/postcard/')) {
+        const id = decodeURIComponent(url.slice('/api/review/postcard/'.length))
+        const row = placesById.get(id)
+        if (!row) return jsonResponse({ message: 'Place not found' }, 404)
+        return jsonResponse({ ...postcardFor(row), screenshot: sharedShot })
+      }
+      if (!previous) return jsonResponse({ status: 'success' })
+      return previous(input, init)
+    })
+    return {
+      pendingChecks,
+      queue: {
+        entries: [entryFrom(placeTwo, secondSource), entryFrom(placeOne, firstSource)],
+        postcard: { ...postcardFor(placeOne), screenshot: sharedShot },
+        initialPlaceId: 'plc_one',
+      },
+    }
+  }
+
+  function oneCafeChecks() {
+    return fetchMock.mock.calls.filter((call) => {
+      const url = requestUrl(call[0] as RequestInfo)
+      return url.includes('/duplicate-check') && url.includes('plc_one')
+    }).length
+  }
+
+  it('brings Merge and Keep both back on the open card when Keep both is undone', async () => {
+    const user = userEvent.setup()
+    const { queue } = installDismissedPairFetch()
+    renderQueue(queue)
+
+    await user.click(await screen.findByRole('button', { name: 'Keep both' }))
+    await waitFor(() => expect(posted('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1))
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    const checksBeforeReturn = oneCafeChecks()
+    await user.click(screen.getByRole('button', { name: /One Cafe/ }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe'))
+    await waitFor(() => expect(oneCafeChecks()).toBeGreaterThan(checksBeforeReturn))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('button', { name: 'Merge into Fjellheisen' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep both' })).not.toBeInTheDocument()
+
+    const toast = notifySuccess.mock.calls.find((call) => call[0] === 'Kept both: One Cafe and Fjellheisen')
+    const undo = (toast?.[1]?.cancel as { onClick?: () => void } | undefined)?.onClick
+    const checksBeforeUndo = oneCafeChecks()
+    await act(async () => { await undo?.() })
+
+    await waitFor(() => expect(oneCafeChecks()).toBeGreaterThan(checksBeforeUndo))
+    expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep both' })).toBeInTheDocument()
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
+    expect(posted('/api/places/dismiss-duplicate', 'DELETE')).toEqual([
+      { pairs: [{ placeId1: 'plc_one', placeId2: 'plc_lib' }] },
+    ])
+  })
+
+  it('hides Merge on the open card when Keep both finishes after coming back', async () => {
+    const user = userEvent.setup()
+    let releaseDismiss: () => void = () => {}
+    const dismissGate = new Promise<void>((resolve) => {
+      releaseDismiss = resolve
+    })
+    const { queue } = installDismissedPairFetch({ dismissGate })
+    renderQueue(queue)
+
+    await user.click(await screen.findByRole('button', { name: 'Keep both' }))
+    await waitFor(() => expect(posted('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1))
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    await user.click(screen.getByRole('button', { name: /One Cafe/ }))
+    expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep both' })).toBeInTheDocument()
+
+    await act(async () => { releaseDismiss() })
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Merge into Fjellheisen' })).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Keep both' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
+    expect(notifySuccess.mock.calls.some((call) => call[0] === 'Kept both: One Cafe and Fjellheisen')).toBe(true)
+  })
+
+  it('ignores a duplicate check that started before Keep both undo', async () => {
+    const user = userEvent.setup()
+    let holdOneChecks = false
+    const { queue, pendingChecks } = installDismissedPairFetch({ holdOneChecks: () => holdOneChecks })
+    renderQueue(queue)
+
+    await user.click(await screen.findByRole('button', { name: 'Keep both' }))
+    await waitFor(() => expect(posted('/api/places/dismiss-duplicate', 'POST')).toHaveLength(1))
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+    holdOneChecks = true
+    await user.click(screen.getByRole('button', { name: /One Cafe/ }))
+    await waitFor(() => expect(pendingChecks).toHaveLength(1))
+
+    const toast = notifySuccess.mock.calls.find((call) => call[0] === 'Kept both: One Cafe and Fjellheisen')
+    const undo = (toast?.[1]?.cancel as { onClick?: () => void } | undefined)?.onClick
+    await act(async () => { await undo?.() })
+    await waitFor(() => expect(pendingChecks).toHaveLength(2))
+
+    await act(async () => {
+      const releases = pendingChecks.splice(0)
+      releases[1]()
+      releases[0]()
+    })
+
+    expect(await screen.findByRole('button', { name: 'Merge into Fjellheisen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep both' })).toBeInTheDocument()
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe')
+  })
 })

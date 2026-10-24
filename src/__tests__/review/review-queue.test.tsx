@@ -9,6 +9,14 @@ import type { PlaceWithRelations, Source } from '@/types/database'
 const mockPush = jest.fn()
 const mockRefresh = jest.fn()
 const mockReplace = jest.fn()
+const mockPostcardFlush = {
+  status: (): Promise<void> => Promise.resolve(),
+  sections: (): Promise<boolean> => Promise.resolve(true),
+}
+function resetPostcardFlush() {
+  mockPostcardFlush.status = () => Promise.resolve()
+  mockPostcardFlush.sections = () => Promise.resolve(true)
+}
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, refresh: mockRefresh, replace: mockReplace }),
 }))
@@ -28,6 +36,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       onEdit,
       onPhotoAttached,
       blockWrites,
+      handlesRef,
     }: {
       place: PlaceWithRelations
       editing?: boolean
@@ -41,8 +50,24 @@ jest.mock('@/components/places/place-view/place-view', () => {
       onEdit?: () => void
       onPhotoAttached?: () => void
       blockWrites?: boolean
+      handlesRef?: React.MutableRefObject<{
+        flushStatus: () => Promise<void>
+        flushSections: () => Promise<boolean>
+        displayPlace: () => PlaceWithRelations
+      } | null>
     }) => {
       const mountedId = React.useRef(place.id)
+      React.useEffect(() => {
+        if (!handlesRef) return
+        handlesRef.current = {
+          flushStatus: () => mockPostcardFlush.status(),
+          flushSections: () => mockPostcardFlush.sections(),
+          displayPlace: () => place,
+        }
+        return () => {
+          handlesRef.current = null
+        }
+      }, [handlesRef, place])
       return (
         <div
           data-testid="postcard"
@@ -79,6 +104,7 @@ jest.mock('@/lib/notify', () => ({
 
 const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
 const notifySuccess = notify.success as jest.MockedFunction<typeof notify.success>
+const notifyError = notify.error as jest.MockedFunction<typeof notify.error>
 
 function source(id: string): Source {
   return {
@@ -203,6 +229,7 @@ function renderQueue(override: Partial<React.ComponentProps<typeof ReviewQueue>>
 describe('ReviewQueue decisions', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    resetPostcardFlush()
     fetchMock.mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith('/api/review/postcard/')) {
@@ -241,7 +268,7 @@ describe('ReviewQueue decisions', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open classic editor' }))
 
-    expect(mockPush).toHaveBeenCalledWith('/place/plc_one?editor=classic')
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/place/plc_one?editor=classic'))
   })
 
   it('adds, advances, and offers an Undo that restores Inbox and the original card', async () => {
@@ -1066,6 +1093,7 @@ function posted(url: string, method: string) {
 describe('Review duplicate note', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    resetPostcardFlush()
     installDuplicateFetch()
     window.history.replaceState({}, '', '/review')
   })
@@ -1340,6 +1368,73 @@ describe('Review duplicate note', () => {
     expect(patchCalls().map((call) => String((call[1] as { body?: string } | undefined)?.body))).toEqual([
       JSON.stringify({ status: 'library' }),
     ])
+  })
+
+  it('saves postcard edits before merging and blocks writes while that request runs', async () => {
+    const order: string[] = []
+    let releaseSections: (saved: boolean) => void = () => {}
+    const sectionsGate = new Promise<boolean>((resolve) => {
+      releaseSections = resolve
+    })
+    let releaseMerge: (response: Response) => void = () => {}
+    const mergeGate = new Promise<Response>((resolve) => {
+      releaseMerge = resolve
+    })
+    mockPostcardFlush.status = async () => {
+      order.push('status')
+    }
+    mockPostcardFlush.sections = () => {
+      order.push('sections')
+      return sectionsGate
+    }
+    const previous = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input)
+      const method = ((init as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
+      if (url === '/api/places/bulk-merge' && method === 'POST') {
+        order.push('merge')
+        return mergeGate
+      }
+      if (!previous) return jsonResponse({ status: 'success' })
+      return previous(input, init)
+    })
+
+    renderQueue()
+    const mergeButton = await screen.findByRole('button', { name: 'Merge into Fjellheisen' })
+    await act(async () => { mergeButton.click() })
+
+    expect(order).toEqual(['status', 'sections'])
+    expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Edit postcard' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Attach photo' })).not.toBeInTheDocument()
+
+    await act(async () => { releaseSections(true) })
+    await waitFor(() => expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(1))
+    expect(order).toEqual(['status', 'sections', 'merge'])
+    expect(screen.queryByRole('button', { name: 'Edit postcard' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Attach photo' })).not.toBeInTheDocument()
+
+    await act(async () => {
+      releaseMerge(jsonResponse({
+        status: 'success',
+        success: 1,
+        results: [{ status: 'success', mergeLogId: 'mrg_flush' }],
+      }))
+      await mergeGate
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('Two Cafe'))
+  })
+
+  it('does not merge when a postcard edit fails to save', async () => {
+    const user = userEvent.setup()
+    mockPostcardFlush.sections = async () => false
+    renderQueue()
+    await user.click(await screen.findByRole('button', { name: 'Merge into Fjellheisen' }))
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't save your edits, so these places weren't merged."))
+    expect(posted('/api/places/bulk-merge', 'POST')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Merge into Fjellheisen' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Edit postcard' })).toBeInTheDocument()
   })
 
   it('does not edit or attach a photo on a merged postcard', async () => {

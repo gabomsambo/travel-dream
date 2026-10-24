@@ -62,6 +62,7 @@ export function ReviewDuplicateNote({
   disabled,
   claimPlace,
   releasePlace,
+  beforeMerge,
   onPending,
   onMerged,
   onMergeUndone,
@@ -72,8 +73,9 @@ export function ReviewDuplicateNote({
   screenshotUrl: string | null
   merged: MergedDuplicate | null
   disabled?: boolean
-  claimPlace: (placeId: string) => boolean
+  claimPlace: (placeId: string, op?: 'merge') => boolean
   releasePlace: (placeId: string) => void
+  beforeMerge: () => Promise<boolean>
   onPending: (pending: boolean) => void
   onMerged: (merged: MergedDuplicate) => void
   onMergeUndone: (merged: MergedDuplicate) => Promise<void>
@@ -164,10 +166,15 @@ export function ReviewDuplicateNote({
 
   const merge = async () => {
     if (!match || pending || disabled || currentPlace.status === 'archived') return
-    if (!claimPlace(placeId)) return
+    if (!claimPlace(placeId, 'merge')) return
     setPending('merge')
     onPending(true)
     try {
+      const saved = await beforeMerge()
+      if (!saved) {
+        notify.error("Couldn't save your edits, so these places weren't merged.")
+        return
+      }
       const response = await fetch('/api/places/bulk-merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

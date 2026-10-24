@@ -383,6 +383,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const undoingMergeRef = React.useRef<Set<string>>(new Set())
   const placeOpRef = React.useRef<Set<string>>(new Set())
   const [placeOps, setPlaceOps] = React.useState<ReadonlySet<string>>(() => new Set())
+  const mergingRef = React.useRef<Set<string>>(new Set())
+  const [mergingIds, setMergingIds] = React.useState<ReadonlySet<string>>(() => new Set())
   const decisionToastsRef = React.useRef<Record<string, Array<string | number>>>({})
   const [mergedByPlace, setMergedByPlace] = React.useState<Record<string, MergedDuplicate>>({})
   const mergedRef = React.useRef(mergedByPlace)
@@ -502,17 +504,28 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     }
   }, [uploadSessionId])
 
-  const claimPlace = React.useCallback((placeId: string) => {
+  const claimPlace = React.useCallback((placeId: string, op?: 'merge') => {
     if (placeOpRef.current.has(placeId)) return false
     if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId]) return false
     placeOpRef.current.add(placeId)
+    if (op === 'merge') mergingRef.current.add(placeId)
     setPlaceOps(new Set(placeOpRef.current))
+    if (op === 'merge') setMergingIds(new Set(mergingRef.current))
     return true
   }, [])
 
   const releasePlace = React.useCallback((placeId: string) => {
-    if (!placeOpRef.current.delete(placeId)) return
-    setPlaceOps(new Set(placeOpRef.current))
+    const hadOp = placeOpRef.current.delete(placeId)
+    const hadMerge = mergingRef.current.delete(placeId)
+    if (hadOp) setPlaceOps(new Set(placeOpRef.current))
+    if (hadMerge) setMergingIds(new Set(mergingRef.current))
+  }, [])
+
+  const beforeMerge = React.useCallback(async () => {
+    const handles = viewHandlesRef.current
+    if (!handles) return true
+    await handles.flushStatus()
+    return handles.flushSections()
   }, [])
 
   const undoDecision = React.useCallback(async (
@@ -769,13 +782,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const shot = current.postcard?.screenshot ?? null
   const queuePlaceIds = new Set(session.map((entry) => entry.placeId))
   const placeMerged = outcomes[current.placeId] === 'merged' || Boolean(mergedByPlace[current.placeId])
+  const placeMerging = mergingIds.has(current.placeId)
   const placeBusy = placeOps.has(current.placeId)
   const decisionLocked = busy || placeMerged || placeBusy
 
   const openClassic = () => {
     const handles = viewHandlesRef.current
     const placeId = current.placeId
-    if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId]) return
+    if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId] || mergingRef.current.has(placeId)) return
     if (!handles) {
       router.push(placeClassicHref(placeId))
       return
@@ -817,7 +831,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               place={current.postcard.place}
               trips={trips}
               alsoIn={current.postcard.alsoIn}
-              editing={!placeMerged && editingId === current.placeId}
+              editing={!placeMerged && !placeMerging && editingId === current.placeId}
               softCover={Boolean(shot?.softCover)}
               fitReviewBar
               handlesRef={viewHandlesRef}
@@ -831,13 +845,14 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
                   disabled={busy || placeBusy}
                   claimPlace={claimPlace}
                   releasePlace={releasePlace}
+                  beforeMerge={beforeMerge}
                   onPending={setBusy}
                   onMerged={noteMerged}
                   onMergeUndone={undoMerge}
                 />
               )}
               onEdit={() => {
-                if (placeMerged) return
+                if (placeMerged || placeMerging) return
                 setEditingId(current.placeId)
               }}
               onDoneEditing={() => {
@@ -847,10 +862,10 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               onOpenClassic={openClassic}
               onPrefetchEdit={() => { void import('@/components/places/place-full-view') }}
               onPhotoAttached={() => {
-                if (placeMerged) return
+                if (placeMerged || placeMerging) return
                 router.refresh()
               }}
-              blockWrites={placeMerged}
+              blockWrites={placeMerged || placeMerging}
               onArchive={() => { void decide('archived') }}
               onDeleted={removeFromQueue}
               onRestored={() => noteRestored(current.placeId)}

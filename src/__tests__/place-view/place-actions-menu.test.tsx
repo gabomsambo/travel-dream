@@ -296,6 +296,24 @@ describe('postcard menu inside Review', () => {
     expect(screen.getByRole('button', { name: 'More actions' })).toBeInTheDocument()
   })
 
+  it('closes an open delete confirm when writes become blocked', async () => {
+    const onDeleted = jest.fn()
+    const { rerender } = render(
+      <PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="inbox" onDeleted={onDeleted} />
+    )
+    await openMenu()
+    await userEvent.click(screen.getByRole('menuitem', { name: /Delete/ }))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+
+    rerender(
+      <PlaceActionsMenu placeId="plc_fushimi" placeName="Fushimi Inari-taisha" status="inbox" onDeleted={onDeleted} blockWrites />
+    )
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onDeleted).not.toHaveBeenCalled()
+  })
+
   it('does not offer Delete while a merged place must stay untouched', async () => {
     renderHero(jest.fn(), jest.fn(), undefined, 'archived', true, true)
     await userEvent.click(screen.getByRole('button', { name: 'More actions' }))

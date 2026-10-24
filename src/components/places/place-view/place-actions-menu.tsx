@@ -59,6 +59,11 @@ export function PlaceActionsMenu({
   const [confirmDelete, setConfirmDelete] = React.useState(false)
   const [busy, setBusy] = React.useState<"archive" | "restore" | "delete" | null>(null)
 
+  React.useLayoutEffect(() => {
+    if (!blockWrites) return
+    setConfirmDelete(false)
+  }, [blockWrites])
+
   // Back to wherever the user came from (Explore, Library, Inbox…), refreshed so the place
   // they just archived or deleted is gone there too. A direct visit has nowhere to go back
   // to, so it lands on the Library.
@@ -99,6 +104,10 @@ export function PlaceActionsMenu({
   }
 
   const deletePlace = async () => {
+    if (blockWrites) {
+      setConfirmDelete(false)
+      return
+    }
     setBusy("delete")
     try {
       const response = await fetch(`/api/places/${placeId}`, { method: "DELETE" })

@@ -377,6 +377,10 @@ function usePlaceAutosave(
     debounced()
   }, [debounced])
 
+  const cancel = React.useCallback(() => {
+    debounced.cancel()
+  }, [debounced])
+
   const flush = React.useCallback(async () => {
     debounced.cancel()
     let ok = true
@@ -409,7 +413,7 @@ function usePlaceAutosave(
     setError(message)
   }, [])
 
-  return { status, error, update, flush, noteSaved, noteError }
+  return { status, error, update, flush, cancel, noteSaved, noteError }
 }
 
 function SaveMark({ status, error }: { status: SaveStatus; error: string | null }) {
@@ -652,10 +656,12 @@ export function SectionEditProvider({
     })
   }, [blockWrites, save])
 
-  React.useEffect(() => {
+  const cancelSave = save.cancel
+  React.useLayoutEffect(() => {
     if (!blockWrites) return
+    cancelSave()
     setActive(null)
-  }, [blockWrites])
+  }, [blockWrites, cancelSave])
 
   const open = React.useCallback((id: SectionId) => {
     if (blockWrites) return

@@ -4,6 +4,7 @@ import { upload } from '@vercel/blob/client'
 import { signOut } from 'next-auth/react'
 import { Header } from '@/components/layout/header'
 import { MassUploadSheet } from '@/components/mass-upload/mass-upload-page'
+import { resetUnstartedUploadsForTests } from '@/lib/unstarted-upload'
 
 const mockPush = jest.fn()
 const mockRefresh = jest.fn()
@@ -119,6 +120,7 @@ describe('discarding an upload before Start', () => {
     mockObserveSession.mockReset()
     mockSignOut.mockReset()
     mockSignOut.mockImplementation(() => Promise.resolve())
+    resetUnstartedUploadsForTests()
     uploadMock.mockResolvedValue({
       url: 'https://teststore.public.blob.vercel-storage.com/coast.jpg',
     })
@@ -469,8 +471,8 @@ describe('discarding an upload before Start', () => {
 
     window.dispatchEvent(new Event('pagehide'))
 
+    await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(2))
     const registers = callsTo('/api/mass-upload/register', 'POST')
-    expect(registers).toHaveLength(2)
     expect(registers[1][1].keepalive).toBe(true)
     expect(registers[1][1].signal).toBeUndefined()
     const cancels = callsTo('/api/mass-upload/cancel', 'POST')
@@ -533,10 +535,10 @@ describe('discarding an upload before Start', () => {
 
     window.dispatchEvent(new Event('pagehide'))
 
+    await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(3))
     const registers = callsTo('/api/mass-upload/register', 'POST')
     // Only the screenshot whose register never landed is handed over. The one
     // that already has a source row is left alone.
-    expect(registers).toHaveLength(3)
     const leave = registers[2]
     expect(leave[1].keepalive).toBe(true)
     expect(JSON.parse(String(leave[1].body))).toMatchObject({
@@ -600,22 +602,25 @@ describe('discarding an upload before Start', () => {
     rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={[shot()]} />)
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
 
-    // The page is discarded before the cancel answers. The screenshot that
-    // never got a source row still has to be handed over.
+    // The page is discarded before the cancel answers. Hand-over waits for
+    // cancel.ok so a failed cancel cannot insert uploaded rows.
     window.dispatchEvent(new Event('pagehide'))
+    expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(1)
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
 
+    await act(async () => {
+      finishCancel()
+    })
+    await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(2))
     const registers = callsTo('/api/mass-upload/register', 'POST')
-    expect(registers).toHaveLength(2)
     expect(registers[1][1].keepalive).toBe(true)
     expect(registers[1][1].signal).toBeUndefined()
     expect(JSON.parse(String(registers[1][1].body))).toMatchObject({
       sessionId: 'ses_gap',
       blobUrl,
     })
-    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
 
     await act(async () => {
-      finishCancel()
       finishRegister()
     })
   })

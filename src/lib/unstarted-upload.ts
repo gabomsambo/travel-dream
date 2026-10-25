@@ -69,6 +69,18 @@ export function parkUnstartedUpload(binding: UnstartedUploadBinding): () => void
   }
 }
 
+function releaseFlushableIfSettled(binding: UnstartedUploadBinding): void {
+  if (binding.store.pending().length > 0) return
+  parked.delete(binding)
+  if (active === binding) active = null
+}
+
+/** Clears module bindings between tests so a parked failed-cancel cannot leak. */
+export function resetUnstartedUploadsForTests(): void {
+  active = null
+  parked.clear()
+}
+
 export function cancelUploadSession(sessionId: string): Promise<Response> {
   return fetch('/api/mass-upload/cancel', {
     method: 'POST',
@@ -184,10 +196,9 @@ export async function handOverPendingBlobs(
 /**
  * After a failed Start (or when Start never ran), cancel then hand over.
  *
- * Sign-out awaits cancel.ok before register. Pagehide after a failed Start
- * does the same gate so a failed cancel cannot insert `uploaded` rows. The
- * never-started pagehide path below still fires cancel and register together
- * — the session lock makes either order safe while the document is dying.
+ * Sign-out and pagehide both wait for cancel.ok before register so a failed
+ * cancel cannot insert `uploaded` rows into a session that is still open
+ * (including a parked batch whose sheet-close cancel already failed).
  */
 async function cancelThenHandOver(
   sessionId: string,
@@ -198,15 +209,26 @@ async function cancelThenHandOver(
     const cancel = await binding.cancel()
     if (!cancel.ok) return
     await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+    releaseFlushableIfSettled(binding)
     return
   }
   void binding.cancel().then(
-    (cancel) => {
+    async (cancel) => {
       if (!cancel.ok) return
-      void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+      await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+      releaseFlushableIfSettled(binding)
     },
     () => undefined,
   )
+}
+
+async function handOverStarted(
+  sessionId: string,
+  binding: UnstartedUploadBinding,
+  options: { keepalive?: boolean },
+): Promise<void> {
+  await handOverPendingBlobs(sessionId, binding, options)
+  releaseFlushableIfSettled(binding)
 }
 
 async function flushBinding(
@@ -221,7 +243,7 @@ async function flushBinding(
     if (options.awaitCancel) {
       const started = await startOutcome
       if (started) {
-        await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+        await handOverStarted(sessionId, binding, { keepalive: options.keepalive })
         return
       }
       await cancelThenHandOver(sessionId, binding, options)
@@ -230,7 +252,7 @@ async function flushBinding(
     void startOutcome.then(
       (started) => {
         if (started) {
-          void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+          void handOverStarted(sessionId, binding, { keepalive: options.keepalive })
           return
         }
         void cancelThenHandOver(sessionId, binding, options)
@@ -241,12 +263,7 @@ async function flushBinding(
     )
     return
   }
-  if (options.awaitCancel) {
-    await cancelThenHandOver(sessionId, binding, options)
-    return
-  }
-  void binding.cancel().then(() => undefined, () => undefined)
-  void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+  await cancelThenHandOver(sessionId, binding, options)
 }
 
 /**
@@ -272,10 +289,9 @@ export async function cancelUnstartedUpload(): Promise<void> {
 }
 
 /**
- * Pagehide path. The document is going away, so the cancel and the hand-over
- * go out together and both use keepalive. A register that lands before the
- * cancel creates a source that the cancel then cancels; one that lands after
- * takes the closed-session path and deletes the blob.
+ * Pagehide path. Cancel and hand-over both use keepalive. Hand-over waits for
+ * cancel.ok so a failed cancel cannot insert `uploaded` rows; once cancel
+ * lands, a late register takes the closed-session 409 delete path.
  *
  * When Start already succeeded, skip cancel and hand over pending blobs into
  * the still-open session. Register queues them server-side — do not chain a

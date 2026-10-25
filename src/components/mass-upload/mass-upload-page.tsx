@@ -86,7 +86,7 @@ async function abandonUnstartedSession(
   sessionId: string,
   startPromise: Promise<boolean> | null,
   pending: Set<Promise<unknown>>,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const started = startPromise ? await startPromise : false
     await drainInFlight(pending)
@@ -94,17 +94,18 @@ async function abandonUnstartedSession(
       // Start already queued the session — leave it alone, but still register
       // blobs that never got a source row. Register inserts them as queued.
       await handOverPendingBlobs(sessionId, binding)
-      return
+      return binding.store.pending().length === 0
     }
     // The cancel has to land first: once the session is closed, register
     // takes its 409 path and deletes the blob with it. A cancel that failed
     // leaves the session open, and registering then would leave the batch
     // behind as "still reading" in the Inbox.
     const cancel = await binding.cancel()
-    if (!cancel.ok) return
+    if (!cancel.ok) return false
     await handOverPendingBlobs(sessionId, binding)
+    return binding.store.pending().length === 0
   } catch {
-    return
+    return false
   }
 }
 
@@ -184,7 +185,18 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
                 : startPromiseRef.current),
             store,
             cancel: () => {
-              if (!cancelRequest) cancelRequest = cancelUploadSession(id)
+              if (!cancelRequest) {
+                cancelRequest = cancelUploadSession(id).then(
+                  (response) => {
+                    if (!response.ok) cancelRequest = null
+                    return response
+                  },
+                  (error) => {
+                    cancelRequest = null
+                    throw error
+                  },
+                )
+              }
               return cancelRequest
             },
           }
@@ -254,11 +266,9 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
             alreadyStarted ? Promise.resolve(true) : startPromise,
             pending,
           )
-            .finally(async () => {
+            .then(async (canRelease) => {
               if (syncHandOver) await syncHandOver
-              // A failed hand-over leaves URLs in the store; keep the binding
-              // visible to pagehide/sign-out until those are cleared.
-              if (closing.store.pending().length > 0) return
+              if (!canRelease) return
               unpark()
               releaseBinding()
             })

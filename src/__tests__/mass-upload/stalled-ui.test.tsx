@@ -1,8 +1,9 @@
 /**
  * The `stalled` status is new product surface, not an internal detail: an image
- * that was interrupted too many times must reach the owner as "needs retry",
- * visibly distinct from `failed`, and must count towards progress so the run can
- * finish.
+ * that was interrupted too many times must reach the owner as "still trying",
+ * visibly distinct from `failed`. It is still in progress, so the processed
+ * count and the bar leave it out and the run stays on this screen — the cron
+ * puts it back on the queue; the owner is not asked to retry by hand.
  *
  * This renders the real page against the real polling hook, with only `fetch`
  * stubbed with the payload `/api/mass-upload/status` returns.
@@ -10,7 +11,7 @@
  * Set `UI_EVIDENCE_DIR` to also write the rendered markup out for review:
  *   UI_EVIDENCE_DIR=/tmp/evidence npx jest src/__tests__/mass-upload/stalled-ui.test.tsx
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 
 // The blob client is ESM-only and unused on the processing screen.
 jest.mock('@vercel/blob/client', () => ({ upload: jest.fn() }))
@@ -94,43 +95,56 @@ async function dumpEvidence(name: string, title: string) {
   )
 }
 
-describe('mass upload UI — stalled screenshots surface as "needs retry"', () => {
+describe('mass upload UI — stalled screenshots surface as "still trying"', () => {
   beforeEach(() => {
     ;(global.fetch as jest.Mock).mockReset()
   })
 
-  it('shows a "needs retry" badge while processing, distinct from "failed"', async () => {
+  it('shows a "still trying" badge while processing, distinct from "failed"', async () => {
     mockApis(statusPayload({ queued: 12, extracting: 4, completed: 481, stalled: 3 }, 500, 672))
     render(<MassUploadPage />)
 
-    expect(await screen.findByText('3 needs retry')).toBeInTheDocument()
-    // Stalled items count as processed so the bar reflects real progress.
-    expect(screen.getByText('484 of 500 processed')).toBeInTheDocument()
+    expect(await screen.findByText('3 still trying')).toBeInTheDocument()
+    expect(screen.getByText('481 of 500 processed')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Overall processing progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '96'
+    )
     expect(screen.queryByText(/failed/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/needs retry/i)).not.toBeInTheDocument()
 
-    await dumpEvidence('ui-processing-needs-retry', 'Processing — 3 screenshots surfaced as "needs retry", none failed')
+    await dumpEvidence('ui-processing-still-trying', 'Processing — 3 screenshots surfaced as "still trying", none failed')
   })
 
-  it('explains on the completion screen that stalled images are not bad images', async () => {
+  it('keeps a finished-plus-stalled batch on the processing screen', async () => {
     mockApis(statusPayload({ completed: 497, stalled: 3 }, 500, 698))
     render(<MassUploadPage />)
 
-    await waitFor(() => expect(screen.getByText('Processing Complete!')).toBeInTheDocument())
-    expect(
-      screen.getByText(/3 screenshots kept getting interrupted/i)
-    ).toBeInTheDocument()
-    expect(screen.getByText(/Nothing is wrong with those images/i)).toBeInTheDocument()
-    expect(screen.queryByText(/failed to process/i)).not.toBeInTheDocument()
-
-    await dumpEvidence('ui-complete-needs-retry', 'Complete — 497 completed, 3 "needs retry", 0 failed')
+    expect(await screen.findByText('Processing Screenshots')).toBeInTheDocument()
+    expect(screen.getByText('497 of 500 processed')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Overall processing progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '99'
+    )
+    expect(screen.getByText('3 still trying')).toBeInTheDocument()
+    expect(screen.queryByText('Processing Complete!')).not.toBeInTheDocument()
+    expect(screen.queryByText(/upload them again to retry/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/needs retry/i)).not.toBeInTheDocument()
   })
 
-  it('still finishes the run when every remaining screenshot stalled', async () => {
+  it('keeps polling when every remaining screenshot is still trying', async () => {
     mockApis(statusPayload({ completed: 0, stalled: 2 }, 2, 0))
     render(<MassUploadPage />)
 
-    // A run that ends entirely in `stalled` must not poll forever.
-    await waitFor(() => expect(screen.getByText('Processing Complete!')).toBeInTheDocument())
-    expect(screen.getByText(/upload them again to retry/i)).toBeInTheDocument()
+    expect(await screen.findByText('Processing Screenshots')).toBeInTheDocument()
+    expect(screen.getByText('0 of 2 processed')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Overall processing progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '0'
+    )
+    expect(screen.getByText('2 still trying')).toBeInTheDocument()
+    expect(screen.queryByText('Processing Complete!')).not.toBeInTheDocument()
+    expect(screen.queryByText(/upload them again to retry/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/needs retry/i)).not.toBeInTheDocument()
   })
 })

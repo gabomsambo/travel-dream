@@ -735,6 +735,96 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       }),
     },
   },
+  'mass-upload/retry': {
+    POST: [
+      {
+        slots: ['source'],
+        setup: async () => {
+          await dbExec()({
+            sql: `UPDATE sources SET processing_status = 'failed', processing_attempts = 3,
+                    processing_interruptions = 2, processing_error = 'reader confused',
+                    next_attempt_at = '2099-01-01T00:00:00.000Z'
+                  WHERE id = ?`,
+            args: [FIXTURE.aliceSource],
+          });
+          return [];
+        },
+        request: (t) => ({ url: `${API}/mass-upload/retry`, body: { sourceIds: [t.source] } }),
+      },
+      {
+        name: "Bob's source listed beside Alice's",
+        slots: ['source'],
+        setup: async () => {
+          const run = dbExec();
+          await run({
+            sql: `UPDATE sources SET processing_status = 'failed', processing_attempts = 3, processing_error = 'alice failed' WHERE id = ?`,
+            args: [FIXTURE.aliceSource],
+          });
+          await run({
+            sql: `UPDATE sources SET processing_status = 'failed', processing_attempts = 3, processing_error = 'bob failed' WHERE id = ?`,
+            args: [FIXTURE.bobSource],
+          });
+          return [FIXTURE.bobSource];
+        },
+        request: (t) => ({
+          url: `${API}/mass-upload/retry`,
+          body: { sourceIds: [FIXTURE.aliceSource, t.source] },
+        }),
+        refuses: [200],
+        because:
+          "A list is not an authorization boundary: the foreign id is skipped, Alice's own failed source is requeued, and the 200 names only her id.",
+      },
+      {
+        name: 'undo a retry before it is claimed',
+        slots: ['source'],
+        setup: async () => {
+          const run = dbExec();
+          await run({
+            sql: `UPDATE sources SET processing_status = 'queued', processing_attempts = 0,
+                    processing_interruptions = 0, processing_error = NULL,
+                    processing_lease_id = NULL, next_attempt_at = NULL, meta = ?
+                  WHERE id = ?`,
+            args: [JSON.stringify({
+              uploadInfo: { sessionId: FIXTURE.aliceSession, originalName: 'alice.png' },
+              retry: {
+                previous: {
+                  processingStatus: 'failed',
+                  processingAttempts: 3,
+                  processingInterruptions: 2,
+                  processingError: 'reader confused',
+                },
+              },
+            }), FIXTURE.aliceSource],
+          });
+          await run({
+            sql: `UPDATE sources SET processing_status = 'queued', processing_attempts = 0,
+                    processing_interruptions = 0, processing_error = NULL,
+                    processing_lease_id = NULL, next_attempt_at = NULL, meta = ?
+                  WHERE id = ?`,
+            args: [JSON.stringify({
+              uploadInfo: { sessionId: FIXTURE.bobSession, originalName: 'bob-passport.png' },
+              retry: {
+                previous: {
+                  processingStatus: 'failed',
+                  processingAttempts: 3,
+                  processingInterruptions: 1,
+                  processingError: 'bob failed',
+                },
+              },
+            }), FIXTURE.bobSource],
+          });
+          return [FIXTURE.bobSource];
+        },
+        request: (t) => ({
+          url: `${API}/mass-upload/retry`,
+          body: { sourceIds: [FIXTURE.aliceSource, t.source], undo: true },
+        }),
+        refuses: [200],
+        because:
+          "A list is not an authorization boundary: the foreign screenshot is skipped, only Alice's queued retry is undone, and the 200 names only her id.",
+      },
+    ],
+  },
   'mass-upload/start': {
     POST: [
       { slots: ['session'], request: (t) => ({ url: `${API}/mass-upload/start`, body: { sessionId: t.session } }) },
@@ -749,6 +839,26 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   },
 
   // --- inbox ---------------------------------------------------------------
+  'inbox/dismiss': {
+    POST: [
+      {
+        slots: ['source'],
+        request: (t) => ({ url: `${API}/inbox/dismiss`, body: { sourceIds: [t.source], dismissed: true } }),
+      },
+      {
+        name: "Bob's source listed beside Alice's",
+        slots: ['source'],
+        setup: async () => [FIXTURE.bobSource],
+        request: (t) => ({
+          url: `${API}/inbox/dismiss`,
+          body: { sourceIds: [FIXTURE.aliceSource, t.source], dismissed: true },
+        }),
+        refuses: [200],
+        because:
+          "A list is not an authorization boundary: the foreign screenshot is skipped, only Alice's is hidden, and the 200 names only her id.",
+      },
+    ],
+  },
   'inbox/uploads': {
     GET: [
       { slots: [], request: () => ({ url: `${API}/inbox/uploads` }) },

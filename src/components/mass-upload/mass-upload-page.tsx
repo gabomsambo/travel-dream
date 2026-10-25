@@ -20,6 +20,7 @@ import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Card } from "@/components/adapters/card"
 import { useMassUploadStatus } from '@/hooks/use-mass-upload-status'
+import { processedSourceCount } from '@/lib/mass-upload/status-view'
 import { useActivityJobs } from '@/components/activity/activity-provider'
 import { notify } from '@/lib/notify'
 import Link from 'next/link'
@@ -520,7 +521,7 @@ export function MassUploadPage() {
 
   // Step 3: Processing
   if (step === 'processing') {
-    const processed = status.counts.completed + status.counts.failed + status.counts.stalled
+    const processed = processedSourceCount(status.counts)
     const progressPercent = status.total > 0 ? Math.round((processed / status.total) * 100) : 0
 
     return (
@@ -561,10 +562,9 @@ export function MassUploadPage() {
             )}
             {status.counts.stalled > 0 && (
               <p className="text-sm text-amber-600 mb-4">
-                {status.counts.stalled} screenshot{status.counts.stalled !== 1 ? 's' : ''} kept getting interrupted and
-                {status.counts.stalled !== 1 ? ' were' : ' was'} not processed. Nothing is wrong with
-                {status.counts.stalled !== 1 ? ' those images' : ' that image'} — upload
-                {status.counts.stalled !== 1 ? ' them' : ' it'} again to retry.
+                {status.counts.stalled} screenshot{status.counts.stalled !== 1 ? 's' : ''} still trying
+                {status.counts.stalled !== 1 ? ' — they' : ' — it'} will retry on
+                {status.counts.stalled !== 1 ? ' their' : ' its'} own.
               </p>
             )}
             {status.counts.cancelled > 0 && (
@@ -652,7 +652,7 @@ export function MassUploadPage() {
                   <Badge variant="destructive">{status.counts.failed} failed</Badge>
                 )}
                 {status.counts.stalled > 0 && (
-                  <Badge variant="outline">{status.counts.stalled} needs retry</Badge>
+                  <Badge variant="outline">{status.counts.stalled} still trying</Badge>
                 )}
                 {status.counts.cancelled > 0 && (
                   <Badge variant="outline">{status.counts.cancelled} cancelled</Badge>

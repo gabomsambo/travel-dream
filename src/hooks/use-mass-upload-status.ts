@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import {
+  activeSourceCount,
   computeEta,
   emptyMassUploadCounts,
   isSessionComplete,
@@ -75,7 +76,7 @@ export function useMassUploadStatus(): UseMassUploadStatusState & UseMassUploadS
 
       const counts = normalizeCounts(data.counts)
       const total = data.total || 0
-      const isActive = counts.queued + counts.extracting + counts.enriching > 0
+      const isActive = activeSourceCount(counts) > 0
       const isComplete = isSessionComplete(counts, total)
       const eta = computeEta(counts, total, etaTimingRef.current, Date.now())
       etaTimingRef.current = eta.timing

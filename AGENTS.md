@@ -282,12 +282,14 @@ free `photos`-only Place Details call and stores the new name, so don't treat a 
 ## Mass-upload queue (reliability-critical)
 
 The owner's bar is "drop 500 images and walk away": a screenshot that uploaded successfully must
-never end up `failed` because a run ran out of clock, was killed, or raced another run.
+not end up `failed` from a single clock-out, kill, or race.
 
 `processingAttempts` counts **genuine verdicts about the image** and can end in `failed`.
-`processingInterruptions` counts **clock-outs, kills and upstream outages**; they only requeue, and
-past the cap they land in `stalled` (retryable, surfaced separately in the UI). Never merge the two
-counters. Classification lives in `asInterruption()` in `src/lib/mass-upload/queue-processor.ts`.
+`processingInterruptions` counts **clock-outs, kills and upstream outages** and never shares that
+counter. Below the cap they requeue with backoff. At the cap the row is `stalled` ("Still trying",
+no Try again) with a backoff, and the processing cron puts it back on the queue once that wait has
+elapsed. One more interruption past the cap lands in `failed`, which already offers Try again and
+Dismiss. Classification lives in `asInterruption()` in `src/lib/mass-upload/queue-processor.ts`.
 
 Claims are leases (`processing_lease_id`): every write back is guarded by the lease the run holds, so
 a reclaimed item cannot be finished twice. A requeued item also gets a `next_attempt_at` backoff, and
@@ -303,7 +305,8 @@ The timing invariants (lease TTL > item budget, run budget > item budget) are as
 `src/lib/mass-upload/queue-config.ts`, not in scattered constants, and keep route `maxDuration` and
 `vercel.json` in sync with `MASS_UPLOAD_MAX_DURATION_SECONDS`.
 
-Processing is event-triggered from `/api/mass-upload/start`; the cron is only a safety net. New
+Processing is event-triggered from `/api/mass-upload/start`; the cron is only a safety net, and it
+is what puts a stalled row whose backoff has elapsed back on the queue. New
 system-to-system endpoints authenticated with `CRON_SECRET` must be added to the bypass list in
 `src/middleware.ts`, or they get redirected to `/login` and silently never run.
 

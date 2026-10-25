@@ -1,6 +1,7 @@
 import {
   isSessionComplete,
   normalizeCounts,
+  processedSourceCount,
   type MassUploadStatusCounts,
 } from '@/lib/mass-upload/status-view'
 
@@ -51,11 +52,12 @@ export function formatActiveSummary(job: {
 }): string {
   const cancelled = job.counts.cancelled || 0
   const adjustedTotal = Math.max(0, job.total - cancelled)
-  const processed = job.counts.completed + job.counts.failed + job.counts.stalled
-  const parts = [
-    `Processing ${processed} of ${adjustedTotal}`,
-    `${job.placesCreated} ${placeWord(job.placesCreated)} found`,
-  ]
+  const processed = processedSourceCount(job.counts)
+  const parts = [`Processing ${processed} of ${adjustedTotal}`]
+  if (job.counts.stalled > 0) {
+    parts.push(`${job.counts.stalled} still trying`)
+  }
+  parts.push(`${job.placesCreated} ${placeWord(job.placesCreated)} found`)
   if (job.estimatedMinutesRemaining != null) {
     parts.push(`~${job.estimatedMinutesRemaining} min`)
   }
@@ -71,7 +73,7 @@ export function formatCompleteSummary(job: {
     parts.push(`${job.counts.failed} failed`)
   }
   if (job.counts.stalled > 0) {
-    parts.push(`${job.counts.stalled} need retry`)
+    parts.push(`${job.counts.stalled} still trying`)
   }
   parts.push(`${job.placesCreated} ${placeWord(job.placesCreated)} found`)
   return parts.join(' · ')
@@ -90,9 +92,11 @@ export function toActivityJob(
   placesCreated: number,
   estimatedMinutesRemaining: number | null,
   announced: boolean,
-  updatedAt: string = new Date().toISOString()
+  updatedAt: string = new Date().toISOString(),
+  phaseOverride?: ActivityJobPhase
 ): ActivityJob {
-  const phase: ActivityJobPhase = isSessionComplete(counts, total) ? 'complete' : 'active'
+  const phase: ActivityJobPhase =
+    phaseOverride ?? (isSessionComplete(counts, total) ? 'complete' : 'active')
   const snapshot = { counts, total, placesCreated, estimatedMinutesRemaining }
   return {
     id: sessionId,
@@ -143,7 +147,8 @@ export function parsePersistedJobs(raw: string | null, ownerUserId: string): Act
         row.placesCreated || 0,
         null,
         Boolean(row.announced),
-        row.updatedAt || new Date().toISOString()
+        row.updatedAt || new Date().toISOString(),
+        'complete'
       )
     )
   } catch {

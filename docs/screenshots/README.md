@@ -16,14 +16,14 @@ Theme log from the capture run: [`activity-bell-theme-log.json`](activity-bell-t
 | `activity-bell-active-tropical.png` | tropical teal Upload | Active-work dot on tropical tokens |
 | `activity-bell-popover-active-classic.png` | classic | Popover: `Processing 183 of 500 · 42 places found` |
 | `activity-bell-popover-active-tropical.png` | tropical | Same active popover; shell accents differ |
-| `activity-bell-popover-complete-classic.png` | classic | Completed job with counts, View results / Retry stalled / Dismiss |
+| `activity-bell-popover-complete-classic.png` | classic | Completed job: `487 processed · 9 failed · 4 still trying · 118 places found`, View results / Dismiss |
 | `activity-bell-popover-complete-tropical.png` | tropical | Same completed popover in tropical |
 
 **Exercised live:** authenticated `/library` shell, theme cookie round-trip, bell indicator, and rendered popover copy and action controls. Active counts came from an in-page `fetch` mock of `/api/mass-upload/status` after login; completed jobs were hydrated from the signed-in user's `td:activity-jobs:v1:<userId>` key the same way a reload would.
 
 **Unit-tested, not screenshoted:** provider toast-once + persist-across-remount, acknowledge clears storage, poll-paused copy, session list `userId` scope, 404-then-403 on GET/PATCH.
 
-**Reasoned:** in-page `/mass-upload` progress card (unchanged); `toastWithNavigate` on a real completing run (provider unit test covers the call).
+**Reasoned (at capture time):** in-page `/mass-upload` progress card; `toastWithNavigate` on a real completing run (provider unit test covers the call). Stalled rows surface as "still trying" (AGENTS.md Mass-upload queue).
 
 ## Notification triage
 

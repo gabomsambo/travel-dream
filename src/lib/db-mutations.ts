@@ -1,4 +1,4 @@
-import { eq, and, inArray, count, sql, desc, lt } from 'drizzle-orm';
+import { eq, and, inArray, count, sql, desc, lt, type SQL } from 'drizzle-orm';
 import { db } from '@/db';
 import { releaseBlobIfUnreferenced, releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
 import { sources, places, collections, sourcesToPlaces, placesToCollections, mergeLogs, attachments, reservations, placeLinks, dismissedDuplicates } from '@/db/schema';
@@ -7,6 +7,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { forUser } from './tenant-db';
 import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, generateCollectionId, NotFoundError, ConflictError } from './db-utils';
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
+import { metaDroppingRetryPrevious } from './mass-upload/retry-previous';
 import { isClaimableNow } from './mass-upload/queue-sql';
 import { archivedAtForStatus } from './place-status';
 import { usablePin } from './place-coords';
@@ -1960,6 +1961,15 @@ export async function batchCreatePlaces(
 
 export type CreatePlacesFromPipelineResult = Place[] & { createdCount: number };
 
+/** Patch `$.massUpload.outcome` on the row as it is at commit time. */
+function metaSettingMassUploadOutcome(outcome: {
+  created: string[];
+  linked: Array<{ placeId: string; reason: string }>;
+}): SQL {
+  const meta = sourcesCurrentSchema.meta;
+  return sql`json_set(COALESCE(${meta}, '{}'), '$.massUpload.outcome', json(${JSON.stringify(outcome)}))`;
+}
+
 /**
  * Insert new places from one screenshot and attach it to places that already
  * exist. The same transaction stores `meta.massUpload.outcome`: `created` is
@@ -2126,13 +2136,7 @@ export async function createPlacesFromPipeline(
       };
       await tx.update(sourcesCurrentSchema)
         .set({
-          meta: {
-            ...(meta ?? {}),
-            massUpload: {
-              ...(meta?.massUpload ?? {}),
-              outcome,
-            },
-          },
+          meta: metaSettingMassUploadOutcome(outcome),
           updatedAt: new Date().toISOString(),
         })
         .where(and(
@@ -2228,8 +2232,9 @@ async function survivorOfMergedArchive(tx: any, place: Place, userId: string): P
 // counter:
 //   • an ATTEMPT is a genuine verdict on the image (bad file, invalid response)
 //   • an INTERRUPTION is "we ran out of clock" (function killed, lease expired)
-// Only attempts can ever end in `failed`. Interruptions requeue, and after too
-// many they land in `stalled` — visible and retryable, never a verdict.
+// Attempts and interruptions stay separate counters. Interruptions requeue with
+// backoff, stall at the cap (the cron puts that row back on the queue), and
+// land in `failed` only once that cap is past.
 //
 // Every write is guarded by the lease id the claiming run holds, so a run whose
 // lease was reclaimed cannot finish, fail or complete an item someone else owns.
@@ -2249,7 +2254,8 @@ export interface ClaimAttempt {
  *
  * Sources backing off after an interruption (`next_attempt_at` in the future)
  * are not candidates; NULL means ready, so pre-existing rows and freshly queued
- * uploads are unaffected.
+ * uploads are unaffected. The same write drops `meta.retry.previous`, so a
+ * manual retry can no longer be undone once a worker owns the row.
  */
 export async function claimNextQueuedSource(
   leaseId: string,
@@ -2257,7 +2263,9 @@ export async function claimNextQueuedSource(
 ): Promise<ClaimAttempt> {
   return withErrorHandling(async () => {
     const nowIso = new Date().toISOString();
-    const candidates = await db.select({ id: sourcesCurrentSchema.id })
+    const candidates = await db.select({
+      id: sourcesCurrentSchema.id,
+    })
       .from(sourcesCurrentSchema)
       .where(and(
         eq(sourcesCurrentSchema.processingStatus, 'queued'),
@@ -2274,6 +2282,7 @@ export async function claimNextQueuedSource(
           processingLeaseId: leaseId,
           nextAttemptAt: null,
           updatedAt: new Date().toISOString(),
+          meta: metaDroppingRetryPrevious(),
         })
         .where(and(
           eq(sourcesCurrentSchema.id, candidate.id),
@@ -2302,6 +2311,24 @@ export async function markSourceEnriching(sourceId: string, leaseId: string): Pr
   }, 'markSourceEnriching');
 }
 
+function metaCachingProcessingWork(
+  work: { extraction?: unknown; thumbnailUrl?: string },
+  extractedAt: string
+): SQL | null {
+  const meta = sourcesCurrentSchema.meta;
+  const pairs: SQL[] = [];
+  if (work.extraction !== undefined) {
+    pairs.push(sql`'$.massUpload.extraction', json(${JSON.stringify(work.extraction)})`);
+    pairs.push(sql`'$.massUpload.extractedAt', ${extractedAt}`);
+  }
+  if (work.thumbnailUrl) {
+    pairs.push(sql`'$.massUpload.thumbnailUrl', ${work.thumbnailUrl}`);
+    pairs.push(sql`'$.uploadInfo.thumbnailPath', ${work.thumbnailUrl}`);
+  }
+  if (pairs.length === 0) return null;
+  return sql`json_set(COALESCE(${meta}, '{}'), ${sql.join(pairs, sql`, `)})`;
+}
+
 /**
  * Persist work already paid for (Gemini extraction, thumbnail) onto the source
  * so a later retry reuses it instead of calling the API again.
@@ -2312,40 +2339,10 @@ export async function cacheSourceProcessingWork(
   work: { extraction?: unknown; thumbnailUrl?: string }
 ): Promise<boolean> {
   return withErrorHandling(async () => {
-    const [current] = await db.select({ meta: sourcesCurrentSchema.meta })
-      .from(sourcesCurrentSchema)
-      .where(and(
-        eq(sourcesCurrentSchema.id, sourceId),
-        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
-      ))
-      .limit(1);
-
-    if (!current) return false;
-
-    const meta = (current.meta ?? {}) as Record<string, unknown>;
-    const massUpload = (meta.massUpload ?? {}) as Record<string, unknown>;
-    const uploadInfo = (meta.uploadInfo ?? {}) as Record<string, unknown>;
-
-    const nextMassUpload = {
-      ...massUpload,
-      ...(work.extraction !== undefined
-        ? { extraction: work.extraction, extractedAt: new Date().toISOString() }
-        : {}),
-      ...(work.thumbnailUrl ? { thumbnailUrl: work.thumbnailUrl } : {}),
-    };
-
+    const now = new Date().toISOString();
+    const meta = metaCachingProcessingWork(work, now);
     const updated = await db.update(sourcesCurrentSchema)
-      .set({
-        meta: {
-          ...meta,
-          massUpload: nextMassUpload,
-          // Keep the attachment-facing field in sync with the cached thumbnail.
-          uploadInfo: work.thumbnailUrl
-            ? { ...uploadInfo, thumbnailPath: work.thumbnailUrl }
-            : uploadInfo,
-        } as Source['meta'],
-        updatedAt: new Date().toISOString(),
-      })
+      .set(meta ? { meta, updatedAt: now } : { updatedAt: now })
       .where(and(
         eq(sourcesCurrentSchema.id, sourceId),
         eq(sourcesCurrentSchema.processingLeaseId, leaseId)
@@ -2419,16 +2416,33 @@ export async function recordSourceFailure(
 }
 
 /**
+ * Where one more interruption leaves the row.
+ *
+ * Below the cap it is queued with a backoff. At the cap it is `stalled`
+ * (Still trying) with a backoff the cron puts back on the queue. Past the cap
+ * it is `failed`. The attempt counter is never touched.
+ */
+function settleInterruption(nextCount: number, maxInterruptions: number, now: number = Date.now()) {
+  if (nextCount > maxInterruptions) {
+    return { status: 'failed' as const, nextAttemptAt: null as string | null };
+  }
+  const nextAttemptAt = retryBackoffUntilIso(nextCount, now);
+  if (nextCount >= maxInterruptions) {
+    return { status: 'stalled' as const, nextAttemptAt };
+  }
+  return { status: 'queued' as const, nextAttemptAt };
+}
+
+/**
  * Record an INTERRUPTION: the run ran out of clock, was killed, or an upstream
- * dependency was unavailable. Never consumes an attempt and never marks the
- * source `failed`; too many in a row park it in `stalled` for a manual retry.
+ * dependency was unavailable. Never consumes an attempt. See `settleInterruption`.
  */
 export async function recordSourceInterruption(
   sourceId: string,
   leaseId: string,
   message: string,
   maxInterruptions: number
-): Promise<'stalled' | 'queued' | 'lease-lost'> {
+): Promise<'failed' | 'stalled' | 'queued' | 'lease-lost'> {
   return withErrorHandling(async () => {
     const [current] = await db.select({ interruptions: sourcesCurrentSchema.processingInterruptions })
       .from(sourcesCurrentSchema)
@@ -2441,17 +2455,17 @@ export async function recordSourceInterruption(
     if (!current) return 'lease-lost';
 
     const interruptions = (current.interruptions ?? 0) + 1;
-    const nextStatus = interruptions >= maxInterruptions ? 'stalled' : 'queued';
+    const settled = settleInterruption(interruptions, maxInterruptions);
 
     const updated = await db.update(sourcesCurrentSchema)
       .set({
-        processingStatus: nextStatus,
+        processingStatus: settled.status,
         processingInterruptions: interruptions,
         processingError: message.slice(0, 1000),
         processingLeaseId: null,
         // A sustained upstream outage must not burn the whole interruption
         // budget in seconds, so the retry waits before it becomes claimable.
-        nextAttemptAt: nextStatus === 'queued' ? retryBackoffUntilIso(interruptions) : null,
+        nextAttemptAt: settled.nextAttemptAt,
         updatedAt: new Date().toISOString(),
       })
       .where(and(
@@ -2460,7 +2474,7 @@ export async function recordSourceInterruption(
       ))
       .returning({ id: sourcesCurrentSchema.id });
 
-    return updated.length > 0 ? nextStatus : 'lease-lost';
+    return updated.length > 0 ? settled.status : 'lease-lost';
   }, 'recordSourceInterruption');
 }
 
@@ -2471,7 +2485,7 @@ export async function recordSourceInterruption(
 export async function reclaimExpiredSourceLeases(
   expiredBeforeIso: string,
   maxInterruptions: number
-): Promise<{ requeued: number; stalled: number; ids: string[] }> {
+): Promise<{ requeued: number; stalled: number; failed: number; ids: string[] }> {
   return withErrorHandling(async () => {
     const expired = await db.select({
       id: sourcesCurrentSchema.id,
@@ -2486,23 +2500,24 @@ export async function reclaimExpiredSourceLeases(
 
     let requeued = 0;
     let stalled = 0;
+    let failed = 0;
     const ids: string[] = [];
 
     for (const row of expired) {
       const interruptions = (row.interruptions ?? 0) + 1;
-      const nextStatus = interruptions >= maxInterruptions ? 'stalled' : 'queued';
+      const settled = settleInterruption(interruptions, maxInterruptions);
 
       // Guarded by the same lease id we saw: if the owner is somehow still
       // alive and has re-leased the row, we leave it alone.
       const updated = await db.update(sourcesCurrentSchema)
         .set({
-          processingStatus: nextStatus,
+          processingStatus: settled.status,
           processingInterruptions: interruptions,
-          processingError: nextStatus === 'stalled'
-            ? `Interrupted ${interruptions} times before finishing — not a problem with the image; retry it`
-            : 'Run was interrupted before finishing; requeued',
+          processingError: settled.status === 'queued'
+            ? 'Run was interrupted before finishing; requeued'
+            : `Interrupted ${interruptions} times before finishing — not a problem with the image; retry it`,
           processingLeaseId: null,
-          nextAttemptAt: nextStatus === 'queued' ? retryBackoffUntilIso(interruptions) : null,
+          nextAttemptAt: settled.nextAttemptAt,
           updatedAt: new Date().toISOString(),
         })
         .where(and(
@@ -2516,12 +2531,13 @@ export async function reclaimExpiredSourceLeases(
 
       if (updated.length > 0) {
         ids.push(row.id);
-        if (nextStatus === 'stalled') stalled++;
+        if (settled.status === 'failed') failed++;
+        else if (settled.status === 'stalled') stalled++;
         else requeued++;
       }
     }
 
-    return { requeued, stalled, ids };
+    return { requeued, stalled, failed, ids };
   }, 'reclaimExpiredSourceLeases');
 }
 
@@ -2551,4 +2567,33 @@ export async function requeueStaleUploadedSources(
 
     return { requeued: rows.length, ids: rows.map(row => row.id) };
   }, 'requeueStaleUploadedSources');
+}
+
+/**
+ * Put `stalled` screenshots whose backoff has elapsed back on the queue.
+ *
+ * `next_attempt_at` NULL counts as ready, the same rule the claim uses, so a
+ * row parked with no wait is picked up on the next cron. The interruption
+ * counter stays where it is: the next clock-out past the cap is what fails it.
+ */
+export async function requeueReadyStalledSources(
+  nowIso: string
+): Promise<{ requeued: number; ids: string[] }> {
+  return withErrorHandling(async () => {
+    const rows = await db.update(sourcesCurrentSchema)
+      .set({
+        processingStatus: 'queued',
+        processingStartedAt: null,
+        processingLeaseId: null,
+        nextAttemptAt: null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(
+        eq(sourcesCurrentSchema.processingStatus, 'stalled'),
+        isClaimableNow(nowIso)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+
+    return { requeued: rows.length, ids: rows.map((row) => row.id) };
+  }, 'requeueReadyStalledSources');
 }

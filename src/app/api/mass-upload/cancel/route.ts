@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Cancel only sources that are not in flight — 'stalled' ones are parked
-    // waiting for a retry, so they are safe to cancel too.
+    // for the cron to requeue, so they are safe to cancel too.
     const cancelled = await tdb.update(
       sourcesCurrentSchema,
       {

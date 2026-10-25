@@ -5,7 +5,7 @@ export interface MassUploadStatusCounts {
   enriching: number
   completed: number
   failed: number
-  /** Repeatedly interrupted before finishing — retryable, not a bad image. */
+  /** Interrupted before a verdict and waiting to try again. Still in progress. */
   stalled: number
   cancelled: number
 }
@@ -49,11 +49,15 @@ export function normalizeCounts(
 }
 
 export function activeSourceCount(counts: MassUploadStatusCounts): number {
-  return counts.queued + counts.extracting + counts.enriching
+  return counts.queued + counts.extracting + counts.enriching + counts.stalled
 }
 
 export function terminalSourceCount(counts: MassUploadStatusCounts): number {
-  return counts.completed + counts.failed + counts.stalled + counts.cancelled
+  return counts.completed + counts.failed + counts.cancelled
+}
+
+export function processedSourceCount(counts: MassUploadStatusCounts): number {
+  return counts.completed + counts.failed
 }
 
 export function isSessionComplete(
@@ -71,13 +75,13 @@ export function computeEta(
 ): { estimatedMinutesRemaining: number | null; processingRate: number; timing: EtaTiming } {
   const completedNow = terminalSourceCount(counts)
   const remaining = total - completedNow
-  const isActive = activeSourceCount(counts) > 0
+  const moving = counts.queued + counts.extracting + counts.enriching > 0
 
   let nextTiming = timing
   let estimatedMinutesRemaining: number | null = null
   let processingRate = 0
 
-  if (isActive && completedNow > 0) {
+  if (moving && completedNow > 0) {
     if (timing.startMs === null) {
       nextTiming = { startMs: nowMs, initialCompleted: completedNow }
     }

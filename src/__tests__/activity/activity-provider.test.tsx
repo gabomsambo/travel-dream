@@ -124,9 +124,65 @@ describe('ActivityProvider', () => {
     expect(mockedToast).not.toHaveBeenCalled()
   })
 
-  it('announces a terminal job once, persists it, and keeps it after remount', async () => {
+  it('keeps polling a batch that is still trying and does not announce it', async () => {
     mockNetwork({
       status: statusPayload({ completed: 487, failed: 9, stalled: 4 }, 500, 118),
+    })
+
+    render(
+      <ActivityProvider ownerUserId="user_a">
+        <JobProbe />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phases')).toHaveTextContent('active')
+    })
+    expect(screen.getByTestId('summaries')).toHaveTextContent(
+      'Processing 496 of 500 · 4 still trying · 118 places found'
+    )
+    expect(mockedToast).not.toHaveBeenCalled()
+    const patches = (global.fetch as jest.Mock).mock.calls.filter((call) => call[1]?.method === 'PATCH')
+    expect(patches).toHaveLength(0)
+  })
+
+  it('revives an announced pre-deploy complete+stalled job without pulsing forever', async () => {
+    const stored = [{
+      id: SESSION_ID,
+      ownerUserId: 'user_a',
+      kind: 'mass-upload',
+      counts: statusPayload({ completed: 496, stalled: 4 }, 500, 118).counts,
+      total: 500,
+      placesCreated: 118,
+      announced: true,
+      updatedAt: new Date().toISOString(),
+    }]
+    localStorage.setItem(activityJobsStorageKey('user_a'), JSON.stringify(stored))
+    mockNetwork({ sessions: [] })
+
+    render(
+      <ActivityProvider ownerUserId="user_a">
+        <JobProbe />
+        <ActivityBell />
+      </ActivityProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('phases')).toHaveTextContent('complete')
+    })
+    expect(screen.getByTestId('summaries')).toHaveTextContent(
+      '496 processed · 4 still trying · 118 places found'
+    )
+    expect(mockedToast).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /Activity, 1 finished/ }))
+    expect(await screen.findByRole('button', { name: 'Dismiss' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Retry stalled/i })).not.toBeInTheDocument()
+  })
+
+  it('announces a terminal job once, persists it, and keeps it after remount', async () => {
+    mockNetwork({
+      status: statusPayload({ completed: 487, failed: 9 }, 496, 118),
     })
 
     const { unmount } = render(
@@ -140,14 +196,14 @@ describe('ActivityProvider', () => {
       expect(screen.getByTestId('phases')).toHaveTextContent('complete')
     })
     expect(screen.getByTestId('summaries')).toHaveTextContent(
-      '487 processed · 9 failed · 4 need retry · 118 places found'
+      '487 processed · 9 failed · 118 places found'
     )
     expect(screen.queryByText(/Processing /)).not.toBeInTheDocument()
     expect(mockedToast).toHaveBeenCalledTimes(1)
     expect(mockedToast).toHaveBeenCalledWith(
-      'Processing finished · 487 processed · 4 need retry.',
-      '/mass-upload',
-      { type: 'warning', actionLabel: 'Review upload' }
+      'Processing complete! 118 places found from 487 screenshots.',
+      '/library',
+      { actionLabel: 'View library' }
     )
     expect(localStorage.getItem(activityJobsStorageKey('user_a'))).toContain('session_bell-1')
 

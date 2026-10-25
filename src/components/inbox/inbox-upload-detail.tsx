@@ -5,7 +5,24 @@ import Link from 'next/link'
 import { InboxActions } from '@/components/inbox/inbox-actions'
 import type { InboxChip, InboxShotRow } from '@/lib/inbox-page-model'
 
-export function InboxUploadDetail({ chips, rows }: { chips: InboxChip[]; rows: InboxShotRow[] }) {
+function emptyDetailCopy(filter: string, rowCount: number, dismissedCount: number): string {
+  if (filter === 'all' && rowCount === 0 && dismissedCount > 0) {
+    return dismissedCount === 1
+      ? '1 screenshot was dismissed.'
+      : `${dismissedCount} screenshots were dismissed.`
+  }
+  return 'No screenshots in this filter.'
+}
+
+export function InboxUploadDetail({
+  chips,
+  rows,
+  dismissedCount,
+}: {
+  chips: InboxChip[]
+  rows: InboxShotRow[]
+  dismissedCount: number
+}) {
   const [filter, setFilter] = useState('all')
   const visible = filter === 'all' ? rows : rows.filter((row) => row.kinds.includes(filter as InboxShotRow['kind']))
 
@@ -75,7 +92,9 @@ export function InboxUploadDetail({ chips, rows }: { chips: InboxChip[]; rows: I
           </div>
         ))}
         {visible.length === 0 && (
-          <p className="px-5 py-8 text-sm text-muted-foreground">No screenshots in this filter.</p>
+          <p className="px-5 py-8 text-sm text-muted-foreground">
+            {emptyDetailCopy(filter, rows.length, dismissedCount)}
+          </p>
         )}
       </article>
     </>

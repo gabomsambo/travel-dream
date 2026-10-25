@@ -15,7 +15,9 @@ import { rankingSource } from '@/lib/review-order';
 import { forUser } from '@/lib/tenant-db';
 import { toUserFriendlyError } from '@/lib/mass-upload/friendly-error';
 import { reviewChecks } from '@/lib/review/review-checks';
+import { PLACE_KINDS, type PlaceKind } from '@/types/database';
 import type {
+  InboxHandAdd,
   InboxPlaceStatus,
   InboxScreenshotOutcome,
   InboxUploadBatch,
@@ -55,6 +57,42 @@ function screenshotOutcome(status: string, placeCount: number): InboxScreenshotO
   if (status === 'cancelled') return 'cancelled';
   // uploaded / queued / extracting / enriching, or anything unrecognised: no verdict yet.
   return 'stillReading';
+}
+
+function isDismissed(meta: SourceMeta): boolean {
+  const at = meta?.inbox?.dismissedAt;
+  return typeof at === 'string' && at.trim().length > 0;
+}
+
+function textOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function asKind(value: unknown): PlaceKind | null {
+  return typeof value === 'string' && (PLACE_KINDS as readonly string[]).includes(value)
+    ? (value as PlaceKind)
+    : null;
+}
+
+/** First place the cached read named. An empty read pre-fills nothing. */
+function handAddFrom(meta: SourceMeta): InboxHandAdd | null {
+  const extraction = meta?.massUpload?.extraction as { places?: unknown } | undefined;
+  if (!extraction || !Array.isArray(extraction.places)) return null;
+  for (const raw of extraction.places) {
+    if (!raw || typeof raw !== 'object') continue;
+    const place = raw as Record<string, unknown>;
+    const name = textOrNull(place.name);
+    if (!name) continue;
+    return {
+      name,
+      kind: asKind(place.kind),
+      city: textOrNull(place.city),
+      country: textOrNull(place.country),
+      admin: textOrNull(place.admin),
+      description: textOrNull(place.description),
+    };
+  }
+  return null;
 }
 
 function addTo(map: Map<string, string[]>, key: string, value: string): void {
@@ -145,6 +183,7 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
       meta: sources.meta,
       createdAt: sources.createdAt,
       processingStatus: sources.processingStatus,
+      processingAttempts: sources.processingAttempts,
       processingError: sources.processingError,
       sessionId: sessionIdOf,
     },
@@ -158,9 +197,25 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
   });
   const sessionsById = new Map(sessionRows.map((s) => [s.id, s]));
 
+  // Dismissed screenshots stay on disk and still count toward the batch, but
+  // they leave every outcome row. The Inbox hides them; it does not delete them.
+  const dismissedBySession = new Map<string, { count: number; earliest: string }>();
+  const visibleRows = sourceRows.filter((row) => {
+    const sessionId = row.sessionId ? String(row.sessionId) : '';
+    if (!sessionId || !isDismissed(row.meta)) return true;
+    const createdAt = toIso(row.createdAt);
+    const existing = dismissedBySession.get(sessionId);
+    if (!existing) dismissedBySession.set(sessionId, { count: 1, earliest: createdAt });
+    else dismissedBySession.set(sessionId, {
+      count: existing.count + 1,
+      earliest: createdAt < existing.earliest ? createdAt : existing.earliest,
+    });
+    return false;
+  });
+
   // ---- per-screenshot places: the live join, labelled by the recorded outcome.
   // No outcome record: derived from which places carry this screenshot as a photo.
-  const sourceIds = sourceRows.map((s) => s.id);
+  const sourceIds = visibleRows.map((s) => s.id);
   const links = await chunked(sourceIds, (part) =>
     tdb.selectFieldsVia(
       sourcesToPlaces,
@@ -181,13 +236,13 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
   // Legacy rows: a place that carries this screenshot as a photo was created
   // from it (createPlacesFromPipeline attaches the screenshot only to places it
   // inserts); a joined place without it was an existing place it was linked to.
-  const legacyPlaceIds = sourceRows.filter((s) => !recorded(s.meta)).flatMap((s) => linksBySource.get(s.id) ?? []);
+  const legacyPlaceIds = visibleRows.filter((s) => !recorded(s.meta)).flatMap((s) => linksBySource.get(s.id) ?? []);
   const photoRows = await chunked(legacyPlaceIds, (part) =>
     tdb.selectFieldsVia(attachments, { placeId: attachments.placeId, uri: attachments.uri }, inArray(attachments.placeId, part))
   );
   const photoKeys = new Set(photoRows.map((a) => `${a.placeId}\n${a.uri}`));
 
-  const screenshots = sourceRows.map((s) => {
+  const screenshots = visibleRows.map((s) => {
     const status = s.processingStatus ?? 'pending';
     const outcome = recorded(s.meta);
     const joined = linksBySource.get(s.id) ?? [];
@@ -205,9 +260,16 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
       outcome: screenshotOutcome(status, createdPlaceIds.length + linkedPlaceIds.length),
       createdPlaceIds,
       linkedPlaceIds,
+      handAdd: handAddFrom(s.meta),
       outcomeDerived: !outcome && (status === 'completed' || joined.length > 0),
     };
-    return { view, sessionId: String(s.sessionId), createdAt: toIso(s.createdAt), error: s.processingError };
+    return {
+      view,
+      sessionId: String(s.sessionId),
+      createdAt: toIso(s.createdAt),
+      error: s.processingError,
+      attempts: s.processingAttempts ?? 0,
+    };
   });
 
   // ---- the places themselves, re-scoped: a joined id is not proof of ownership.
@@ -252,7 +314,11 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
 
   // ---- group into batches. A session with neither screenshots nor skips
   // (the old uploader's leftovers) is not a batch.
-  const batchIds = new Set([...screenshots.map((s) => s.sessionId), ...skippedBySession.keys()]);
+  const batchIds = new Set([
+    ...screenshots.map((s) => s.sessionId),
+    ...skippedBySession.keys(),
+    ...dismissedBySession.keys(),
+  ]);
   const batches: InboxUploadBatch[] = [];
 
   for (const sessionId of batchIds) {
@@ -303,11 +369,13 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
     });
 
     const session = sessionsById.get(sessionId);
-    const earliest = own.map((s) => s.createdAt).sort()[0];
+    const dismissed = dismissedBySession.get(sessionId);
+    const earliest = own.map((s) => s.createdAt).sort()[0] ?? dismissed?.earliest;
     batches.push({
       sessionId,
       uploadedAt: toIso(session?.startedAt ?? earliest ?? new Date(0).toISOString()),
-      screenshotCount: own.length + skipped.length,
+      screenshotCount: own.length + skipped.length + (dismissed?.count ?? 0),
+      dismissedCount: dismissed?.count ?? 0,
       placesRead: createdPlaces.length + linkedPlaces.length,
       newPlaces: createdPlaces.length,
       rows: {
@@ -337,6 +405,7 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
               sourceId: s.view.sourceId,
               status: s.view.processingStatus as 'failed' | 'stalled',
               error: toUserFriendlyError(s.error ?? ''),
+              attempts: s.attempts,
             })),
         },
         stillReading: { sourceIds: sourcesWith('stillReading') },

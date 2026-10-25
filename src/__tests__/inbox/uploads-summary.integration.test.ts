@@ -209,7 +209,7 @@ describe('GET /api/inbox/uploads', () => {
     }]);
     expect(b.rows.noPlaceFound.sourceIds).toEqual(['src_b3']);
     expect(b.rows.couldNotRead.items).toEqual([
-      { sourceId: 'src_b4', status: 'stalled', error: 'Processing timed out after multiple attempts' },
+      { sourceId: 'src_b4', status: 'stalled', error: 'Processing timed out after multiple attempts', attempts: 0 },
     ]);
     expect(b.rows.stillReading.sourceIds).toEqual(['src_b5', 'src_b6', 'src_b7']);
     expect(b.rows.cancelled.sourceIds).toEqual(['src_b8']);
@@ -225,7 +225,7 @@ describe('GET /api/inbox/uploads', () => {
     expect(names(a.rows.toReview)).toEqual(['Huacachina']);
     expect(names(a.rows.added)).toEqual(['Plaza de Armas']);
     expect(a.rows.couldNotRead.items).toEqual([
-      { sourceId: 'src_a2', status: 'failed', error: 'AI service was unavailable after multiple attempts' },
+      { sourceId: 'src_a2', status: 'failed', error: 'AI service was unavailable after multiple attempts', attempts: 0 },
     ]);
   });
 

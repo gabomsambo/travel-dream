@@ -45,6 +45,18 @@ export interface InboxUploadUnreadable {
   status: 'failed' | 'stalled';
   /** Plain-language reason (same mapping as the Mass Upload status). */
   error: string;
+  /** Genuine read attempts already spent. A stall does not increment this. */
+  attempts: number;
+}
+
+/** What a screenshot's cached read can prefill on Add by hand. */
+export interface InboxHandAdd {
+  name: string;
+  kind: string | null;
+  city: string | null;
+  country: string | null;
+  admin: string | null;
+  description: string | null;
 }
 
 export type InboxScreenshotOutcome =
@@ -67,6 +79,11 @@ export interface InboxUploadScreenshot {
   /** Places this screenshot created (`created`) or was added to (`linked`). */
   createdPlaceIds: string[];
   linkedPlaceIds: string[];
+  /**
+   * First place the cached read named, when it named one. Empty reads are null.
+   * Add by hand uses this; a retry must not wipe the cache it came from.
+   */
+  handAdd?: InboxHandAdd | null;
   /**
    * True when the source predates `meta.massUpload.outcome`, so created vs
    * linked was inferred from the screenshot's photo on each place.
@@ -110,6 +127,11 @@ export interface InboxUploadBatch {
   screenshots: InboxUploadScreenshot[];
   /** True when any screenshot's outcome was inferred (see `outcomeDerived`). */
   outcomeDerived: boolean;
+  /**
+   * Screenshots hidden from the Inbox. Counted in `screenshotCount` and named
+   * in the finished-upload line; they are not an outcome row.
+   */
+  dismissedCount: number;
 }
 
 export interface InboxUploadsResponse {

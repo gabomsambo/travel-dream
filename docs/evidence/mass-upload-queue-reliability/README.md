@@ -29,7 +29,7 @@ Both were run against the pre-fix code (`git checkout <base> -- src`), at the re
 | clock-out | consumes an attempt → `failed` | consumes an *interruption* → requeued |
 | upstream 429/503 | consumes an attempt → `failed` | consumes an *interruption* → requeued |
 | bad image / 404 blob | consumes an attempt → `failed` | unchanged: `failed` after `maxAttempts` |
-| repeatedly interrupted | `failed` | `stalled` — surfaced as "needs retry", never a verdict |
+| repeatedly interrupted | `failed` | `stalled` — never a verdict; current surface and cron requeue in AGENTS.md Mass-upload queue |
 
 ## After: the same scenarios
 

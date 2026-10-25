@@ -44,11 +44,24 @@ export type UnstartedUploadBinding = {
 }
 
 let active: UnstartedUploadBinding | null = null
+/** Closing batches that a later open may have replaced on `active`. */
+const parked = new Set<UnstartedUploadBinding>()
 
 export function bindUnstartedUpload(binding: UnstartedUploadBinding): () => void {
   active = binding
   return () => {
     if (active === binding) active = null
+  }
+}
+
+/**
+ * Keeps a closing batch visible to pagehide and sign-out after a later open
+ * replaces `active`. Call the returned function once abandon has finished.
+ */
+export function parkUnstartedUpload(binding: UnstartedUploadBinding): () => void {
+  parked.add(binding)
+  return () => {
+    parked.delete(binding)
   }
 }
 
@@ -69,9 +82,8 @@ export function cancelUploadSession(sessionId: string): Promise<Response> {
  * the newest URLs - the ones whose register never reached the server - would
  * be the ones the browser drops.
  *
- * `keepalive` belongs to the paths that run while the document is being
- * discarded (pagehide, sign-out). The sheet-close path still has a live page
- * and must not spend that budget.
+ * `keepalive` belongs to pagehide, sign-out, and the synchronous sheet-close
+ * hand-over of the small unregistered set. Live-page abandon follow-ups omit it.
  *
  * Returns the blobs that need another attempt and how many inserts landed:
  * a request that never landed, or a server error that left the blob without
@@ -121,9 +133,24 @@ export async function registerAbandonedUploads(
   return { retry, registered }
 }
 
-function currentBinding(): { sessionId: string; binding: UnstartedUploadBinding } | null {
-  const binding = active
-  if (!binding) return null
+function bindingsToFlush(): UnstartedUploadBinding[] {
+  const out: UnstartedUploadBinding[] = []
+  const seen = new Set<UnstartedUploadBinding>()
+  if (active) {
+    out.push(active)
+    seen.add(active)
+  }
+  for (const binding of parked) {
+    if (seen.has(binding)) continue
+    out.push(binding)
+    seen.add(binding)
+  }
+  return out
+}
+
+function withSession(
+  binding: UnstartedUploadBinding,
+): { sessionId: string; binding: UnstartedUploadBinding } | null {
   const sessionId = binding.sessionId()
   if (!sessionId) return null
   return { sessionId, binding }
@@ -142,12 +169,35 @@ export async function handOverPendingBlobs(
 ): Promise<number> {
   const blobs = binding.store.pending()
   if (blobs.length === 0) return 0
+  for (const blob of blobs) binding.store.remove(blob.blobUrl)
   const { retry, registered } = await registerAbandonedUploads(sessionId, blobs, options)
-  const retried = new Set(retry.map((blob) => blob.blobUrl))
-  for (const blob of blobs) {
-    if (!retried.has(blob.blobUrl)) binding.store.remove(blob.blobUrl)
-  }
+  for (const blob of retry) binding.store.add(blob)
   return registered
+}
+
+async function flushBinding(
+  binding: UnstartedUploadBinding,
+  options: { keepalive: boolean; awaitCancel: boolean },
+): Promise<void> {
+  const current = withSession(binding)
+  if (!current) return
+  const { sessionId } = current
+  if (binding.startRequested()) {
+    if (options.awaitCancel) {
+      await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+    } else {
+      void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+    }
+    return
+  }
+  if (options.awaitCancel) {
+    const cancel = await binding.cancel()
+    if (!cancel.ok) return
+    await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+    return
+  }
+  void binding.cancel().then(() => undefined, () => undefined)
+  void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
 }
 
 /**
@@ -157,19 +207,14 @@ export async function handOverPendingBlobs(
  * A session whose Start was already requested is never cancelled — that would
  * race the queue — but pending blobs still have to be registered into it.
  * Register inserts those as `queued` when the session is already started.
+ *
+ * Also flushes batches parked while a later Upload open replaced `active`.
  */
 export async function cancelUnstartedUpload(): Promise<void> {
   try {
-    const current = currentBinding()
-    if (!current) return
-    const { sessionId, binding } = current
-    if (binding.startRequested()) {
-      await handOverPendingBlobs(sessionId, binding, { keepalive: true })
-      return
+    for (const binding of bindingsToFlush()) {
+      await flushBinding(binding, { keepalive: true, awaitCancel: true })
     }
-    const cancel = await binding.cancel()
-    if (!cancel.ok) return
-    await handOverPendingBlobs(sessionId, binding, { keepalive: true })
   } catch {
     return
   }
@@ -184,18 +229,14 @@ export async function cancelUnstartedUpload(): Promise<void> {
  * When Start was already requested, skip cancel and hand over pending blobs
  * into the still-open session. Register queues them server-side — do not chain
  * a second start hop after unload.
+ *
+ * Also flushes batches parked while a later Upload open replaced `active`.
  */
 export function discardUnstartedUpload(): void {
   try {
-    const current = currentBinding()
-    if (!current) return
-    const { sessionId, binding } = current
-    if (binding.startRequested()) {
-      void handOverPendingBlobs(sessionId, binding, { keepalive: true })
-      return
+    for (const binding of bindingsToFlush()) {
+      void flushBinding(binding, { keepalive: true, awaitCancel: false })
     }
-    void binding.cancel().then(() => undefined, () => undefined)
-    void handOverPendingBlobs(sessionId, binding, { keepalive: true })
   } catch {
     return
   }

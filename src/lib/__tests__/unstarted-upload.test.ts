@@ -3,6 +3,7 @@ import {
   cancelUnstartedUpload,
   createAbandonedUploadStore,
   discardUnstartedUpload,
+  parkUnstartedUpload,
   type UnstartedUploadBinding,
 } from '@/lib/unstarted-upload'
 
@@ -154,5 +155,51 @@ describe('unstarted-upload leave paths', () => {
     expect(urls.some((url) => url.includes('/api/mass-upload/register'))).toBe(true)
     expect(binding.store.pending()).toHaveLength(0)
     release()
+  })
+
+  it('still hands over a parked batch after a later open replaces active', async () => {
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return { ok: true, status: 200 } as Response
+      }
+      if (url.includes('/api/mass-upload/register')) {
+        expect(init?.keepalive).toBe(true)
+        return { ok: true, status: 200 } as Response
+      }
+      return { ok: false, status: 500 } as Response
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const closed = bindWithHold('session-closed')
+    closed.setLive(false, null)
+    closed.binding.store.add({
+      blobUrl: 'https://blob.example/orphan.jpg',
+      originalName: 'orphan.jpg',
+      fileSize: 8,
+      mimeType: 'image/jpeg',
+    })
+    const unpark = parkUnstartedUpload(closed.binding)
+    closed.release()
+
+    const next = bindWithHold('session-next')
+    next.setLive(false, null)
+
+    discardUnstartedUpload()
+    await cancelUnstartedUpload()
+
+    const bodies = fetchMock.mock.calls
+      .filter(([input]) => String(input).includes('/api/mass-upload/register'))
+      .map(([, init]) => JSON.parse(String(init?.body)) as { sessionId: string; blobUrl: string })
+    expect(bodies).toContainEqual({
+      sessionId: 'session-closed',
+      blobUrl: 'https://blob.example/orphan.jpg',
+      originalName: 'orphan.jpg',
+      fileSize: 8,
+      mimeType: 'image/jpeg',
+    })
+    expect(closed.binding.store.pending()).toHaveLength(0)
+    unpark()
+    next.release()
   })
 })

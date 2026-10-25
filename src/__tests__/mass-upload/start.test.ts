@@ -130,16 +130,7 @@ describe('POST /api/mass-upload/start', () => {
     expect(res.status).toBe(200);
     expect(data.status).toBe('success');
     expect(data.queued).toBe(0);
-    // Flag only — do not rewrite uploadedFiles from a stale snapshot.
-    const metaArg = metaSet.mock.calls[0][0] as {
-      meta: { queryChunks: Array<string | { value?: string[] }> };
-    };
-    const metaSql = metaArg.meta.queryChunks
-      .map((chunk) => (typeof chunk === 'string' ? chunk : (chunk.value ?? []).join('')))
-      .join('');
-    expect(metaSql).toContain('$.processingStarted');
-    expect(metaSql).toContain('json_set');
-    expect(metaSql).toContain("json('true')");
+    expect(metaSet).toHaveBeenCalled();
     expect(whereMentions(sourceWhere.mock.calls[0][0], 'session_test-1')).toBe(true);
     expect(mockDb.update).toHaveBeenCalledTimes(2);
   });

@@ -32,6 +32,7 @@ import {
   createAbandonedUploadStore,
   discardUnstartedUpload,
   handOverPendingBlobs,
+  parkUnstartedUpload,
   type AbandonedUpload,
   type AbandonedUploadStore,
   type UnstartedUploadBinding,
@@ -203,12 +204,15 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       const startWasRequested = alreadyStarted || startPromise !== null
       if (startWasRequested) startRequestedHeld = true
       // The cancel goes out first, while the page is still there.
-      if (binding && currentSessionId && !startWasRequested) {
-        try {
-          void binding.cancel().then(() => undefined, () => undefined)
-        } catch {
-          // The hand-over below reports the failure.
+      if (binding && currentSessionId) {
+        if (!startWasRequested) {
+          try {
+            void binding.cancel().then(() => undefined, () => undefined)
+          } catch {
+            // The hand-over below reports the failure.
+          }
         }
+        void handOverPendingBlobs(currentSessionId, binding, { keepalive: true })
       }
       const pending = inFlightRef.current
       inFlightRef.current = new Set()
@@ -228,12 +232,16 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
           // session and the blobs that never got a source row. When Start
           // already succeeded, abandon registers those blobs into the open
           // session without cancelling it.
+          const unpark = parkUnstartedUpload(binding)
           void abandonUnstartedSession(
             binding,
             currentSessionId,
             alreadyStarted ? Promise.resolve(true) : startPromise,
             pending,
-          ).finally(() => releaseBinding())
+          ).finally(() => {
+            unpark()
+            releaseBinding()
+          })
         }
       } else if (!abandoning) {
         releaseBinding()

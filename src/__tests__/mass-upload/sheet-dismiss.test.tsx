@@ -122,7 +122,7 @@ describe('upload sheet dismiss', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
     rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={files} />)
 
-    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'register-abort', 'register-closed']))
+    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'register-closed', 'register-abort']))
     const cancel = callsTo('/api/mass-upload/cancel', 'POST')
     expect(JSON.parse(String(cancel[0][1].body))).toEqual({ sessionId: 'ses_abandon' })
     expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(0)
@@ -174,7 +174,7 @@ describe('upload sheet dismiss', () => {
     expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(0)
   })
 
-  it('does not register abandoned blobs when cancel does not succeed', async () => {
+  it('hands over unregistered blobs on close even when cancel does not succeed', async () => {
     const order: string[] = []
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
@@ -200,6 +200,7 @@ describe('upload sheet dismiss', () => {
           })
         }
         order.push('register-closed')
+        expect(init?.keepalive).toBe(true)
         return Promise.resolve({
           ok: false,
           status: 409,
@@ -226,11 +227,7 @@ describe('upload sheet dismiss', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
     rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={files} />)
 
-    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'register-abort']))
-    await act(async () => {
-      await Promise.resolve()
-    })
-    expect(order).toEqual(['register', 'cancel', 'register-abort'])
+    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'register-closed', 'register-abort']))
   })
 
   it('leaves the session alone after Start has queued it', async () => {
@@ -358,7 +355,7 @@ describe('upload sheet dismiss', () => {
     await waitFor(() => {
       expect(
         registerCalls.some(
-          (call) => call.blobUrl === pendingUrl && call.afterStart && !call.keepalive,
+          (call) => call.blobUrl === pendingUrl && call.afterStart && call.keepalive,
         ),
       ).toBe(true)
     })
@@ -547,7 +544,7 @@ describe('upload sheet dismiss', () => {
     await waitFor(() => expect(order).toContain('register'))
     unmount()
 
-    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'register-abort', 'register-closed']))
+    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'register-closed', 'register-abort']))
     expect(JSON.parse(String(callsTo('/api/mass-upload/cancel', 'POST')[0][1].body))).toEqual({
       sessionId: 'ses_unmount',
     })
@@ -601,14 +598,14 @@ describe('upload sheet dismiss', () => {
     )
     await waitFor(() => expect(order).toContain('register'))
     rerender(<MassUploadSheet open={false} onOpenChange={jest.fn()} initialFiles={[shot()]} />)
-    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'register-abort', 'register-closed']))
+    await waitFor(() => expect(order).toEqual(['register', 'cancel', 'register-closed', 'register-abort']))
 
     unmount()
     await act(async () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(order).toEqual(['register', 'cancel', 'register-abort', 'register-closed'])
+    expect(order).toEqual(['register', 'cancel', 'register-closed', 'register-abort'])
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
   })
 })

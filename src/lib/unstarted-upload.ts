@@ -196,9 +196,12 @@ export async function handOverPendingBlobs(
 /**
  * After a failed Start (or when Start never ran), cancel then hand over.
  *
- * Sign-out and pagehide both wait for cancel.ok before register so a failed
- * cancel cannot insert `uploaded` rows into a session that is still open
- * (including a parked batch whose sheet-close cancel already failed).
+ * Sign-out (`awaitCancel: true`) waits for cancel.ok before register so a
+ * failed cancel cannot insert `uploaded` rows into a still-open session.
+ *
+ * Pagehide (`awaitCancel: false`) must dispatch cancel and hand-over together:
+ * keepalive fetch can outlive the document, but a `.then` after cancel usually
+ * cannot. Session lock / a successful cancel still cleans inserts via 409.
  */
 async function cancelThenHandOver(
   sessionId: string,
@@ -212,10 +215,9 @@ async function cancelThenHandOver(
     releaseFlushableIfSettled(binding)
     return
   }
-  void binding.cancel().then(
-    async (cancel) => {
-      if (!cancel.ok) return
-      await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+  void binding.cancel().then(() => undefined, () => undefined)
+  void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive }).then(
+    () => {
       releaseFlushableIfSettled(binding)
     },
     () => undefined,
@@ -249,16 +251,17 @@ async function flushBinding(
       await cancelThenHandOver(sessionId, binding, options)
       return
     }
+    // Pagehide: hand over immediately while keepalive still schedules. Start
+    // may already have flipped the session (or will); register queues or the
+    // session-wide flip claims an uploaded insert. Only cancel on failure.
+    void handOverStarted(sessionId, binding, { keepalive: options.keepalive })
     void startOutcome.then(
       (started) => {
-        if (started) {
-          void handOverStarted(sessionId, binding, { keepalive: options.keepalive })
-          return
-        }
-        void cancelThenHandOver(sessionId, binding, options)
+        if (started) return
+        void binding.cancel().then(() => undefined, () => undefined)
       },
       () => {
-        void cancelThenHandOver(sessionId, binding, options)
+        void binding.cancel().then(() => undefined, () => undefined)
       },
     )
     return
@@ -289,14 +292,15 @@ export async function cancelUnstartedUpload(): Promise<void> {
 }
 
 /**
- * Pagehide path. Cancel and hand-over both use keepalive. Hand-over waits for
- * cancel.ok so a failed cancel cannot insert `uploaded` rows; once cancel
- * lands, a late register takes the closed-session 409 delete path.
+ * Pagehide path. Cancel and hand-over both use keepalive and are dispatched
+ * together — a `.then` after cancel usually cannot run once the document is
+ * torn down. Session lock / successful cancel still cleans inserts via 409.
+ * Sign-out keeps the cancel.ok gate because the page is still alive.
  *
  * When Start already succeeded, skip cancel and hand over pending blobs into
  * the still-open session. Register queues them server-side — do not chain a
- * second start hop after unload. If Start is still in flight, chain after its
- * outcome the same way sign-out does.
+ * second start hop after unload. If Start is still in flight, hand over
+ * immediately and only best-effort cancel if Start later fails.
  *
  * Also flushes batches parked while a later Upload open replaced `active`.
  */

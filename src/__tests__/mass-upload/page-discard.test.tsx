@@ -162,7 +162,7 @@ describe('discarding an upload before Start', () => {
     expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(1)
   })
 
-  it('leaves the session alone when the page is discarded while Start is still in flight', async () => {
+  it('does not cancel when the page is discarded while Start is still in flight', async () => {
     let finishStart: () => void = () => {}
     mockSession('ses_inflight', () => new Promise((resolve) => {
       finishStart = () => resolve({
@@ -177,6 +177,8 @@ describe('discarding an upload before Start', () => {
     const registers = callsTo('/api/mass-upload/register', 'POST').length
 
     window.dispatchEvent(new Event('pagehide'))
+    // Start already requested — leave the session alone. Nothing pending to
+    // hand over because the screenshot already has a source row.
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
     expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(registers)
 
@@ -602,15 +604,11 @@ describe('discarding an upload before Start', () => {
     rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={[shot()]} />)
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
 
-    // The page is discarded before the cancel answers. Hand-over waits for
-    // cancel.ok so a failed cancel cannot insert uploaded rows.
+    // The page is discarded before the cancel answers. Pagehide must dispatch
+    // keepalive hand-over with the document — a `.then` after cancel usually
+    // cannot run once unload tears the page down.
     window.dispatchEvent(new Event('pagehide'))
-    expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(1)
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
-
-    await act(async () => {
-      finishCancel()
-    })
     await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(2))
     const registers = callsTo('/api/mass-upload/register', 'POST')
     expect(registers[1][1].keepalive).toBe(true)
@@ -621,6 +619,7 @@ describe('discarding an upload before Start', () => {
     })
 
     await act(async () => {
+      finishCancel()
       finishRegister()
     })
   })

@@ -177,7 +177,7 @@ describe('unstarted-upload leave paths', () => {
     release()
   })
 
-  it('pagehide cancels after an in-flight Start fails', async () => {
+  it('pagehide hands over immediately while Start is in flight and cancels only on failure', async () => {
     let finishCancel: (value: Response) => void = () => {}
     let finishRegister: (value: Response) => void = () => {}
     const fetchMock = jest.fn((input: RequestInfo | URL) => {
@@ -213,24 +213,24 @@ describe('unstarted-upload leave paths', () => {
     setLive(false, null)
 
     discardUnstartedUpload()
-    expect(fetchMock).not.toHaveBeenCalled()
+    // Keepalive hand-over must leave with the document — do not wait on Start.
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/register')),
+    ).toBe(true)
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/cancel')),
+    ).toBe(false)
 
     finishStart(false)
     await Promise.resolve()
     await Promise.resolve()
 
-    const urls = fetchMock.mock.calls.map(([input]) => String(input))
-    expect(urls.some((url) => url.includes('/api/mass-upload/cancel'))).toBe(true)
-    expect(urls.some((url) => url.includes('/api/mass-upload/register'))).toBe(false)
-
-    finishCancel({ ok: true, status: 200 } as Response)
-    await Promise.resolve()
-    await Promise.resolve()
     expect(
-      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/register')),
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/cancel')),
     ).toBe(true)
 
     finishRegister({ ok: true, status: 200 } as Response)
+    finishCancel({ ok: true, status: 200 } as Response)
     await new Promise<void>((resolve, reject) => {
       const started = Date.now()
       const tick = () => {
@@ -409,7 +409,62 @@ describe('unstarted-upload leave paths', () => {
     expect(closed.binding.store.pending()).toHaveLength(0)
   })
 
-  it('pagehide does not register pending blobs when cancel fails', async () => {
+  it('pagehide dispatches cancel and hand-over together without waiting for cancel.ok', async () => {
+    let finishCancel: (value: Response) => void = () => {}
+    let finishRegister: (value: Response) => void = () => {}
+    const fetchMock = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return new Promise<Response>((resolve) => {
+          finishCancel = resolve
+        })
+      }
+      if (url.includes('/api/mass-upload/register')) {
+        return new Promise<Response>((resolve) => {
+          finishRegister = resolve
+        })
+      }
+      return Promise.resolve({ ok: false, status: 500 } as Response)
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const closed = bindWithHold('session-parked-pagehide-dual')
+    closed.setLive(false, null)
+    closed.binding.store.add({
+      blobUrl: 'https://blob.example/orphan.jpg',
+      originalName: 'orphan.jpg',
+      fileSize: 8,
+      mimeType: 'image/jpeg',
+    })
+    parkUnstartedUpload(closed.binding)
+    closed.release()
+
+    discardUnstartedUpload()
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input))
+    expect(urls.some((url) => url.includes('/api/mass-upload/cancel'))).toBe(true)
+    expect(urls.some((url) => url.includes('/api/mass-upload/register'))).toBe(true)
+
+    finishCancel({ ok: false, status: 500 } as Response)
+    finishRegister({ ok: true, status: 200 } as Response)
+    await new Promise<void>((resolve, reject) => {
+      const started = Date.now()
+      const tick = () => {
+        if (closed.binding.store.pending().length === 0) {
+          resolve()
+          return
+        }
+        if (Date.now() - started > 1000) {
+          reject(new Error('pending blobs were not cleared after hand-over'))
+          return
+        }
+        queueMicrotask(tick)
+      }
+      queueMicrotask(tick)
+    })
+  })
+
+  it('sign-out does not register pending blobs when cancel fails', async () => {
     const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/api/mass-upload/cancel')) {
@@ -433,9 +488,7 @@ describe('unstarted-upload leave paths', () => {
     parkUnstartedUpload(closed.binding)
     closed.release()
 
-    discardUnstartedUpload()
-    await Promise.resolve()
-    await Promise.resolve()
+    await cancelUnstartedUpload()
 
     const urls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(urls.some((url) => url.includes('/api/mass-upload/cancel'))).toBe(true)

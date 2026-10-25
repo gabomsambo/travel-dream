@@ -254,7 +254,8 @@ describe('/api/places/bulk-actions', () => {
     it.each(['archive', 'restore', 'delete', 'set-visit-status'])(
       'rejects %s above 500 places',
       async (action) => {
-        const extra = action === 'set-visit-status' ? { visitStatus: 'visited' } : {}
+        const extra: Record<string, string> =
+          action === 'set-visit-status' ? { visitStatus: 'visited' } : {}
         const response = await POST(bulkRequest(action, placeIds(501), extra))
         const data = await response.json()
 

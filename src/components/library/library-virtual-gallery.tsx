@@ -183,6 +183,22 @@ export function VirtualGallery({
     if (!scrollEl) return
     let frame = 0
     let timer: number | undefined
+    // Captured at scroll time so cleanup can flush after the list (and its rects) are gone.
+    let pending: { remember: { rowKey: string; top: number } } | { forget: true } | null = null
+    const capture = () => {
+      const hit = rowAtLine(scrollEl.scrollTop)
+      // Above the list (the cover, the shelves) there is nothing to come back to but the top.
+      const listTop = listRef.current?.getBoundingClientRect().top ?? 0
+      if (!hit || listTop > scrollEl.getBoundingClientRect().top) pending = { forget: true }
+      else pending = { remember: { rowKey: rowsRef.current[hit.index]?.key ?? "", top: scrollEl.scrollTop } }
+    }
+    const flush = () => {
+      if (!pending) return
+      const decision = pending
+      pending = null
+      if ("forget" in decision) forgetScroll(url())
+      else rememberScroll(url(), decision.remember)
+    }
     const onScroll = () => {
       if (!frame) {
         frame = requestAnimationFrame(() => {
@@ -190,19 +206,15 @@ export function VirtualGallery({
           reportActive()
         })
       }
+      capture()
       window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        const hit = rowAtLine(scrollEl.scrollTop)
-        // Above the list (the cover, the shelves) there is nothing to come back to but the top.
-        const listTop = listRef.current?.getBoundingClientRect().top ?? 0
-        if (!hit || listTop > scrollEl.getBoundingClientRect().top) forgetScroll(url())
-        else rememberScroll(url(), { rowKey: rowsRef.current[hit.index]?.key ?? "", top: scrollEl.scrollTop })
-      }, 150)
+      timer = window.setTimeout(flush, 150)
     }
     scrollEl.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       scrollEl.removeEventListener("scroll", onScroll)
       cancelAnimationFrame(frame)
+      flush()
       window.clearTimeout(timer)
     }
   }, [scrollEl, reportActive, rowAtLine])

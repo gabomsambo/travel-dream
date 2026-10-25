@@ -186,6 +186,16 @@ describe('the virtualized gallery', () => {
       expect(saved.top).toBe(4000)
     })
 
+    it('flushes a pending save when unmounted before the debounce fires', () => {
+      const { main, unmount } = renderLibrary(dataFor(library(20)))
+      scrollMain(main, 4000)
+      expect(sessionStorage.getItem('td:library-scroll:v1:/library')).toBeNull()
+      unmount()
+      const saved = JSON.parse(sessionStorage.getItem('td:library-scroll:v1:/library')!) as { rowKey: string; top: number }
+      expect(saved.rowKey).toMatch(/^[htp]:/)
+      expect(saved.top).toBe(4000)
+    })
+
     it('scrolls back to it when the Library mounts after a Back', async () => {
       sessionStorage.setItem('td:library-scroll:v1:/library', JSON.stringify({ rowKey: 't:country:country-05:0', top: 9000 }))
       popped()

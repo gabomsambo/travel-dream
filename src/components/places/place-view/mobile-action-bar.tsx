@@ -24,13 +24,16 @@ export function MobileActionBar({
   place,
   trips,
   onChanged,
+  blockWrites = false,
 }: {
   place: PlaceWithRelations
   trips: ExploreCollection[]
   onChanged: () => void
+  blockWrites?: boolean
 }) {
   const dirUrl = directionsUrl(place.coords)
   const call = callUrl(place.phone)
+  if (blockWrites && !dirUrl && !call) return null
 
   return (
     // The scroller (<main> in (app)/layout.tsx) pads its bottom edge with
@@ -50,14 +53,16 @@ export function MobileActionBar({
             <Navigation className="h-4 w-4" aria-hidden /> Directions
           </a>
         )}
-        <AddToTripMenu
-          placeId={place.id}
-          placeName={place.name}
-          placeCity={place.city}
-          trips={trips}
-          onChanged={onChanged}
-          triggerClassName="flex-1 justify-center py-2.5 text-sm font-semibold"
-        />
+        {!blockWrites && (
+          <AddToTripMenu
+            placeId={place.id}
+            placeName={place.name}
+            placeCity={place.city}
+            trips={trips}
+            onChanged={onChanged}
+            triggerClassName="flex-1 justify-center py-2.5 text-sm font-semibold"
+          />
+        )}
         {call && (
           <a href={call} aria-label={`Call ${place.name}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition hover:bg-secondary">
             <Phone className="h-4 w-4" aria-hidden />

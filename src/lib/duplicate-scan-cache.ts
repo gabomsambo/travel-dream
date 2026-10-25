@@ -1,7 +1,7 @@
 /**
- * In-process cache for the duplicate scan. One map, shared by the scan route
- * and by dismiss, so marking a pair "not duplicates" cannot keep serving the
- * group that was cached before the dismiss.
+ * In-process cache for the duplicate scan. The scan route reads and writes
+ * one map. Dismiss, a successful merge, and undo-merge clear it, so none of
+ * those can keep serving the group that was cached before the change.
  */
 const duplicateCache = new Map<string, { data: unknown; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000;

@@ -34,6 +34,8 @@ export function PlaceHero({
   onArchive,
   onDeleted,
   onRestored,
+  blockRestore = false,
+  blockWrites = false,
   softCover = false,
   fitReviewBar = false,
 }: {
@@ -47,6 +49,8 @@ export function PlaceHero({
   onArchive?: () => void
   onDeleted?: () => void
   onRestored?: () => void
+  blockRestore?: boolean
+  blockWrites?: boolean
   /** The cover is a screenshot shared with other places: blur it and offer a real photo. */
   softCover?: boolean
   /** On a phone, keep the title above Review's fixed action bar. Desktop stays 72vh. */
@@ -134,7 +138,7 @@ export function PlaceHero({
             <ArrowLeft className="h-4 w-4" aria-hidden />
             <span>{back.label}</span>
           </Link>
-          {softCover && (
+          {!blockWrites && softCover && (
             <FindImageButton
               placeId={place.id}
               placeName={place.name}
@@ -148,7 +152,7 @@ export function PlaceHero({
             />
           )}
           <span className="ml-auto" />
-          {!cover && (
+          {!blockWrites && !cover && (
             <FindImageButton
               placeId={place.id}
               placeName={place.name}
@@ -159,7 +163,7 @@ export function PlaceHero({
               className={cn("h-9 rounded-full px-3.5", GLASS, "hover:text-white")}
             />
           )}
-          {!editing && (
+          {!editing && !blockWrites && (
             <button
               type="button"
               onClick={onEdit}
@@ -179,6 +183,8 @@ export function PlaceHero({
             onArchive={onArchive}
             onDeleted={onDeleted}
             onRestored={onRestored}
+            blockRestore={blockRestore}
+            blockWrites={blockWrites}
           />
         </div>
 

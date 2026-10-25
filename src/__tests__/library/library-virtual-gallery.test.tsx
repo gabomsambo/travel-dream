@@ -110,6 +110,53 @@ describe('the virtualized gallery', () => {
     expect(tiles.every((t) => t.getAttribute('aria-setsize') === '8')).toBe(true)
   })
 
+  it('starts j/k from the first on-screen place when focus is in above-viewport overscan', async () => {
+    const user = userEvent.setup()
+    renderLibrary(dataFor(library(20)))
+    const places = [...placeButtons()] as HTMLElement[]
+    expect(places.length).toBeGreaterThan(2)
+
+    // jsdom has no layout; j/k only walks tiles with a non-null offsetParent.
+    const offsetParentDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() {
+        return this.parentElement
+      },
+    })
+
+    places[0].focus()
+    expect(places[0]).toHaveFocus()
+    for (const el of places) {
+      el.scrollIntoView = jest.fn()
+    }
+
+    // Two overscan tiles sit above <main>; the third is the first on screen.
+    const rectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.tagName === 'MAIN') {
+        return { top: 100, bottom: 900, left: 0, right: 800, width: 800, height: 800, x: 0, y: 100, toJSON: () => ({}) }
+      }
+      const i = places.indexOf(this as HTMLElement)
+      if (i === 0 || i === 1) {
+        const top = i === 0 ? -200 : -50
+        return { top, bottom: top + 80, left: 0, right: 100, width: 100, height: 80, x: 0, y: top, toJSON: () => ({}) }
+      }
+      if (i >= 2) {
+        const top = 120 + (i - 2) * 90
+        return { top, bottom: top + 80, left: 0, right: 100, width: 100, height: 80, x: 0, y: top, toJSON: () => ({}) }
+      }
+      return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }
+    })
+
+    try {
+      await user.keyboard('j')
+      expect(places[2]).toHaveFocus()
+    } finally {
+      rectSpy.mockRestore()
+      if (offsetParentDesc) Object.defineProperty(HTMLElement.prototype, 'offsetParent', offsetParentDesc)
+    }
+  })
+
   it('opens "N more" for one chapter without opening the others', async () => {
     const user = userEvent.setup()
     const { main } = renderLibrary(dataFor(library(20)))

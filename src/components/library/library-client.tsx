@@ -574,7 +574,11 @@ function LibraryPage({ data }: { data: LibraryData }) {
         // The gallery keeps a few rows above the screen mounted; starting from one of those would scroll back up.
         const top = document.querySelector("main")?.getBoundingClientRect().top ?? 0
         const onScreen = Math.max(places.findIndex((el) => el.getBoundingClientRect().bottom > top), 0)
-        const next = i < 0 ? onScreen : Math.min(Math.max(i + (key === "j" ? 1 : -1), 0), places.length - 1)
+        const focusOffAbove = i >= 0 && places[i].getBoundingClientRect().bottom <= top
+        const next =
+          i < 0 || focusOffAbove
+            ? onScreen
+            : Math.min(Math.max(i + (key === "j" ? 1 : -1), 0), places.length - 1)
         places[next].focus()
         places[next].scrollIntoView({ block: "nearest", behavior: "smooth" })
       } else if ((e.key === " " || key === "x") && focused) {

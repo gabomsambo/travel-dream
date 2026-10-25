@@ -63,7 +63,11 @@ export function TripMoment({ nudge, className }: { nudge: TripNudge; className?:
           {[0, 1, 2].map((slot) => (
             <div key={slot} className={cn("relative min-h-0 overflow-hidden bg-muted", slot === 0 && "col-span-2 row-span-2")}>
               {nudge.photos[slot] && (
-                <Photo src={nudge.photos[slot]} sizes={slot === 0 ? "(min-width: 768px) 400px, 60vw" : "(min-width: 768px) 200px, 30vw"} />
+                <Photo
+                  src={nudge.photos[slot]}
+                  use={slot === 0 ? "full" : "thumb"}
+                  sizes={slot === 0 ? "(min-width: 768px) 400px, 60vw" : "(min-width: 768px) 200px, 30vw"}
+                />
               )}
             </div>
           ))}

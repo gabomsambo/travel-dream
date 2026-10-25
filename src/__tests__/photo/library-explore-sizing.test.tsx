@@ -1,9 +1,10 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { PlaceTile } from '@/components/explore/place-tile';
 import { CountryTile } from '@/components/explore/country-tile';
 import { CityTiles } from '@/components/explore/city-tiles';
 import { TopCitiesRail } from '@/components/explore/top-cities-rail';
+import { TripMoment } from '@/components/explore/trip-moment';
 import { TripNudgeCard } from '@/components/explore/trip-nudge-card';
 import { ExploreProvider } from '@/components/explore/explore-provider';
 import { LibraryCover } from '@/components/library/library-cover';
@@ -289,6 +290,48 @@ describe('Library and Explore photos are right-sized', () => {
       expect(srcset).toMatch(/\?w=160 160w, .*\?w=320 320w/);
       expect(srcset).not.toMatch(/\?w=640|\?w=960|\?w=1280/);
       expect(el.getAttribute('sizes')).toBe('144px');
+    }
+  });
+
+  it('keeps TripMoment secondary collage cells on thumb Google widths', async () => {
+    const thumbs = [
+      '/api/photos/resolve/att_1?w=400',
+      '/api/photos/resolve/att_2?w=400',
+      '/api/photos/resolve/att_3?w=400',
+    ];
+    const { container } = render(
+      <ExploreProvider places={[]} collections={[]}>
+        <TripMoment
+          nudge={{
+            city: 'Lisbon',
+            country: 'Portugal',
+            citySlug: 'lisbon',
+            countrySlug: 'portugal',
+            placeIds: ['plc_1', 'plc_2', 'plc_3'],
+            photos: thumbs,
+            kinds: ['viewpoint'],
+            existingCollection: null,
+          }}
+        />
+      </ExploreProvider>
+    );
+    await waitFor(() => {
+      expect(imgs(container).length).toBe(3);
+    });
+    const collage = imgs(container);
+    const lead = collage.find((el) => el.getAttribute('sizes') === '(min-width: 768px) 400px, 60vw');
+    const secondaries = collage.filter(
+      (el) => el.getAttribute('sizes') === '(min-width: 768px) 200px, 30vw'
+    );
+    expect(lead).toBeTruthy();
+    expect(secondaries).toHaveLength(2);
+    expect(lead!.getAttribute('srcset')).toMatch(/\?w=320 320w.*\?w=640 640w.*\?w=960 960w.*\?w=1280 1280w/);
+    expect(lead!.getAttribute('srcset')).not.toContain('_next/image');
+    for (const el of secondaries) {
+      const srcset = el.getAttribute('srcset') ?? '';
+      expect(srcset).not.toContain('_next/image');
+      expect(srcset).toMatch(/\?w=160 160w, .*\?w=320 320w/);
+      expect(srcset).not.toMatch(/\?w=640|\?w=960|\?w=1280/);
     }
   });
 

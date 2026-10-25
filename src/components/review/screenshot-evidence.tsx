@@ -7,7 +7,7 @@ import { formatDateTime } from '@/lib/place-view/format'
 import { cn } from '@/lib/utils'
 import type { ReviewScreenshotSibling } from '@/lib/review-queue'
 
-type SiblingOutcome = 'added' | 'archived' | 'skipped' | 'removed'
+type SiblingOutcome = 'added' | 'archived' | 'skipped' | 'removed' | 'merged'
 
 interface ScreenshotEvidenceProps {
   url: string | null
@@ -30,6 +30,7 @@ function siblingLabel(
 ): { text: string; done: boolean } {
   if (sibling.placeId === currentPlaceId) return { text: 'Now', done: false }
   if (outcome === 'added') return { text: 'Added', done: true }
+  if (outcome === 'merged') return { text: 'Merged', done: true }
   if (outcome === 'archived' || sibling.status === 'archived') return { text: 'Not a place', done: true }
   if (outcome === 'skipped') return { text: 'Skipped', done: false }
   if (sibling.status === 'library') return { text: 'In Library', done: true }

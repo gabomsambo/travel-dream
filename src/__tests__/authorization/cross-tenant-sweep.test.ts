@@ -816,6 +816,15 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       request: () => ({ url: `${API}/places`, body: { name: 'sweep place', kind: 'cafe' } }),
     },
   },
+  'places/[id]/duplicate-check': {
+    GET: {
+      slots: ['place'],
+      request: (t) => ({
+        url: `${API}/places/${t.place}/duplicate-check`,
+        params: { id: t.place },
+      }),
+    },
+  },
   'places/[id]': {
     GET: { slots: ['place'], request: (t) => ({ url: `${API}/places/${t.place}`, params: { id: t.place } }) },
     PATCH: {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { bulkMergePlaces } from '@/lib/db-mutations';
+import { clearDuplicateScanCache } from '@/lib/duplicate-scan-cache';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
 
@@ -57,6 +58,9 @@ export async function POST(request: NextRequest) {
     // archived, and an Inbox survivor becomes Library when it absorbs a
     // Library place, so the cached totals are not a simple decrement.
     if (result.success > 0) {
+      // The scan memoises clusters. A merge changes membership, so the next
+      // load has to score again instead of serving the pre-merge group.
+      clearDuplicateScanCache();
       revalidateTag(`library-stats:${user.id}`);
     }
 

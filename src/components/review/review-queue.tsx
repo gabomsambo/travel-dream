@@ -18,6 +18,7 @@ import { Button } from '@/components/adapters/button'
 import { editorialFont } from '@/components/explore/fonts'
 import { PlaceView, type PlaceViewHandles } from '@/components/places/place-view/place-view'
 import { BatchTripChevron, BatchTripChip } from '@/components/review/batch-trip-menu'
+import { ReviewDuplicateNote, type MergedDuplicate } from '@/components/review/duplicate-note'
 import { ReviewGroupView } from '@/components/review/review-group-view'
 import { ScreenshotEvidence } from '@/components/review/screenshot-evidence'
 import { placeClassicHref } from '@/lib/place-view/edit-link'
@@ -26,7 +27,7 @@ import { resolveBatchTripId, screenshotTitle, suggestBatchTrip } from '@/lib/rev
 import type { ExploreCollection } from '@/lib/explore/types'
 import type { ReviewPostcard, ReviewQueueEntry } from '@/lib/review-queue'
 
-type ReviewOutcome = 'added' | 'archived' | 'skipped' | 'removed'
+type ReviewOutcome = 'added' | 'archived' | 'skipped' | 'removed' | 'merged'
 type PlaceStatus = 'inbox' | 'library' | 'archived'
 type SessionEntry = ReviewQueueEntry & { postcard?: ReviewPostcard; postcardError?: string }
 
@@ -136,7 +137,7 @@ function restoredTrips(move: TripMove | null | undefined): FiledTrip[] {
   ]
 }
 
-const OUTCOME_STATUS: Record<Exclude<ReviewOutcome, 'skipped' | 'removed'>, 'library' | 'archived'> = {
+const OUTCOME_STATUS: Record<'added' | 'archived', 'library' | 'archived'> = {
   added: 'library',
   archived: 'archived',
 }
@@ -409,6 +410,23 @@ function withOutcome(
   return { ...existing, [placeId]: outcome }
 }
 
+interface MergeResume {
+  status: PlaceStatus
+  outcome?: ReviewOutcome
+}
+
+function rememberedPlaceStatus(
+  placeId: string,
+  written: Readonly<Record<string, PlaceStatus>>,
+  session: readonly SessionEntry[],
+): PlaceStatus {
+  const writtenStatus = written[placeId]
+  if (writtenStatus) return writtenStatus
+  const status = session.find((entry) => entry.placeId === placeId)?.postcard?.place.status
+  if (status === 'inbox' || status === 'library' || status === 'archived') return status
+  return 'inbox'
+}
+
 function deriveReviewCursor(
   session: SessionEntry[],
   outcomes: Record<string, ReviewOutcome>,
@@ -528,12 +546,14 @@ function ReviewSummary({
   entries,
   outcomes,
   tripAssignments,
+  mergedInto,
   onReview,
   scoped,
 }: {
   entries: ReviewQueueEntry[]
   outcomes: Record<string, ReviewOutcome>
   tripAssignments: Record<string, FiledTrip[]>
+  mergedInto: string[]
   onReview: (placeId: string) => void
   scoped: boolean
 }) {
@@ -590,6 +610,14 @@ function ReviewSummary({
           )}
         </div>
 
+        {mergedInto.length > 0 && (
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            {mergedInto.length === 1
+              ? `1 merged into ${mergedInto[0]}.`
+              : `${mergedInto.length} merged into places already in your Library.`}
+          </p>
+        )}
+
         {grouped.skipped.length > 0 && (
           <div className="mt-6 rounded-2xl bg-amber-500/10 p-4 text-sm text-foreground">
             <span className="font-semibold">Still waiting:</span>{' '}
@@ -629,6 +657,25 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const [outcomes, setOutcomes] = React.useState<Record<string, ReviewOutcome>>({})
   const outcomesRef = React.useRef(outcomes)
   outcomesRef.current = outcomes
+  const sessionRef = React.useRef(session)
+  sessionRef.current = session
+  const mergeResumeRef = React.useRef<Record<string, MergeResume>>({})
+  const undoingMergeRef = React.useRef<Set<string>>(new Set())
+  const placeOpRef = React.useRef<Set<string>>(new Set())
+  const [placeOps, setPlaceOps] = React.useState<ReadonlySet<string>>(() => new Set())
+  const mergingRef = React.useRef<Set<string>>(new Set())
+  const [mergingIds, setMergingIds] = React.useState<ReadonlySet<string>>(() => new Set())
+  const decisionToastsRef = React.useRef<Record<string, Array<string | number>>>({})
+  const [mergedByPlace, setMergedByPlace] = React.useState<Record<string, MergedDuplicate>>({})
+  const mergedRef = React.useRef(mergedByPlace)
+  mergedRef.current = mergedByPlace
+  const [duplicateCheckEpoch, setDuplicateCheckEpoch] = React.useState<Record<string, number>>({})
+  const invalidateDuplicateCheck = React.useCallback((placeId: string) => {
+    setDuplicateCheckEpoch((existing) => ({
+      ...existing,
+      [placeId]: (existing[placeId] ?? 0) + 1,
+    }))
+  }, [])
   const [tripChoice, setTripChoice] = React.useState<string | 'none' | null>(null)
   const [tripAssignments, setTripAssignments] = React.useState<Record<string, FiledTrip[]>>({})
   const tripAssignmentsRef = React.useRef(tripAssignments)
@@ -806,6 +853,31 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     }
   }, [uploadSessionId])
 
+  const claimPlace = React.useCallback((placeId: string, op?: 'merge') => {
+    if (placeOpRef.current.has(placeId)) return false
+    if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId]) return false
+    placeOpRef.current.add(placeId)
+    if (op === 'merge') mergingRef.current.add(placeId)
+    setPlaceOps(new Set(placeOpRef.current))
+    if (op === 'merge') setMergingIds(new Set(mergingRef.current))
+    return true
+  }, [])
+
+  const releasePlace = React.useCallback((placeId: string) => {
+    const hadOp = placeOpRef.current.delete(placeId)
+    const hadMerge = mergingRef.current.delete(placeId)
+    if (hadOp) setPlaceOps(new Set(placeOpRef.current))
+    if (hadMerge) setMergingIds(new Set(mergingRef.current))
+  }, [])
+
+  const beforeMerge = React.useCallback(async () => {
+    const handles = viewHandlesRef.current
+    if (!handles) return true
+    const sectionsSaved = handles.flushSections()
+    await handles.flushStatus()
+    return sectionsSaved
+  }, [])
+
   const undoDecision = React.useCallback(async (
     placeId: string,
     previousOutcome: ReviewOutcome | undefined,
@@ -813,15 +885,18 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   ) => {
     const entry = session.find((item) => item.placeId === placeId)
     if (!entry) return
+    if (!claimPlace(placeId)) return
     const restoreStatus = previousOutcome === 'added' || previousOutcome === 'archived'
       ? OUTCOME_STATUS[previousOutcome]
       : 'inbox'
     try {
       await setPlaceStatus(entry.placeId, restoreStatus)
       if (outcomesRef.current[entry.placeId] === 'removed') return
+      if (outcomesRef.current[entry.placeId] === 'merged' || mergedRef.current[entry.placeId]) return
       commitStatus(entry.placeId, restoreStatus)
       setOutcomes((existing) => {
         if (existing[entry.placeId] === 'removed') return existing
+        if (existing[entry.placeId] === 'merged') return existing
         if (!previousOutcome) {
           if (!(entry.placeId in existing)) return existing
           const next = { ...existing }
@@ -874,8 +949,10 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       }
     } catch (undoError) {
       notify.error(undoError instanceof Error ? undoError.message : "Couldn't undo that change.")
+    } finally {
+      releasePlace(placeId)
     }
-  }, [commitStatus, session, selectPlace])
+  }, [claimPlace, commitStatus, releasePlace, session, selectPlace])
 
   const members = current?.sourceId
     ? session.filter((entry) => entry.sourceId === current.sourceId && !outcomes[entry.placeId])
@@ -910,6 +987,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       return
     }
     if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
+    if (mergedRef.current[current.placeId] || placeOpRef.current.has(current.placeId)) return
     const placeId = current.placeId
     const placeName = current.name
     const previousOutcome = outcomesRef.current[placeId]
@@ -983,7 +1061,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
         ? `Added “${placeName}” to your Library and ${mentioned.name}`
         : `Added “${placeName}” to your Library`
       const reversible = move.drop || move.restore ? move : null
-      notify.success(
+      const toastId = notify.success(
         outcome === 'added' ? addedLine : `Moved “${placeName}” to Archive`,
         {
           duration: 8_000,
@@ -993,6 +1071,10 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
           },
         }
       )
+      if (typeof toastId === 'string' || typeof toastId === 'number') {
+        const pending = decisionToastsRef.current[placeId] ?? []
+        decisionToastsRef.current[placeId] = [...pending, toastId]
+      }
     } catch (decisionError) {
       const message = decisionError instanceof Error ? decisionError.message : "We couldn't update this place."
       setError(message)
@@ -1008,6 +1090,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
       return
     }
     if (!current || busy || outcomesRef.current[current.placeId] === 'removed') return
+    if (mergedRef.current[current.placeId] || placeOpRef.current.has(current.placeId)) return
     const placeId = current.placeId
     const previousOutcome = outcomesRef.current[placeId]
     setBusy(true)
@@ -1052,6 +1135,7 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
 
   const noteRestored = React.useCallback((placeId: string) => {
     if (outcomesRef.current[placeId] === 'removed') return
+    if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId]) return
     commitStatus(placeId, 'library')
     setOutcomes((existing) => withOutcome(existing, placeId, 'added'))
     setPinnedId(placeId)
@@ -1063,6 +1147,72 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     setOutcomes((existing) => withOutcome(existing, placeId, 'removed'))
     setPinnedId((pin) => (pin === placeId ? null : pin))
   }, [current])
+
+  const undoMerge = React.useCallback(async (info: MergedDuplicate) => {
+    if (undoingMergeRef.current.has(info.mergeLogId)) return
+    const resume = mergeResumeRef.current[info.inboxPlaceId]
+    if (!resume) return
+    undoingMergeRef.current.add(info.mergeLogId)
+    try {
+      const response = await fetch('/api/places/undo-merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ placeId: info.libraryPlaceId, mergeLogId: info.mergeLogId }),
+      })
+      if (!response.ok && response.status !== 404) {
+        const body = await response.json().catch(() => null) as { message?: string } | null
+        throw new Error(body?.message || "Couldn't undo that merge.")
+      }
+      if (mergeResumeRef.current[info.inboxPlaceId] !== resume) return
+      delete mergeResumeRef.current[info.inboxPlaceId]
+      const restoreStatus = resume.status
+      const restoreOutcome = resume.outcome
+      setMergedByPlace((existing) => {
+        if (!existing[info.inboxPlaceId]) return existing
+        const next = { ...existing }
+        delete next[info.inboxPlaceId]
+        return next
+      })
+      setOutcomes((existing) => {
+        if (existing[info.inboxPlaceId] !== 'merged') return existing
+        if (!restoreOutcome) {
+          const next = { ...existing }
+          delete next[info.inboxPlaceId]
+          return next
+        }
+        return withOutcome(existing, info.inboxPlaceId, restoreOutcome)
+      })
+      commitStatus(info.inboxPlaceId, restoreStatus)
+      selectPlace(info.inboxPlaceId, true)
+      notify.success('Merge undone')
+    } catch (undoError) {
+      notify.error(undoError instanceof Error ? undoError.message : "Couldn't undo that merge.")
+    } finally {
+      undoingMergeRef.current.delete(info.mergeLogId)
+    }
+  }, [commitStatus, selectPlace])
+
+  const noteMerged = React.useCallback((info: MergedDuplicate) => {
+    if (!mergeResumeRef.current[info.inboxPlaceId]) {
+      const outcome = outcomesRef.current[info.inboxPlaceId]
+      mergeResumeRef.current[info.inboxPlaceId] = {
+        status: rememberedPlaceStatus(info.inboxPlaceId, writtenStatusRef.current, sessionRef.current),
+        ...(outcome && outcome !== 'merged' ? { outcome } : {}),
+      }
+    }
+    mergedRef.current = { ...mergedRef.current, [info.inboxPlaceId]: info }
+    outcomesRef.current = withOutcome(outcomesRef.current, info.inboxPlaceId, 'merged')
+    const pendingToasts = decisionToastsRef.current[info.inboxPlaceId]
+    if (pendingToasts) {
+      for (const id of pendingToasts) notify.dismiss(id)
+      delete decisionToastsRef.current[info.inboxPlaceId]
+    }
+    setMergedByPlace((existing) => ({ ...existing, [info.inboxPlaceId]: info }))
+    commitStatus(info.inboxPlaceId, 'archived')
+    setOutcomes((existing) => withOutcome(existing, info.inboxPlaceId, 'merged'))
+    setPinnedId((pin) => (pin === info.inboxPlaceId ? null : pin))
+    setEditingId((id) => (id === info.inboxPlaceId ? null : id))
+  }, [commitStatus])
 
   const retryPostcard = () => {
     if (!derivedId) return
@@ -1395,7 +1545,11 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const scoped = Boolean(uploadSessionId)
   if (session.length === 0) return <EmptyReview scoped={scoped} />
   if (!current) {
-    return <ReviewSummary entries={session} outcomes={outcomes} tripAssignments={tripAssignments} onReview={resumeSkipped} scoped={scoped} />
+    const mergedInto = session
+      .filter((entry) => outcomes[entry.placeId] === 'merged')
+      .map((entry) => mergedByPlace[entry.placeId]?.libraryName)
+      .filter((name): name is string => Boolean(name))
+    return <ReviewSummary entries={session} outcomes={outcomes} tripAssignments={tripAssignments} mergedInto={mergedInto} onReview={resumeSkipped} scoped={scoped} />
   }
 
   const currentIndex = session.findIndex((entry) => entry.placeId === current.placeId)
@@ -1412,7 +1566,11 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     ? `Add ${includedCount} to Library${withTrip ? ' + trip' : ''}`
     : `Add to Library${withTrip ? ' + trip' : ''}`
   const archiveLabel = groupMode ? 'None of these' : 'Not a place'
-  const addDisabled = busy || (groupMode && includedCount === 0)
+  const placeMerged = outcomes[current.placeId] === 'merged' || Boolean(mergedByPlace[current.placeId])
+  const placeMerging = mergingIds.has(current.placeId)
+  const placeBusy = placeOps.has(current.placeId)
+  const decisionLocked = busy || placeMerged || placeBusy
+  const addDisabled = decisionLocked || (groupMode && includedCount === 0)
   const positionLabel = groupMode ? rangeLabel(session, members) : String(currentIndex + 1)
   const tripHint = !effectiveTrip
     ? 'Adds go to your Library only.'
@@ -1428,13 +1586,15 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const openClassic = () => {
     const handles = viewHandlesRef.current
     const placeId = current.placeId
+    if (outcomesRef.current[placeId] === 'merged' || mergedRef.current[placeId] || mergingRef.current.has(placeId)) return
     if (!handles) {
       router.push(placeClassicHref(placeId))
       return
     }
     void (async () => {
+      const sectionsSaved = handles.flushSections()
       await handles.flushStatus()
-      if (!(await handles.flushSections())) return
+      if (!(await sectionsSaved)) return
       router.push(placeClassicHref(placeId))
     })()
   }
@@ -1498,21 +1658,47 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               place={current.postcard.place}
               trips={trips}
               alsoIn={current.postcard.alsoIn}
-              editing={editingId === current.placeId}
+              editing={!placeMerged && !placeMerging && editingId === current.placeId}
               softCover={Boolean(shot?.softCover)}
               fitReviewBar
               handlesRef={viewHandlesRef}
-              onEdit={() => setEditingId(current.placeId)}
+              lead={(
+                <ReviewDuplicateNote
+                  placeId={current.placeId}
+                  placeName={current.postcard.place.name}
+                  currentPlace={current.postcard.place}
+                  screenshotUrl={shot?.url ?? current.screenshotUrl}
+                  merged={mergedByPlace[current.placeId] ?? null}
+                  disabled={busy || placeBusy}
+                  claimPlace={claimPlace}
+                  releasePlace={releasePlace}
+                  beforeMerge={beforeMerge}
+                  onPending={setBusy}
+                  onMerged={noteMerged}
+                  onMergeUndone={undoMerge}
+                  checkEpoch={duplicateCheckEpoch[current.placeId] ?? 0}
+                  onDuplicateCheckInvalidated={invalidateDuplicateCheck}
+                />
+              )}
+              onEdit={() => {
+                if (placeMerged || placeMerging) return
+                setEditingId(current.placeId)
+              }}
               onDoneEditing={() => {
                 setEditingId(null)
                 router.refresh()
               }}
               onOpenClassic={openClassic}
               onPrefetchEdit={() => { void import('@/components/places/place-full-view') }}
-              onPhotoAttached={() => router.refresh()}
+              onPhotoAttached={() => {
+                if (placeMerged || placeMerging) return
+                router.refresh()
+              }}
+              blockWrites={placeMerged || placeMerging}
               onArchive={() => { void decide('archived') }}
               onDeleted={removeFromQueue}
               onRestored={() => noteRestored(current.placeId)}
+              blockRestore={placeMerged}
               showMobileActionBar={false}
             />
           ) : current.postcardError ? (
@@ -1561,12 +1747,12 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
             <Button className="col-span-2 h-12 text-base" onClick={() => void decide('added')} disabled={addDisabled}>
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />} {addLabel}
             </Button>
-            <Button variant="outline" className="h-11" onClick={() => void decide('archived')} disabled={busy}><Archive className="mr-2 h-4 w-4" />{archiveLabel}</Button>
-            <Button variant="outline" className="h-11" onClick={() => void skip()} disabled={busy}><SkipForward className="mr-2 h-4 w-4" />Skip for now</Button>
+            <Button variant="outline" className="h-11" onClick={() => void decide('archived')} disabled={decisionLocked}><Archive className="mr-2 h-4 w-4" />{archiveLabel}</Button>
+            <Button variant="outline" className="h-11" onClick={() => void skip()} disabled={decisionLocked}><SkipForward className="mr-2 h-4 w-4" />Skip for now</Button>
           </div>
           <div className="hidden items-center gap-3 sm:flex">
-            <Button variant="outline" onClick={() => void decide('archived')} disabled={busy}><Archive className="mr-2 h-4 w-4" />{archiveLabel} <kbd className="ml-2 text-xs opacity-60">N</kbd></Button>
-            <Button variant="outline" onClick={() => void skip()} disabled={busy}><SkipForward className="mr-2 h-4 w-4" />Skip for now <kbd className="ml-2 text-xs opacity-60">S</kbd></Button>
+            <Button variant="outline" onClick={() => void decide('archived')} disabled={decisionLocked}><Archive className="mr-2 h-4 w-4" />{archiveLabel} <kbd className="ml-2 text-xs opacity-60">N</kbd></Button>
+            <Button variant="outline" onClick={() => void skip()} disabled={decisionLocked}><SkipForward className="mr-2 h-4 w-4" />Skip for now <kbd className="ml-2 text-xs opacity-60">S</kbd></Button>
             <span className="ml-auto text-xs text-muted-foreground"><kbd>←</kbd> previous</span>
             <div className="flex">
               <Button className="min-w-48 rounded-r-none" onClick={() => void decide('added')} disabled={addDisabled}>

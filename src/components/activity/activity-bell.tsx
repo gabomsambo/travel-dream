@@ -60,20 +60,6 @@ function JobActions({
       >
         View results
       </Button>
-      {job.counts.stalled > 0 && (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 px-2 text-xs"
-          onClick={event => {
-            event.stopPropagation()
-            onNavigate('/mass-upload')
-          }}
-        >
-          Retry stalled
-        </Button>
-      )}
       <Button
         type="button"
         size="sm"

@@ -69,7 +69,7 @@ function completionToast(job: ActivityJob): void {
   const failed = job.counts.failed
   if (stalled > 0) {
     toastWithNavigate(
-      `Processing finished · ${job.counts.completed} processed · ${stalled} need retry.`,
+      `Processing finished · ${job.counts.completed} processed · ${stalled} still trying.`,
       '/mass-upload',
       { type: 'warning', actionLabel: 'Review upload' }
     )

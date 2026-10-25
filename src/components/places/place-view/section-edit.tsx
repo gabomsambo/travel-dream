@@ -68,6 +68,9 @@ export interface SectionEditApi {
   draft: PlaceDraft
   setField: <K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => void
   setFields: (values: Partial<PlaceDraft>) => boolean
+  /** Merge non-draft fields (e.g. googlePlaceId) into the pending autosave body. */
+  queuePatch: (set: Record<string, unknown>) => boolean
+  flush: () => Promise<boolean>
   place: PlaceWithRelations
   refresh: () => void
   noteSaved: () => void
@@ -687,6 +690,13 @@ export function SectionEditProvider({
     return true
   }, [blockWrites, markDirty, save])
 
+  const queuePatch = React.useCallback((set: Record<string, unknown>) => {
+    if (blockWrites) return false
+    if (Object.keys(set).length === 0) return false
+    save.update({ set, drop: [] })
+    return true
+  }, [blockWrites, save])
+
   const cancelSave = save.cancel
   React.useLayoutEffect(() => {
     if (!blockWrites) return
@@ -752,11 +762,13 @@ export function SectionEditProvider({
     draft,
     setField,
     setFields,
+    queuePatch,
+    flush: flushSave,
     place,
     refresh: onRefresh,
     noteSaved: save.noteSaved,
     noteError: save.noteError,
-  }), [active, editingAll, mobile, open, close, exitEditing, save.status, save.error, save.noteSaved, save.noteError, draft, setField, setFields, place, onRefresh])
+  }), [active, editingAll, mobile, open, close, exitEditing, save.status, save.error, save.noteSaved, save.noteError, draft, setField, setFields, queuePatch, flushSave, place, onRefresh])
 
   return (
     <SectionEditContext.Provider value={api}>

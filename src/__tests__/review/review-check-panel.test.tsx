@@ -787,9 +787,12 @@ describe('PlaceView review dismissal', () => {
     const body = JSON.parse(String((branchSaves[0][1] as RequestInit).body)) as Record<string, unknown>
     expect(body.googlePlaceId).toBe('stub-gails-dulwich')
     expect(body.coords).toEqual({ lat: 51.45, lon: -0.07 })
-    expect(body.city).toBeUndefined()
-    expect(body.admin).toBeUndefined()
-    expect(body.country).toBeUndefined()
+    expect(body.city).not.toBe('London')
+    expect(body.admin).not.toBe('England')
+    expect(body.country).not.toBe('United Kingdom')
+    if (body.city !== undefined) expect(body.city).toBe('Paris')
+    if (body.admin !== undefined) expect(body.admin).toBe('Oregon')
+    if (body.country !== undefined) expect(body.country).toBe('France')
     expect(onUpdated).toHaveBeenCalled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -870,7 +873,12 @@ describe('PlaceView review dismissal', () => {
     await user.click(screen.getByRole('button', { name: 'Forks, Washington' }))
 
     await waitFor(() => expect(forksPatch(fetchMock)).not.toBeNull())
-    expect(forksPatch(fetchMock)).toEqual({ city: 'Forks' })
+    const saved = forksPatch(fetchMock)
+    expect(saved).toMatchObject({ city: 'Forks' })
+    expect(saved?.admin).not.toBe('Washington')
+    expect(saved?.country).not.toBe('United States')
+    if (saved?.admin !== undefined) expect(saved.admin).toBe('Oregon')
+    if (saved?.country !== undefined) expect(saved.country).toBe('Canada')
   })
 
   it('fills a region the draft cleared even when the saved place still has one', async () => {
@@ -946,13 +954,8 @@ describe('PlaceView review dismissal', () => {
       expect(screen.getByRole('textbox', { name: 'Region' })).toHaveValue('Washington')
       expect(screen.getByRole('textbox', { name: 'Country' })).toHaveValue('United States')
     })
-    await waitFor(() => expect(placePatches(fetchMock).length).toBeGreaterThan(patchesBefore + 1), { timeout: 2000 })
+    await waitFor(() => expect(placePatches(fetchMock).length).toBeGreaterThan(patchesBefore), { timeout: 2000 })
     const bodies = placePatches(fetchMock).slice(patchesBefore)
-    expect(bodies[0]).toEqual({
-      city: 'Forks',
-      admin: 'Washington',
-      country: 'United States',
-    })
     expect(bodies.at(-1)).toMatchObject({
       city: 'Forks',
       admin: 'Washington',
@@ -1005,7 +1008,7 @@ describe('PlaceView review dismissal', () => {
       expect(screen.getByRole('textbox', { name: 'Longitude' })).toHaveValue('-0.07')
       expect(onUpdated).toHaveBeenCalled()
     })
-    await waitFor(() => expect(placePatches(fetchMock).length).toBeGreaterThan(patchesBefore + 1), { timeout: 2000 })
+    await waitFor(() => expect(placePatches(fetchMock).length).toBeGreaterThan(patchesBefore), { timeout: 2000 })
     const bodies = placePatches(fetchMock).slice(patchesBefore)
     const branchSave = bodies.find((body) => body.googlePlaceId === 'stub-gails-dulwich')
     expect(branchSave).toMatchObject({
@@ -1019,7 +1022,7 @@ describe('PlaceView review dismissal', () => {
     expect(bodies.some((body) => body.address === '123 New St' || (body.coords as { lat?: number } | undefined)?.lat === 1)).toBe(false)
   })
 
-  it('drops a branch save when the draft changes after that pin is written into the draft', async () => {
+  it('keeps a newer region edit over a slower in-flight branch save', async () => {
     const user = userEvent.setup()
     const onUpdated = jest.fn()
     let resolveSave: (value: Response) => void = () => {}
@@ -1058,22 +1061,28 @@ describe('PlaceView review dismissal', () => {
       return Promise.resolve(json({ message: 'unexpected' }, 500))
     })
 
-    render(reviewPlace(place({ coords: null }), onUpdated, true))
+    render(reviewPlace(place({ coords: null, admin: null }), onUpdated, true))
     await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Address' }), { target: { value: '123 New St' } })
     await user.click(screen.getByRole('button', { name: /Look up this place/ }))
     await user.click(await screen.findByText('91 Lordship Ln, London SE22'))
 
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Address' })).toHaveValue('91 Lordship Ln'))
     expect(placePatches(fetchMock)).toHaveLength(1)
+    expect(placePatches(fetchMock)[0]).toMatchObject({
+      googlePlaceId: 'stub-gails-dulwich',
+      admin: 'England',
+    })
     fireEvent.change(screen.getByRole('textbox', { name: 'Region' }), { target: { value: 'Oregon' } })
+    expect(screen.getByRole('listitem')).toBeEnabled()
     await act(async () => {
       resolveSave(json({ status: 'success' }))
     })
-    expect(onUpdated).not.toHaveBeenCalled()
-    expect(screen.getByRole('listitem')).toBeEnabled()
 
-    await waitFor(() => expect(onUpdated).toHaveBeenCalled(), { timeout: 2000 })
+    await waitFor(() => expect(placePatches(fetchMock).length).toBeGreaterThan(1), { timeout: 2000 })
+    const bodies = placePatches(fetchMock)
+    expect(bodies.at(-1)).toMatchObject({ admin: 'Oregon' })
+    expect(bodies.at(-1)?.admin).not.toBe('England')
+    await waitFor(() => expect(onUpdated).toHaveBeenCalled())
   })
 })
 

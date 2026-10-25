@@ -331,14 +331,20 @@ function PinCheck({
         adoptedGenerationRef.current = staged.key
         if (!edit.setFields(staged.values)) adoptedGenerationRef.current = null
       }
-      const saved = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      })
-      if (requestId !== requestRef.current) return
-      if (!saved.ok) throw new Error(await readError(saved, "We couldn't save that pin. Try again."))
-      await onUpdated()
+      if (edit?.queuePatch(patch)) {
+        const ok = await edit.flush()
+        if (requestId !== requestRef.current) return
+        if (!ok) throw new Error(sectionEditRef.current?.error || "We couldn't save that pin. Try again.")
+      } else {
+        const saved = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        })
+        if (requestId !== requestRef.current) return
+        if (!saved.ok) throw new Error(await readError(saved, "We couldn't save that pin. Try again."))
+        await onUpdated()
+      }
     } catch (chooseError) {
       if (requestId !== requestRef.current) return
       setError(chooseError instanceof Error ? chooseError.message : "We couldn't pin that one. Try again.")
@@ -480,14 +486,20 @@ function CityCheck({
       if (blankText(current.admin) && !blankText(extra?.admin)) patch.admin = extra?.admin
       if (blankText(current.country) && !blankText(extra?.country)) patch.country = extra?.country
       const staged = stagedDraft(current, patch)
-      if (staged) sectionEditRef.current?.setFields(staged.values)
-      const response = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      })
-      if (!response.ok) throw new Error(await readError(response, "We couldn't save that city. Try again."))
-      await onUpdated()
+      const edit = sectionEditRef.current
+      if (staged && edit) edit.setFields(staged.values)
+      if (edit?.queuePatch(patch)) {
+        const ok = await edit.flush()
+        if (!ok) throw new Error(sectionEditRef.current?.error || "We couldn't save that city. Try again.")
+      } else {
+        const response = await fetch(`/api/places/${encodeURIComponent(place.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        })
+        if (!response.ok) throw new Error(await readError(response, "We couldn't save that city. Try again."))
+        await onUpdated()
+      }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "We couldn't save that city. Try again.")
     } finally {

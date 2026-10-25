@@ -10,11 +10,16 @@ import { kindLabel } from "@/components/explore/kind-icon"
 import { editorialFont } from "@/components/explore/fonts"
 import { flagFor } from "@/lib/explore/geo"
 import { citiesMatch } from "@/lib/city-names"
-import { chapterSummary, citiesOf, fullDate, locationOf, monthYear, type Chapter } from "@/lib/library/chapters"
+import { chapterSummary, fullDate, locationOf, monthYear, type Chapter } from "@/lib/library/chapters"
+import { activeCityOf } from "@/lib/library/gallery-rows"
 import type { GroupMode, LibraryItem, LibraryView } from "@/lib/library/types"
 import { useLibraryActions, useLongPress } from "./library-actions"
-import { LibraryTile } from "./library-tile"
+import { CityChips } from "./library-chapter-parts"
+import { VirtualGallery, type VirtualGalleryHandle } from "./library-virtual-gallery"
 import { HeartButton, LibraryPlaceMenu, SelectMark } from "./library-place-menu"
+
+const MemoVirtualGallery = React.memo(VirtualGallery)
+const NO_KEYS: string[] = []
 
 /** A row or entry that starts Select mode on a long press (touch only). */
 function Pressable({ id, as: Tag = "div", ...props }: { id: string; as?: "div" | "article" } & React.HTMLAttributes<HTMLElement>) {
@@ -65,50 +70,6 @@ function ChapterHeader({ chapter, group, items, collage }: { chapter: Chapter; g
   )
 }
 
-/** "All 16 · Kyoto 7 · Tokyo 7 · Osaka 2" inside a country chapter. */
-function CityChips({ items, city, onCity }: { items: LibraryItem[]; city: string | null; onCity: (c: string | null) => void }) {
-  const cities = citiesOf(items)
-  if (cities.length < 2) return null
-  const chip = "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-  const on = "border-transparent bg-foreground text-background"
-  return (
-    <div className="-mx-4 mb-3.5 flex gap-1.5 overflow-x-auto px-4 pb-0.5 hide-scrollbar sm:mx-0 sm:flex-wrap sm:px-0">
-      <button type="button" aria-pressed={city === null} onClick={() => onCity(null)} className={cn(chip, city === null ? on : "bg-background hover:bg-secondary")}>
-        All {items.length}
-      </button>
-      {cities.map((c) => (
-        <button
-          key={c.city}
-          type="button"
-          aria-pressed={city === c.city}
-          onClick={() => onCity(city === c.city ? null : c.city)}
-          className={cn(chip, city === c.city ? on : "bg-background hover:bg-secondary")}
-        >
-          {c.city} <span className={cn(city === c.city ? "opacity-70" : "text-muted-foreground")}>{c.count}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function MoreTile({ count, title, onClick, className }: { count: number; title: string; onClick: () => void; className?: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed px-3 text-center text-[13px] font-medium text-muted-foreground outline-none transition hover:bg-secondary/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-        className
-      )}
-    >
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-foreground">
-        <ChevronRight className="h-[18px] w-[18px]" />
-      </span>
-      {count} more{title ? ` in ${title}` : ""}
-    </button>
-  )
-}
-
 /**
  * How many rows a chapter shows: a peek that opens fully on "more", or — for
  * the single ungrouped chapter — a page at a time.
@@ -116,50 +77,6 @@ function MoreTile({ count, title, onClick, className }: { count: number; title: 
 function useLimit(base: number, paged: boolean, total: number): [number, () => void] {
   const [limit, setLimit] = React.useState(base)
   return [limit, () => setLimit((n) => (paged ? n + base : total))]
-}
-
-const DESKTOP_PEEK = 7
-const MOBILE_PEEK = 5
-/** "No grouping" is one grid; it renders a page at a time so 500 places stay light. */
-const PAGE = 48
-
-function GalleryChapter({ items, siblings, title, single, expanded, onExpand }: { items: LibraryItem[]; siblings: string[]; title: string; single: boolean; expanded: boolean; onExpand: () => void }) {
-  const [pages, setPages] = React.useState(1)
-  if (single) {
-    const shown = items.slice(0, pages * PAGE)
-    return (
-      <>
-        <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 md:grid-cols-3 xl:grid-cols-4">
-          {shown.map((p) => (
-            <LibraryTile key={p.id} item={p} siblings={siblings} />
-          ))}
-        </div>
-        {items.length > shown.length && (
-          <div className="mt-6 flex justify-center">
-            <button type="button" onClick={() => setPages((n) => n + 1)} className="rounded-full border px-5 py-2 text-sm font-medium hover:bg-secondary">
-              Show {Math.min(PAGE, items.length - shown.length)} more of {items.length - shown.length}
-            </button>
-          </div>
-        )}
-      </>
-    )
-  }
-  const desktopRest = items.length - DESKTOP_PEEK
-  const mobileRest = items.length - MOBILE_PEEK
-  return (
-    <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 md:grid-cols-3 xl:grid-cols-4">
-      {items.map((p, i) => {
-        if (!expanded && i >= DESKTOP_PEEK) return null
-        return (
-          <div key={p.id} className={cn(!expanded && i >= MOBILE_PEEK && "hidden sm:block")}>
-            <LibraryTile item={p} siblings={siblings} />
-          </div>
-        )
-      })}
-      {!expanded && mobileRest > 0 && <MoreTile count={mobileRest} title={title} onClick={onExpand} className="sm:hidden" />}
-      {!expanded && desktopRest > 0 && <MoreTile count={desktopRest} title={title} onClick={onExpand} className="hidden sm:flex" />}
-    </div>
-  )
 }
 
 function Stars({ n }: { n: number }) {
@@ -353,10 +270,8 @@ function ChapterSection({
   collectionNames: Map<string, string[]>
 }) {
   const [city, setCity] = React.useState<string | null>(null)
-  const [expanded, setExpanded] = React.useState(false)
   const showCities = group === "country" && view !== "list"
-  const cities = showCities ? citiesOf(chapter.items) : []
-  const activeCity = city && cities.length > 1 && cities.some((c) => c.city === city) ? city : null
+  const activeCity = showCities ? activeCityOf(chapter, city) : null
   const items = activeCity ? chapter.items.filter((p) => citiesMatch(p.city, activeCity)) : chapter.items
   const single = chapter.key === "all"
 
@@ -366,10 +281,8 @@ function ChapterSection({
       {showCities && <CityChips items={chapter.items} city={activeCity} onCity={setCity} />}
       {view === "journal" ? (
         <JournalChapter items={items} siblings={siblings} single={single} />
-      ) : view === "list" ? (
-        <ListChapter items={items} siblings={siblings} collectionNames={collectionNames} single={single} />
       ) : (
-        <GalleryChapter items={items} siblings={siblings} title={chapter.title} single={single} expanded={expanded} onExpand={() => setExpanded(true)} />
+        <ListChapter items={items} siblings={siblings} collectionNames={collectionNames} single={single} />
       )}
     </section>
   )
@@ -426,7 +339,7 @@ const GROUP_NOUN: Record<GroupMode, [string, string]> = {
 }
 
 /** The serif index where the filter wall used to be: jump to a chapter, see where you are. */
-function IndexRail({ chapters, group, active }: { chapters: Chapter[]; group: GroupMode; active: string | null }) {
+function IndexRail({ chapters, group, active, onJump }: { chapters: Chapter[]; group: GroupMode; active: string | null; onJump: (key: string) => void }) {
   const [all, setAll] = React.useState(false)
   const LIMIT = 14
   const shown = all ? chapters : chapters.slice(0, LIMIT)
@@ -438,7 +351,7 @@ function IndexRail({ chapters, group, active }: { chapters: Chapter[]; group: Gr
         Index · {chapters.length} {chapters.length === 1 ? one : many}
       </p>
       {shown.map((c) => (
-        <IndexLink key={c.key} chapter={c} active={active === c.key} onJump={jumpTo} />
+        <IndexLink key={c.key} chapter={c} active={active === c.key} onJump={onJump} />
       ))}
       {chapters.length > LIMIT && (
         <button type="button" onClick={() => setAll((v) => !v)} className="mt-1.5 text-[15px] text-muted-foreground hover:text-foreground">
@@ -450,7 +363,7 @@ function IndexRail({ chapters, group, active }: { chapters: Chapter[]; group: Gr
 }
 
 /** Phones: a floating "Index" pill that opens the chapters as a two-column sheet. */
-function MobileIndex({ chapters, group, active }: { chapters: Chapter[]; group: GroupMode; active: string | null }) {
+function MobileIndex({ chapters, group, active, onJump }: { chapters: Chapter[]; group: GroupMode; active: string | null; onJump: (key: string) => void }) {
   const [open, setOpen] = React.useState(false)
   const { selecting } = useLibraryActions()
   // The bulk bar owns the bottom of the screen while selecting.
@@ -492,7 +405,7 @@ function MobileIndex({ chapters, group, active }: { chapters: Chapter[]; group: 
                 onJump={(k) => {
                   setOpen(false)
                   // Let the sheet close (and release the scroll lock) before scrolling.
-                  window.setTimeout(() => jumpTo(k), 180)
+                  window.setTimeout(() => onJump(k), 180)
                 }}
               />
             ))}
@@ -525,21 +438,40 @@ export const LibraryChapters = React.memo(function LibraryChapters({
   interlude?: React.ReactNode
 }) {
   const keys = React.useMemo(() => chapters.map((c) => c.key), [chapters])
-  const active = useScrollSpy(keys)
+  // The gallery is windowed, so its chapters are not all in the DOM to observe: it reports the one you are in itself.
+  const gallery = view === "grid"
+  const spied = useScrollSpy(gallery ? NO_KEYS : keys)
+  const [galleryActive, setGalleryActive] = React.useState<string | null>(null)
+  const active = gallery ? galleryActive : spied
+  const handle = React.useRef<VirtualGalleryHandle | null>(null)
+  const jump = React.useCallback((key: string) => (gallery && handle.current ? handle.current.jumpTo(key) : jumpTo(key)), [gallery])
+  const renderHeader = React.useCallback(
+    (c: Chapter, chips: React.ReactNode) => (
+      <>
+        <ChapterHeader chapter={c} group={group} items={c.items} />
+        {chips}
+      </>
+    ),
+    [group]
+  )
   const indexed = group !== "none" && chapters.length > 1
 
   return (
     <div className={cn("px-4 py-6 sm:px-8", indexed && "lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-7")}>
-      {indexed && <IndexRail chapters={chapters} group={group} active={active} />}
+      {indexed && <IndexRail chapters={chapters} group={group} active={active} onJump={jump} />}
       <div className="min-w-0">
-        {chapters.map((c, i) => (
-          <React.Fragment key={`${group}:${view}:${c.key}`}>
-            <ChapterSection chapter={c} group={group} view={view} siblings={siblings} collectionNames={collectionNames} />
-            {i === 0 && interlude && <div className="mb-10 sm:hidden">{interlude}</div>}
-          </React.Fragment>
-        ))}
+        {gallery ? (
+          <MemoVirtualGallery key={group} chapters={chapters} group={group} siblings={siblings} interlude={interlude} header={renderHeader} onActive={setGalleryActive} handle={handle} />
+        ) : (
+          chapters.map((c, i) => (
+            <React.Fragment key={`${group}:${view}:${c.key}`}>
+              <ChapterSection chapter={c} group={group} view={view} siblings={siblings} collectionNames={collectionNames} />
+              {i === 0 && interlude && <div className="mb-10 sm:hidden">{interlude}</div>}
+            </React.Fragment>
+          ))
+        )}
       </div>
-      {indexed && <MobileIndex chapters={chapters} group={group} active={active} />}
+      {indexed && <MobileIndex chapters={chapters} group={group} active={active} onJump={jump} />}
     </div>
   )
 })

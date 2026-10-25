@@ -187,7 +187,10 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const collected = React.useMemo(() => new Set(collections.flatMap((c) => c.placeIds)), [collections])
   const ctx = React.useMemo<FilterContext>(() => ({ searchIds, hearts, collected, now }), [searchIds, hearts, collected, now])
 
-  const filtered = React.useMemo(() => filterItems(items, filters, ctx), [items, filters, ctx])
+  // The list follows a deferred copy of the filters. Keyed on `filters` itself, every keystroke
+  // re-filtered, re-sorted and re-chaptered the page inside the urgent update.
+  const listFilters = React.useDeferredValue(filters)
+  const filtered = React.useMemo(() => filterItems(items, listFilters, ctx), [items, listFilters, ctx])
   const sorted = React.useMemo(() => sortItems(filtered, sort), [filtered, sort])
   const sparse = items.length < SPARSE_THRESHOLD
   const chapters = React.useMemo(() => buildChapters(sorted, sparse ? "none" : group, collections, now), [sorted, sparse, group, collections, now])
@@ -568,7 +571,17 @@ function LibraryPage({ data }: { data: LibraryData }) {
         if (!places.length) return
         e.preventDefault()
         const i = places.indexOf(document.activeElement as HTMLElement)
-        const next = i < 0 ? 0 : Math.min(Math.max(i + (key === "j" ? 1 : -1), 0), places.length - 1)
+        // Overscan keeps rows above and below the screen mounted; starting from either would yank scroll back.
+        const mainRect = document.querySelector("main")?.getBoundingClientRect()
+        const top = mainRect?.top ?? 0
+        const bottom = mainRect?.bottom ?? Number.POSITIVE_INFINITY
+        const onScreen = Math.max(places.findIndex((el) => el.getBoundingClientRect().bottom > top), 0)
+        const focusRect = i >= 0 ? places[i].getBoundingClientRect() : null
+        const focusOffScreen = focusRect !== null && (focusRect.bottom <= top || focusRect.top >= bottom)
+        const next =
+          i < 0 || focusOffScreen
+            ? onScreen
+            : Math.min(Math.max(i + (key === "j" ? 1 : -1), 0), places.length - 1)
         places[next].focus()
         places[next].scrollIntoView({ block: "nearest", behavior: "smooth" })
       } else if ((e.key === " " || key === "x") && focused) {

@@ -59,8 +59,9 @@ runs on `main` and three on this branch. A single number is a typical run.
 | Heart one / select one | — | ≈30 ms |
 
 - **At 1,000 places** (33 countries) the numbers hardly move: 18 ms for search to settle and
-  198 ms worst case. Chapters render a peek per group, so the page holds about 176 tiles
-  however big the library is.
+  198 ms worst case. At that build, chapters rendered a peek per group (~176 tiles mounted).
+  Gallery DOM bounding via virtualization against `<main>`:
+  [`docs/evidence/td-library-perf-build/`](../td-library-perf-build/).
 - **Search** builds its index once and scores each distinct word once per query: building the
   index and running five queries over 1,000 places takes 30 ms in Jest.
 - **The extra cost per keystroke** is the result list and the suggestions. The page filters

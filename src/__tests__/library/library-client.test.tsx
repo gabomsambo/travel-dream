@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LibraryClient } from '@/components/library/library-client'
 import { resetHalfBuiltCollectionsForTests } from '@/components/library/library-add-to-collection'
@@ -6,6 +6,10 @@ import { isDream, resetHeartWriterForTests, seedAccountHearts, writeHearts } fro
 import { notify } from '@/lib/notify'
 import type { LibraryData } from '@/lib/library/types'
 import { item, photo } from '../helpers/library-items'
+import { renderInMain as render, stubTallMain } from '../helpers/tall-main'
+
+// These tests read places from every chapter, so the gallery gets a tall scroll box (see the helper).
+stubTallMain()
 
 const countries = ['Japan', 'Italy', 'Mexico']
 const items = Array.from({ length: 14 }, (_, i) =>

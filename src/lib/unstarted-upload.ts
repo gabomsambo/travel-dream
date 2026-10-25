@@ -111,18 +111,22 @@ export async function registerAbandonedUploads(
   return retry
 }
 
-function currentUnstarted(): { sessionId: string; binding: UnstartedUploadBinding } | null {
+function currentBinding(): { sessionId: string; binding: UnstartedUploadBinding } | null {
   const binding = active
-  if (!binding || binding.startRequested()) return null
+  if (!binding) return null
   const sessionId = binding.sessionId()
   if (!sessionId) return null
   return { sessionId, binding }
 }
 
-async function handOverBlobs(
+/**
+ * Hands blobs that have no source row to the server and drops the ones that
+ * landed (or were deleted with a closed session) from the store.
+ */
+export async function handOverPendingBlobs(
   sessionId: string,
   binding: UnstartedUploadBinding,
-  options: { keepalive: boolean },
+  options: { keepalive?: boolean } = {},
 ): Promise<void> {
   const blobs = binding.store.pending()
   if (blobs.length === 0) return
@@ -136,15 +140,20 @@ async function handOverBlobs(
 /**
  * Sign-out path. The caller awaits this before the cookie is cleared, so the
  * cancel has to land and the blobs have to be on their way first.
+ *
+ * A session whose Start was already requested is left alone — cancel would
+ * race the queue — but pending blobs still have to be registered into it.
  */
 export async function cancelUnstartedUpload(): Promise<void> {
   try {
-    const current = currentUnstarted()
+    const current = currentBinding()
     if (!current) return
     const { sessionId, binding } = current
-    const cancel = await binding.cancel()
-    if (!cancel.ok) return
-    await handOverBlobs(sessionId, binding, { keepalive: true })
+    if (!binding.startRequested()) {
+      const cancel = await binding.cancel()
+      if (!cancel.ok) return
+    }
+    await handOverPendingBlobs(sessionId, binding, { keepalive: true })
   } catch {
     return
   }
@@ -155,14 +164,19 @@ export async function cancelUnstartedUpload(): Promise<void> {
  * go out together and both use keepalive. A register that lands before the
  * cancel creates a source that the cancel then cancels; one that lands after
  * takes the closed-session path and deletes the blob.
+ *
+ * When Start was already requested, skip cancel and only hand over pending
+ * blobs into the still-open (or already-queued) session.
  */
 export function discardUnstartedUpload(): void {
   try {
-    const current = currentUnstarted()
+    const current = currentBinding()
     if (!current) return
     const { sessionId, binding } = current
-    void binding.cancel().then(() => undefined, () => undefined)
-    void handOverBlobs(sessionId, binding, { keepalive: true })
+    if (!binding.startRequested()) {
+      void binding.cancel().then(() => undefined, () => undefined)
+    }
+    void handOverPendingBlobs(sessionId, binding, { keepalive: true })
   } catch {
     return
   }

@@ -72,6 +72,40 @@ describe('unstarted-upload leave paths', () => {
     release()
   })
 
+  it('hands over pending blobs without cancelling when Start was requested', async () => {
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/register')) {
+        expect(init?.keepalive).toBe(true)
+        return { ok: true, status: 200 } as Response
+      }
+      return { ok: false, status: 500 } as Response
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const startPromise = Promise.resolve(true)
+    const { binding, hold, setLive, release } = bindWithHold('session-started')
+    setLive(false, startPromise)
+    binding.store.add({
+      blobUrl: 'https://blob.example/pending.jpg',
+      originalName: 'pending.jpg',
+      fileSize: 12,
+      mimeType: 'image/jpeg',
+    })
+
+    hold(true)
+    setLive(false, null)
+
+    discardUnstartedUpload()
+    await cancelUnstartedUpload()
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input))
+    expect(urls.some((url) => url.includes('/api/mass-upload/cancel'))).toBe(false)
+    expect(urls.filter((url) => url.includes('/api/mass-upload/register')).length).toBeGreaterThanOrEqual(1)
+    expect(binding.store.pending()).toHaveLength(0)
+    release()
+  })
+
   it('cancels and hands over pending blobs when Start was never requested', async () => {
     const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input)

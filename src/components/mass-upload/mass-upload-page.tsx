@@ -31,7 +31,7 @@ import {
   cancelUploadSession,
   createAbandonedUploadStore,
   discardUnstartedUpload,
-  registerAbandonedUploads,
+  handOverPendingBlobs,
   type AbandonedUpload,
   type AbandonedUploadStore,
   type UnstartedUploadBinding,
@@ -87,24 +87,21 @@ async function abandonUnstartedSession(
   pending: Set<Promise<unknown>>,
 ): Promise<void> {
   try {
-    if (startPromise) {
-      const started = await startPromise
-      if (started) return
-    }
+    const started = startPromise ? await startPromise : false
     await drainInFlight(pending)
+    if (started) {
+      // Start already queued the session — leave it alone, but still register
+      // blobs that never got a source row into that open session.
+      await handOverPendingBlobs(sessionId, binding)
+      return
+    }
     // The cancel has to land first: once the session is closed, register
     // takes its 409 path and deletes the blob with it. A cancel that failed
     // leaves the session open, and registering then would leave the batch
     // behind as "still reading" in the Inbox.
     const cancel = await binding.cancel()
     if (!cancel.ok) return
-    const blobs = binding.store.pending()
-    if (blobs.length === 0) return
-    const retry = await registerAbandonedUploads(sessionId, blobs)
-    const retried = new Set(retry.map((blob) => blob.blobUrl))
-    for (const blob of blobs) {
-      if (!retried.has(blob.blobUrl)) binding.store.remove(blob.blobUrl)
-    }
+    await handOverPendingBlobs(sessionId, binding)
   } catch {
     return
   }
@@ -223,14 +220,20 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       sessionIdRef.current = null
       startedRef.current = false
       startPromiseRef.current = null
-      if (binding && currentSessionId && !alreadyStarted) {
+      if (binding && currentSessionId) {
         if (!abandoning) {
           abandoning = true
           // The binding stays live until the hand-over is on its way: a
           // refresh or a sign-out in that window still has to find this
-          // session and the blobs that never got a source row.
-          void abandonUnstartedSession(binding, currentSessionId, startPromise, pending)
-            .finally(() => releaseBinding())
+          // session and the blobs that never got a source row. When Start
+          // already succeeded, abandon registers those blobs into the open
+          // session without cancelling it.
+          void abandonUnstartedSession(
+            binding,
+            currentSessionId,
+            alreadyStarted ? Promise.resolve(true) : startPromise,
+            pending,
+          ).finally(() => releaseBinding())
         }
       } else if (!abandoning) {
         releaseBinding()

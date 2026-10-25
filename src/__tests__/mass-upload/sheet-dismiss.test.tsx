@@ -275,6 +275,97 @@ describe('upload sheet dismiss', () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
+  it('registers pending blobs into the open session after Start without cancelling', async () => {
+    const okUrl = 'https://teststore.public.blob.vercel-storage.com/ok.jpg'
+    const pendingUrl = 'https://teststore.public.blob.vercel-storage.com/pending.jpg'
+    uploadMock.mockImplementation(async (_filename: string, body: File) => ({
+      url: body.name === 'pending.jpg' ? pendingUrl : okUrl,
+    }))
+    let started = false
+    const registerCalls: Array<{ blobUrl: string; afterStart: boolean; keepalive: boolean }> = []
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_pending_start' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        const parsed = JSON.parse(String(init?.body)) as { blobUrl?: string }
+        const blobUrl = parsed.blobUrl ?? ''
+        registerCalls.push({
+          blobUrl,
+          afterStart: started,
+          keepalive: init?.keepalive === true,
+        })
+        if (blobUrl === pendingUrl) {
+          if (!started) {
+            return Promise.resolve({
+              ok: false,
+              status: 500,
+              json: async () => ({ status: 'error' }),
+            })
+          }
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ status: 'success', sourceId: 'src_pending' }),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', sourceId: 'src_ok' }),
+        })
+      }
+      if (url === '/api/mass-upload/start' && method === 'POST') {
+        started = true
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', queued: 1 }),
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', cancelled: 0 }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    const files = [
+      new File(['ok'], 'ok.jpg', { type: 'image/jpeg' }),
+      new File(['pending'], 'pending.jpg', { type: 'image/jpeg' }),
+    ]
+    const onOpenChange = jest.fn()
+    const { rerender } = render(
+      <MassUploadSheet open onOpenChange={onOpenChange} initialFiles={files} />,
+    )
+    const user = userEvent.setup()
+    await waitFor(() => {
+      expect(registerCalls.some((call) => call.blobUrl === okUrl)).toBe(true)
+      expect(
+        registerCalls.some((call) => call.blobUrl === pendingUrl && !call.afterStart),
+      ).toBe(true)
+    })
+    await user.click(await screen.findByRole('button', { name: 'Continue to Review' }))
+    await user.click(screen.getByRole('button', { name: /Start Processing/ }))
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+
+    rerender(
+      <MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={files} />,
+    )
+    await waitFor(() => {
+      expect(
+        registerCalls.some(
+          (call) => call.blobUrl === pendingUrl && call.afterStart && !call.keepalive,
+        ),
+      ).toBe(true)
+    })
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
+    expect(mockObserveSession).toHaveBeenCalledWith('ses_pending_start')
+  })
+
   it('leaves a queued session and the sheet opened after that Start began', async () => {
     let finishStart: () => void = () => {}
     let sessions = 0

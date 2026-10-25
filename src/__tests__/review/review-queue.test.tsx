@@ -39,7 +39,6 @@ jest.mock('@/components/places/place-view/place-view', () => {
       blockWrites,
       handlesRef,
       onReviewPlaceUpdated,
-      onPhotoAttached,
     }: {
       place: PlaceWithRelations
       editing?: boolean
@@ -60,7 +59,6 @@ jest.mock('@/components/places/place-view/place-view', () => {
         displayPlace: () => PlaceWithRelations
       } | null>
       onReviewPlaceUpdated?: () => Promise<void> | void
-      onPhotoAttached?: () => void
     }) => {
       const mountedId = React.useRef(place.id)
       React.useEffect(() => {

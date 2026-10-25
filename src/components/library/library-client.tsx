@@ -571,12 +571,15 @@ function LibraryPage({ data }: { data: LibraryData }) {
         if (!places.length) return
         e.preventDefault()
         const i = places.indexOf(document.activeElement as HTMLElement)
-        // The gallery keeps a few rows above the screen mounted; starting from one of those would scroll back up.
-        const top = document.querySelector("main")?.getBoundingClientRect().top ?? 0
+        // Overscan keeps rows above and below the screen mounted; starting from either would yank scroll back.
+        const mainRect = document.querySelector("main")?.getBoundingClientRect()
+        const top = mainRect?.top ?? 0
+        const bottom = mainRect?.bottom ?? Number.POSITIVE_INFINITY
         const onScreen = Math.max(places.findIndex((el) => el.getBoundingClientRect().bottom > top), 0)
-        const focusOffAbove = i >= 0 && places[i].getBoundingClientRect().bottom <= top
+        const focusRect = i >= 0 ? places[i].getBoundingClientRect() : null
+        const focusOffScreen = focusRect !== null && (focusRect.bottom <= top || focusRect.top >= bottom)
         const next =
-          i < 0 || focusOffAbove
+          i < 0 || focusOffScreen
             ? onScreen
             : Math.min(Math.max(i + (key === "j" ? 1 : -1), 0), places.length - 1)
         places[next].focus()

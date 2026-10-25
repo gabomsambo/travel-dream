@@ -157,6 +157,52 @@ describe('the virtualized gallery', () => {
     }
   })
 
+  it('starts j/k from the first on-screen place when focus is in below-viewport overscan', async () => {
+    const user = userEvent.setup()
+    renderLibrary(dataFor(library(20)))
+    const places = [...placeButtons()] as HTMLElement[]
+    expect(places.length).toBeGreaterThan(3)
+
+    const offsetParentDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() {
+        return this.parentElement
+      },
+    })
+
+    const below = places.length - 1
+    places[below].focus()
+    expect(places[below]).toHaveFocus()
+    for (const el of places) {
+      el.scrollIntoView = jest.fn()
+    }
+
+    // On-screen tiles start at index 0; the focused tile sits in overscan below <main>.
+    const rectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.tagName === 'MAIN') {
+        return { top: 100, bottom: 900, left: 0, right: 800, width: 800, height: 800, x: 0, y: 100, toJSON: () => ({}) }
+      }
+      const i = places.indexOf(this as HTMLElement)
+      if (i === below) {
+        return { top: 950, bottom: 1030, left: 0, right: 100, width: 100, height: 80, x: 0, y: 950, toJSON: () => ({}) }
+      }
+      if (i >= 0) {
+        const top = 120 + i * 90
+        return { top, bottom: top + 80, left: 0, right: 100, width: 100, height: 80, x: 0, y: top, toJSON: () => ({}) }
+      }
+      return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }
+    })
+
+    try {
+      await user.keyboard('j')
+      expect(places[0]).toHaveFocus()
+    } finally {
+      rectSpy.mockRestore()
+      if (offsetParentDesc) Object.defineProperty(HTMLElement.prototype, 'offsetParent', offsetParentDesc)
+    }
+  })
+
   it('opens "N more" for one chapter without opening the others', async () => {
     const user = userEvent.setup()
     const { main } = renderLibrary(dataFor(library(20)))

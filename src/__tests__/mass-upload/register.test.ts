@@ -35,8 +35,6 @@ function createTx(options: {
   const sessionMeta = options.sessionMeta === undefined ? null : options.sessionMeta;
   const siblingIds = options.siblingIds ?? [];
   const statusSets: Array<Record<string, unknown>> = [];
-  let metaLimitCalls = 0;
-  let siblingLimitCalls = 0;
 
   const tx = {
     insert: jest.fn().mockReturnValue({
@@ -66,10 +64,8 @@ function createTx(options: {
             // A bare await rebuilds uploadedFiles from session sources.
             limit: () => {
               if (selectingMeta) {
-                metaLimitCalls += 1;
                 return Promise.resolve([{ meta: sessionMeta }]);
               }
-              siblingLimitCalls += 1;
               return Promise.resolve(siblingIds.map((id) => ({ id })));
             },
             then(

@@ -79,6 +79,11 @@ describe('unstarted-upload leave paths', () => {
         expect(init?.keepalive).toBe(true)
         return { ok: true, status: 200 } as Response
       }
+      if (url.includes('/api/mass-upload/start')) {
+        expect(init?.keepalive).toBe(true)
+        expect(JSON.parse(String(init?.body))).toEqual({ sessionId: 'session-started' })
+        return { ok: true, status: 200 } as Response
+      }
       return { ok: false, status: 500 } as Response
     })
     global.fetch = fetchMock as unknown as typeof fetch
@@ -102,7 +107,25 @@ describe('unstarted-upload leave paths', () => {
     const urls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(urls.some((url) => url.includes('/api/mass-upload/cancel'))).toBe(false)
     expect(urls.filter((url) => url.includes('/api/mass-upload/register')).length).toBeGreaterThanOrEqual(1)
+    expect(urls.filter((url) => url.includes('/api/mass-upload/start')).length).toBeGreaterThanOrEqual(1)
     expect(binding.store.pending()).toHaveLength(0)
+    release()
+  })
+
+  it('does not re-POST start when Start was requested but nothing was pending', async () => {
+    const fetchMock = jest.fn()
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const startPromise = Promise.resolve(true)
+    const { hold, setLive, release } = bindWithHold('session-empty')
+    setLive(false, startPromise)
+    hold(true)
+    setLive(false, null)
+
+    discardUnstartedUpload()
+    await cancelUnstartedUpload()
+
+    expect(fetchMock).not.toHaveBeenCalled()
     release()
   })
 

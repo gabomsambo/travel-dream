@@ -61,6 +61,18 @@ export function cancelUploadSession(sessionId: string): Promise<Response> {
   })
 }
 
+export function startMassUploadSession(
+  sessionId: string,
+  options: { keepalive?: boolean } = {},
+): Promise<Response> {
+  return fetch('/api/mass-upload/start', {
+    method: 'POST',
+    keepalive: options.keepalive === true,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId }),
+  })
+}
+
 /**
  * Hands blobs that have no source row to the server.
  *
@@ -73,17 +85,20 @@ export function cancelUploadSession(sessionId: string): Promise<Response> {
  * discarded (pagehide, sign-out). The sheet-close path still has a live page
  * and must not spend that budget.
  *
- * Returns the blobs that need another attempt: a request that never landed,
- * or a server error that left the blob without a source row.
+ * Returns the blobs that need another attempt and how many inserts landed:
+ * a request that never landed, or a server error that left the blob without
+ * a source row, stays in `retry`. A 409 means the session was closed and the
+ * blob was deleted — handled, but not an insert.
  */
 export async function registerAbandonedUploads(
   sessionId: string,
   blobs: readonly AbandonedUpload[],
   options: { keepalive?: boolean } = {},
-): Promise<AbandonedUpload[]> {
+): Promise<{ retry: AbandonedUpload[]; registered: number }> {
   const unique = new Map<string, AbandonedUpload>()
   for (const blob of blobs) unique.set(blob.blobUrl, blob)
   const retry: AbandonedUpload[] = []
+  let registered = 0
   await Promise.all(Array.from(unique.values()).map(async (blob) => {
     let response: Response
     try {
@@ -103,12 +118,16 @@ export async function registerAbandonedUploads(
       retry.push(blob)
       return
     }
+    if (response.ok) {
+      registered += 1
+      return
+    }
     // A 409 means the session was closed and the blob was deleted with it.
     // Every other failure leaves the blob without a source row, so it stays
     // on the list for the next attempt.
-    if (!response.ok && response.status !== 409) retry.push(blob)
+    if (response.status !== 409) retry.push(blob)
   }))
-  return retry
+  return { retry, registered }
 }
 
 function currentBinding(): { sessionId: string; binding: UnstartedUploadBinding } | null {
@@ -122,18 +141,41 @@ function currentBinding(): { sessionId: string; binding: UnstartedUploadBinding 
 /**
  * Hands blobs that have no source row to the server and drops the ones that
  * landed (or were deleted with a closed session) from the store.
+ *
+ * Returns how many blobs were inserted as source rows.
  */
 export async function handOverPendingBlobs(
   sessionId: string,
   binding: UnstartedUploadBinding,
   options: { keepalive?: boolean } = {},
-): Promise<void> {
+): Promise<number> {
   const blobs = binding.store.pending()
-  if (blobs.length === 0) return
-  const retry = await registerAbandonedUploads(sessionId, blobs, options)
+  if (blobs.length === 0) return 0
+  const { retry, registered } = await registerAbandonedUploads(sessionId, blobs, options)
   const retried = new Set(retry.map((blob) => blob.blobUrl))
   for (const blob of blobs) {
     if (!retried.has(blob.blobUrl)) binding.store.remove(blob.blobUrl)
+  }
+  return registered
+}
+
+/**
+ * After Start has already queued a session, late blobs still insert as
+ * `uploaded`. Re-POST start so they flip to `queued` and the queue claims
+ * them immediately instead of waiting on the 30-minute requeue cron.
+ * Skips the re-POST when nothing registered.
+ */
+export async function handOverPendingBlobsAfterStart(
+  sessionId: string,
+  binding: UnstartedUploadBinding,
+  options: { keepalive?: boolean } = {},
+): Promise<void> {
+  const registered = await handOverPendingBlobs(sessionId, binding, options)
+  if (registered === 0) return
+  try {
+    await startMassUploadSession(sessionId, options)
+  } catch {
+    return
   }
 }
 
@@ -141,18 +183,21 @@ export async function handOverPendingBlobs(
  * Sign-out path. The caller awaits this before the cookie is cleared, so the
  * cancel has to land and the blobs have to be on their way first.
  *
- * A session whose Start was already requested is left alone — cancel would
- * race the queue — but pending blobs still have to be registered into it.
+ * A session whose Start was already requested is never cancelled — that would
+ * race the queue — but pending blobs still have to be registered into it and
+ * then started so they join the queue.
  */
 export async function cancelUnstartedUpload(): Promise<void> {
   try {
     const current = currentBinding()
     if (!current) return
     const { sessionId, binding } = current
-    if (!binding.startRequested()) {
-      const cancel = await binding.cancel()
-      if (!cancel.ok) return
+    if (binding.startRequested()) {
+      await handOverPendingBlobsAfterStart(sessionId, binding, { keepalive: true })
+      return
     }
+    const cancel = await binding.cancel()
+    if (!cancel.ok) return
     await handOverPendingBlobs(sessionId, binding, { keepalive: true })
   } catch {
     return
@@ -165,17 +210,20 @@ export async function cancelUnstartedUpload(): Promise<void> {
  * cancel creates a source that the cancel then cancels; one that lands after
  * takes the closed-session path and deletes the blob.
  *
- * When Start was already requested, skip cancel and only hand over pending
- * blobs into the still-open (or already-queued) session.
+ * When Start was already requested, skip cancel, hand over pending blobs into
+ * the still-open (or already-queued) session, and re-POST start so late rows
+ * join the queue.
  */
 export function discardUnstartedUpload(): void {
   try {
     const current = currentBinding()
     if (!current) return
     const { sessionId, binding } = current
-    if (!binding.startRequested()) {
-      void binding.cancel().then(() => undefined, () => undefined)
+    if (binding.startRequested()) {
+      void handOverPendingBlobsAfterStart(sessionId, binding, { keepalive: true })
+      return
     }
+    void binding.cancel().then(() => undefined, () => undefined)
     void handOverPendingBlobs(sessionId, binding, { keepalive: true })
   } catch {
     return

@@ -362,6 +362,10 @@ describe('upload sheet dismiss', () => {
         ),
       ).toBe(true)
     })
+    await waitFor(() => expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(2))
+    const starts = callsTo('/api/mass-upload/start', 'POST')
+    expect(JSON.parse(String(starts[1][1].body))).toEqual({ sessionId: 'ses_pending_start' })
+    expect(starts[1][1].keepalive).toBeFalsy()
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
     expect(mockObserveSession).toHaveBeenCalledWith('ses_pending_start')
   })

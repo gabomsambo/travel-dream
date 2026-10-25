@@ -158,7 +158,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     let binding: UnstartedUploadBinding | null = null
     let abandoning = false
     let cancelRequest: Promise<Response> | null = null
-    let startRequestedHeld = false
+    let startOutcomeHeld: Promise<boolean> | null = null
     const store = createAbandonedUploadStore()
     abandonedStoreRef.current = store
     const create = async () => {
@@ -177,8 +177,11 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
           releaseBinding()
           binding = {
             sessionId: () => id,
-            startRequested: () =>
-              startRequestedHeld || startedRef.current || startPromiseRef.current !== null,
+            whenStarted: () =>
+              startOutcomeHeld ??
+              (startedRef.current
+                ? Promise.resolve(true)
+                : startPromiseRef.current),
             store,
             cancel: () => {
               if (!cancelRequest) cancelRequest = cancelUploadSession(id)
@@ -202,10 +205,14 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       const startPromise = startPromiseRef.current
       const alreadyStarted = startedRef.current
       const startWasRequested = alreadyStarted || startPromise !== null
-      if (startWasRequested) startRequestedHeld = true
-      // The cancel goes out first, while the page is still there. Hand over
-      // pending blobs synchronously only when Start was requested (no cancel);
-      // otherwise register stays behind cancel.ok in abandon.
+      // Freeze the Start outcome on the binding before clearing live refs so
+      // pagehide and sign-out can await it. Sync hand-over only when Start
+      // already succeeded — an in-flight Start is not yet a skip-cancel signal.
+      if (alreadyStarted) {
+        startOutcomeHeld = Promise.resolve(true)
+      } else if (startPromise) {
+        startOutcomeHeld = startPromise
+      }
       let syncHandOver: Promise<number> | null = null
       if (binding && currentSessionId) {
         if (!startWasRequested) {
@@ -214,7 +221,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
           } catch {
             // abandonUnstartedSession awaits the shared cancel.
           }
-        } else {
+        } else if (alreadyStarted) {
           syncHandOver = handOverPendingBlobs(currentSessionId, binding, {
             keepalive: true,
           })
@@ -234,20 +241,24 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       if (binding && currentSessionId) {
         if (!abandoning) {
           abandoning = true
+          const closing = binding
           // The binding stays live until the hand-over has settled: a
           // refresh or a sign-out in that window still has to find this
           // session and the blobs that never got a source row. When Start
           // already succeeded, abandon registers those blobs into the open
           // session without cancelling it.
-          const unpark = parkUnstartedUpload(binding)
+          const unpark = parkUnstartedUpload(closing)
           void abandonUnstartedSession(
-            binding,
+            closing,
             currentSessionId,
             alreadyStarted ? Promise.resolve(true) : startPromise,
             pending,
           )
             .finally(async () => {
               if (syncHandOver) await syncHandOver
+              // A failed hand-over leaves URLs in the store; keep the binding
+              // visible to pagehide/sign-out until those are cleared.
+              if (closing.store.pending().length > 0) return
               unpark()
               releaseBinding()
             })

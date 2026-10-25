@@ -174,6 +174,64 @@ describe('upload sheet dismiss', () => {
     expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(0)
   })
 
+  it('keeps a failed hand-over visible after close so leave can retry', async () => {
+    const blobUrl = 'https://teststore.public.blob.vercel-storage.com/retry.jpg'
+    let finishUpload: (value: { url: string }) => void = () => {}
+    let registerAttempts = 0
+    uploadMock.mockImplementation(() => new Promise((resolve) => {
+      finishUpload = resolve
+    }))
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_handover_fail' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        registerAttempts += 1
+        if (registerAttempts === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            json: async () => ({ status: 'error' }),
+          })
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          json: async () => ({ status: 'error' }),
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', cancelled: 0 }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    const onOpenChange = jest.fn()
+    const { rerender } = render(
+      <MassUploadSheet open onOpenChange={onOpenChange} initialFiles={[shot()]} />,
+    )
+    await waitFor(() => expect(uploadMock).toHaveBeenCalled())
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
+    rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={[shot()]} />)
+    await act(async () => {
+      finishUpload({ url: blobUrl })
+    })
+    await waitFor(() => expect(registerAttempts).toBe(1))
+
+    window.dispatchEvent(new Event('pagehide'))
+    await waitFor(() => expect(registerAttempts).toBe(2))
+    expect(
+      callsTo('/api/mass-upload/register', 'POST').filter((call) => call[1]?.keepalive),
+    ).toHaveLength(1)
+  })
+
   it('does not register abandoned blobs when cancel fails', async () => {
     const order: string[] = []
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {

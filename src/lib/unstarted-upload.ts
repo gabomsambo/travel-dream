@@ -36,7 +36,11 @@ export function createAbandonedUploadStore(): AbandonedUploadStore {
 
 export type UnstartedUploadBinding = {
   sessionId: () => string | null
-  startRequested: () => boolean
+  /**
+   * Null if Start was never requested. Otherwise settles to whether Start
+   * queued the session — in-flight Start is not yet a skip-cancel signal.
+   */
+  whenStarted: () => Promise<boolean> | null
   /** Blobs of this batch that have no source row yet. */
   store: AbandonedUploadStore
   /** Sends the cancel for this session once; later calls share that request. */
@@ -177,6 +181,34 @@ export async function handOverPendingBlobs(
   return registered
 }
 
+/**
+ * After a failed Start (or when Start never ran), cancel then hand over.
+ *
+ * Sign-out awaits cancel.ok before register. Pagehide after a failed Start
+ * does the same gate so a failed cancel cannot insert `uploaded` rows. The
+ * never-started pagehide path below still fires cancel and register together
+ * — the session lock makes either order safe while the document is dying.
+ */
+async function cancelThenHandOver(
+  sessionId: string,
+  binding: UnstartedUploadBinding,
+  options: { keepalive: boolean; awaitCancel: boolean },
+): Promise<void> {
+  if (options.awaitCancel) {
+    const cancel = await binding.cancel()
+    if (!cancel.ok) return
+    await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+    return
+  }
+  void binding.cancel().then(
+    (cancel) => {
+      if (!cancel.ok) return
+      void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+    },
+    () => undefined,
+  )
+}
+
 async function flushBinding(
   binding: UnstartedUploadBinding,
   options: { keepalive: boolean; awaitCancel: boolean },
@@ -184,18 +216,33 @@ async function flushBinding(
   const current = withSession(binding)
   if (!current) return
   const { sessionId } = current
-  if (binding.startRequested()) {
+  const startOutcome = binding.whenStarted()
+  if (startOutcome) {
     if (options.awaitCancel) {
-      await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
-    } else {
-      void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+      const started = await startOutcome
+      if (started) {
+        await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+        return
+      }
+      await cancelThenHandOver(sessionId, binding, options)
+      return
     }
+    void startOutcome.then(
+      (started) => {
+        if (started) {
+          void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+          return
+        }
+        void cancelThenHandOver(sessionId, binding, options)
+      },
+      () => {
+        void cancelThenHandOver(sessionId, binding, options)
+      },
+    )
     return
   }
   if (options.awaitCancel) {
-    const cancel = await binding.cancel()
-    if (!cancel.ok) return
-    await handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive })
+    await cancelThenHandOver(sessionId, binding, options)
     return
   }
   void binding.cancel().then(() => undefined, () => undefined)
@@ -206,9 +253,11 @@ async function flushBinding(
  * Sign-out path. The caller awaits this before the cookie is cleared, so the
  * cancel has to land and the blobs have to be on their way first.
  *
- * A session whose Start was already requested is never cancelled — that would
- * race the queue — but pending blobs still have to be registered into it.
- * Register inserts those as `queued` when the session is already started.
+ * A session whose Start already succeeded is never cancelled — that would race
+ * the queue — but pending blobs still have to be registered into it. Register
+ * inserts those as `queued` when the session is already started. If Start is
+ * still in flight, wait for the outcome: success hands over without cancel;
+ * failure cancels then hands over behind cancel.ok.
  *
  * Also flushes batches parked while a later Upload open replaced `active`.
  */
@@ -228,9 +277,10 @@ export async function cancelUnstartedUpload(): Promise<void> {
  * cancel creates a source that the cancel then cancels; one that lands after
  * takes the closed-session path and deletes the blob.
  *
- * When Start was already requested, skip cancel and hand over pending blobs
- * into the still-open session. Register queues them server-side — do not chain
- * a second start hop after unload.
+ * When Start already succeeded, skip cancel and hand over pending blobs into
+ * the still-open session. Register queues them server-side — do not chain a
+ * second start hop after unload. If Start is still in flight, chain after its
+ * outcome the same way sign-out does.
  *
  * Also flushes batches parked while a later Upload open replaced `active`.
  */

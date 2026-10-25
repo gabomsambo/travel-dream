@@ -268,6 +268,75 @@ describe('discarding an upload before Start', () => {
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
   })
 
+  it('cancels on sign-out when Start was in flight and then fails', async () => {
+    let finishStart: (ok: boolean) => void = () => {}
+    const order: string[] = []
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_start_fail_signout' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        if (init?.keepalive) order.push('register-leave')
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', sourceId: 'src_start_fail' }),
+        })
+      }
+      if (url === '/api/mass-upload/start' && method === 'POST') {
+        order.push('start')
+        return new Promise((resolve) => {
+          finishStart = (ok) => {
+            order.push(ok ? 'start-ok' : 'start-fail')
+            resolve({
+              ok,
+              json: async () =>
+                ok
+                  ? { status: 'success', queued: 1 }
+                  : { status: 'error', message: 'Start failed' },
+            })
+          }
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        order.push('cancel')
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', cancelled: 1 }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+    mockSignOut.mockImplementation(() => {
+      order.push('sign-out')
+      return Promise.resolve()
+    })
+
+    render(
+      <>
+        <Header />
+        <MassUploadSheet open onOpenChange={jest.fn()} initialFiles={[shot()]} />
+      </>,
+    )
+    const user = await reachReview()
+    await user.click(screen.getByRole('button', { name: /Start Processing/ }))
+    await waitFor(() => expect(order).toContain('start'))
+
+    await clickSignOut()
+    expect(mockSignOut).not.toHaveBeenCalled()
+    expect(order).toEqual(['start'])
+
+    await act(async () => {
+      finishStart(false)
+    })
+    await waitFor(() => expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/' }))
+    expect(order).toEqual(['start', 'start-fail', 'cancel', 'sign-out'])
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
+  })
+
   it('still signs out when cancelling the upload fails', async () => {
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'

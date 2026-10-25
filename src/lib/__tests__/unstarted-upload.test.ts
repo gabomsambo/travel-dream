@@ -17,18 +17,19 @@ describe('unstarted-upload leave paths', () => {
 
   function bindWithHold(sessionId: string): {
     binding: UnstartedUploadBinding
-    hold: (value: boolean) => void
+    holdOutcome: (outcome: Promise<boolean> | null) => void
     setLive: (started: boolean, promise: Promise<boolean> | null) => void
     release: () => void
   } {
-    let held = false
+    let heldOutcome: Promise<boolean> | null = null
     let started = false
     let startPromise: Promise<boolean> | null = null
     let cancelRequest: Promise<Response> | null = null
     const store = createAbandonedUploadStore()
     const binding: UnstartedUploadBinding = {
       sessionId: () => sessionId,
-      startRequested: () => held || started || startPromise !== null,
+      whenStarted: () =>
+        heldOutcome ?? (started ? Promise.resolve(true) : startPromise),
       store,
       cancel: () => {
         if (!cancelRequest) {
@@ -45,8 +46,8 @@ describe('unstarted-upload leave paths', () => {
     const release = bindUnstartedUpload(binding)
     return {
       binding,
-      hold: (value) => {
-        held = value
+      holdOutcome: (outcome) => {
+        heldOutcome = outcome
       },
       setLive: (nextStarted, nextPromise) => {
         started = nextStarted
@@ -56,15 +57,15 @@ describe('unstarted-upload leave paths', () => {
     }
   }
 
-  it('does not cancel after Start was requested once live refs are cleared', async () => {
+  it('does not cancel after Start succeeded once live refs are cleared', async () => {
     const fetchMock = jest.fn()
     global.fetch = fetchMock as unknown as typeof fetch
 
     const startPromise = Promise.resolve(true)
-    const { hold, setLive, release } = bindWithHold('session-started')
+    const { holdOutcome, setLive, release } = bindWithHold('session-started')
     setLive(false, startPromise)
 
-    hold(true)
+    holdOutcome(startPromise)
     setLive(false, null)
 
     discardUnstartedUpload()
@@ -74,7 +75,7 @@ describe('unstarted-upload leave paths', () => {
     release()
   })
 
-  it('hands over pending blobs without cancelling when Start was requested', async () => {
+  it('hands over pending blobs without cancelling when Start succeeded', async () => {
     const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/api/mass-upload/register')) {
@@ -86,7 +87,7 @@ describe('unstarted-upload leave paths', () => {
     global.fetch = fetchMock as unknown as typeof fetch
 
     const startPromise = Promise.resolve(true)
-    const { binding, hold, setLive, release } = bindWithHold('session-started')
+    const { binding, holdOutcome, setLive, release } = bindWithHold('session-started')
     setLive(false, startPromise)
     binding.store.add({
       blobUrl: 'https://blob.example/pending.jpg',
@@ -95,7 +96,7 @@ describe('unstarted-upload leave paths', () => {
       mimeType: 'image/jpeg',
     })
 
-    hold(true)
+    holdOutcome(startPromise)
     setLive(false, null)
 
     discardUnstartedUpload()
@@ -109,20 +110,131 @@ describe('unstarted-upload leave paths', () => {
     release()
   })
 
-  it('does not call the server when Start was requested but nothing was pending', async () => {
+  it('does not call the server when Start succeeded but nothing was pending', async () => {
     const fetchMock = jest.fn()
     global.fetch = fetchMock as unknown as typeof fetch
 
     const startPromise = Promise.resolve(true)
-    const { hold, setLive, release } = bindWithHold('session-empty')
+    const { holdOutcome, setLive, release } = bindWithHold('session-empty')
     setLive(false, startPromise)
-    hold(true)
+    holdOutcome(startPromise)
     setLive(false, null)
 
     discardUnstartedUpload()
     await cancelUnstartedUpload()
 
     expect(fetchMock).not.toHaveBeenCalled()
+    release()
+  })
+
+  it('cancels after Start fails while leave is waiting on the outcome', async () => {
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return { ok: true, status: 200 } as Response
+      }
+      if (url.includes('/api/mass-upload/register')) {
+        return { ok: true, status: 200 } as Response
+      }
+      return { ok: false, status: 500 } as Response
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    let finishStart: (value: boolean) => void = () => {}
+    const startPromise = new Promise<boolean>((resolve) => {
+      finishStart = resolve
+    })
+    const { binding, setLive, release } = bindWithHold('session-start-fail')
+    setLive(false, startPromise)
+    binding.store.add({
+      blobUrl: 'https://blob.example/pending.jpg',
+      originalName: 'pending.jpg',
+      fileSize: 12,
+      mimeType: 'image/jpeg',
+    })
+
+    const leave = cancelUnstartedUpload()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    finishStart(false)
+    await leave
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input))
+    expect(urls.some((url) => url.includes('/api/mass-upload/cancel'))).toBe(true)
+    expect(urls.some((url) => url.includes('/api/mass-upload/register'))).toBe(true)
+    expect(binding.store.pending()).toHaveLength(0)
+    release()
+  })
+
+  it('pagehide cancels after an in-flight Start fails', async () => {
+    let finishCancel: (value: Response) => void = () => {}
+    let finishRegister: (value: Response) => void = () => {}
+    const fetchMock = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return new Promise<Response>((resolve) => {
+          finishCancel = resolve
+        })
+      }
+      if (url.includes('/api/mass-upload/register')) {
+        return new Promise<Response>((resolve) => {
+          finishRegister = resolve
+        })
+      }
+      return Promise.resolve({ ok: false, status: 500 } as Response)
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    let finishStart: (value: boolean) => void = () => {}
+    const startPromise = new Promise<boolean>((resolve) => {
+      finishStart = resolve
+    })
+    const { binding, holdOutcome, setLive, release } = bindWithHold('session-pagehide-fail')
+    setLive(false, startPromise)
+    binding.store.add({
+      blobUrl: 'https://blob.example/orphan.jpg',
+      originalName: 'orphan.jpg',
+      fileSize: 8,
+      mimeType: 'image/jpeg',
+    })
+
+    holdOutcome(startPromise)
+    setLive(false, null)
+
+    discardUnstartedUpload()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    finishStart(false)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input))
+    expect(urls.some((url) => url.includes('/api/mass-upload/cancel'))).toBe(true)
+    expect(urls.some((url) => url.includes('/api/mass-upload/register'))).toBe(false)
+
+    finishCancel({ ok: true, status: 200 } as Response)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/register')),
+    ).toBe(true)
+
+    finishRegister({ ok: true, status: 200 } as Response)
+    await new Promise<void>((resolve, reject) => {
+      const started = Date.now()
+      const tick = () => {
+        if (binding.store.pending().length === 0) {
+          resolve()
+          return
+        }
+        if (Date.now() - started > 1000) {
+          reject(new Error('pending blobs were not cleared after successful hand-over'))
+          return
+        }
+        queueMicrotask(tick)
+      }
+      queueMicrotask(tick)
+    })
     release()
   })
 
@@ -230,5 +342,56 @@ describe('unstarted-upload leave paths', () => {
     expect(closed.binding.store.pending()).toHaveLength(0)
     unpark()
     next.release()
+  })
+
+  it('keeps a parked binding flushable when hand-over fails after cancel', async () => {
+    let finishRegister: (value: { ok: boolean; status: number }) => void = () => {}
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return { ok: true, status: 200 } as Response
+      }
+      if (url.includes('/api/mass-upload/register')) {
+        return new Promise<Response>((resolve) => {
+          finishRegister = (value) => resolve(value as Response)
+        })
+      }
+      return { ok: false, status: 500 } as Response
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const closed = bindWithHold('session-parked-retry')
+    closed.setLive(false, null)
+    const blob = {
+      blobUrl: 'https://blob.example/parked.jpg',
+      originalName: 'parked.jpg',
+      fileSize: 6,
+      mimeType: 'image/jpeg',
+    }
+    closed.binding.store.add(blob)
+    parkUnstartedUpload(closed.binding)
+    closed.release()
+
+    const leave = cancelUnstartedUpload()
+    await Promise.resolve()
+    finishRegister({ ok: false, status: 500 })
+    await leave
+    expect(closed.binding.store.pending()).toEqual([blob])
+
+    const retryFetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return { ok: true, status: 200 } as Response
+      }
+      if (url.includes('/api/mass-upload/register')) {
+        return { ok: true, status: 200 } as Response
+      }
+      return { ok: false, status: 500 } as Response
+    })
+    global.fetch = retryFetch as unknown as typeof fetch
+
+    await cancelUnstartedUpload()
+    expect(retryFetch.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/register'))).toBe(true)
+    expect(closed.binding.store.pending()).toHaveLength(0)
   })
 })

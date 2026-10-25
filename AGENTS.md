@@ -169,7 +169,15 @@ mounted in `(app)/layout.tsx` beside `AppToaster`. Terminal jobs persist per use
 `localStorage` (`td:activity-jobs:v1:<userId>`) until dismissed — there is no
 acknowledgement column. Announce transitions with `toastWithNavigate`
 (`src/lib/toast-navigate.ts`).
-In-flight uploads show on the Inbox progress card; completion still belongs to the bell.
+In-flight uploads show on the Inbox upload card; completion still belongs to the bell.
+The completion toast and the bell's "View results" go to that Inbox upload while
+anything is left (to review, no place found, couldn't be read, or still reading), and
+to the Library only when none of that remains — see `uploadResultsHref` in
+`src/lib/upload-sheet.ts`.
+
+Upload is a header button (and Inbox docks / first-visit drop) that opens the mass-upload
+drop sheet via `UploadSheetProvider` in `(app)/layout.tsx`. Mass Upload is not in the
+sidebar; `/mass-upload` redirects to `/inbox?sheet=1`.
 
 ## Multi-Tenancy (security-critical)
 
@@ -211,9 +219,10 @@ the row it claimed) and `api/auth/register` runs before the user exists; both ke
 then queries or mutates by those ids, the follow-up query must independently filter on the caller —
 even when the container is already ownership-checked. `upload_sessions.meta.uploadedFiles` is not
 written by the caller directly (`POST`/`PATCH /api/upload/sessions` strip it) but is rebuilt from
-source metadata by `mass-upload/register`, so the session check in `mass-upload/{cancel,start,status}`
-was standing in for a row check it could not carry. Treat any such id list as untrusted input to
-filter, not as an authorization boundary.
+source metadata by `mass-upload/register`, so treat that list as untrusted input to filter, not as
+an authorization boundary — `mass-upload/status` still reads it and must re-scope every follow-up.
+`mass-upload/{cancel,start}` no longer walk that list: they scope sources by
+`meta.uploadInfo.sessionId` through `forUser`, which is the same rule applied without an id list.
 
 A `userId` parameter is part of a query function's *signature*, not something its callers are trusted
 to have already applied — see `getCoverImagesForPlaces` in `src/lib/library-adapters.ts`, which used
@@ -222,7 +231,7 @@ to take bare place ids and was safe only because both call sites happened to pas
 - Ownership-scoped read: `src/app/api/photos/resolve/[attachmentId]/route.ts`
 - Session ownership check (404 then 403): `src/app/api/mass-upload/start/route.ts`
 - Transitively-owned rows: `src/app/api/export/all/route.ts`
-- Row-scoped follow-up on a caller-supplied id list: `src/app/api/mass-upload/cancel/route.ts`
+- Row-scoped follow-up on `uploadedFiles`: `src/app/api/mass-upload/status/route.ts`
 - Scoped transaction: `setPrimaryPhoto` in `src/lib/place-photos.ts` (the primary
   route delegates to it)
 - Regression tests for these shapes: `src/__tests__/authorization/`, and
@@ -252,20 +261,25 @@ Client IP for rate limiting comes only from platform-set headers (see `getClient
 
 Every upload uses the same three-step client-upload flow: `upload()` from `@vercel/blob/client` →
 `/api/blob/upload` (mints the token, enforces content types and rejects traversal-shaped keys) →
-a feature-specific `blob-complete` route that validates the URL with `isAllowedBlobUrl()` and stores
-it. Three implementations to copy: `src/components/upload/screenshot-uploader.tsx`,
-`src/components/upload/photo-uploader.tsx`, `src/components/collections/cover-image-picker-dialog.tsx`.
+a feature-specific complete route that validates the URL with `isAllowedBlobUrl()` and stores it.
+Implementations to copy: the Inbox drop sheet (`MassUploadSheet` → `/api/mass-upload/register`),
+`src/components/upload/photo-uploader.tsx`, and
+`src/components/collections/cover-image-picker-dialog.tsx`.
 
 The cover flow takes its blob-key extension from the MIME allow-list in `src/lib/image-upload.ts`,
-never from `file.name` — do the same in new upload paths. The screenshot and photo uploaders are not
-converted yet and still derive the extension from `file.name`; copy their three-step flow, not that.
+never from `file.name` — do the same in new upload paths. The mass-upload sheet and photo uploader
+are not converted yet and still derive the extension from `file.name`; copy their three-step flow,
+not that.
 
 Deleting a record must only `del()` a blob that record owns — collection covers can point at a place
 photo's blob (see `isOwnedCoverBlobUrl` / `releaseOwnedCoverBlob` in `src/lib/cover-blob.ts`).
-Screenshots and the place photos made from them share one blob URL, with no copy: source and
-attachment cleanup goes through `releaseBlobIfUnreferenced` in `src/lib/shared-blob.ts`, so a URL
-still stored on another source or attachment is left in place
+Screenshots and the place photos made from them share one blob URL, with no copy: owned source and
+attachment cleanup goes through tenant-scoped `releaseBlobIfUnreferenced` in `src/lib/shared-blob.ts`,
+so a URL still stored on another of that user's sources or attachments is left in place
 (`src/__tests__/inbox/shared-blob-delete.test.ts`, `src/__tests__/inbox/shared-photo-route.test.ts`).
+Cancel and closed-session register delete through `releaseBlobIfUnreferencedByAnyTenant` with the
+same exclusions: an unreferenced upload of the caller's own is still removed, and a URL still stored
+on any tenant's source, attachment, or collection cover is left in place.
 
 Pre-Blob rows whose `uri` is a `/uploads/...` path are deliberately not migrated; those files never
 existed on Vercel, so treat such rows as broken-image leftovers rather than something to clean up.
@@ -306,9 +320,13 @@ The timing invariants (lease TTL > item budget, run budget > item budget) are as
 `vercel.json` in sync with `MASS_UPLOAD_MAX_DURATION_SECONDS`.
 
 Processing is event-triggered from `/api/mass-upload/start`; the cron is only a safety net, and it
-is what puts a stalled row whose backoff has elapsed back on the queue. New
-system-to-system endpoints authenticated with `CRON_SECRET` must be added to the bypass list in
-`src/middleware.ts`, or they get redirected to `/login` and silently never run.
+is what puts a stalled row whose backoff has elapsed back on the queue. Start
+sets `meta.processingStarted` (JSON boolean) and flips that session's `uploaded` sources to
+`queued`. Register before Start inserts `uploaded`; Inbox maps `uploaded` to still reading, so a
+batch that never started must not stay there — leave paths cancel the session (and hand orphan
+blobs into the closed-session register) via `src/lib/unstarted-upload.ts`. New system-to-system
+endpoints authenticated with `CRON_SECRET` must be added to the bypass list in `src/middleware.ts`,
+or they get redirected to `/login` and silently never run.
 
 Gemini extraction is cached onto `sources.meta.massUpload` as soon as it is paid for, so a retry
 never re-charges the API. Anything that adds an upstream call to this pipeline should do the same.

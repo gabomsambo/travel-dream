@@ -5,13 +5,20 @@
  *
  *   **Owning a container is not owning the rows it names.**
  *
- * `mass-upload/{cancel,start,status}`, `mass-upload/register` and the details
- * branch of `GET /api/upload/sessions` all read source ids out of
+ * Historically `mass-upload/{cancel,start,status}`, `mass-upload/register` and
+ * the details branch of `GET /api/upload/sessions` read source ids out of
  * `upload_sessions.meta.uploadedFiles` and then queried or mutated by those ids
  * with no owner predicate. Checking that the caller owned the *session* was
  * standing in for checking that they owned the *sources*. Worst case was
  * destructive: cancel flipped another user's sources to `cancelled` and called
  * `del()` on their uploaded blobs.
+ *
+ * Today `status` (and session details) still consume that list and must
+ * re-scope every follow-up. `cancel` / `start` scope sources by
+ * `meta.uploadInfo.sessionId` through `forUser` instead of walking the list;
+ * cancel blob cleanup uses `releaseBlobIfUnreferencedByAnyTenant`. These tests
+ * still plant a poisoned `uploadedFiles` list so a regression that reintroduces
+ * list-based mutation cannot sneak back.
  *
  * Two things could put a foreign id in that list:
  *

@@ -20,7 +20,7 @@ describe('buildBrowseRails', () => {
   it('carries a count and no places, so nothing but the tile crosses to the client', () => {
     const [tile] = buildBrowseRails([rail('a', [place('1', [photo('x')]), place('2', [])])]);
     expect(tile).toEqual({
-      id: 'a', title: 'Rail a', group: 'moods', count: 2, cover: 'https://img.test/x-thumb.jpg',
+      id: 'a', title: 'Rail a', group: 'moods', count: 2, cover: 'https://img.test/x.jpg',
       fallback: { name: 'Place 1', kind: 'cafe' },
     });
   });
@@ -29,13 +29,13 @@ describe('buildBrowseRails', () => {
     const shared = place('1', [photo('shared')]);
     const other = place('2', [photo('other')]);
     const tiles = buildBrowseRails([rail('a', [shared]), rail('b', [shared, other])]);
-    expect(tiles.map((t) => t.cover)).toEqual(['https://img.test/shared-thumb.jpg', 'https://img.test/other-thumb.jpg']);
+    expect(tiles.map((t) => t.cover)).toEqual(['https://img.test/shared.jpg', 'https://img.test/other.jpg']);
   });
 
   it('reuses a cover when the rail has nothing else', () => {
     const shared = place('1', [photo('shared')]);
     const tiles = buildBrowseRails([rail('a', [shared]), rail('b', [shared])]);
-    expect(tiles.map((t) => t.cover)).toEqual(['https://img.test/shared-thumb.jpg', 'https://img.test/shared-thumb.jpg']);
+    expect(tiles.map((t) => t.cover)).toEqual(['https://img.test/shared.jpg', 'https://img.test/shared.jpg']);
   });
 
   it('has no cover for a rail without photos, and falls back to its first place', () => {
@@ -47,6 +47,6 @@ describe('buildBrowseRails', () => {
   it('does not let a coverless rail use up a cover', () => {
     const solo = place('1', [photo('solo')]);
     const tiles = buildBrowseRails([rail('empty', [place('2', [])]), rail('a', [solo])]);
-    expect(tiles.map((t) => t.cover)).toEqual([null, 'https://img.test/solo-thumb.jpg']);
+    expect(tiles.map((t) => t.cover)).toEqual([null, 'https://img.test/solo.jpg']);
   });
 });

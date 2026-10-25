@@ -68,14 +68,15 @@ export function LibraryShelves({
   )
 }
 
-function Collage({ photos }: { photos: string[] }) {
+function Collage({ photos }: { photos: Array<{ uri: string; thumb: string }> }) {
   return (
     <div className="grid aspect-[4/3] grid-cols-[2fr_1fr] grid-rows-2 gap-[3px] overflow-hidden rounded-2xl bg-muted">
       {[0, 1, 2].map((i) => (
         <div key={i} className={cn("relative overflow-hidden bg-muted-foreground/10", i === 0 && "row-span-2")}>
           {photos[i] && (
             <Photo
-              src={photos[i]}
+              src={photos[i].uri}
+              thumb={photos[i].thumb}
               use={i === 0 ? "full" : "thumb"}
               sizes={i === 0 ? "(min-width: 1024px) 160px, (min-width: 640px) 220px, 26vw" : "(min-width: 1024px) 80px, (min-width: 640px) 110px, 13vw"}
               className="transition duration-700 group-hover:scale-[1.04]"
@@ -118,7 +119,7 @@ export function TripsShelf({
       </div>
       <div className="-mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 hide-scrollbar sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-3.5 sm:overflow-visible sm:px-0 lg:grid-cols-6">
         {shown.map(({ c, members }) => {
-          const photos = members.filter((p) => p.photos.length).slice(0, 3).map((p) => p.photos[0].thumb)
+          const photos = members.filter((p) => p.photos.length).slice(0, 3).map((p) => p.photos[0])
           const sub = c.description?.trim() || collectionEyebrow(members, now)
           return (
             <Link

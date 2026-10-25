@@ -36,7 +36,7 @@ export function buildTripNudges(
       citySlug: city.slug,
       countrySlug: country.slug,
       placeIds: sorted.map((p) => p.id),
-      photos: sorted.filter((p) => p.photos.length).slice(0, 3).map((p) => p.photos[0].thumb),
+      photos: sorted.filter((p) => p.photos.length).slice(0, 3).map((p) => p.photos[0].uri),
       kinds: [...kindCounts].sort((a, b) => b[1] - a[1]).map(([title]) => title),
       existingCollection: existing ? { id: existing.c.id, name: existing.c.name } : null,
     });

@@ -13,6 +13,7 @@ import { AddToCollectionDialog } from '@/components/library/library-add-to-colle
 import { LibraryActionsContext, type LibraryActions } from '@/components/library/library-actions';
 import { LibraryChapters } from '@/components/library/library-chapters';
 import { TripsShelf } from '@/components/library/library-shelves';
+import { BrowseAll } from '@/components/explore/browse-all';
 import type { CountryGroup, ExplorePlace } from '@/lib/explore/types';
 import { item } from '../helpers/library-items';
 
@@ -260,10 +261,10 @@ describe('Library and Explore photos are right-sized', () => {
   });
 
   it('keeps trip-nudge fan photos on thumb Google widths', () => {
-    const thumbs = [
-      '/api/photos/resolve/att_1?w=400',
-      '/api/photos/resolve/att_2?w=400',
-      '/api/photos/resolve/att_3?w=400',
+    const uris = [
+      '/api/photos/resolve/att_1',
+      '/api/photos/resolve/att_2',
+      '/api/photos/resolve/att_3',
     ];
     const { container } = render(
       <ExploreProvider places={[]} collections={[]}>
@@ -275,7 +276,7 @@ describe('Library and Explore photos are right-sized', () => {
             citySlug: 'lisbon',
             countrySlug: 'portugal',
             placeIds: ['plc_1', 'plc_2'],
-            photos: thumbs,
+            photos: uris,
             kinds: ['viewpoint'],
             existingCollection: null,
           }}
@@ -294,10 +295,10 @@ describe('Library and Explore photos are right-sized', () => {
   });
 
   it('keeps TripMoment secondary collage cells on thumb Google widths', async () => {
-    const thumbs = [
-      '/api/photos/resolve/att_1?w=400',
-      '/api/photos/resolve/att_2?w=400',
-      '/api/photos/resolve/att_3?w=400',
+    const uris = [
+      '/api/photos/resolve/att_1',
+      '/api/photos/resolve/att_2',
+      '/api/photos/resolve/att_3',
     ];
     const { container } = render(
       <ExploreProvider places={[]} collections={[]}>
@@ -308,7 +309,7 @@ describe('Library and Explore photos are right-sized', () => {
             citySlug: 'lisbon',
             countrySlug: 'portugal',
             placeIds: ['plc_1', 'plc_2', 'plc_3'],
-            photos: thumbs,
+            photos: uris,
             kinds: ['viewpoint'],
             existingCollection: null,
           }}
@@ -335,11 +336,60 @@ describe('Library and Explore photos are right-sized', () => {
     }
   });
 
-  it('keeps TripsShelf secondary collage cells on thumb Google widths', () => {
+  it('sizes BrowseAll covers from the full uri through the optimizer', () => {
+    const { container } = render(
+      <BrowseAll
+        rails={[
+          {
+            id: 'moods-lisbon',
+            title: 'Lisbon moods',
+            group: 'moods',
+            count: 3,
+            cover: BLOB,
+            fallback: { name: 'Miradouro', kind: 'viewpoint' },
+          },
+        ]}
+      />
+    );
+    expectBlobSized(
+      img(container),
+      BLOB,
+      '(min-width: 1536px) 16vw, (min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw'
+    );
+    expect(optimizedFrom(img(container))).not.toBe(BLOB_THUMB);
+  });
+
+  it('feeds TripMoment lead Blob covers the full uri, not the 400px thumb', async () => {
+    const { container } = render(
+      <ExploreProvider places={[]} collections={[]}>
+        <TripMoment
+          nudge={{
+            city: 'Lisbon',
+            country: 'Portugal',
+            citySlug: 'lisbon',
+            countrySlug: 'portugal',
+            placeIds: ['plc_1', 'plc_2', 'plc_3'],
+            photos: [BLOB, BLOB_THUMB, BLOB_THUMB],
+            kinds: ['viewpoint'],
+            existingCollection: null,
+          }}
+        />
+      </ExploreProvider>
+    );
+    await waitFor(() => {
+      expect(imgs(container).length).toBe(3);
+    });
+    const lead = imgs(container).find((el) => el.getAttribute('sizes') === '(min-width: 768px) 400px, 60vw');
+    expect(lead).toBeTruthy();
+    expectBlobSized(lead!, BLOB, '(min-width: 768px) 400px, 60vw');
+    expect(optimizedFrom(lead!)).not.toBe(BLOB_THUMB);
+  });
+
+  it('keeps TripsShelf collage lead on the full uri and secondaries on thumb', () => {
     const a = item({ id: 'plc_a', photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }] });
     const b = item({ id: 'plc_b', photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }] });
     const c = item({ id: 'plc_c', photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }] });
-    const { container } = render(
+    const google = render(
       <TripsShelf
         collections={[{ id: 'col_1', name: 'Lisbon', placeIds: [a.id, b.id, c.id] }]}
         byId={new Map([
@@ -350,7 +400,7 @@ describe('Library and Explore photos are right-sized', () => {
         now={new Date('2024-06-01T00:00:00.000Z')}
       />
     );
-    const collage = imgs(container);
+    const collage = imgs(google.container);
     expect(collage.length).toBe(3);
     expectGoogleSized(
       collage[0],
@@ -365,6 +415,33 @@ describe('Library and Explore photos are right-sized', () => {
     expectGoogleSized(
       collage[2],
       [160, 320],
+      '(min-width: 1024px) 80px, (min-width: 640px) 110px, 13vw'
+    );
+    google.unmount();
+
+    const ba = item({ id: 'plc_ba', photos: [{ uri: BLOB, thumb: BLOB_THUMB }] });
+    const bb = item({ id: 'plc_bb', photos: [{ uri: BLOB, thumb: BLOB_THUMB }] });
+    const bc = item({ id: 'plc_bc', photos: [{ uri: BLOB, thumb: BLOB_THUMB }] });
+    const blob = render(
+      <TripsShelf
+        collections={[{ id: 'col_blob', name: 'Blob trip', placeIds: [ba.id, bb.id, bc.id] }]}
+        byId={new Map([
+          [ba.id, ba],
+          [bb.id, bb],
+          [bc.id, bc],
+        ])}
+        now={new Date('2024-06-01T00:00:00.000Z')}
+      />
+    );
+    const blobCollage = imgs(blob.container);
+    expectBlobSized(
+      blobCollage[0],
+      BLOB,
+      '(min-width: 1024px) 160px, (min-width: 640px) 220px, 26vw'
+    );
+    expectBlobSized(
+      blobCollage[1],
+      BLOB_THUMB,
       '(min-width: 1024px) 80px, (min-width: 640px) 110px, 13vw'
     );
   });

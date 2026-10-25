@@ -27,7 +27,13 @@ jest.mock('framer-motion', () => {
   }
 })
 
-const place = (id: string, name: string): ExplorePlace => ({
+const place = (
+  id: string,
+  name: string,
+  photos: ExplorePlace['photos'] = [
+    { uri: `https://example.com/${id}.jpg`, thumb: `https://example.com/${id}-t.jpg` },
+  ]
+): ExplorePlace => ({
   id,
   name,
   kind: 'landmark',
@@ -46,7 +52,7 @@ const place = (id: string, name: string): ExplorePlace => ({
   createdAt: '2024-01-01 00:00:00',
   lat: null,
   lon: null,
-  photos: [{ uri: `https://example.com/${id}.jpg`, thumb: `https://example.com/${id}-t.jpg` }],
+  photos,
 })
 
 function renderDeck(
@@ -68,6 +74,43 @@ describe('ShuffleDeck', () => {
     resetHeartWriterForTests()
     ;(global.fetch as jest.Mock)?.mockReset?.()
     jest.clearAllMocks()
+  })
+
+  it('prefetches upcoming cards at sized URLs, not bare full URIs', () => {
+    const prefetched: string[] = []
+    const RealImage = window.Image
+    class PrefetchProbe {
+      set src(value: string) {
+        prefetched.push(value)
+      }
+      get src() {
+        return prefetched[prefetched.length - 1] ?? ''
+      }
+    }
+    window.Image = PrefetchProbe as unknown as typeof Image
+
+    const blob = 'https://abc123.public.blob.vercel-storage.com/places/p/full.jpg'
+    const google = '/api/photos/resolve/att_next'
+    const places = [
+      place('a', 'Place 1', [{ uri: '/api/photos/resolve/att_cur', thumb: '/api/photos/resolve/att_cur?w=400' }]),
+      place('b', 'Place 2', [{ uri: google, thumb: `${google}?w=400` }]),
+      place('c', 'Place 3', [{ uri: blob, thumb: blob.replace('/places/', '/thumbnails/') }]),
+    ]
+    try {
+      render(
+        <ExploreProvider places={places} collections={[]}>
+          <ShuffleDeck title="Everything" backHref="/explore" deck={['a', 'b', 'c']} />
+        </ExploreProvider>
+      )
+      expect(prefetched).toEqual([
+        `${google}?w=960`,
+        `/_next/image?url=${encodeURIComponent(blob)}&w=1080&q=75`,
+      ])
+      expect(prefetched).not.toContain(google)
+      expect(prefetched).not.toContain(blob)
+    } finally {
+      window.Image = RealImage
+    }
   })
 
   it('Done early lands on the end screen with dreams kept', async () => {

@@ -44,6 +44,16 @@ export function resolverSrcSet(url: string, widths: readonly number[]): string {
   return widths.map((w) => `${resolverSrc(url, w)} ${w}w`).join(', ');
 }
 
+/** Warm the same bytes `Photo` will request at `width` (resolver `?w=` or `/_next/image`). */
+export function photoPrefetchSrc(url: string, width: number): string {
+  const route = photoRoute(url);
+  if (route === 'resolver') return resolverSrc(url, width);
+  if (route === 'optimized') {
+    return `/_next/image?url=${encodeURIComponent(url)}&w=${width}&q=75`;
+  }
+  return url;
+}
+
 // What a tile shows until its photo arrives, so it is never a grey box. Picked
 // per photo (not per place) so a collage of one city is not one flat colour.
 const TINTS = [

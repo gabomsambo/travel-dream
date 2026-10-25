@@ -26,6 +26,7 @@ import { notify } from "@/lib/notify"
 import { useExplore } from "./explore-provider"
 import { FallbackArt } from "./fallback-art"
 import { Photo } from "@/components/photo"
+import { photoPrefetchSrc, photoRoute } from "@/lib/photo-url"
 import { kindLabel } from "./kind-icon"
 import { SaveCollectionDialog } from "./save-collection-dialog"
 
@@ -170,7 +171,9 @@ export function ShuffleDeck({
   React.useEffect(() => {
     for (const p of cards.slice(session.index + 1, session.index + 3)) {
       const uri = p.photos[0]?.uri
-      if (uri) new window.Image().src = uri
+      if (!uri) continue
+      const width = photoRoute(uri) === "optimized" ? 1080 : 960
+      new window.Image().src = photoPrefetchSrc(uri, width)
     }
   }, [session.index, cards])
 

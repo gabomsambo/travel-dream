@@ -51,9 +51,9 @@ export interface ExplorePlace {
 }
 
 /**
- * One photo at the two sizes Explore renders it: `thumb` for rails, tiles and
- * covers, `uri` for the hero billboard and the quick-look sheet. A photo with no
- * thumbnail of its own is the full image at both sizes.
+ * One photo at two sizes: `uri` is the full asset (tiles, covers, heroes — Photo
+ * right-sizes via `sizes`); `thumb` is the ~400px square for boxes up to ~160px
+ * when `use="thumb"`. A photo with no thumbnail of its own uses `uri` for both.
  */
 export interface ExplorePhoto {
   thumb: string;

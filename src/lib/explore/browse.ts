@@ -9,15 +9,15 @@ export function buildBrowseRails(rails: Rail[]): BrowseRail[] {
   const used = new Set<string>();
   return rails.map((rail) => {
     const withPhoto = rail.places.filter((p) => p.photos.length > 0);
-    const pick = withPhoto.find((p) => !used.has(p.photos[0].thumb)) ?? withPhoto[0];
-    if (pick) used.add(pick.photos[0].thumb);
+    const pick = withPhoto.find((p) => !used.has(p.photos[0].uri)) ?? withPhoto[0];
+    if (pick) used.add(pick.photos[0].uri);
     const first = rail.places[0];
     return {
       id: rail.id,
       title: rail.title,
       group: rail.group,
       count: rail.places.length,
-      cover: pick ? pick.photos[0].thumb : null,
+      cover: pick ? pick.photos[0].uri : null,
       fallback: first ? { name: first.name, kind: first.kind } : null,
     };
   });

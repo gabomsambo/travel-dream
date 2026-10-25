@@ -1,4 +1,4 @@
-import { photoRoute, photoTint, resolverSrc, resolverSrcSet } from '@/lib/photo-url';
+import { photoPrefetchSrc, photoRoute, photoTint, resolverSrc, resolverSrcSet } from '@/lib/photo-url';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const nextConfig = require('../../../next.config.js') as {
@@ -65,6 +65,24 @@ describe('resolver sizing', () => {
     expect(resolverSrcSet('/api/photos/resolve/att_1?w=400', [160, 320])).toBe(
       '/api/photos/resolve/att_1?w=160 160w, /api/photos/resolve/att_1?w=320 320w'
     );
+  });
+});
+
+describe('photoPrefetchSrc', () => {
+  it('sizes a Google resolver prefetch with ?w=', () => {
+    expect(photoPrefetchSrc('/api/photos/resolve/att_1', 960)).toBe('/api/photos/resolve/att_1?w=960');
+    expect(photoPrefetchSrc('/api/photos/resolve/att_1?w=400', 960)).toBe('/api/photos/resolve/att_1?w=960');
+  });
+
+  it('points Blob prefetches at the optimizer, not the raw object', () => {
+    const blob = 'https://abc123.public.blob.vercel-storage.com/places/p/full.jpg';
+    expect(photoPrefetchSrc(blob, 1080)).toBe(
+      `/_next/image?url=${encodeURIComponent(blob)}&w=1080&q=75`
+    );
+  });
+
+  it('leaves unknown hosts as-is', () => {
+    expect(photoPrefetchSrc('https://example.com/p.jpg', 960)).toBe('https://example.com/p.jpg');
   });
 });
 

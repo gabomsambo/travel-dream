@@ -287,6 +287,86 @@ describe('Review group and batch trip', () => {
     expect(screen.queryByRole('button', { name: /Add to Library \+ trip/i })).not.toBeInTheDocument()
   })
 
+  it('suggests the batch trip from ticked cities only, not unticked rows', async () => {
+    const user = userEvent.setup()
+    const src = source('mixed')
+    const dutch = place('plc_dutch_mix', 'My Old Dutch', src)
+    dutch.kind = 'restaurant'
+    const gails = place('plc_gails_mix', "Gail's Bakery", src)
+    gails.createdAt = '2026-10-18T12:00:02.000Z'
+    const next = place('plc_next_mix', 'Next Cafe', src)
+    next.city = 'Paris'
+    next.createdAt = '2026-10-18T12:00:03.000Z'
+    placesById.set(dutch.id, dutch)
+    placesById.set(gails.id, gails)
+    placesById.set(next.id, next)
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris'] }
+    const groupEntries = [entryFrom(dutch, src), entryFrom(gails, src), entryFrom(next, src)]
+    render(
+      <ReviewQueue
+        entries={groupEntries}
+        postcard={postcardFor(dutch)}
+        trips={[london, paris]}
+      />
+    )
+
+    expect(screen.getAllByRole('button', { name: 'Also add to London long weekend' }).length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: 'Leave My Old Dutch out' }))
+    await user.click(screen.getByRole('button', { name: "Leave Gail's Bakery out" }))
+    expect(screen.getAllByRole('button', { name: 'Also add to Paris weekend' }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /Also add to London long weekend/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: /Add 1 to Library \+ trip/i })[0])
+    await waitFor(() => expect(postCalls().some((call) =>
+      call[0] === '/api/collections/col_paris/places' &&
+      (call[1] as { body?: string }).body === JSON.stringify({ placeIds: ['plc_next_mix'] })
+    )).toBe(true))
+    expect(postCalls().some((call) => call[0] === '/api/collections/col_london/places')).toBe(false)
+
+    placesById.delete(dutch.id)
+    placesById.delete(gails.id)
+    placesById.delete(next.id)
+  })
+
+  it('suggests a matching trip once unticking breaks a city tie', async () => {
+    const user = userEvent.setup()
+    const src = source('tie')
+    const dutch = place('plc_dutch_tie', 'My Old Dutch', src)
+    dutch.kind = 'restaurant'
+    const next = place('plc_next_tie', 'Next Cafe', src)
+    next.city = 'Paris'
+    next.createdAt = '2026-10-18T12:00:02.000Z'
+    placesById.set(dutch.id, dutch)
+    placesById.set(next.id, next)
+    const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
+    const paris = { id: 'col_paris', name: 'Paris weekend', placeIds: ['plc_paris'], cities: ['Paris'] }
+    const groupEntries = [entryFrom(dutch, src), entryFrom(next, src)]
+    render(
+      <ReviewQueue
+        entries={groupEntries}
+        postcard={postcardFor(dutch)}
+        trips={[london, paris]}
+      />
+    )
+
+    expect(screen.getAllByRole('button', { name: 'No trip' }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /Also add to/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Leave Next Cafe out' }))
+    expect(screen.getAllByRole('button', { name: 'Also add to London long weekend' }).length).toBeGreaterThan(0)
+
+    await user.click(screen.getAllByRole('button', { name: /Add 1 to Library \+ trip/i })[0])
+    await waitFor(() => expect(postCalls().some((call) =>
+      call[0] === '/api/collections/col_london/places' &&
+      (call[1] as { body?: string }).body === JSON.stringify({ placeIds: ['plc_dutch_tie'] })
+    )).toBe(true))
+
+    placesById.delete(dutch.id)
+    placesById.delete(next.id)
+  })
+
   it('says the one filed place is in the trip, and keeps the plural for several', async () => {
     const london = { id: 'col_london', name: 'London long weekend', placeIds: ['plc_saved'], cities: ['London'] }
     const one = renderQueue({

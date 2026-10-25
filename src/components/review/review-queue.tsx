@@ -963,7 +963,9 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     && soloId !== current.placeId
     && members.length >= 2,
   )
-  const suggestionPool = groupMode ? members : current ? [current] : []
+  const suggestionPool = groupMode
+    ? members.filter((entry) => !excluded[entry.placeId])
+    : current ? [current] : []
   const suggestedTripId = suggestBatchTrip(
     trips.map((trip) => ({ id: trip.id, name: trip.name, cities: trip.cities ?? [] })),
     suggestionPool.map((entry) => entry.city),

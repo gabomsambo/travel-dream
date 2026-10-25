@@ -82,7 +82,7 @@ export function cancelUploadSession(sessionId: string): Promise<Response> {
  * the newest URLs - the ones whose register never reached the server - would
  * be the ones the browser drops.
  *
- * `keepalive` belongs to pagehide, sign-out, and the synchronous sheet-close
+ * `keepalive` belongs to pagehide, sign-out, and the Start-requested sheet-close
  * hand-over of the small unregistered set. Live-page abandon follow-ups omit it.
  *
  * Returns the blobs that need another attempt and how many inserts landed:
@@ -169,9 +169,11 @@ export async function handOverPendingBlobs(
 ): Promise<number> {
   const blobs = binding.store.pending()
   if (blobs.length === 0) return 0
-  for (const blob of blobs) binding.store.remove(blob.blobUrl)
   const { retry, registered } = await registerAbandonedUploads(sessionId, blobs, options)
-  for (const blob of retry) binding.store.add(blob)
+  const retryUrls = new Set(retry.map((blob) => blob.blobUrl))
+  for (const blob of blobs) {
+    if (!retryUrls.has(blob.blobUrl)) binding.store.remove(blob.blobUrl)
+  }
   return registered
 }
 

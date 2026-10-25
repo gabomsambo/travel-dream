@@ -3,6 +3,7 @@ import {
   cancelUnstartedUpload,
   createAbandonedUploadStore,
   discardUnstartedUpload,
+  handOverPendingBlobs,
   parkUnstartedUpload,
   type UnstartedUploadBinding,
 } from '@/lib/unstarted-upload'
@@ -154,6 +155,34 @@ describe('unstarted-upload leave paths', () => {
     expect(urls.some((url) => url.includes('/api/mass-upload/cancel'))).toBe(true)
     expect(urls.some((url) => url.includes('/api/mass-upload/register'))).toBe(true)
     expect(binding.store.pending()).toHaveLength(0)
+    release()
+  })
+
+  it('keeps pending blobs in the store when hand-over fails', async () => {
+    let finishRegister: (value: { ok: boolean; status: number }) => void = () => {}
+    const fetchMock = jest.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          finishRegister = (value) => resolve(value as Response)
+        }),
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const { binding, release } = bindWithHold('session-retry')
+    const blob = {
+      blobUrl: 'https://blob.example/retry.jpg',
+      originalName: 'retry.jpg',
+      fileSize: 4,
+      mimeType: 'image/jpeg',
+    }
+    binding.store.add(blob)
+
+    const handOver = handOverPendingBlobs('session-retry', binding, { keepalive: true })
+    expect(binding.store.pending()).toEqual([blob])
+
+    finishRegister({ ok: false, status: 500 })
+    await expect(handOver).resolves.toBe(0)
+    expect(binding.store.pending()).toEqual([blob])
     release()
   })
 

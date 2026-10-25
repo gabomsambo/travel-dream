@@ -203,16 +203,23 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       const alreadyStarted = startedRef.current
       const startWasRequested = alreadyStarted || startPromise !== null
       if (startWasRequested) startRequestedHeld = true
-      // The cancel goes out first, while the page is still there.
+      // The cancel goes out first, while the page is still there. Hand over
+      // pending blobs synchronously only when Start was requested (no cancel);
+      // otherwise register stays behind cancel.ok in abandon.
+      let syncHandOver: Promise<number> | null = null
       if (binding && currentSessionId) {
         if (!startWasRequested) {
           try {
             void binding.cancel().then(() => undefined, () => undefined)
           } catch {
-            // The hand-over below reports the failure.
+            // abandonUnstartedSession awaits the shared cancel.
           }
+        } else {
+          syncHandOver = handOverPendingBlobs(currentSessionId, binding, {
+            keepalive: true,
+          })
+          void syncHandOver
         }
-        void handOverPendingBlobs(currentSessionId, binding, { keepalive: true })
       }
       const pending = inFlightRef.current
       inFlightRef.current = new Set()
@@ -227,7 +234,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       if (binding && currentSessionId) {
         if (!abandoning) {
           abandoning = true
-          // The binding stays live until the hand-over is on its way: a
+          // The binding stays live until the hand-over has settled: a
           // refresh or a sign-out in that window still has to find this
           // session and the blobs that never got a source row. When Start
           // already succeeded, abandon registers those blobs into the open
@@ -238,10 +245,12 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
             currentSessionId,
             alreadyStarted ? Promise.resolve(true) : startPromise,
             pending,
-          ).finally(() => {
-            unpark()
-            releaseBinding()
-          })
+          )
+            .finally(async () => {
+              if (syncHandOver) await syncHandOver
+              unpark()
+              releaseBinding()
+            })
         }
       } else if (!abandoning) {
         releaseBinding()

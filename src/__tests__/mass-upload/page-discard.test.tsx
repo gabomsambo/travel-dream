@@ -432,6 +432,15 @@ describe('discarding an upload before Start', () => {
       if (url === '/api/mass-upload/register' && method === 'POST') {
         const body = JSON.parse(String(init?.body)) as { blobUrl?: string }
         if (body.blobUrl === urls[1]) {
+          // Live-page register never lands; leave-path keepalive must still
+          // settle so the store can drop the URL after a successful hand-over.
+          if (init?.keepalive) {
+            return Promise.resolve({
+              ok: false,
+              status: 409,
+              json: async () => ({ status: 'error', message: 'Upload session was closed' }),
+            })
+          }
           return new Promise(() => {})
         }
         return Promise.resolve({
@@ -465,6 +474,11 @@ describe('discarding an upload before Start', () => {
       sessionId: 'ses_mixed',
       blobUrl: urls[1],
       originalName: 'two.jpg',
+    })
+    // Let the keepalive hand-over settle so the store drops the URL before
+    // later tests fire pagehide against a still-mounted sheet.
+    await act(async () => {
+      await Promise.resolve()
     })
   })
 

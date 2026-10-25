@@ -4,7 +4,7 @@
 
 // ── Module mocks (BEFORE imports) ──────────────────────────────────────
 jest.mock('@/db', () => ({
-  db: { select: jest.fn(), update: jest.fn() },
+  db: { select: jest.fn(), update: jest.fn(), transaction: jest.fn() },
 }));
 
 jest.mock('@/lib/auth-helpers', () => ({
@@ -19,7 +19,7 @@ import { requireAuthForApi } from '@/lib/auth-helpers';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
 import { mockSelect, whereMentions } from '../helpers/authz-helpers';
 
-const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock };
+const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock; transaction: jest.Mock };
 
 const mockRequireAuth = requireAuthForApi as jest.MockedFunction<typeof requireAuthForApi>;
 
@@ -38,6 +38,12 @@ describe('POST /api/mass-upload/start', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRequireAuth.mockResolvedValue(mockUser);
+    mockDb.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+      select: mockDb.select,
+      update: mockDb.update,
+      insert: jest.fn(),
+      delete: jest.fn(),
+    }));
   });
 
   it('rejects unauthenticated request', async () => {
@@ -87,7 +93,7 @@ describe('POST /api/mass-upload/start', () => {
     expect(whereMentions(scoped.conditions[0], mockUser.id)).toBe(true);
   });
 
-  it('returns queued: 0 when session has no uploadedFiles', async () => {
+  it('returns queued: 0 when no uploaded sources exist for the session', async () => {
     const session = createMockSession({
       meta: {
         uploadedFiles: [],
@@ -110,6 +116,13 @@ describe('POST /api/mass-upload/start', () => {
     });
     mockDb.update.mockReturnValueOnce({ set: metaSet });
 
+    const sourceWhere = jest.fn().mockReturnValue({
+      returning: jest.fn().mockResolvedValue([]),
+    });
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: sourceWhere }),
+    });
+
     const req = createStartRequest({ sessionId: 'session_test-1' });
     const res = await POST(req as never);
     const data = await res.json();
@@ -117,19 +130,23 @@ describe('POST /api/mass-upload/start', () => {
     expect(res.status).toBe(200);
     expect(data.status).toBe('success');
     expect(data.queued).toBe(0);
-    expect(metaSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        meta: expect.objectContaining({ processingStarted: true }),
-      }),
-    );
-    // Nothing to transition on sources — only the session meta mark.
-    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    // Flag only — do not rewrite uploadedFiles from a stale snapshot.
+    const metaArg = metaSet.mock.calls[0][0] as {
+      meta: { queryChunks: Array<string | { value?: string[] }> };
+    };
+    const metaSql = metaArg.meta.queryChunks
+      .map((chunk) => (typeof chunk === 'string' ? chunk : (chunk.value ?? []).join('')))
+      .join('');
+    expect(metaSql).toContain('$.processingStarted');
+    expect(metaSql).toContain('json_set');
+    expect(whereMentions(sourceWhere.mock.calls[0][0], 'session_test-1')).toBe(true);
+    expect(mockDb.update).toHaveBeenCalledTimes(2);
   });
 
-  it('transitions uploaded sources to queued and returns count', async () => {
+  it('transitions every uploaded session source to queued and returns count', async () => {
     const session = createMockSession({
       meta: {
-        uploadedFiles: ['src_test-1', 'src_test-2'],
+        uploadedFiles: ['src_test-1'],
         processingQueue: [],
         errors: [],
       },
@@ -145,25 +162,23 @@ describe('POST /api/mass-upload/start', () => {
     };
     mockDb.select.mockReturnValueOnce(selectChain);
 
-    // Mark session processingStarted (status stays active)
+    // Mark session processingStarted without replacing uploadedFiles
     mockDb.update.mockReturnValueOnce({
       set: jest.fn().mockReturnValue({
         where: jest.fn().mockResolvedValue(undefined),
       }),
     });
 
-    // Update sources: uploaded → queued
-    const updateChain = {
-      set: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          returning: jest.fn().mockResolvedValue([
-            { id: 'src_test-1' },
-            { id: 'src_test-2' },
-          ]),
-        }),
-      }),
-    };
-    mockDb.update.mockReturnValueOnce(updateChain);
+    // Update sources by sessionId: uploaded → queued (includes late rows)
+    const sourceWhere = jest.fn().mockReturnValue({
+      returning: jest.fn().mockResolvedValue([
+        { id: 'src_test-1' },
+        { id: 'src_test-2' },
+      ]),
+    });
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({ where: sourceWhere }),
+    });
 
     const req = createStartRequest({ sessionId: 'session_test-1' });
     const res = await POST(req as never);
@@ -172,6 +187,8 @@ describe('POST /api/mass-upload/start', () => {
     expect(res.status).toBe(200);
     expect(data.status).toBe('success');
     expect(data.queued).toBe(2);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], 'session_test-1')).toBe(true);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], mockUser.id)).toBe(true);
   });
 
   it('does not queue a planted source owned by another tenant', async () => {
@@ -199,5 +216,6 @@ describe('POST /api/mass-upload/start', () => {
     expect(res.status).toBe(200);
     expect(data.queued).toBe(0);
     expect(whereMentions(sourceWhere.mock.calls[0][0], mockUser.id)).toBe(true);
+    expect(whereMentions(sourceWhere.mock.calls[0][0], session.id)).toBe(true);
   });
 });

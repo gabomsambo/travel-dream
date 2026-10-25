@@ -35,7 +35,8 @@ function createTx(options: {
   const sessionMeta = options.sessionMeta === undefined ? null : options.sessionMeta;
   const siblingIds = options.siblingIds ?? [];
   const statusSets: Array<Record<string, unknown>> = [];
-  let limitCalls = 0;
+  let metaLimitCalls = 0;
+  let siblingLimitCalls = 0;
 
   const tx = {
     insert: jest.fn().mockReturnValue({
@@ -55,29 +56,35 @@ function createTx(options: {
         };
       }),
     }),
-    select: jest.fn().mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        where: jest.fn().mockImplementation(() => ({
-          // First `.limit(1)` is session meta; a second is the sibling probe
-          // (skipped when meta.processingStarted is already true). A bare
-          // await rebuilds uploadedFiles from session sources.
-          limit: () => {
-            limitCalls += 1;
-            if (limitCalls === 1) return Promise.resolve([{ meta: sessionMeta }]);
-            return Promise.resolve(siblingIds.map((id) => ({ id })));
-          },
-          then(
-            onFulfilled?: (value: Array<{ id: string }>) => unknown,
-            onRejected?: (reason: unknown) => unknown,
-          ) {
-            const ids = [
-              ...siblingIds.map((id) => ({ id })),
-              { id: 'src_test-new' },
-            ];
-            return Promise.resolve(ids).then(onFulfilled, onRejected);
-          },
-        })),
-      }),
+    select: jest.fn().mockImplementation((fields?: { meta?: unknown; id?: unknown }) => {
+      const selectingMeta = fields != null && 'meta' in fields && !('id' in fields);
+      return {
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockImplementation(() => ({
+            // Session-meta projections: status decision, then rebuild.
+            // Sibling probe uses `{ id }` and is skipped when processingStarted.
+            // A bare await rebuilds uploadedFiles from session sources.
+            limit: () => {
+              if (selectingMeta) {
+                metaLimitCalls += 1;
+                return Promise.resolve([{ meta: sessionMeta }]);
+              }
+              siblingLimitCalls += 1;
+              return Promise.resolve(siblingIds.map((id) => ({ id })));
+            },
+            then(
+              onFulfilled?: (value: Array<{ id: string }>) => unknown,
+              onRejected?: (reason: unknown) => unknown,
+            ) {
+              const ids = [
+                ...siblingIds.map((id) => ({ id })),
+                { id: 'src_test-new' },
+              ];
+              return Promise.resolve(ids).then(onFulfilled, onRejected);
+            },
+          })),
+        }),
+      };
     }),
     statusSets,
   };

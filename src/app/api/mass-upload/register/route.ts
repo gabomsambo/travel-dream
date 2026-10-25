@@ -186,6 +186,7 @@ export async function POST(request: NextRequest) {
             eq(sourcesCurrentSchema.userId, user.id),
             sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`
           ));
+        // Re-read meta so a concurrent Start's `processingStarted` is kept.
         const [currentSession] = await tx.select({ meta: uploadSessions.meta })
           .from(uploadSessions)
           .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
@@ -233,14 +234,6 @@ export async function POST(request: NextRequest) {
     const sourceData = await withTransaction(async (tx) => {
       if (!(await sessionStillOpen(tx, sessionId, user.id))) return null;
 
-      const [currentSession] = await tx.select({ meta: uploadSessions.meta })
-        .from(uploadSessions)
-        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
-        .limit(1);
-      const currentMeta = currentSession?.meta;
-      const alreadyStarted = await sessionAlreadyStarted(tx, sessionId, user.id, currentMeta);
-      const processingStatus = alreadyStarted ? 'queued' : 'uploaded';
-
       // Step 1: Create source record
       const [created] = await tx.insert(sourcesCurrentSchema).values({
         id: sourceId,
@@ -266,7 +259,16 @@ export async function POST(request: NextRequest) {
         updatedAt: now,
       }).returning();
 
-      // Step 2: Claimable when Start already ran; otherwise wait for Start.
+      // Step 2: Final in-txn read of processingStarted / siblings immediately
+      // before setting status so either Start or this register can commit first
+      // and the late row still lands as `queued` when the session is started.
+      const [statusSession] = await tx.select({ meta: uploadSessions.meta })
+        .from(uploadSessions)
+        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
+        .limit(1);
+      const alreadyStarted = await sessionAlreadyStarted(tx, sessionId, user.id, statusSession?.meta);
+      const processingStatus = alreadyStarted ? 'queued' : 'uploaded';
+
       await tx.update(sourcesCurrentSchema)
         .set({ processingStatus, updatedAt: now })
         .where(eq(sourcesCurrentSchema.id, created.id));
@@ -278,7 +280,8 @@ export async function POST(request: NextRequest) {
 
       // Step 4: Rebuild uploadedFiles from this caller's sources in the session.
       // Owner-scoped for the same reason as the duplicate branch above: the
-      // session id alone does not establish who owns a source row.
+      // session id alone does not establish who owns a source row. Re-read meta
+      // so a concurrent Start's `processingStarted` flag is not clobbered.
       const sessionSources = await tx.select({ id: sourcesCurrentSchema.id })
         .from(sourcesCurrentSchema)
         .where(and(
@@ -286,13 +289,18 @@ export async function POST(request: NextRequest) {
           sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`
         ));
 
+      const [freshSession] = await tx.select({ meta: uploadSessions.meta })
+        .from(uploadSessions)
+        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
+        .limit(1);
+      const freshMeta = freshSession?.meta;
       const allSourceIds = sessionSources.map((s: { id: string }) => s.id);
       await tx.update(uploadSessions)
         .set({
           meta: {
-            ...(currentMeta ?? { uploadedFiles: [], errors: [] }),
+            ...(freshMeta ?? { uploadedFiles: [], errors: [] }),
             uploadedFiles: allSourceIds,
-            errors: currentMeta?.errors ?? [],
+            errors: freshMeta?.errors ?? [],
           },
         })
         .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));

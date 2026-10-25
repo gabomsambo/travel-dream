@@ -283,7 +283,10 @@ describe('the virtualized gallery', () => {
       const { main, unmount } = renderLibrary(dataFor(library(20)))
       scrollMain(main, 4000)
       expect(sessionStorage.getItem('td:library-scroll:v1:/library')).toBeNull()
+      // App Router pushState runs before the gallery's effect cleanup; memory must stay under /library.
+      window.history.pushState(null, '', '/place/x')
       unmount()
+      expect(sessionStorage.getItem('td:library-scroll:v1:/place/x')).toBeNull()
       const saved = JSON.parse(sessionStorage.getItem('td:library-scroll:v1:/library')!) as { rowKey: string; top: number }
       expect(saved.rowKey).toMatch(/^[htp]:/)
       expect(saved.top).toBe(4000)

@@ -183,21 +183,26 @@ export function VirtualGallery({
     if (!scrollEl) return
     let frame = 0
     let timer: number | undefined
-    // Captured at scroll time so cleanup can flush after the list (and its rects) are gone.
-    let pending: { remember: { rowKey: string; top: number } } | { forget: true } | null = null
+    // Captured at scroll time so cleanup can flush after the list (and its rects) are gone,
+    // and under the Library URL even if App Router has already pushed /place/... .
+    let pending:
+      | { url: string; remember: { rowKey: string; top: number } }
+      | { url: string; forget: true }
+      | null = null
     const capture = () => {
+      const pageUrl = url()
       const hit = rowAtLine(scrollEl.scrollTop)
       // Above the list (the cover, the shelves) there is nothing to come back to but the top.
       const listTop = listRef.current?.getBoundingClientRect().top ?? 0
-      if (!hit || listTop > scrollEl.getBoundingClientRect().top) pending = { forget: true }
-      else pending = { remember: { rowKey: rowsRef.current[hit.index]?.key ?? "", top: scrollEl.scrollTop } }
+      if (!hit || listTop > scrollEl.getBoundingClientRect().top) pending = { url: pageUrl, forget: true }
+      else pending = { url: pageUrl, remember: { rowKey: rowsRef.current[hit.index]?.key ?? "", top: scrollEl.scrollTop } }
     }
     const flush = () => {
       if (!pending) return
       const decision = pending
       pending = null
-      if ("forget" in decision) forgetScroll(url())
-      else rememberScroll(url(), decision.remember)
+      if ("forget" in decision) forgetScroll(decision.url)
+      else rememberScroll(decision.url, decision.remember)
     }
     const onScroll = () => {
       if (!frame) {

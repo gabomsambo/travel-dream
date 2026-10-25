@@ -155,6 +155,8 @@ describe('Path A — a foreign source id planted in the caller\'s own session', 
   });
 
   it('mass-upload/start does not requeue it', async () => {
+    // Start scopes by meta.uploadInfo.sessionId (and forUser), not uploadedFiles.
+    // Alice's own source for this session still queues; Bob's must not.
     const { POST } = require('@/app/api/mass-upload/start/route');
     const body = await (
       await POST(
@@ -162,7 +164,8 @@ describe('Path A — a foreign source id planted in the caller\'s own session', 
       )
     ).json();
 
-    expect(body.queued).toBe(0);
+    expect(body.queued).toBe(1);
+    expect(await sourceStatus(FIXTURE.aliceSource)).toBe('queued');
     expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
   });
 

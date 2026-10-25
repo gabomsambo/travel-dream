@@ -43,6 +43,7 @@ import { LibraryViewBar } from "./library-view-bar"
 import { LibraryChapters } from "./library-chapters"
 import { LibraryMapView } from "./library-map-view"
 import { LibraryTile } from "./library-tile"
+import { placesViewport } from "./virtual-rows"
 
 const AddPlaceDialog = dynamic(() => import("@/components/places/add-place-dialog").then((m) => ({ default: m.AddPlaceDialog })), { ssr: false })
 
@@ -572,9 +573,9 @@ function LibraryPage({ data }: { data: LibraryData }) {
         e.preventDefault()
         const i = places.indexOf(document.activeElement as HTMLElement)
         // Overscan keeps rows above and below the screen mounted; starting from either would yank scroll back.
-        const mainRect = document.querySelector("main")?.getBoundingClientRect()
-        const top = mainRect?.top ?? 0
-        const bottom = mainRect?.bottom ?? Number.POSITIVE_INFINITY
+        const viewRect = placesViewport()?.getBoundingClientRect()
+        const top = viewRect?.top ?? 0
+        const bottom = viewRect?.bottom ?? Number.POSITIVE_INFINITY
         const onScreen = Math.max(places.findIndex((el) => el.getBoundingClientRect().bottom > top), 0)
         const focusRect = i >= 0 ? places[i].getBoundingClientRect() : null
         const focusOffScreen = focusRect !== null && (focusRect.bottom <= top || focusRect.top >= bottom)

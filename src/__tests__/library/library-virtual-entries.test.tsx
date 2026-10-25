@@ -29,7 +29,14 @@ const library = (perCountry: number): LibraryItem[] =>
       item({ id: `${c}-${i}`, name: `Place ${c}-${i}`, country, city: `${country} City ${i % 4}`, photos: [photo], createdAt: `2025-01-${String((i % 27) + 1).padStart(2, '0')}T00:00:00Z` })
     )
   )
-const dataFor = (items: LibraryItem[]): LibraryData => ({ userId: 'usr_test', items, collections: [], inboxCount: 0, heartIds: [], savedViews: [] })
+const dataFor = (items: LibraryItem[], collections: LibraryData['collections'] = []): LibraryData => ({
+  userId: 'usr_test',
+  items,
+  collections,
+  inboxCount: 0,
+  heartIds: [],
+  savedViews: [],
+})
 
 /** Pretend the screen is a desktop (all breakpoints match) or a phone (none do). */
 function setScreen(kind: 'desktop' | 'phone') {
@@ -141,6 +148,21 @@ describe('the virtualized compact list', () => {
     await user.click(await screen.findByRole('button', { name: 'Show 1100 more' }))
     expect(await screen.findByRole('table')).toHaveAttribute('aria-rowcount', String(1 + 200 + 1))
   })
+
+  it('keeps the phone trips interlude as a numbered table row', () => {
+    setScreen('phone')
+    const collections = [{ id: 'col_1', name: 'Autumn trip', placeIds: ['0-1', '1-1'] }]
+    renderLibrary(dataFor(library(5), collections))
+    const table = screen.getByRole('table', { name: 'Places' })
+    // 30 chapters × (header + columns + 5 places) + the interlude after the first = 211.
+    expect(table).toHaveAttribute('aria-rowcount', String(30 * 7 + 1))
+    const rows = within(table).getAllByRole('row')
+    const indices = rows.map((r) => Number(r.getAttribute('aria-rowindex')))
+    // Header, columns, five places, then the interlude — index 8 must be a real row.
+    expect(indices).toContain(8)
+    expect(indices).toEqual([...indices].sort((a, b) => a - b))
+    expect(new Set(indices).size).toBe(indices.length)
+  })
 })
 
 describe('the virtualized journal', () => {
@@ -201,13 +223,18 @@ describe('the virtualized map side list', () => {
     COUNTRIES.map((country) => ({ key: `country:${country}`, title: country, items: items.filter((p) => p.country === country) }))
 
   function renderMap(items: LibraryItem[]) {
-    return render(
+    const view = render(
       <LibraryActionsContext.Provider value={actions}>
         <main data-testid="main" className="overflow-y-auto">
           <LibraryMapView chapters={chaptersOf(items)} items={items} siblings={items.map((p) => p.id)} stats={stats} />
         </main>
       </LibraryActionsContext.Provider>
     )
+    const main = screen.getByTestId('main')
+    main.scrollTo = jest.fn()
+    const side = document.querySelector<HTMLElement>('[data-side-list]')!
+    side.scrollTo = jest.fn()
+    return { ...view, main, side }
   }
 
   it('mounts the places near the screen, not every place in the library', () => {
@@ -233,9 +260,101 @@ describe('the virtualized map side list', () => {
     const user = userEvent.setup()
     const items = library(5)
     renderMap(items)
-    const list = screen.getAllByRole('list', { name: 'Country 00' })[0]
-    expect(within(list).getByRole('listitem')).toHaveAttribute('aria-setsize', '5')
-    await user.click(list.querySelector('button[data-place-id]')!)
+    const first = document.querySelector('button[data-place-id="0-0"]')!.closest('[aria-posinset]')!
+    expect(first).toHaveAttribute('aria-posinset', '1')
+    expect(first).toHaveAttribute('aria-setsize', '5')
+    expect(screen.queryByRole('list', { name: 'Country 00' })).not.toBeInTheDocument()
+    await user.click(document.querySelector('button[data-place-id="0-0"]')!)
     expect(actions.activate).toHaveBeenCalledWith('0-0', items.map((p) => p.id), { shiftKey: false })
+  })
+
+  it('starts j/k from the first place visible in the side list from lg', async () => {
+    query = 'view=map'
+    const user = userEvent.setup()
+    renderLibrary(dataFor(library(20)))
+    const places = [...placeButtons()] as HTMLElement[]
+    expect(places.length).toBeGreaterThan(2)
+
+    const offsetParentDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() {
+        return this.parentElement
+      },
+    })
+
+    for (const el of places) {
+      el.scrollIntoView = jest.fn()
+    }
+
+    const side = document.querySelector<HTMLElement>('[data-side-list]')!
+    // <main> is tall enough that overscan above the side list still sits inside it;
+    // j/k must use the side list's clip, or cold j would land on a clipped row.
+    const rectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this === side) {
+        return { top: 100, bottom: 500, left: 0, right: 400, width: 400, height: 400, x: 0, y: 100, toJSON: () => ({}) }
+      }
+      if (this.tagName === 'MAIN') {
+        return { top: 0, bottom: 2000, left: 0, right: 800, width: 800, height: 2000, x: 0, y: 0, toJSON: () => ({}) }
+      }
+      const i = places.indexOf(this as HTMLElement)
+      if (i === 0 || i === 1) {
+        const top = i === 0 ? -200 : 20
+        return { top, bottom: top + 80, left: 0, right: 100, width: 100, height: 80, x: 0, y: top, toJSON: () => ({}) }
+      }
+      if (i >= 2) {
+        const top = 120 + (i - 2) * 90
+        return { top, bottom: top + 80, left: 0, right: 100, width: 100, height: 80, x: 0, y: top, toJSON: () => ({}) }
+      }
+      return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }
+    })
+
+    try {
+      await user.keyboard('j')
+      expect(places[2]).toHaveFocus()
+    } finally {
+      rectSpy.mockRestore()
+      if (offsetParentDesc) Object.defineProperty(HTMLElement.prototype, 'offsetParent', offsetParentDesc)
+    }
+  })
+
+  describe('scroll position on Back', () => {
+    const popped = () => act(() => void window.dispatchEvent(new PopStateEvent('popstate')))
+
+    it('remembers against <main> below lg', async () => {
+      setScreen('phone')
+      const { main } = renderMap(library(100))
+      scrollTo(main, 3000)
+      await waitFor(() => expect(sessionStorage.getItem('td:library-scroll:v1:/library')).not.toBeNull(), { timeout: 2000 })
+      const saved = JSON.parse(sessionStorage.getItem('td:library-scroll:v1:/library')!) as { rowKey: string; top: number }
+      expect(saved.rowKey).toMatch(/^[hce]:/)
+      expect(saved.top).toBe(3000)
+    })
+
+    it('restores <main> on Back below lg', async () => {
+      setScreen('phone')
+      sessionStorage.setItem('td:library-scroll:v1:/library', JSON.stringify({ rowKey: 'h:country:Country 05', top: 9000 }))
+      popped()
+      const { main } = renderMap(library(100))
+      await waitFor(() => expect(main.scrollTo).toHaveBeenCalled())
+    })
+
+    it('remembers against the side list from lg', async () => {
+      setScreen('desktop')
+      const { side } = renderMap(library(100))
+      scrollTo(side, 3000)
+      await waitFor(() => expect(sessionStorage.getItem('td:library-scroll:v1:/library')).not.toBeNull(), { timeout: 2000 })
+      const saved = JSON.parse(sessionStorage.getItem('td:library-scroll:v1:/library')!) as { rowKey: string; top: number }
+      expect(saved.rowKey).toMatch(/^[hce]:/)
+      expect(saved.top).toBe(3000)
+    })
+
+    it('restores the side list on Back from lg', async () => {
+      setScreen('desktop')
+      sessionStorage.setItem('td:library-scroll:v1:/library', JSON.stringify({ rowKey: 'h:country:Country 05', top: 9000 }))
+      popped()
+      const { side } = renderMap(library(100))
+      await waitFor(() => expect(side.scrollTo).toHaveBeenCalled())
+    })
   })
 })

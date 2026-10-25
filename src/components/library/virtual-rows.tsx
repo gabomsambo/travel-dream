@@ -25,6 +25,16 @@ const observeScrollRect: typeof observeElementRect = (instance, cb) =>
 /** The app shell's scroll container: what every list but the map's side list windows against. */
 export const mainOf = (list: HTMLElement): HTMLElement | null => list.closest("main")
 
+/**
+ * The box that clips on-screen places for j/k: the map's side list from lg (it scrolls
+ * itself), otherwise <main>. Overscan rows outside this rect must not be treated as visible.
+ */
+export function placesViewport(): HTMLElement | null {
+  const side = document.querySelector<HTMLElement>("[data-side-list]")
+  if (side && window.matchMedia("(min-width: 1024px)").matches) return side
+  return document.querySelector("main")
+}
+
 export interface VirtualRowsHandle {
   jumpTo: (chapterKey: string) => void
 }

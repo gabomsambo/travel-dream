@@ -204,37 +204,39 @@ function MapEntry({ row, siblings }: { row: Entry; siblings: string[] }) {
   const a = useLibraryActions()
   const { item: p } = row
   return (
-    <div role="list" aria-label={row.chapter.title} className={cn(row.last && "mb-4")}>
-      <div role="listitem" aria-setsize={row.setSize} aria-posinset={row.pos} className={cn("flex items-center gap-3 py-2", a.selected.has(p.id) && "rounded-xl bg-primary/5")}>
-        <button
-          type="button"
-          data-place-id={p.id}
-          onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted sm:h-16 sm:w-16">
-            {p.photos[0] ? (
-              <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} use="thumb" sizes="64px" />
-            ) : (
-              <FallbackArt name={p.name} kind={p.kind} />
-            )}
+    <div
+      aria-setsize={row.setSize}
+      aria-posinset={row.pos}
+      className={cn("flex items-center gap-3 py-2", row.last && "mb-4", a.selected.has(p.id) && "rounded-xl bg-primary/5")}
+    >
+      <button
+        type="button"
+        data-place-id={p.id}
+        onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted sm:h-16 sm:w-16">
+          {p.photos[0] ? (
+            <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} use="thumb" sizes="64px" />
+          ) : (
+            <FallbackArt name={p.name} kind={p.kind} />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-semibold">{p.name}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {[p.city, kindLabel(p.kind)].filter(Boolean).join(" · ")}
+            {p.lat === null && " · not on the map"}
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-semibold">{p.name}</span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {[p.city, kindLabel(p.kind)].filter(Boolean).join(" · ")}
-              {p.lat === null && " · not on the map"}
-            </span>
-          </span>
-          {/* Badge colours mirror the map pins and the legend under Passport. */}
-          {p.visitStatus === "visited" ? (
-            <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">Been</span>
-          ) : p.visitStatus === "planned" ? (
-            <span className="rounded-full bg-[hsl(var(--map-planned))] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--map-planned-foreground))]">Planned</span>
-          ) : null}
-        </button>
-        <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
-      </div>
+        </span>
+        {/* Badge colours mirror the map pins and the legend under Passport. */}
+        {p.visitStatus === "visited" ? (
+          <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">Been</span>
+        ) : p.visitStatus === "planned" ? (
+          <span className="rounded-full bg-[hsl(var(--map-planned))] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--map-planned-foreground))]">Planned</span>
+        ) : null}
+      </button>
+      <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
     </div>
   )
 }
@@ -274,7 +276,7 @@ const EntryRowView = React.memo(function EntryRowView({
     )
   switch (row.kind) {
     case "interlude":
-      return <div className="mb-10 sm:hidden">{interlude}</div>
+      return cell(<div className="mb-10 sm:hidden">{interlude}</div>)
     case "columns":
       return <ListColumns index={index} />
     case "header": {
@@ -368,7 +370,6 @@ export function VirtualEntries({
       onActive={onActive}
       handle={handle}
       // The map's side list scrolls itself beside the map from lg up; below that it is part of the page.
-      remember={view !== "map"}
       scrollParent={view === "map" ? sideListScroller : mainOf}
       listProps={view === "list" ? { role: "table", "aria-label": "Places", "aria-rowcount": rows.length } : undefined}
       rowRole={view === "list" ? "presentation" : undefined}

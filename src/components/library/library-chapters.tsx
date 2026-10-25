@@ -34,7 +34,7 @@ function ChapterHeader({ chapter, group, items, collage }: { chapter: Chapter; g
         <div className="grid aspect-[4/3] w-24 shrink-0 grid-cols-[2fr_1fr] grid-rows-2 gap-[2px] overflow-hidden rounded-xl bg-muted sm:w-[120px]">
           {photos.map((src, i) => (
             <div key={src + i} className={cn("relative", i === 0 && "row-span-2")}>
-              <Photo src={src} sizes={i === 0 ? "80px" : "40px"} />
+              <Photo src={src} use="thumb" sizes={i === 0 ? "80px" : "40px"} />
             </div>
           ))}
         </div>

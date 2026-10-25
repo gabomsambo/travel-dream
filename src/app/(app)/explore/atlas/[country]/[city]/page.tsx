@@ -88,7 +88,7 @@ export default async function CityPage({ params }: { params: Promise<{ country: 
                 >
                   {c.cover ? (
                     <span className="relative h-8 w-8 overflow-hidden rounded-full">
-                      <Photo src={c.cover} sizes="32px" />
+                      <Photo src={c.cover} use="thumb" sizes="32px" />
                     </span>
                   ) : (
                     <span className="h-8 w-8 rounded-full bg-muted" />

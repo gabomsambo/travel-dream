@@ -113,7 +113,7 @@ function Collage({ photos }: { photos: string[] }) {
       {[0, 1, 2].map((i) => (
         <span key={i} className={cn("relative bg-muted-foreground/10", i === 0 && "row-span-2")}>
           {photos[i] && (
-            <Photo src={photos[i]} sizes={i === 0 ? "38px" : "19px"} />
+            <Photo src={photos[i]} use="thumb" sizes={i === 0 ? "38px" : "19px"} />
           )}
         </span>
       ))}

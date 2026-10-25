@@ -179,13 +179,13 @@ describe('chapterRowIndex', () => {
   it('maps each chapter to its header row, so the index can jump to it', () => {
     const items = [...places(12, () => ({ country: 'Japan' })), ...places(10, (i) => ({ id: `q${i}`, country: 'Italy', city: 'Rome' }))];
     const rows = rowsFor(items, 'country', { interlude: true });
-    const index = chapterRowIndex(rows);
+    const index = chapterRowIndex(rows, rowChapterKey);
     expect(rows[index.get('country:japan')!]).toMatchObject({ kind: 'header' });
     expect(rows[index.get('country:italy')!]).toMatchObject({ kind: 'header', chapter: { key: 'country:italy' } });
   });
 
   it('points the single "No grouping" chapter at its first row', () => {
     const rows = rowsFor(places(5), 'none');
-    expect(chapterRowIndex(rows).get('all')).toBe(0);
+    expect(chapterRowIndex(rows, rowChapterKey).get('all')).toBe(0);
   });
 });

@@ -94,11 +94,12 @@ export function buildGalleryRows(chapters: Chapter[], o: GalleryRowOptions): Gal
   return rows;
 }
 
-/** Index of each chapter's header row, for the index's jump. A chapter with no header (the single "all" one) maps to its first row. */
-export function chapterRowIndex(rows: GalleryRow[]): Map<string, number> {
+/** Index of each chapter's first row (its header; the single "all" chapter has none), for the index's jump. */
+export function chapterRowIndex<R>(rows: R[], chapterOf: (row: R) => string | null): Map<string, number> {
   const map = new Map<string, number>();
   rows.forEach((row, i) => {
-    if (row.kind === 'header' || row.kind === 'tiles') if (!map.has(row.chapter.key)) map.set(row.chapter.key, i);
+    const key = chapterOf(row);
+    if (key !== null && !map.has(key)) map.set(key, i);
   });
   return map;
 }

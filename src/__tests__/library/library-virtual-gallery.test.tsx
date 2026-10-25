@@ -285,6 +285,9 @@ describe('the virtualized gallery', () => {
       expect(sessionStorage.getItem('td:library-scroll:v1:/library')).toBeNull()
       // App Router pushState runs before the gallery's effect cleanup; memory must stay under /library.
       window.history.pushState(null, '', '/place/x')
+      // Shared <main> clamps scrollTop after the tall gallery is gone; that scroll must not re-key pending.
+      main.scrollTop = 0
+      fireEvent.scroll(main)
       unmount()
       expect(sessionStorage.getItem('td:library-scroll:v1:/place/x')).toBeNull()
       const saved = JSON.parse(sessionStorage.getItem('td:library-scroll:v1:/library')!) as { rowKey: string; top: number }

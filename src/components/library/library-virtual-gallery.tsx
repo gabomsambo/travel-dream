@@ -181,6 +181,7 @@ export function VirtualGallery({
   const url = () => window.location.pathname + window.location.search
   React.useEffect(() => {
     if (!scrollEl) return
+    const mountPath = window.location.pathname
     let frame = 0
     let timer: number | undefined
     // Captured at scroll time so cleanup can flush after the list (and its rects) are gone,
@@ -190,6 +191,9 @@ export function VirtualGallery({
       | { url: string; forget: true }
       | null = null
     const capture = () => {
+      // Shared <main> can fire a clamp scroll after pushState to /place/... while this
+      // listener is still attached; ignore it so the last Library pending is what flush writes.
+      if (window.location.pathname !== mountPath) return
       const pageUrl = url()
       const hit = rowAtLine(scrollEl.scrollTop)
       // Above the list (the cover, the shelves) there is nothing to come back to but the top.

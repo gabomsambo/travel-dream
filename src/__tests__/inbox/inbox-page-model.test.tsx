@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { InboxPageClient } from '@/components/inbox/inbox-page-client'
 import { InboxScreen } from '@/components/inbox/inbox-screen'
@@ -34,8 +34,7 @@ type InboxUploadRows = InboxUploadBatch['rows']
 
 function emptyRows(): InboxUploadRows {
   return {
-    toReview: { placeIds: [], sourceIds: [], places: [], checkCount: 0 },
-    added: { placeIds: [], sourceIds: [], places: [] },
+    toReview: { placeIds: [], sourceIds: [], places: [], checkCount: null, lookRightPlaceIds: [] },    added: { placeIds: [], sourceIds: [], places: [] },
     notAPlace: { placeIds: [], sourceIds: [], places: [] },
     alreadyInLibrary: { placeIds: [], sourceIds: [], places: [] },
     uploadedBefore: { items: [] },
@@ -83,8 +82,7 @@ describe('inbox page model', () => {
           placeIds: ['P1', 'P2'],
           sourceIds: ['src_old'],
           places: [place({ id: 'P1', name: 'Older one', status: 'inbox' }), place({ id: 'P2', name: 'Older two', status: 'inbox' })],
-          checkCount: 0,
-        },
+          checkCount: null, lookRightPlaceIds: [],        },
       },
     })
     const newest = batch({
@@ -95,8 +93,7 @@ describe('inbox page model', () => {
           placeIds: ['P3'],
           sourceIds: ['src_new'],
           places: [place({ id: 'P3', name: 'Newest', status: 'inbox' })],
-          checkCount: 0,
-        },
+          checkCount: null, lookRightPlaceIds: [],        },
       },
     })
     render(<InboxScreen model={show([newest, older])} />)
@@ -137,8 +134,7 @@ describe('inbox page model', () => {
             place({ id: 'P1', name: 'Older', status: 'inbox', sourceIds: ['src_old'] }),
             place({ id: 'P2', name: 'Newer', status: 'inbox', sourceIds: ['src_new'] }),
           ],
-          checkCount: 0,
-        },
+          checkCount: null, lookRightPlaceIds: [],        },
       },
     })
     const home = render(<InboxScreen model={show([upload])} />)
@@ -214,8 +210,7 @@ describe('inbox page model', () => {
             place({ id: 'plc_b', name: 'Bee', status: 'inbox', createdAt: sameTime, sourceIds: ['src_tie'] }),
             place({ id: 'plc_a', name: 'Aye', status: 'inbox', createdAt: sameTime, sourceIds: ['src_tie'] }),
           ],
-          checkCount: 0,
-        },
+          checkCount: null, lookRightPlaceIds: [],        },
       },
     })
     render(<InboxScreen model={show([upload], 'session_shot')} />)
@@ -251,8 +246,7 @@ describe('inbox page model', () => {
             place({ id: 'plc_a', name: 'Aye', status: 'inbox', createdAt: sameTime, sourceIds: ['src_old'] }),
             place({ id: 'plc_b', name: 'Bee', status: 'inbox', createdAt: sameTime, sourceIds: ['src_old', 'src_new'] }),
           ],
-          checkCount: 0,
-        },
+          checkCount: null, lookRightPlaceIds: [],        },
       },
     })
     render(<InboxScreen model={show([upload], 'session_sib')} />)
@@ -296,8 +290,7 @@ describe('inbox page model', () => {
             place({ id: 'P2', name: 'Two', status: 'inbox' }),
             place({ id: 'P3', name: 'Three', status: 'inbox' }),
           ],
-          checkCount: 0,
-        },
+          checkCount: null, lookRightPlaceIds: [],        },
       },
     })
     render(
@@ -363,8 +356,7 @@ describe('inbox page model', () => {
           placeIds: ['p_new'],
           sourceIds: ['src_new'],
           places: [place({ id: 'p_new', name: 'Still New', status: 'inbox' })],
-          checkCount: 0,
-        },
+          checkCount: null, lookRightPlaceIds: [],        },
         uploadedBefore: {
           items: [{
             originalName: 'again.jpg',
@@ -407,8 +399,7 @@ describe('inbox page model', () => {
         shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
       ],
       rows: {
-        toReview: { placeIds: ['p_inbox'], sourceIds: ['src_link'], places: [inboxPlace], checkCount: 0 },
-        added: { placeIds: ['p_saved'], sourceIds: ['src_saved'], places: [saved] },
+        toReview: { placeIds: ['p_inbox'], sourceIds: ['src_link'], places: [inboxPlace], checkCount: null, lookRightPlaceIds: [] },        added: { placeIds: ['p_saved'], sourceIds: ['src_saved'], places: [saved] },
         notAPlace: { placeIds: ['p_arch'], sourceIds: ['src_arch'], places: [archived] },
         uploadedBefore: {
           items: [{
@@ -471,8 +462,7 @@ describe('inbox page model', () => {
         shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
       ],
       rows: {
-        toReview: { placeIds: ['p_new'], sourceIds: ['src_mix'], places: [still], checkCount: 0 },
-        added: { placeIds: ['p_saved'], sourceIds: ['src_saved'], places: [saved] },
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_mix'], places: [still], checkCount: null, lookRightPlaceIds: [] },        added: { placeIds: ['p_saved'], sourceIds: ['src_saved'], places: [saved] },
         notAPlace: {
           placeIds: ['p_arch', 'p_arch_saved'],
           sourceIds: ['src_mix', 'src_saved'],
@@ -505,8 +495,7 @@ describe('inbox page model', () => {
         shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
       ],
       rows: {
-        toReview: { placeIds: ['p_new'], sourceIds: ['src_new'], places: [still], checkCount: 0 },
-        added: { placeIds: ['p_saved'], sourceIds: ['src_created', 'src_new'], places: [saved] },
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_new'], places: [still], checkCount: null, lookRightPlaceIds: [] },        added: { placeIds: ['p_saved'], sourceIds: ['src_created', 'src_new'], places: [saved] },
         alreadyInLibrary: { placeIds: ['p_match'], sourceIds: ['src_new'], places: [matched] },
         stillReading: { sourceIds: ['src_wait'] },
       },
@@ -575,8 +564,7 @@ describe('inbox page model', () => {
         shot({ sourceId: 'src_both', createdPlaceIds: ['p_saved'], linkedPlaceIds: ['p_match'] }),
       ],
       rows: {
-        toReview: { placeIds: ['p_new'], sourceIds: ['src_partial'], places: [still], checkCount: 0 },
-        added: { placeIds: ['p_saved'], sourceIds: ['src_partial', 'src_both'], places: [saved] },
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_partial'], places: [still], checkCount: null, lookRightPlaceIds: [] },        added: { placeIds: ['p_saved'], sourceIds: ['src_partial', 'src_both'], places: [saved] },
         alreadyInLibrary: { placeIds: ['p_match'], sourceIds: ['src_both'], places: [matched] },
       },
     })
@@ -637,8 +625,7 @@ describe('inbox page model', () => {
           placeIds: ['p1'],
           sourceIds: ['src'],
           places: [place({ id: 'p1', name: 'Medanos de Coro', status: 'inbox' })],
-          checkCount: 0,
-        },
+          checkCount: null, lookRightPlaceIds: [],        },
       },
     })
     const html = renderToString(
@@ -652,5 +639,34 @@ describe('inbox page model', () => {
     expect(html).toContain('Review 1 place')
     expect(html).not.toContain('Today,')
     expect(html).not.toMatch(/\b\d{1,2}:\d{2}\b/)
+  })
+
+  it('adds only the places with nothing to check', async () => {
+    const upload = batch({
+      sessionId: 'session_safe',
+      uploadedAt: '2026-10-23T18:00:00.000Z',
+      screenshotCount: 1,
+      rows: {
+        toReview: {
+          placeIds: ['ok', 'check'],
+          sourceIds: ['src'],
+          places: [
+            place({ id: 'ok', name: 'Ready Cafe', status: 'inbox' }),
+            place({ id: 'check', name: 'Vague Tip', status: 'inbox' }),
+          ],
+          checkCount: 1,
+          lookRightPlaceIds: ['ok'],
+        },
+      },
+    })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'success' }),
+    })
+    render(<InboxScreen model={show([upload])} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add the 1 that looks right' }))
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled())
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body as string)
+    expect(body).toEqual({ action: 'confirm', placeIds: ['ok'] })
   })
 })

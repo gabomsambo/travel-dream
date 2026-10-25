@@ -11,9 +11,11 @@ jest.mock('@/lib/auth-helpers', () => ({
 // Mock the database functions
 jest.mock('@/lib/db-mutations', () => ({
   bulkConfirmPlaces: jest.fn(),
+  bulkReturnPlacesToInbox: jest.fn(),
   batchArchivePlaces: jest.fn(),
   batchRestorePlaces: jest.fn(),
   batchDeletePlaces: jest.fn(),
+  batchSetVisitStatus: jest.fn(),
 }));
 
 // ── Imports (after mocks) ──────────────────────────────────────────────
@@ -29,12 +31,25 @@ jest.mock('@/lib/db-queries', () => ({
   getOwnedPlaceIds: jest.fn(async (ids: string[]) => new Set(ids)),
 }))
 
-import { bulkConfirmPlaces, batchArchivePlaces } from '@/lib/db-mutations'
+import { bulkConfirmPlaces, bulkReturnPlacesToInbox, batchArchivePlaces } from '@/lib/db-mutations'
 import { getOwnedPlaceIds } from '@/lib/db-queries'
 
 const mockBulkConfirmPlaces = bulkConfirmPlaces as jest.MockedFunction<typeof bulkConfirmPlaces>
+const mockBulkReturnPlacesToInbox = bulkReturnPlacesToInbox as jest.MockedFunction<typeof bulkReturnPlacesToInbox>
 const mockBatchArchivePlaces = batchArchivePlaces as jest.MockedFunction<typeof batchArchivePlaces>
 const mockGetOwnedPlaceIds = getOwnedPlaceIds as jest.MockedFunction<typeof getOwnedPlaceIds>
+
+function placeIds(count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `place-${i}`)
+}
+
+function bulkRequest(action: string, ids: string[], extra: Record<string, string> = {}) {
+  return new NextRequest('http://localhost:3000/api/places/bulk-actions', {
+    method: 'POST',
+    body: JSON.stringify({ action, placeIds: ids, ...extra }),
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
 
 describe('/api/places/bulk-actions', () => {
   beforeEach(() => {
@@ -43,7 +58,7 @@ describe('/api/places/bulk-actions', () => {
 
   describe('POST /api/places/bulk-actions', () => {
     it('confirms places successfully', async () => {
-      mockBulkConfirmPlaces.mockResolvedValue(2)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 2, updatedIds: ['place-1', 'place-2'] })
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -91,7 +106,7 @@ describe('/api/places/bulk-actions', () => {
     })
 
     it('handles partial success', async () => {
-      mockBulkConfirmPlaces.mockResolvedValue(1)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 1, updatedIds: ['place-1'] })
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -110,11 +125,12 @@ describe('/api/places/bulk-actions', () => {
       expect(response.status).toBe(200)
       expect(data.status).toBe('partial_success')
       expect(data.result.updatedCount).toBe(1)
+      expect(data.result.updatedIds).toEqual(['place-1'])
       expect(data.result.requestedCount).toBe(2)
     })
 
     it('handles complete failure', async () => {
-      mockBulkConfirmPlaces.mockResolvedValue(0)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 0, updatedIds: [] })
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -196,29 +212,63 @@ describe('/api/places/bulk-actions', () => {
       expect(data.status).toBe('error')
     })
 
-    it('limits maximum places to 500', async () => {
-      const largePlaceIds = Array.from({ length: 501 }, (_, i) => `place-${i}`)
+    it.each([501, 5000])('confirms %i places in one request', async (count) => {
+      const ids = placeIds(count)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: count, updatedIds: ids })
 
-      const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'confirm',
-          placeIds: largePlaceIds
-        }),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
+      const response = await POST(bulkRequest('confirm', ids))
+      const data = await response.json()
 
-      const response = await POST(request)
+      expect(response.status).toBe(200)
+      expect(data.status).toBe('success')
+      expect(data.result.updatedCount).toBe(count)
+      expect(mockGetOwnedPlaceIds).toHaveBeenCalledWith(ids, 'user_test')
+      expect(mockBulkConfirmPlaces).toHaveBeenCalledTimes(1)
+      expect(mockBulkConfirmPlaces).toHaveBeenCalledWith(ids, 'user_test')
+    })
+
+    it.each([501, 5000])('returns %i places to the inbox in one request', async (count) => {
+      const ids = placeIds(count)
+      mockBulkReturnPlacesToInbox.mockResolvedValue({ updatedCount: count, updatedIds: ids })
+
+      const response = await POST(bulkRequest('return-to-inbox', ids))
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.status).toBe('success')
+      expect(data.result.updatedCount).toBe(count)
+      expect(mockGetOwnedPlaceIds).toHaveBeenCalledWith(ids, 'user_test')
+      expect(mockBulkReturnPlacesToInbox).toHaveBeenCalledTimes(1)
+      expect(mockBulkReturnPlacesToInbox).toHaveBeenCalledWith(ids, 'user_test')
+    })
+
+    it('rejects confirm above 5000 places', async () => {
+      const response = await POST(bulkRequest('confirm', placeIds(5001)))
       const data = await response.json()
 
       expect(response.status).toBe(400)
       expect(data.status).toBe('error')
+      expect(mockBulkConfirmPlaces).not.toHaveBeenCalled()
     })
 
+    it.each(['archive', 'restore', 'delete', 'set-visit-status'])(
+      'rejects %s above 500 places',
+      async (action) => {
+        const extra: Record<string, string> =
+          action === 'set-visit-status' ? { visitStatus: 'visited' } : {}
+        const response = await POST(bulkRequest(action, placeIds(501), extra))
+        const data = await response.json()
+
+        expect(response.status).toBe(400)
+        expect(data.status).toBe('error')
+        expect(mockBulkConfirmPlaces).not.toHaveBeenCalled()
+        expect(mockBulkReturnPlacesToInbox).not.toHaveBeenCalled()
+        expect(mockBatchArchivePlaces).not.toHaveBeenCalled()
+      }
+    )
+
     it('removes duplicate place IDs', async () => {
-      mockBulkConfirmPlaces.mockResolvedValue(2)
+      mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 2, updatedIds: ['place-1', 'place-2'] })
 
       const request = new NextRequest('http://localhost:3000/api/places/bulk-actions', {
         method: 'POST',
@@ -354,7 +404,7 @@ describe('Bulk Actions Error Scenarios', () => {
   })
 
   it('handles concurrent request scenarios', async () => {
-    mockBulkConfirmPlaces.mockResolvedValue(1)
+    mockBulkConfirmPlaces.mockResolvedValue({ updatedCount: 1, updatedIds: ['place-1'] })
     mockBatchArchivePlaces.mockResolvedValue(1)
 
     const request1 = new NextRequest('http://localhost:3000/api/places/bulk-actions', {

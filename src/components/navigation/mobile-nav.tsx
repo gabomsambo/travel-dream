@@ -19,14 +19,12 @@ import {
   Settings,
   Download,
   Map,
-  CloudUpload,
   Compass
 } from "lucide-react"
 
 const navigation = {
   main: [
     { name: 'Inbox', href: '/inbox', icon: Inbox, shortcut: 'I' },
-    { name: 'Mass Upload', href: '/mass-upload', icon: CloudUpload, shortcut: 'U' },
     { name: 'Explore', href: '/explore', icon: Compass, shortcut: 'E' },
     { name: 'Library', href: '/library', icon: Library, shortcut: 'L' },
     { name: 'Collections', href: '/collections', icon: FolderOpen, shortcut: 'C' },

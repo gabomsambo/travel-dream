@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import crypto from 'crypto';
 // TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
@@ -10,13 +10,83 @@ import crypto from 'crypto';
 import { db } from '@/db';
 import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, ne, isNotNull } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { withTransaction, generateSourceId } from '@/lib/db-utils';
 import { isAllowedBlobUrl, BLOB_URL_REJECTED_MESSAGE } from '@/lib/blob-url';
-import { del } from '@vercel/blob';
+import { releaseBlobIfUnreferencedByAnyTenant } from '@/lib/shared-blob';
+import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 
 export const runtime = 'nodejs';
+
+type SessionMeta = NonNullable<(typeof uploadSessions.$inferSelect)['meta']>;
+
+async function sessionStillOpen(
+  tx: Pick<typeof db, 'update'>,
+  sessionId: string,
+  userId: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .update(uploadSessions)
+    .set({ fileCount: sql`${uploadSessions.fileCount}` })
+    .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, userId)))
+    .returning({ status: uploadSessions.status });
+  return row != null && row.status !== 'cancelled';
+}
+
+function isProcessingStartedFlag(value: unknown): boolean {
+  return value === true || value === 1;
+}
+
+/**
+ * True when Start has already queued this session (or a sibling source is past
+ * `uploaded`). Late registers must insert as `queued` so the queue claims them
+ * without a second client hop that pagehide cannot chain.
+ */
+async function sessionAlreadyStarted(
+  tx: Pick<typeof db, 'select'>,
+  sessionId: string,
+  userId: string,
+  meta: SessionMeta | null | undefined,
+  excludeSourceId: string,
+): Promise<boolean> {
+  if (isProcessingStartedFlag(meta?.processingStarted)) return true;
+  const siblings = await tx
+    .select({ id: sourcesCurrentSchema.id })
+    .from(sourcesCurrentSchema)
+    .where(and(
+      eq(sourcesCurrentSchema.userId, userId),
+      sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`,
+      ne(sourcesCurrentSchema.id, excludeSourceId),
+      isNotNull(sourcesCurrentSchema.processingStatus),
+      ne(sourcesCurrentSchema.processingStatus, 'uploaded'),
+      ne(sourcesCurrentSchema.processingStatus, 'pending'),
+    ))
+    .limit(1);
+  return siblings.length > 0;
+}
+
+function scheduleQueueDispatch(reason: string): void {
+  try {
+    after(async () => {
+      try {
+        await dispatchProcessors(reason, 'grow');
+      } catch (err) {
+        console.error('[Mass Upload Register] Failed to trigger processing:', err);
+      }
+    });
+  } catch (err) {
+    console.error('[Mass Upload Register] Could not schedule processing trigger:', err);
+  }
+}
+
+async function rejectClosedSession(blobUrl: string) {
+  await releaseBlobIfUnreferencedByAnyTenant(blobUrl, {}, '[Register]');
+  return NextResponse.json(
+    { status: 'error', message: 'Upload session was closed', timestamp: new Date().toISOString() },
+    { status: 409 }
+  );
+}
 
 const RegisterSchema = z.object({
   sessionId: z.string().min(1),
@@ -60,6 +130,9 @@ export async function POST(request: NextRequest) {
     if (session.userId !== user.id) {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
+    if (session.status === 'cancelled') {
+      return rejectClosedSession(blobUrl);
+    }
 
     // Compute real SHA-1 content hash from blob
     let sha1Hash: string;
@@ -99,7 +172,9 @@ export async function POST(request: NextRequest) {
       // Keep the skip as a first-class batch outcome. `uploadedFiles` contains
       // only sources actually registered to this session; pointing it at the
       // older source made later rebuilds silently erase the duplicate outcome.
-      await withTransaction(async (tx) => {
+      const closed = await withTransaction(async (tx) => {
+        if (!(await sessionStillOpen(tx, sessionId, user.id))) return true;
+
         if (existingSessionId !== sessionId) {
           await tx.update(uploadSessions)
             .set({ completedCount: sql`${uploadSessions.completedCount} + 1` })
@@ -118,6 +193,7 @@ export async function POST(request: NextRequest) {
             eq(sourcesCurrentSchema.userId, user.id),
             sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`
           ));
+        // Re-read meta so a concurrent Start's `processingStarted` is kept.
         const [currentSession] = await tx.select({ meta: uploadSessions.meta })
           .from(uploadSessions)
           .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
@@ -138,14 +214,14 @@ export async function POST(request: NextRequest) {
             },
           })
           .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));
+        return false;
       });
 
-      // Delete the duplicate blob that was just uploaded (after tx commits)
-      try {
-        await del(blobUrl);
-      } catch (e) {
-        console.warn('[Register] Failed to delete duplicate blob:', e);
+      if (closed) {
+        return rejectClosedSession(blobUrl);
       }
+
+      await releaseBlobIfUnreferencedByAnyTenant(blobUrl, {}, '[Register]');
 
       return NextResponse.json({
         status: 'duplicate',
@@ -163,6 +239,8 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     const sourceData = await withTransaction(async (tx) => {
+      if (!(await sessionStillOpen(tx, sessionId, user.id))) return null;
+
       // Step 1: Create source record
       const [created] = await tx.insert(sourcesCurrentSchema).values({
         id: sourceId,
@@ -188,9 +266,24 @@ export async function POST(request: NextRequest) {
         updatedAt: now,
       }).returning();
 
-      // Step 2: Set processing status to 'uploaded'
+      // Step 2: Final in-txn read of processingStarted / siblings immediately
+      // before setting status so either Start or this register can commit first
+      // and the late row still lands as `queued` when the session is started.
+      const [statusSession] = await tx.select({ meta: uploadSessions.meta })
+        .from(uploadSessions)
+        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
+        .limit(1);
+      const alreadyStarted = await sessionAlreadyStarted(
+        tx,
+        sessionId,
+        user.id,
+        statusSession?.meta,
+        created.id,
+      );
+      const processingStatus = alreadyStarted ? 'queued' : 'uploaded';
+
       await tx.update(sourcesCurrentSchema)
-        .set({ processingStatus: 'uploaded', updatedAt: now })
+        .set({ processingStatus, updatedAt: now })
         .where(eq(sourcesCurrentSchema.id, created.id));
 
       // Step 3: Atomically increment session count
@@ -200,7 +293,8 @@ export async function POST(request: NextRequest) {
 
       // Step 4: Rebuild uploadedFiles from this caller's sources in the session.
       // Owner-scoped for the same reason as the duplicate branch above: the
-      // session id alone does not establish who owns a source row.
+      // session id alone does not establish who owns a source row. Re-read meta
+      // so a concurrent Start's `processingStarted` flag is not clobbered.
       const sessionSources = await tx.select({ id: sourcesCurrentSchema.id })
         .from(sourcesCurrentSchema)
         .where(and(
@@ -208,28 +302,36 @@ export async function POST(request: NextRequest) {
           sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`
         ));
 
-      const allSourceIds = sessionSources.map((s: { id: string }) => s.id);
-      const [currentSession] = await tx.select({ meta: uploadSessions.meta })
+      const [freshSession] = await tx.select({ meta: uploadSessions.meta })
         .from(uploadSessions)
         .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
         .limit(1);
-      const currentMeta = currentSession?.meta;
+      const freshMeta = freshSession?.meta;
+      const allSourceIds = sessionSources.map((s: { id: string }) => s.id);
       await tx.update(uploadSessions)
         .set({
           meta: {
-            ...(currentMeta ?? { uploadedFiles: [], errors: [] }),
+            ...(freshMeta ?? { uploadedFiles: [], errors: [] }),
             uploadedFiles: allSourceIds,
-            errors: currentMeta?.errors ?? [],
+            errors: freshMeta?.errors ?? [],
           },
         })
         .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));
 
-      return created;
+      return { created, queued: alreadyStarted };
     });
+
+    if (!sourceData) {
+      return rejectClosedSession(blobUrl);
+    }
+
+    if (sourceData.queued) {
+      scheduleQueueDispatch('register-late');
+    }
 
     return NextResponse.json({
       status: 'success',
-      sourceId: sourceData.id,
+      sourceId: sourceData.created.id,
       blobUrl,
       timestamp: new Date().toISOString(),
     });

@@ -862,7 +862,7 @@ function InviteTile({ icon: Icon, title, sub, href, onClick }: { icon: typeof Up
 function Invitations({ inboxCount, onAddPlace }: { inboxCount: number; onAddPlace: () => void }) {
   return (
     <>
-      <InviteTile icon={Upload} title="Drop screenshots" sub="Mass upload turns them into places" href="/mass-upload" />
+      <InviteTile icon={Upload} title="Drop screenshots" sub="Upload turns them into places" href="/inbox?sheet=1" />
       <InviteTile icon={Plus} title="Add a place by name" onClick={onAddPlace} />
       {inboxCount > 0 && <InviteTile icon={Inbox} title={`${inboxCount} waiting in your Inbox`} sub="Confirm them into your atlas" href="/inbox" />}
     </>

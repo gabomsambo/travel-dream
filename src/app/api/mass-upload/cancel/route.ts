@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import { releaseBlobsIfUnreferenced } from '@/lib/shared-blob';
+import { releaseBlobIfUnreferencedByAnyTenant } from '@/lib/shared-blob';
 
 export const runtime = 'nodejs';
 
@@ -36,62 +36,65 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
 
-    // Owning the session is not owning the rows it names: `meta.uploadedFiles`
-    // is rebuilt from source metadata by mass-upload/register, so it is input to
-    // filter, not an authorization boundary. Every query below goes through the
-    // tenant accessor, which re-scopes to the caller on its own.
-    const sourceIds = found.row.meta?.uploadedFiles || [];
-    if (sourceIds.length === 0) {
-      return NextResponse.json({ status: 'success', cancelled: 0, alreadyProcessing: 0 });
-    }
+    const { cancelled, alreadyProcessing } = await tdb.transaction(async (tx) => {
+      await tx.update(
+        uploadSessions,
+        { status: 'cancelled' },
+        eq(uploadSessions.id, sessionId)
+      );
 
-    // Cancel only sources that are not in flight — 'stalled' ones are parked
-    // for the cron to requeue, so they are safe to cancel too.
-    const cancelled = await tdb.update(
-      sourcesCurrentSchema,
-      {
-        processingStatus: 'cancelled',
-        updatedAt: new Date().toISOString(),
-      },
-      and(
-        inArray(sourcesCurrentSchema.id, sourceIds),
-        sql`${sourcesCurrentSchema.processingStatus} IN ('queued', 'uploaded', 'stalled')`
-      )
-    ).returning();
+      const forSession = sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`;
+      const cancelledRows = await tx.update(
+        sourcesCurrentSchema,
+        {
+          processingStatus: 'cancelled',
+          updatedAt: new Date().toISOString(),
+        },
+        and(
+          forSession,
+          sql`${sourcesCurrentSchema.processingStatus} IN ('queued', 'uploaded', 'stalled')`
+        )
+      ).returning();
 
-    const blobUrls = cancelled
-      .map(s => s.uri)
-      .filter((uri): uri is string => !!uri && uri.startsWith('https://'));
+      const inFlight = await tx.selectFields(
+        sourcesCurrentSchema,
+        { count: sql<number>`count(*)` },
+        and(
+          forSession,
+          sql`${sourcesCurrentSchema.processingStatus} IN ('extracting', 'enriching')`
+        )
+      );
+
+      return {
+        cancelled: cancelledRows,
+        alreadyProcessing: Number(inFlight[0]?.count ?? 0),
+      };
+    });
+
+    const blobUrls = [...new Set(
+      cancelled
+        .map(s => s.uri)
+        .filter((uri): uri is string => !!uri && uri.startsWith('https://'))
+    )];
     if (blobUrls.length > 0) {
+      const excludeSourceIds = cancelled.map((s) => s.id);
       try {
-        await releaseBlobsIfUnreferenced(
-          user.id,
-          blobUrls,
-          { excludeSourceIds: cancelled.map((s) => s.id) },
-          '[MassUpload Cancel]'
-        );
+        for (const url of blobUrls) {
+          await releaseBlobIfUnreferencedByAnyTenant(
+            url,
+            { excludeSourceIds },
+            '[MassUpload Cancel]'
+          );
+        }
       } catch (e) {
         console.warn(`[MassUpload Cancel] Failed to delete ${blobUrls.length} blobs:`, e);
       }
     }
 
-    // Mark session as cancelled
-    await tdb.update(uploadSessions, { status: 'cancelled' }, eq(uploadSessions.id, sessionId));
-
-    // Count sources currently in-flight (can't cancel these)
-    const inFlight = await tdb.selectFields(
-      sourcesCurrentSchema,
-      { count: sql<number>`count(*)` },
-      and(
-        inArray(sourcesCurrentSchema.id, sourceIds),
-        sql`${sourcesCurrentSchema.processingStatus} IN ('extracting', 'enriching')`
-      )
-    );
-
     return NextResponse.json({
       status: 'success',
       cancelled: cancelled.length,
-      alreadyProcessing: inFlight[0]?.count ?? 0,
+      alreadyProcessing,
       timestamp: new Date().toISOString(),
     });
 

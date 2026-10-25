@@ -5,13 +5,20 @@
  *
  *   **Owning a container is not owning the rows it names.**
  *
- * `mass-upload/{cancel,start,status}`, `mass-upload/register` and the details
- * branch of `GET /api/upload/sessions` all read source ids out of
+ * Historically `mass-upload/{cancel,start,status}`, `mass-upload/register` and
+ * the details branch of `GET /api/upload/sessions` read source ids out of
  * `upload_sessions.meta.uploadedFiles` and then queried or mutated by those ids
  * with no owner predicate. Checking that the caller owned the *session* was
  * standing in for checking that they owned the *sources*. Worst case was
  * destructive: cancel flipped another user's sources to `cancelled` and called
  * `del()` on their uploaded blobs.
+ *
+ * Today `status` (and session details) still consume that list and must
+ * re-scope every follow-up. `cancel` / `start` scope sources by
+ * `meta.uploadInfo.sessionId` through `forUser` instead of walking the list;
+ * cancel blob cleanup uses `releaseBlobIfUnreferencedByAnyTenant`. These tests
+ * still plant a poisoned `uploadedFiles` list so a regression that reintroduces
+ * list-based mutation cannot sneak back.
  *
  * Two things could put a foreign id in that list:
  *
@@ -148,6 +155,8 @@ describe('Path A — a foreign source id planted in the caller\'s own session', 
   });
 
   it('mass-upload/start does not requeue it', async () => {
+    // Start scopes by meta.uploadInfo.sessionId (and forUser), not uploadedFiles.
+    // Alice's own source for this session still queues; Bob's must not.
     const { POST } = require('@/app/api/mass-upload/start/route');
     const body = await (
       await POST(
@@ -155,7 +164,8 @@ describe('Path A — a foreign source id planted in the caller\'s own session', 
       )
     ).json();
 
-    expect(body.queued).toBe(0);
+    expect(body.queued).toBe(1);
+    expect(await sourceStatus(FIXTURE.aliceSource)).toBe('queued');
     expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
   });
 
@@ -167,7 +177,8 @@ describe('Path A — a foreign source id planted in the caller\'s own session', 
       )
     ).json();
 
-    expect(body.cancelled).toBe(0);
+    expect(body.cancelled).toBe(1);
+    expect(await sourceStatus(FIXTURE.aliceSource)).toBe('cancelled');
     expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
     expect(JSON.stringify((del as jest.Mock).mock.calls)).not.toContain(BOB_BLOB);
   });
@@ -362,6 +373,214 @@ describe('register duplicate branch scopes its rebuild sweep', () => {
     expect(meta.duplicates).toEqual([
       { originalName: 'alice-duplicate.png', duplicateOf: duplicateId },
     ]);
+  });
+
+  it('deletes an unreferenced blob when the open session already has those bytes', async () => {
+    const orphan = 'https://store.public.blob.vercel-storage.com/duplicate-orphan.jpg';
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO sources
+        (id,user_id,type,uri,hash,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['src_alice_same_bytes', ALICE.id, 'screenshot', FIXTURE.aliceSourceBlob,
+       JSON.stringify({ sha1: '05fe405753166f125559e7c9ac558654f107c7e9' }), 'uploaded',
+       JSON.stringify({ uploadInfo: { sessionId: 'session_alice_previous' } }), now, now]
+    );
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: orphan,
+        originalName: 'same-bytes.jpg',
+        fileSize: 8,
+        mimeType: 'image/jpeg',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('duplicate');
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(orphan);
+  });
+
+  it('leaves another tenant collection cover when the open session already has those bytes', async () => {
+    const cover = 'https://store.public.blob.vercel-storage.com/bob-collection-cover.jpg';
+    const now = new Date().toISOString();
+    await execute('UPDATE collections SET cover_image_url = ? WHERE id = ?', [cover, FIXTURE.bobCollection]);
+    await execute(
+      `INSERT INTO sources
+        (id,user_id,type,uri,hash,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['src_alice_same_bytes', ALICE.id, 'screenshot', FIXTURE.aliceSourceBlob,
+       JSON.stringify({ sha1: '05fe405753166f125559e7c9ac558654f107c7e9' }), 'uploaded',
+       JSON.stringify({ uploadInfo: { sessionId: 'session_alice_previous' } }), now, now]
+    );
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: cover,
+        originalName: 'same-bytes.jpg',
+        fileSize: 8,
+        mimeType: 'image/jpeg',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('duplicate');
+    expect(del).not.toHaveBeenCalled();
+    expect(await readCell('SELECT cover_image_url FROM collections WHERE id = ?', [FIXTURE.bobCollection])).toBe(cover);
+  });
+});
+
+describe('cancel follows the session id, and a closed register will not delete a foreign blob', () => {
+  it('cancels an uploaded source that is not in the session snapshot yet', async () => {
+    const { POST } = require('@/app/api/mass-upload/cancel/route');
+    const body = await (
+      await POST(
+        apiRequest('http://t/api/mass-upload/cancel', 'POST', { sessionId: FIXTURE.aliceSession })
+      )
+    ).json();
+
+    expect(body.cancelled).toBe(1);
+    expect(await sourceStatus(FIXTURE.aliceSource)).toBe('cancelled');
+    expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
+    expect(await readCell('SELECT status FROM upload_sessions WHERE id = ?', [FIXTURE.aliceSession])).toBe('cancelled');
+    expect(JSON.stringify((del as jest.Mock).mock.calls)).not.toContain(BOB_BLOB);
+  });
+
+  async function insertAliceUpload(id: string, uri: string) {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO sources
+        (id,user_id,type,uri,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [id, ALICE.id, 'screenshot', uri, 'uploaded',
+       JSON.stringify({ uploadInfo: { sessionId: FIXTURE.aliceSession } }), now, now]
+    );
+  }
+
+  it('deletes the caller\'s unreferenced upload and leaves another tenant\'s screenshot', async () => {
+    const orphan = 'https://store.public.blob.vercel-storage.com/alice-cancel-orphan.jpg';
+    await insertAliceUpload('src_alice_orphan', orphan);
+    await insertAliceUpload('src_alice_borrowed', FIXTURE.bobSourceBlob);
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/cancel/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/cancel', 'POST', { sessionId: FIXTURE.aliceSession })
+    );
+
+    expect(response.status).toBe(200);
+    expect(del).toHaveBeenCalledWith(orphan);
+    expect(del).not.toHaveBeenCalledWith(FIXTURE.bobSourceBlob);
+    expect(await readCell('SELECT uri FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe(FIXTURE.bobSourceBlob);
+    expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
+    expect(await sourceStatus('src_alice_borrowed')).toBe('cancelled');
+  });
+
+  it('leaves another tenant attachment when cancelling a source that stored its url', async () => {
+    const photo = 'https://store.public.blob.vercel-storage.com/bob-place-photo.jpg';
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO attachments
+        (id,place_id,type,uri,filename,thumbnail_uri,is_primary,source,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['att_bob_private', FIXTURE.bobPlace, 'photo', photo, 'bob.jpg', null, 1, 'upload', now]
+    );
+    await insertAliceUpload('src_alice_photo', photo);
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/cancel/route');
+    await POST(
+      apiRequest('http://t/api/mass-upload/cancel', 'POST', { sessionId: FIXTURE.aliceSession })
+    );
+
+    expect(del).not.toHaveBeenCalledWith(photo);
+    expect(await readCell('SELECT uri FROM attachments WHERE id = ?', ['att_bob_private'])).toBe(photo);
+  });
+
+  it('leaves another tenant collection cover when cancelling a source that stored its url', async () => {
+    const cover = 'https://store.public.blob.vercel-storage.com/bob-collection-cover.jpg';
+    await execute('UPDATE collections SET cover_image_url = ? WHERE id = ?', [cover, FIXTURE.bobCollection]);
+    await insertAliceUpload('src_alice_cover', cover);
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/cancel/route');
+    await POST(
+      apiRequest('http://t/api/mass-upload/cancel', 'POST', { sessionId: FIXTURE.aliceSession })
+    );
+
+    expect(del).not.toHaveBeenCalledWith(cover);
+    expect(await readCell('SELECT cover_image_url FROM collections WHERE id = ?', [FIXTURE.bobCollection])).toBe(cover);
+  });
+
+  it('returns 409 and leaves another tenant\'s blob in place', async () => {
+    await execute('UPDATE upload_sessions SET status = ? WHERE id = ?', ['cancelled', FIXTURE.aliceSession]);
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: FIXTURE.bobSourceBlob,
+        originalName: 'not-bobs.jpg',
+        fileSize: 8,
+        mimeType: 'image/jpeg',
+      })
+    );
+
+    expect(response.status).toBe(409);
+    expect(del).not.toHaveBeenCalled();
+    expect(await readCell('SELECT uri FROM sources WHERE id = ?', [FIXTURE.bobSource])).toBe(FIXTURE.bobSourceBlob);
+    expect(await sourceStatus(FIXTURE.bobSource)).toBe('uploaded');
+  });
+
+  it('returns 409 and deletes a blob no tenant references', async () => {
+    await execute('UPDATE upload_sessions SET status = ? WHERE id = ?', ['cancelled', FIXTURE.aliceSession]);
+    (del as jest.Mock).mockClear();
+    const orphan = 'https://store.public.blob.vercel-storage.com/closed-orphan.jpg';
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: orphan,
+        originalName: 'orphan.jpg',
+        fileSize: 8,
+        mimeType: 'image/jpeg',
+      })
+    );
+
+    expect(response.status).toBe(409);
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(orphan);
+  });
+
+  it('returns 409 and leaves another tenant collection cover in place', async () => {
+    const cover = 'https://store.public.blob.vercel-storage.com/bob-collection-cover.jpg';
+    await execute('UPDATE collections SET cover_image_url = ? WHERE id = ?', [cover, FIXTURE.bobCollection]);
+    await execute('UPDATE upload_sessions SET status = ? WHERE id = ?', ['cancelled', FIXTURE.aliceSession]);
+    (del as jest.Mock).mockClear();
+
+    const { POST } = require('@/app/api/mass-upload/register/route');
+    const response = await POST(
+      apiRequest('http://t/api/mass-upload/register', 'POST', {
+        sessionId: FIXTURE.aliceSession,
+        blobUrl: cover,
+        originalName: 'not-the-cover.jpg',
+        fileSize: 8,
+        mimeType: 'image/jpeg',
+      })
+    );
+
+    expect(response.status).toBe(409);
+    expect(del).not.toHaveBeenCalled();
+    expect(await readCell('SELECT cover_image_url FROM collections WHERE id = ?', [FIXTURE.bobCollection])).toBe(cover);
   });
 });
 

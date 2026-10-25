@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload } from 'lucide-react'
+import { notify } from '@/lib/notify'
+import { openUploadSheet } from '@/lib/upload-sheet'
+import { cn } from '@/lib/utils'
 
 /** Re-reads the server page while a batch is still being read. */
 export function InboxLiveRefresh({ active }: { active: boolean }) {
@@ -78,18 +80,132 @@ export function CancelRemaining({ sessionId }: { sessionId: string }) {
   )
 }
 
-/** First visit opens Mass Upload. The in-page drop sheet is a later change. */
-export function InboxDropLink() {
+type BulkOutcome = {
+  updatedIds: string[]
+  complete: boolean
+  message: string
+}
+
+async function bulkPlaces(action: 'confirm' | 'return-to-inbox', placeIds: string[]): Promise<BulkOutcome> {
+  const response = await fetch('/api/places/bulk-actions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, placeIds }),
+  })
+  const body = await response.json().catch(() => null) as {
+    message?: string
+    status?: string
+    result?: { updatedIds?: unknown }
+  } | null
+  const reported = Array.isArray(body?.result?.updatedIds)
+    ? body.result.updatedIds.filter((id): id is string => typeof id === 'string' && placeIds.includes(id))
+    : []
+  const fullSuccess = response.ok && body?.status === 'success'
+  const updatedIds = reported.length > 0 ? reported : (fullSuccess ? placeIds : [])
+  return {
+    updatedIds,
+    complete: fullSuccess && updatedIds.length === placeIds.length,
+    message: body?.message || 'Could not update those places',
+  }
+}
+
+/** Adds the places in this upload that have nothing to check, with Undo. */
+export function AddLookRight({ label, placeIds }: { label: string; placeIds: string[] }) {
+  const router = useRouter()
+  const [pending, setPending] = useState(false)
+
+  async function add() {
+    setPending(true)
+    try {
+      const result = await bulkPlaces('confirm', placeIds)
+      if (result.updatedIds.length > 0) {
+        const moved = result.updatedIds
+        const noun = moved.length === 1 ? 'place' : 'places'
+        notify.success(`Added ${moved.length} ${noun} to your Library`, {
+          cancel: {
+            label: 'Undo',
+            onClick: () => {
+              void bulkPlaces('return-to-inbox', moved)
+                .then((undone) => {
+                  if (undone.updatedIds.length === 0) {
+                    notify.error('Could not undo that')
+                    return
+                  }
+                  const undoNoun = undone.updatedIds.length === 1 ? 'place' : 'places'
+                  notify.success(`Brought ${undone.updatedIds.length} ${undoNoun} back to your Inbox`)
+                  router.refresh()
+                })
+                .catch(() => notify.error('Could not undo that'))
+            },
+          },
+        })
+        router.refresh()
+      }
+      if (!result.complete) notify.error(result.message)
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Could not add those places')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void add()}
+      disabled={pending}
+      className="ml-auto text-sm font-medium text-primary underline-offset-4 hover:underline disabled:opacity-60"
+    >
+      {pending ? 'Adding…' : label}
+    </button>
+  )
+}
+
+/** First visit is the drop zone. Files open the same sheet as the header Upload button. */
+export function InboxFirstDrop() {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [over, setOver] = useState(false)
+
+  function take(list: FileList | null) {
+    const files = Array.from(list ?? [])
+    if (files.length > 0) openUploadSheet(files)
+  }
+
   return (
     <div className="mt-6">
-      <Link
-        href="/mass-upload"
-        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-base font-semibold text-primary-foreground"
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          take(event.target.files)
+          event.target.value = ''
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(event) => {
+          event.preventDefault()
+          setOver(true)
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(event) => {
+          event.preventDefault()
+          setOver(false)
+          take(event.dataTransfer.files)
+        }}
+        className={cn(
+          'mx-auto flex w-full max-w-lg flex-col items-center gap-1 rounded-2xl border border-dashed px-4 py-8 text-sm text-muted-foreground',
+          over ? 'border-primary bg-primary/5' : 'border-border bg-background'
+        )}
       >
-        <Upload className="h-4 w-4" aria-hidden />
-        Upload screenshots
-      </Link>
-      <p className="mt-2 text-xs text-muted-foreground">PNG, JPG, HEIC · up to 500 at a time</p>
+        <Upload className="mb-1 h-5 w-5" aria-hidden />
+        <span>Drop screenshots here, or <span className="font-semibold text-primary">choose files</span></span>
+        <span className="text-xs">PNG, JPG, HEIC · up to 500 at a time</span>
+      </button>
     </div>
   )
 }

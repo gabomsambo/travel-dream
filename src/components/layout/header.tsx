@@ -5,8 +5,9 @@ import dynamic from "next/dynamic"
 import { useSession, signOut } from "next-auth/react"
 import { Upload, Plus, LogOut } from "lucide-react"
 import { Button } from "@/components/adapters/button"
-import { Badge } from "@/components/adapters/badge"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { openUploadSheet } from "@/lib/upload-sheet"
+import { cancelUnstartedUpload } from "@/lib/unstarted-upload"
 import { ActivityBell } from "@/components/activity/activity-bell"
 import { MobileNav } from "@/components/navigation/mobile-nav"
 import { SearchBar } from "@/components/search/search-bar"
@@ -18,11 +19,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/adapters/dropdown-menu"
-
-const UploadDialog = dynamic(
-  () => import("@/components/upload/upload-dialog").then(mod => ({ default: mod.UploadDialog })),
-  { ssr: false }
-)
 
 const AddPlaceDialog = dynamic(
   () => import("@/components/places/add-place-dialog").then(mod => ({ default: mod.AddPlaceDialog })),
@@ -76,7 +72,12 @@ function UserMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="cursor-pointer text-destructive focus:text-destructive"
-          onClick={() => signOut({ callbackUrl: "/" })}
+          onClick={() => {
+            void (async () => {
+              await cancelUnstartedUpload()
+              await signOut({ callbackUrl: "/" })
+            })()
+          }}
         >
           <LogOut className="mr-2 h-4 w-4" />
           Sign out
@@ -87,19 +88,11 @@ function UserMenu() {
 }
 
 export function Header() {
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
   const [addPlaceDialogOpen, setAddPlaceDialogOpen] = useState(false)
-  const [uploadCount, setUploadCount] = useState(0)
 
   const handleSearch = (filters: any) => {
     console.log('Search filters:', filters)
     // TODO: Implement global search functionality
-  }
-
-  const handleUploadComplete = (session: any) => {
-    console.log('Upload session completed:', session)
-    setUploadCount(prev => prev + (session?.completedCount || 0))
-    // TODO: Refresh inbox or show notification
   }
 
   return (
@@ -127,15 +120,11 @@ export function Header() {
           <Button
             size="sm"
             className="gap-2 px-2 sm:px-3"
-            onClick={() => setUploadDialogOpen(true)}
+            aria-label="Upload"
+            onClick={() => openUploadSheet()}
           >
             <Upload className="h-4 w-4" />
             <span className="hidden sm:inline">Upload</span>
-            {uploadCount > 0 && (
-              <Badge variant="secondary" className="ml-1 text-xs">
-                {uploadCount}
-              </Badge>
-            )}
           </Button>
 
           <ThemeToggle />
@@ -151,13 +140,6 @@ export function Header() {
         />
       )}
 
-      {uploadDialogOpen && (
-        <UploadDialog
-          open={uploadDialogOpen}
-          onOpenChange={setUploadDialogOpen}
-          onComplete={handleUploadComplete}
-        />
-      )}
     </header>
   )
 }

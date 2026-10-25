@@ -132,9 +132,8 @@ describe('inbox page', () => {
   it('is the drop zone when nothing has been uploaded', async () => {
     render(<InboxScreen model={await screenModel()} />);
     expect(screen.getByRole('heading', { name: 'Drop your travel screenshots' })).toBeInTheDocument();
-    expect(screen.queryByText(/drop screenshots here/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Upload screenshots' })).toHaveAttribute('href', '/mass-upload');
-    expect(screen.getByRole('link', { name: 'Choose screenshots' })).toHaveAttribute('href', '/mass-upload');
+    expect(screen.getByText(/drop screenshots here/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Choose screenshots' })).toHaveAttribute('href', '/inbox?sheet=1');
     expect(screen.queryByText(/Bob Secret/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Review/ })).not.toBeInTheDocument();
   });
@@ -156,7 +155,7 @@ describe('inbox page', () => {
     expect(screen.getByText(/IMG_3024.jpg/)).toBeInTheDocument();
     expect(screen.getByText(/AI service was unavailable/)).toBeInTheDocument();
     expect(screen.getByText('2 needs you')).toBeInTheDocument();
-
+    expect(screen.getByText('1 to check')).toBeInTheDocument();
     expect(screen.queryByText(/that look right/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();

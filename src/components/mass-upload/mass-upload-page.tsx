@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import { upload } from '@vercel/blob/client'
 import {
   Upload,
@@ -10,8 +11,6 @@ import {
   Loader2,
   ArrowRight,
   CloudUpload,
-  Inbox,
-  Ban,
   RefreshCw,
   ImageIcon,
 } from 'lucide-react'
@@ -19,11 +18,25 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Button } from "@/components/adapters/button"
 import { Badge } from "@/components/adapters/badge"
 import { Card } from "@/components/adapters/card"
-import { useMassUploadStatus } from '@/hooks/use-mass-upload-status'
-import { processedSourceCount } from '@/lib/mass-upload/status-view'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/adapters/sheet'
 import { useActivityJobs } from '@/components/activity/activity-provider'
-import { notify } from '@/lib/notify'
-import Link from 'next/link'
+import {
+  bindUnstartedUpload,
+  cancelUploadSession,
+  createAbandonedUploadStore,
+  discardUnstartedUpload,
+  handOverPendingBlobs,
+  parkUnstartedUpload,
+  type AbandonedUpload,
+  type AbandonedUploadStore,
+  type UnstartedUploadBinding,
+} from '@/lib/unstarted-upload'
 
 interface MassUploadFile {
   id: string
@@ -36,14 +49,68 @@ interface MassUploadFile {
   sourceId?: string
 }
 
-type MassUploadStep = 'upload' | 'review' | 'processing'
+type MassUploadStep = 'upload' | 'review'
+
+interface MassUploadSheetProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Files dropped on the Inbox before the sheet opened. */
+  initialFiles?: File[]
+}
 
 const MAX_FILES = 500
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const CONCURRENT_LIMIT = 3
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
 
-export function MassUploadPage() {
+function aborted(): DOMException {
+  return new DOMException('The operation was aborted.', 'AbortError')
+}
+
+function trackInFlight<T>(pending: Set<Promise<unknown>>, promise: Promise<T>): Promise<T> {
+  const tracked = promise.finally(() => {
+    pending.delete(tracked)
+  })
+  pending.add(tracked)
+  return tracked
+}
+
+async function drainInFlight(pending: Set<Promise<unknown>>): Promise<void> {
+  while (pending.size > 0) {
+    await Promise.allSettled(Array.from(pending))
+  }
+}
+
+async function abandonUnstartedSession(
+  binding: UnstartedUploadBinding,
+  sessionId: string,
+  startPromise: Promise<boolean> | null,
+  pending: Set<Promise<unknown>>,
+): Promise<boolean> {
+  try {
+    const started = startPromise ? await startPromise : false
+    await drainInFlight(pending)
+    if (started) {
+      // Start already queued the session — leave it alone, but still register
+      // blobs that never got a source row. Register inserts them as queued.
+      await handOverPendingBlobs(sessionId, binding)
+      return binding.store.pending().length === 0
+    }
+    // The cancel has to land first: once the session is closed, register
+    // takes its 409 path and deletes the blob with it. A cancel that failed
+    // leaves the session open, and registering then would leave the batch
+    // behind as "still reading" in the Inbox.
+    const cancel = await binding.cancel()
+    if (!cancel.ok) return false
+    await handOverPendingBlobs(sessionId, binding)
+    return binding.store.pending().length === 0
+  } catch {
+    return false
+  }
+}
+
+export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUploadSheetProps) {
+  const router = useRouter()
   const [step, setStep] = useState<MassUploadStep>('upload')
   const [files, setFiles] = useState<Map<string, MassUploadFile>>(new Map())
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -53,70 +120,164 @@ export function MassUploadPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const filesRef = useRef<Map<string, MassUploadFile>>(new Map())
   const listParentRef = useRef<HTMLDivElement>(null)
+  const seededFiles = useRef<File[] | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
+  const startedRef = useRef(false)
+  const startPromiseRef = useRef<Promise<boolean> | null>(null)
+  const abortRef = useRef<AbortController>(new AbortController())
+  const inFlightRef = useRef<Set<Promise<unknown>>>(new Set())
+  const abandonedStoreRef = useRef<AbandonedUploadStore | null>(null)
+  const epochRef = useRef(0)
+  const openingIdRef = useRef(0)
 
-  const status = useMassUploadStatus()
   const { observeSession } = useActivityJobs()
-  const [isCancelling, setIsCancelling] = useState(false)
-  const [isTriggering, setIsTriggering] = useState(false)
-  const [triggerResult, setTriggerResult] = useState<string | null>(null)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [batchError, setBatchError] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
-  const [cancelError, setCancelError] = useState<string | null>(null)
 
-  // On mount: resume active session if one exists, otherwise create new
+  // A new batch each time the sheet opens. Progress lives on the Inbox card.
   useEffect(() => {
-    const init = async () => {
-      try {
-        // Check for an existing active processing session
-        const sessionsRes = await fetch('/api/upload/sessions?status=active&hasUploads=true&limit=5')
-        if (sessionsRes.ok) {
-          const sessionsData = await sessionsRes.json()
-          if (sessionsData.status === 'success' && sessionsData.sessions) {
-            const active = sessionsData.sessions.find((s: { status: string; startedAt?: string; meta?: { uploadedFiles?: string[] } }) => {
-              const uploadedFiles = s.meta?.uploadedFiles || []
-              if (s.status !== 'active' || uploadedFiles.length === 0) return false
-              // Skip sessions older than 24h (likely abandoned, not in-progress)
-              if (s.startedAt) {
-                const ageMs = Date.now() - new Date(s.startedAt).getTime()
-                if (ageMs > 24 * 60 * 60 * 1000) return false
-              }
-              return true
-            })
-            if (active) {
-              setSessionId(active.id)
-              setStep('processing')
-              status.startPolling(active.id)
-              observeSession(active.id)
-              return
-            }
-          }
-        }
-      } catch {
-        // Fall through to create new session
-      }
+    if (!open) {
+      setFiles(new Map())
+      setStep('upload')
+      setSessionId(null)
+      setIsUploading(false)
+      setIsStarting(false)
+      setSessionError(null)
+      setBatchError(null)
+      setStartError(null)
+      seededFiles.current = null
+      return
+    }
 
-      // No active session — create a new one
+    openingIdRef.current += 1
+    const controller = new AbortController()
+    abortRef.current = controller
+    startedRef.current = false
+    let cancelled = false
+    let releaseBinding = () => {}
+    let binding: UnstartedUploadBinding | null = null
+    let abandoning = false
+    let cancelRequest: Promise<Response> | null = null
+    let startOutcomeHeld: Promise<boolean> | null = null
+    const store = createAbandonedUploadStore()
+    abandonedStoreRef.current = store
+    const create = async () => {
       try {
         const res = await fetch('/api/upload/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileCount: 0 }),
+          signal: controller.signal,
         })
         const data = await res.json()
+        if (cancelled || controller.signal.aborted) return
         if (data.status === 'success' && data.session?.id) {
-          setSessionId(data.session.id)
+          const id = data.session.id
+          sessionIdRef.current = id
+          releaseBinding()
+          binding = {
+            sessionId: () => id,
+            whenStarted: () =>
+              startOutcomeHeld ??
+              (startedRef.current
+                ? Promise.resolve(true)
+                : startPromiseRef.current),
+            store,
+            cancel: () => {
+              if (!cancelRequest) {
+                cancelRequest = cancelUploadSession(id).then(
+                  (response) => {
+                    if (!response.ok) cancelRequest = null
+                    return response
+                  },
+                  (error) => {
+                    cancelRequest = null
+                    throw error
+                  },
+                )
+              }
+              return cancelRequest
+            },
+          }
+          releaseBinding = bindUnstartedUpload(binding)
+          setSessionId(id)
           setSessionError(null)
         } else {
           setSessionError('Failed to create upload session')
         }
       } catch {
-        setSessionError('Failed to create upload session')
+        if (!cancelled && !controller.signal.aborted) setSessionError('Failed to create upload session')
       }
     }
-    init()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void create()
+    return () => {
+      cancelled = true
+      const currentSessionId = sessionIdRef.current
+      const startPromise = startPromiseRef.current
+      const alreadyStarted = startedRef.current
+      const startWasRequested = alreadyStarted || startPromise !== null
+      // Freeze the Start outcome on the binding before clearing live refs so
+      // pagehide and sign-out can await it. Sync hand-over only when Start
+      // already succeeded — an in-flight Start is not yet a skip-cancel signal.
+      if (alreadyStarted) {
+        startOutcomeHeld = Promise.resolve(true)
+      } else if (startPromise) {
+        startOutcomeHeld = startPromise
+      }
+      let syncHandOver: Promise<number> | null = null
+      if (binding && currentSessionId) {
+        if (!startWasRequested) {
+          try {
+            void binding.cancel().then(() => undefined, () => undefined)
+          } catch {
+            // abandonUnstartedSession awaits the shared cancel.
+          }
+        } else if (alreadyStarted) {
+          syncHandOver = handOverPendingBlobs(currentSessionId, binding, {
+            keepalive: true,
+          })
+          void syncHandOver
+        }
+      }
+      const pending = inFlightRef.current
+      inFlightRef.current = new Set()
+      epochRef.current += 1
+      abortRef.current.abort()
+      filesRef.current.forEach(file => {
+        if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
+      })
+      sessionIdRef.current = null
+      startedRef.current = false
+      startPromiseRef.current = null
+      if (binding && currentSessionId) {
+        if (!abandoning) {
+          abandoning = true
+          const closing = binding
+          // The binding stays live until the hand-over has settled: a
+          // refresh or a sign-out in that window still has to find this
+          // session and the blobs that never got a source row. When Start
+          // already succeeded, abandon registers those blobs into the open
+          // session without cancelling it.
+          const unpark = parkUnstartedUpload(closing)
+          void abandonUnstartedSession(
+            closing,
+            currentSessionId,
+            alreadyStarted ? Promise.resolve(true) : startPromise,
+            pending,
+          )
+            .then(async (canRelease) => {
+              if (syncHandOver) await syncHandOver
+              if (!canRelease) return
+              unpark()
+              releaseBinding()
+            })
+        }
+      } else if (!abandoning) {
+        releaseBinding()
+      }
+    }
+  }, [open])
 
   // Task 2: Sync filesRef with files state (for unmount cleanup)
   useEffect(() => {
@@ -144,6 +305,14 @@ export function MassUploadPage() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [isUploading])
 
+  useEffect(() => {
+    const onPageHide = () => {
+      discardUnstartedUpload()
+    }
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
+  }, [])
+
   const validateFile = useCallback((file: File): { isValid: boolean; error?: string } => {
     if (!ALLOWED_TYPES.includes(file.type)) {
       return { isValid: false, error: `Unsupported file type: ${file.type}` }
@@ -154,50 +323,83 @@ export function MassUploadPage() {
     return { isValid: true }
   }, [])
 
-  const uploadFileToBlob = useCallback(async (file: File, fileId: string): Promise<{ blobUrl: string; sourceId: string }> => {
+  const uploadFileToBlob = useCallback(async (
+    file: File,
+    fileId: string,
+    epoch: number,
+  ): Promise<{ blobUrl: string; sourceId: string }> => {
+    const signal = abortRef.current.signal
     if (!sessionId) throw new Error('No session')
+    if (signal.aborted || epochRef.current !== epoch) throw aborted()
+
+    // The store of the batch this file belongs to. A file that finishes
+    // uploading after the sheet closed still lands in that batch's store, so
+    // the hand-over can find it.
+    const store = abandonedStoreRef.current
 
     const timestamp = Date.now()
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
     const filename = `screenshots/${sessionId}/${timestamp}-${fileId.slice(0, 8)}.${ext}`
 
-    const blob = await upload(filename, file, {
-      access: 'public',
-      handleUploadUrl: '/api/blob/upload',
-      onUploadProgress: (progress) => {
-        const percent = Math.round((progress.loaded / progress.total) * 100)
-        setFiles(prev => {
-          const newMap = new Map(prev)
-          const existing = newMap.get(fileId)
-          if (existing) {
-            newMap.set(fileId, { ...existing, progress: percent })
-          }
-          return newMap
-        })
-      },
-    })
+    const task = (async () => {
+      const blob = await upload(filename, file, {
+        access: 'public',
+        handleUploadUrl: '/api/blob/upload',
+        abortSignal: signal,
+        onUploadProgress: (progress) => {
+          if (epochRef.current !== epoch) return
+          const percent = Math.round((progress.loaded / progress.total) * 100)
+          setFiles(prev => {
+            const newMap = new Map(prev)
+            const existing = newMap.get(fileId)
+            if (existing) {
+              newMap.set(fileId, { ...existing, progress: percent })
+            }
+            return newMap
+          })
+        },
+      })
 
-    const response = await fetch('/api/mass-upload/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId,
+      const payload: AbandonedUpload = {
         blobUrl: blob.url,
-        originalName: file.name,
+        originalName: file.name || 'screenshot',
         fileSize: file.size,
-        mimeType: file.type,
-      }),
-    })
+        mimeType: file.type || 'application/octet-stream',
+      }
+      // The blob is in the store now: until the server confirms a source row
+      // it is an orphan that only this batch knows about.
+      store?.add(payload)
+      if (signal.aborted || epochRef.current !== epoch) throw aborted()
 
-    if (!response.ok) {
-      throw new Error('Failed to register upload')
-    }
+      const response = await fetch('/api/mass-upload/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          blobUrl: payload.blobUrl,
+          originalName: payload.originalName,
+          fileSize: payload.fileSize,
+          mimeType: payload.mimeType,
+        }),
+        signal,
+      })
 
-    const result = await response.json()
-    return { blobUrl: blob.url, sourceId: result.sourceId }
+      if (!response.ok) {
+        throw new Error('Failed to register upload')
+      }
+
+      const result = await response.json()
+      store?.remove(payload.blobUrl)
+      return { blobUrl: blob.url, sourceId: result.sourceId as string }
+    })()
+
+    return trackInFlight(inFlightRef.current, task)
   }, [sessionId])
 
   const processFiles = useCallback(async (newFileList: File[]) => {
+    const epoch = epochRef.current
+    const signal = abortRef.current.signal
+    if (signal.aborted || epochRef.current !== epoch) return
     if (!sessionId) {
       setSessionError('Session not ready. Please wait a moment and try again.')
       return
@@ -246,7 +448,7 @@ export function MassUploadPage() {
       return
     }
 
-    setIsUploading(true)
+    if (signal.aborted || epochRef.current !== epoch) return
 
     // Add files to state
     const updatedFiles = new Map(files)
@@ -265,51 +467,63 @@ export function MassUploadPage() {
       updatedFiles.set(fileId, entry)
       newEntries.push([fileId, entry])
     })
-    setFiles(updatedFiles)
-
-    // Upload in batches of CONCURRENT_LIMIT
-    for (let i = 0; i < newEntries.length; i += CONCURRENT_LIMIT) {
-      const batch = newEntries.slice(i, i + CONCURRENT_LIMIT)
-
-      await Promise.allSettled(
-        batch.map(async ([fileId, fileData]) => {
-          try {
-            const result = await uploadFileToBlob(fileData.file, fileId)
-
-            setFiles(prev => {
-              const newMap = new Map(prev)
-              const existing = newMap.get(fileId)
-              if (existing) {
-                newMap.set(fileId, {
-                  ...existing,
-                  status: 'completed',
-                  progress: 100,
-                  blobUrl: result.blobUrl,
-                  sourceId: result.sourceId,
-                })
-              }
-              return newMap
-            })
-
-          } catch (error) {
-            setFiles(prev => {
-              const newMap = new Map(prev)
-              const existing = newMap.get(fileId)
-              if (existing) {
-                newMap.set(fileId, {
-                  ...existing,
-                  status: 'failed',
-                  error: error instanceof Error ? error.message : 'Upload failed',
-                })
-              }
-              return newMap
-            })
-          }
-        })
-      )
+    if (epochRef.current !== epoch) {
+      newEntries.forEach(([, entry]) => {
+        if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
+      })
+      return
     }
+    setFiles(updatedFiles)
+    setIsUploading(true)
 
-    setIsUploading(false)
+    try {
+      // Upload in batches of CONCURRENT_LIMIT
+      for (let i = 0; i < newEntries.length; i += CONCURRENT_LIMIT) {
+        if (signal.aborted || epochRef.current !== epoch) break
+        const batch = newEntries.slice(i, i + CONCURRENT_LIMIT)
+
+        await Promise.allSettled(
+          batch.map(async ([fileId, fileData]) => {
+            try {
+              const result = await uploadFileToBlob(fileData.file, fileId, epoch)
+              if (epochRef.current !== epoch) return
+
+              setFiles(prev => {
+                const newMap = new Map(prev)
+                const existing = newMap.get(fileId)
+                if (existing) {
+                  newMap.set(fileId, {
+                    ...existing,
+                    status: 'completed',
+                    progress: 100,
+                    blobUrl: result.blobUrl,
+                    sourceId: result.sourceId,
+                  })
+                }
+                return newMap
+              })
+
+            } catch (error) {
+              if (signal.aborted || epochRef.current !== epoch) return
+              setFiles(prev => {
+                const newMap = new Map(prev)
+                const existing = newMap.get(fileId)
+                if (existing) {
+                  newMap.set(fileId, {
+                    ...existing,
+                    status: 'failed',
+                    error: error instanceof Error ? error.message : 'Upload failed',
+                  })
+                }
+                return newMap
+              })
+            }
+          })
+        )
+      }
+    } finally {
+      if (epochRef.current === epoch) setIsUploading(false)
+    }
   }, [sessionId, files, validateFile, uploadFileToBlob])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -353,100 +567,63 @@ export function MassUploadPage() {
     })
   }, [])
 
+  useEffect(() => {
+    if (!open || !sessionId || !initialFiles || initialFiles.length === 0) return
+    if (seededFiles.current === initialFiles) return
+    seededFiles.current = initialFiles
+    void processFiles(initialFiles)
+  }, [open, sessionId, initialFiles, processFiles])
+
   const handleStartProcessing = useCallback(async () => {
-    if (!sessionId) return
+    if (!sessionId || startedRef.current) return
 
     setIsStarting(true)
     setStartError(null)
-    try {
-      const res = await fetch('/api/mass-upload/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      })
-      const data = await res.json()
+    const epoch = epochRef.current
+    const openingId = openingIdRef.current
+    const run = (async (): Promise<boolean> => {
+      const stillThisOpening = () => epochRef.current === epoch
+      try {
+        const res = await fetch('/api/mass-upload/start', {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        })
+        const data = await res.json()
 
-      if (data.status === 'success') {
-        setStep('processing')
-        status.startPolling(sessionId)
-        observeSession(sessionId)
-      } else {
-        setStartError(data.message || 'Failed to start processing')
+        if (data.status === 'success') {
+          observeSession(sessionId)
+          router.push('/inbox')
+          router.refresh()
+          if (openingIdRef.current === openingId) {
+            startedRef.current = true
+            onOpenChange(false)
+          }
+          return true
+        }
+        if (stillThisOpening()) setStartError(data.message || 'Failed to start processing')
+        return false
+      } catch {
+        if (stillThisOpening()) setStartError('Failed to start processing')
+        return false
+      } finally {
+        if (stillThisOpening()) setIsStarting(false)
       }
-    } catch {
-      setStartError('Failed to start processing')
+    })()
+    startPromiseRef.current = run
+    try {
+      await run
     } finally {
-      setIsStarting(false)
+      if (startPromiseRef.current === run) startPromiseRef.current = null
     }
-  }, [sessionId, status, observeSession])
-
-  const handleStartFresh = useCallback(async () => {
-    // Best-effort mark old session completed
-    if (sessionId) {
-      fetch(`/api/upload/sessions?sessionId=${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'completed' }),
-      }).catch(() => {})
-    }
-
-    // Task 2: Revoke object URLs before clearing (use ref to avoid stale closure)
-    filesRef.current.forEach(file => {
-      if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
-    })
-
-    // Reset state for instant UI feedback
-    status.reset()
-    setFiles(new Map())
-    setStep('upload')
-    setSessionId(null)
-    setSessionError(null)
-
-    // Create fresh session
-    try {
-      const res = await fetch('/api/upload/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileCount: 0 }),
-      })
-      const data = await res.json()
-      if (data.status === 'success' && data.session?.id) {
-        setSessionId(data.session.id)
-      } else {
-        setSessionError('Failed to create new upload session')
-      }
-    } catch {
-      setSessionError('Failed to create new upload session')
-    }
-  }, [sessionId, status])
-
-  const handleCancelProcessing = useCallback(async () => {
-    if (!sessionId) return
-    setIsCancelling(true)
-    setCancelError(null)
-    try {
-      const res = await fetch('/api/mass-upload/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      })
-      const data = await res.json()
-      if (data.status === 'success') {
-        notify.success(`Cancelled ${data.cancelled} remaining screenshot${data.cancelled !== 1 ? 's' : ''}`)
-      } else {
-        setCancelError(data.message || 'Failed to cancel')
-      }
-    } catch {
-      setCancelError('Failed to cancel processing')
-    } finally {
-      setIsCancelling(false)
-    }
-  }, [sessionId])
+  }, [sessionId, observeSession, onOpenChange, router])
 
   // Task 3: Per-file retry (uses filesRef to avoid stale closure)
   const retryFile = useCallback(async (fileId: string) => {
+    const epoch = epochRef.current
     const fileData = filesRef.current.get(fileId)
-    if (!fileData || !sessionId) return
+    if (!fileData || !sessionId || abortRef.current.signal.aborted) return
 
     setFiles(prev => {
       const updated = new Map(prev)
@@ -458,7 +635,8 @@ export function MassUploadPage() {
     })
 
     try {
-      const result = await uploadFileToBlob(fileData.file, fileId)
+      const result = await uploadFileToBlob(fileData.file, fileId, epoch)
+      if (epochRef.current !== epoch) return
       setFiles(prev => {
         const updated = new Map(prev)
         const current = prev.get(fileId)
@@ -474,6 +652,7 @@ export function MassUploadPage() {
         return updated
       })
     } catch (error) {
+      if (epochRef.current !== epoch || abortRef.current.signal.aborted) return
       setFiles(prev => {
         const updated = new Map(prev)
         const current = prev.get(fileId)
@@ -517,234 +696,25 @@ export function MassUploadPage() {
   const uploadingFiles = filesArray.filter(f => f.status === 'uploading').length
   const allUploaded = filesArray.length > 0 && uploadingFiles === 0
 
-  // --- RENDER ---
+  if (!open) return null
 
-  // Step 3: Processing
-  if (step === 'processing') {
-    const processed = processedSourceCount(status.counts)
-    const progressPercent = status.total > 0 ? Math.round((processed / status.total) * 100) : 0
-
-    return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        {status.isComplete ? (
-          // Complete state
-          <Card className="p-8 text-center">
-            <CheckCircle2 className="mx-auto h-16 w-16 text-green-500 mb-4" />
-            <h2 className="text-2xl font-semibold mb-2">Processing Complete!</h2>
-            <p className="text-muted-foreground mb-2">
-              {status.placesCreated} places found from {status.counts.completed} screenshots
-            </p>
-            {status.counts.failed > 0 && (
-              <>
-                <p className="text-sm text-red-600 mb-2">
-                  {status.counts.failed} screenshot{status.counts.failed !== 1 ? 's' : ''} failed to process
-                </p>
-                {status.failedErrors.length > 0 && (
-                  <details className="mt-2 text-left mb-4">
-                    <summary className="text-sm text-red-600 cursor-pointer">
-                      View error details
-                    </summary>
-                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground max-h-40 overflow-y-auto">
-                      {status.failedErrors.slice(0, 20).map(err => (
-                        <li key={err.sourceId} className="truncate">
-                          {err.sourceId.slice(0, 12)}...: {err.error}
-                        </li>
-                      ))}
-                      {status.failedErrors.length > 20 && (
-                        <li className="text-muted-foreground italic">
-                          ...and {status.failedErrors.length - 20} more
-                        </li>
-                      )}
-                    </ul>
-                  </details>
-                )}
-              </>
-            )}
-            {status.counts.stalled > 0 && (
-              <p className="text-sm text-amber-600 mb-4">
-                {status.counts.stalled} screenshot{status.counts.stalled !== 1 ? 's' : ''} still trying
-                {status.counts.stalled !== 1 ? ' — they' : ' — it'} will retry on
-                {status.counts.stalled !== 1 ? ' their' : ' its'} own.
-              </p>
-            )}
-            {status.counts.cancelled > 0 && (
-              <p className="text-sm text-muted-foreground mb-4">
-                {status.counts.cancelled} screenshot{status.counts.cancelled !== 1 ? 's' : ''} cancelled
-              </p>
-            )}
-            {status.placesCreated > 1 && (
-              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-left dark:border-blue-800 dark:bg-blue-950">
-                <p className="text-sm text-muted-foreground">
-                  Some places may have been extracted from multiple screenshots.
-                </p>
-                <Link href="/duplicates" className="mt-1 inline-block text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
-                  Check for duplicates &rarr;
-                </Link>
-              </div>
-            )}
-            <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/inbox">
-                <Button size="lg">
-                  <Inbox className="mr-2 h-4 w-4" />
-                  View in Inbox
-                </Button>
-              </Link>
-              <Button size="lg" variant="outline" onClick={handleStartFresh}>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload More Photos
-              </Button>
-            </div>
-          </Card>
-        ) : (
-          // Processing in progress
-          <>
-            {status.error && (
-              <div
-                role="alert"
-                className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-              >
-                {status.error}. Polling will retry automatically.
-              </div>
-            )}
-            <Card className="p-8 text-center">
-              <Loader2 className="mx-auto h-12 w-12 text-blue-500 animate-spin mb-4" />
-              <h2 className="text-xl font-semibold mb-2">Processing Screenshots</h2>
-              <p className="text-2xl font-bold text-blue-600 mb-1">
-                {processed} of {status.total} processed
-              </p>
-              <p className="text-muted-foreground mb-2">
-                {status.placesCreated} places found so far
-              </p>
-              {status.estimatedMinutesRemaining !== null && !status.isComplete && (
-                <p className="text-sm text-muted-foreground mb-4">
-                  ~{status.estimatedMinutesRemaining} min remaining
-                </p>
-              )}
-
-              {/* Progress bar */}
-              <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                <div
-                  role="progressbar"
-                  aria-valuenow={progressPercent}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label="Overall processing progress"
-                  className="bg-blue-600 h-3 rounded-full transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-
-              {/* Status breakdown */}
-              <div className="flex flex-wrap justify-center gap-2 mb-6" aria-live="polite" aria-atomic="true">
-                {status.counts.queued > 0 && (
-                  <Badge variant="outline">{status.counts.queued} queued</Badge>
-                )}
-                {status.counts.extracting > 0 && (
-                  <Badge variant="secondary">{status.counts.extracting} extracting</Badge>
-                )}
-                {status.counts.enriching > 0 && (
-                  <Badge variant="secondary">{status.counts.enriching} enriching</Badge>
-                )}
-                {status.counts.completed > 0 && (
-                  <Badge variant="default">{status.counts.completed} completed</Badge>
-                )}
-                {status.counts.failed > 0 && (
-                  <Badge variant="destructive">{status.counts.failed} failed</Badge>
-                )}
-                {status.counts.stalled > 0 && (
-                  <Badge variant="outline">{status.counts.stalled} still trying</Badge>
-                )}
-                {status.counts.cancelled > 0 && (
-                  <Badge variant="outline">{status.counts.cancelled} cancelled</Badge>
-                )}
-              </div>
-
-              {/* Dev-only: manual cron trigger */}
-              {process.env.NODE_ENV === 'development' && (
-                <div className="border-t pt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={isTriggering}
-                    onClick={async () => {
-                      setIsTriggering(true)
-                      setTriggerResult(null)
-                      try {
-                        const res = await fetch('/api/mass-upload/dev-trigger', { method: 'POST' })
-                        const data = await res.json()
-                        setTriggerResult(
-                          `Processed: ${data.processed ?? 0}, Failed: ${data.failed ?? 0}, Places: ${data.placesCreated ?? 0}, Remaining: ${data.remaining ?? 0}`
-                        )
-                      } catch {
-                        setTriggerResult('Trigger failed')
-                      } finally {
-                        setIsTriggering(false)
-                      }
-                    }}
-                  >
-                    {isTriggering ? (
-                      <>
-                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                        Running cron...
-                      </>
-                    ) : (
-                      'Trigger Processing (Dev)'
-                    )}
-                  </Button>
-                  {triggerResult && (
-                    <p className="text-xs text-muted-foreground mt-2">{triggerResult}</p>
-                  )}
-                </div>
-              )}
-            </Card>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-              <p className="text-blue-800 font-medium">
-                You can safely close this page.
-              </p>
-              <p className="text-sm text-blue-600 mt-1">
-                Processing continues automatically in the background. Come back anytime to check progress.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Button variant="outline" onClick={handleStartFresh}>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload More Photos
-              </Button>
-              {cancelError && (
-                <p className="text-sm text-destructive text-center w-full">{cancelError}</p>
-              )}
-              {status.counts.queued > 0 && (
-                <Button
-                  variant="outline"
-                  onClick={handleCancelProcessing}
-                  disabled={isCancelling}
-                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                >
-                  {isCancelling ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Cancelling...
-                    </>
-                  ) : (
-                    <>
-                      <Ban className="mr-2 h-4 w-4" />
-                      Cancel Remaining
-                    </>
-                  )}
-                </Button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    )
-  }
+  const frame = (content: ReactNode) => (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="bottom" className="h-[min(92vh,860px)] overflow-y-auto rounded-t-2xl px-4 pb-8 sm:px-8">
+        <SheetHeader>
+          <SheetTitle>Upload screenshots</SheetTitle>
+          <SheetDescription>
+            Drop travel screenshots. After Start, they report back in your Inbox.
+          </SheetDescription>
+        </SheetHeader>
+        {content}
+      </SheetContent>
+    </Sheet>
+  )
 
   // Step 2: Review
   if (step === 'review') {
-    return (
+    return frame(
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -794,7 +764,7 @@ export function MassUploadPage() {
         <Card className="p-6 text-center">
           <CloudUpload className="mx-auto h-10 w-10 text-blue-500 mb-3" />
           <p className="text-muted-foreground mb-4">
-            Once started, processing continues in the background. You can close this page.
+            After Start, this upload shows up in your Inbox. You can leave; the bell rings when it is done.
           </p>
           {startError && (
             <p className="text-sm text-destructive mb-4">{startError}</p>
@@ -822,7 +792,7 @@ export function MassUploadPage() {
   }
 
   // Step 1: Upload
-  return (
+  return frame(
     <div className="max-w-2xl mx-auto space-y-6">
       {sessionError && (
         <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

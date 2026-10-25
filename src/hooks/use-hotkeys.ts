@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useCallback, useRef } from 'react'
+import { openUploadSheet } from '@/lib/upload-sheet'
 
 type HotkeyConfig = {
   key: string
@@ -131,8 +132,8 @@ export function useNavigationHotkeys(openCommandPalette?: () => void) {
     {
       key: 'u',
       cmd: true,
-      action: () => router?.push('/mass-upload'),
-      description: 'Go to Mass Upload',
+      action: () => openUploadSheet(),
+      description: 'Upload screenshots',
       category: 'Navigation'
     },
     {

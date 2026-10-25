@@ -23,7 +23,7 @@ Theme log from the capture run: [`activity-bell-theme-log.json`](activity-bell-t
 
 **Unit-tested, not screenshoted:** provider toast-once + persist-across-remount, acknowledge clears storage, poll-paused copy, session list `userId` scope, 404-then-403 on GET/PATCH.
 
-**Reasoned (at capture time):** in-page `/mass-upload` progress card; `toastWithNavigate` on a real completing run (provider unit test covers the call). Stalled rows surface as "still trying" (AGENTS.md Mass-upload queue).
+**Reasoned:** in-page Inbox upload card (mass-upload processing/complete screens retired); `toastWithNavigate` / View results href via `uploadResultsHref` (provider unit test covers the call). Stalled rows surface as "still trying" (AGENTS.md Mass-upload queue).
 
 ## Notification triage
 

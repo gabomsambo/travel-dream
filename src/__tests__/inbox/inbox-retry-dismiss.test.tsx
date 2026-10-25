@@ -61,7 +61,7 @@ function batch(rows: Partial<InboxUploadBatch['rows']>, screenshots: InboxUpload
     outcomeDerived: false,
     screenshots,
     rows: {
-      toReview: { placeIds: [], sourceIds: [], places: [], checkCount: 0 },
+      toReview: { placeIds: [], sourceIds: [], places: [], checkCount: 0, lookRightPlaceIds: [] },
       added: { placeIds: [], sourceIds: [], places: [] },
       notAPlace: { placeIds: [], sourceIds: [], places: [] },
       alreadyInLibrary: { placeIds: [], sourceIds: [], places: [] },

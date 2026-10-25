@@ -532,7 +532,7 @@ function EmptyReview({ scoped }: { scoped: boolean }) {
         ) : (
           <>
             <Button variant="outline" asChild><Link href="/library"><Library className="mr-2 h-4 w-4" />Open Library</Link></Button>
-            <Button asChild><Link href="/mass-upload"><Upload className="mr-2 h-4 w-4" />Upload screenshots</Link></Button>
+            <Button asChild><Link href="/inbox?sheet=1"><Upload className="mr-2 h-4 w-4" />Upload screenshots</Link></Button>
           </>
         )}
       </div>

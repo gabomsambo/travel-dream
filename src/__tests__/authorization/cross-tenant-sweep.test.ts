@@ -1056,7 +1056,7 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   },
   'places/bulk-actions': {
     POST: [
-      ...(['confirm', 'archive', 'restore', 'delete'] as const).map((action): Case => ({
+      ...(['confirm', 'archive', 'restore', 'delete', 'return-to-inbox'] as const).map((action): Case => ({
         name: action,
         slots: ['place'],
         request: (t) => ({ url: `${API}/places/bulk-actions`, body: { action, placeIds: [t.place] } }),

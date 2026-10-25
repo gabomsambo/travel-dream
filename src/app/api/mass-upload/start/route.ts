@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { forUser } from '@/lib/tenant-db';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 
@@ -38,25 +38,38 @@ export async function POST(request: NextRequest) {
 
     // Owning the session is not owning the rows it names: `meta.uploadedFiles`
     // is rebuilt from source metadata by mass-upload/register, so it is input to
-    // filter, not an authorization boundary. The update below goes through the
+    // filter, not an authorization boundary. The updates below go through the
     // tenant accessor, which re-scopes to the caller on its own.
-    const sourceIds = found.row.meta?.uploadedFiles || [];
-    if (sourceIds.length === 0) {
-      return NextResponse.json({ status: 'success', queued: 0, timestamp: new Date().toISOString() });
-    }
+    //
+    // Mark the session started without flipping `status` away from `active` —
+    // the activity provider treats a non-active session as not observable — and
+    // without rewriting `uploadedFiles` from a findOwned snapshot that can race
+    // a concurrent register. Register uses this flag so a late blob into this
+    // session inserts as `queued` (and dispatches) without a second client hop.
+    // Flip every `uploaded` source for this sessionId, not the snapshot list:
+    // a keepalive register that lands during Start must still be claimed.
+    const updated = await tdb.transaction(async (tx) => {
+      await tx.update(
+        uploadSessions,
+        {
+          meta: sql`json_set(COALESCE(${uploadSessions.meta}, '{}'), '$.processingStarted', json('true'))`,
+        },
+        eq(uploadSessions.id, sessionId),
+      );
 
-    // Flip all 'uploaded' sources in this session to 'queued'
-    const updated = await tdb.update(
-      sourcesCurrentSchema,
-      {
-        processingStatus: 'queued',
-        updatedAt: new Date().toISOString(),
-      },
-      and(
-        inArray(sourcesCurrentSchema.id, sourceIds),
-        eq(sourcesCurrentSchema.processingStatus, 'uploaded')
-      )
-    ).returning();
+      const forSession = sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`;
+      return tx.update(
+        sourcesCurrentSchema,
+        {
+          processingStatus: 'queued',
+          updatedAt: new Date().toISOString(),
+        },
+        and(
+          forSession,
+          eq(sourcesCurrentSchema.processingStatus, 'uploaded'),
+        ),
+      ).returning();
+    });
 
     // Start processing now rather than on the next safety-net cron tick. Runs
     // after the response so the upload UI is never held up by it, and a failure

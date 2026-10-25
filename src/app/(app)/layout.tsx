@@ -5,6 +5,7 @@ import { GlobalHotkeys } from '@/components/global-hotkeys'
 import { UIRefreshProvider } from '@/components/ui-refresh-provider'
 import { AppToaster } from '@/components/app-toaster'
 import { ActivityProvider } from '@/components/activity/activity-provider'
+import { UploadSheetProvider } from '@/components/upload/upload-sheet-provider'
 import { requireAuth } from '@/lib/auth-helpers'
 import { UI_THEME_COOKIE, normalizeUiTheme } from '@/lib/ui-theme'
 
@@ -37,20 +38,22 @@ export default async function AppLayout({
         attribute onto <html>. In the steady state both resolve identically.
       */}
       <ActivityProvider ownerUserId={user.id}>
-        <div
-          data-theme={uiTheme === 'tropical' ? 'tropical' : undefined}
-          className="flex h-screen overflow-hidden bg-background text-foreground"
-        >
-          <div className="hidden md:block">
-            <Sidebar />
+        <UploadSheetProvider>
+          <div
+            data-theme={uiTheme === 'tropical' ? 'tropical' : undefined}
+            className="flex h-screen overflow-hidden bg-background text-foreground"
+          >
+            <div className="hidden md:block">
+              <Sidebar />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <Header />
+              <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-6">
+                {children}
+              </main>
+            </div>
           </div>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <Header />
-            <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-6">
-              {children}
-            </main>
-          </div>
-        </div>
+        </UploadSheetProvider>
       </ActivityProvider>
       <AppToaster />
     </UIRefreshProvider>

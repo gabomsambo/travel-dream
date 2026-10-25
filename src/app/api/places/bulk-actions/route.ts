@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
-import { bulkConfirmPlaces, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces, batchSetVisitStatus } from '@/lib/db-mutations';
+import { bulkConfirmPlaces, bulkReturnPlacesToInbox, batchArchivePlaces, batchRestorePlaces, batchDeletePlaces, batchSetVisitStatus, type PlaceStatusUpdate } from '@/lib/db-mutations';
 import { getOwnedPlaceIds } from '@/lib/db-queries';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { z } from 'zod';
@@ -8,24 +8,46 @@ import { z } from 'zod';
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 1 minute for bulk operations
 
+const BULK_ACTION_PLACE_CAP = 500;
+const STATUS_CHANGE_PLACE_CAP = 5000;
+
+function placeIdCap(action: string): number {
+  return action === 'confirm' || action === 'return-to-inbox'
+    ? STATUS_CHANGE_PLACE_CAP
+    : BULK_ACTION_PLACE_CAP;
+}
+
 const BulkActionSchema = z.object({
-  action: z.enum(['confirm', 'archive', 'restore', 'delete', 'set-visit-status'], {
+  action: z.enum(['confirm', 'archive', 'restore', 'delete', 'set-visit-status', 'return-to-inbox'], {
     required_error: 'Action is required',
-    invalid_type_error: 'Action must be one of: "confirm", "archive", "restore", "delete" or "set-visit-status"'
+    invalid_type_error: 'Action must be one of: "confirm", "archive", "restore", "delete", "set-visit-status" or "return-to-inbox"'
   }),
   // Only for "set-visit-status": the Library's Dreaming / Planned / Been.
   visitStatus: z.enum(['not_visited', 'planned', 'visited']).optional(),
   placeIds: z.array(z.string().min(1, 'Place ID cannot be empty'), {
     required_error: 'Place IDs are required',
     invalid_type_error: 'Place IDs must be an array of strings'
-  }).min(1, 'At least one place ID is required').max(500, 'Cannot process more than 500 places at once')
-}).refine((b) => b.action !== 'set-visit-status' || b.visitStatus !== undefined, {
-  message: 'visitStatus is required for "set-visit-status"',
-  path: ['visitStatus'],
+  }).min(1, 'At least one place ID is required').max(STATUS_CHANGE_PLACE_CAP, `Cannot process more than ${STATUS_CHANGE_PLACE_CAP} places at once`)
+}).superRefine((b, ctx) => {
+  const cap = placeIdCap(b.action);
+  if (b.placeIds.length > cap) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['placeIds'],
+      message: `Cannot process more than ${cap} places at once`,
+    });
+  }
+  if (b.action === 'set-visit-status' && b.visitStatus === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['visitStatus'],
+      message: 'visitStatus is required for "set-visit-status"',
+    });
+  }
 });
 
 interface BulkActionRequest {
-  action: 'confirm' | 'archive' | 'restore' | 'delete' | 'set-visit-status';
+  action: 'confirm' | 'archive' | 'restore' | 'delete' | 'set-visit-status' | 'return-to-inbox';
   visitStatus?: 'not_visited' | 'planned' | 'visited';
   placeIds: string[];
 }
@@ -36,6 +58,7 @@ interface BulkActionResult {
   updatedCount: number;
   requestedCount: number;
   placeIds: string[];
+  updatedIds: string[];
   errors?: string[];
 }
 
@@ -84,13 +107,22 @@ export async function POST(request: NextRequest) {
     }
 
     let updatedCount = 0;
+    let updatedIds: string[] = [];
     let errors: string[] = [];
+
+    const takeStatus = (update: PlaceStatusUpdate) => {
+      updatedCount = update.updatedCount;
+      updatedIds = update.updatedIds;
+    };
 
     // Execute bulk action based on type
     try {
       switch (action) {
         case 'confirm':
-          updatedCount = await bulkConfirmPlaces(uniquePlaceIds, user.id);
+          takeStatus(await bulkConfirmPlaces(uniquePlaceIds, user.id));
+          break;
+        case 'return-to-inbox':
+          takeStatus(await bulkReturnPlacesToInbox(uniquePlaceIds, user.id));
           break;
         case 'archive':
           updatedCount = await batchArchivePlaces(uniquePlaceIds, user.id);
@@ -128,7 +160,11 @@ export async function POST(request: NextRequest) {
 
     // Invalidate cached library stats — any of confirm/archive/restore/delete affects counts.
     if (updatedCount > 0) {
-      revalidateTag(`library-stats:${user.id}`);
+      try {
+        revalidateTag(`library-stats:${user.id}`);
+      } catch (error) {
+        console.error('Failed to revalidate library stats:', error);
+      }
     }
 
     // Check if operation was partially successful
@@ -146,6 +182,7 @@ export async function POST(request: NextRequest) {
       updatedCount,
       requestedCount: uniquePlaceIds.length,
       placeIds: uniquePlaceIds,
+      updatedIds,
       ...(errors.length > 0 && { errors })
     };
 
@@ -163,7 +200,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (isPartialSuccess) {
-      const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : 'deleted';
+      const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : action === 'return-to-inbox' ? 'returned to the Inbox' : 'deleted';
       return NextResponse.json(
         {
           status: 'partial_success',
@@ -176,7 +213,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Full success
-    const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : 'permanently deleted';
+    const actionVerb = action === 'confirm' ? 'confirmed' : action === 'archive' ? 'archived' : action === 'restore' ? 'restored' : action === 'set-visit-status' ? 'updated' : action === 'return-to-inbox' ? 'returned to the Inbox' : 'permanently deleted';
     return NextResponse.json(
       {
         status: 'success',
@@ -229,12 +266,13 @@ export async function GET() {
         method: 'POST',
         description: 'Perform bulk operations on multiple places',
         requestBody: {
-          action: 'confirm | archive | restore | delete | set-visit-status',
-          placeIds: 'string[] (1-500 items)',
+          action: 'confirm | archive | restore | delete | set-visit-status | return-to-inbox',
+          placeIds: 'string[] (1-500 items, or 1-5000 for confirm and return-to-inbox)',
           visitStatus: 'not_visited | planned | visited (set-visit-status only)'
         },
         actions: {
           confirm: 'Move places from inbox to library',
+          'return-to-inbox': 'Move places back to the inbox (undo a confirm)',
           archive: 'Move places to archived status',
           restore: 'Restore archived places back to library',
           delete: 'Permanently delete places from database',

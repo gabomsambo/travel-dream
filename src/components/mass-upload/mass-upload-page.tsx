@@ -160,6 +160,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     let binding: UnstartedUploadBinding | null = null
     let abandoning = false
     let cancelRequest: Promise<Response> | null = null
+    let startRequestedHeld = false
     const store = createAbandonedUploadStore()
     abandonedStoreRef.current = store
     const create = async () => {
@@ -178,7 +179,8 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
           releaseBinding()
           binding = {
             sessionId: () => id,
-            startRequested: () => startedRef.current || startPromiseRef.current !== null,
+            startRequested: () =>
+              startRequestedHeld || startedRef.current || startPromiseRef.current !== null,
             store,
             cancel: () => {
               if (!cancelRequest) cancelRequest = cancelUploadSession(id)
@@ -202,6 +204,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       const startPromise = startPromiseRef.current
       const alreadyStarted = startedRef.current
       const startWasRequested = alreadyStarted || startPromise !== null
+      if (startWasRequested) startRequestedHeld = true
       // The cancel goes out first, while the page is still there.
       if (binding && currentSessionId && !startWasRequested) {
         try {

@@ -139,6 +139,7 @@ describe('POST /api/mass-upload/start', () => {
       .join('');
     expect(metaSql).toContain('$.processingStarted');
     expect(metaSql).toContain('json_set');
+    expect(metaSql).toContain("json('true')");
     expect(whereMentions(sourceWhere.mock.calls[0][0], 'session_test-1')).toBe(true);
     expect(mockDb.update).toHaveBeenCalledTimes(2);
   });

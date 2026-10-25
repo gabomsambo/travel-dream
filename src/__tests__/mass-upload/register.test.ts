@@ -29,7 +29,7 @@ jest.mock('next/server', () => {
 });
 
 function createTx(options: {
-  sessionMeta?: { processingStarted?: boolean } | null;
+  sessionMeta?: { processingStarted?: boolean | 1 } | null;
   siblingIds?: string[];
 } = {}) {
   const sessionMeta = options.sessionMeta === undefined ? null : options.sessionMeta;
@@ -312,6 +312,35 @@ describe('POST /api/mass-upload/register', () => {
     expect(afterCallbacks).toHaveLength(1);
     await afterCallbacks[0]();
     expect(mockDispatch).toHaveBeenCalledWith('register-late', 'grow');
+  });
+
+  it('inserts as queued when processingStarted was stored as JSON number 1', async () => {
+    const session = createMockSession({
+      meta: {
+        uploadedFiles: [],
+        errors: [],
+        processingStarted: 1,
+      },
+    });
+    const tx = createTx({
+      sessionMeta: { processingStarted: 1 },
+      siblingIds: [],
+    });
+    (withTransaction as jest.Mock).mockImplementationOnce(async (fn: (t: unknown) => Promise<unknown>) =>
+      fn(tx),
+    );
+
+    mockSessionSelect(session);
+    mockBlobFetchSuccess();
+    mockDedupSelectNoMatch();
+
+    const res = await POST(createRegisterRequest(validBody) as never);
+
+    expect(res.status).toBe(200);
+    expect(tx.statusSets).toEqual([
+      expect.objectContaining({ processingStatus: 'queued' }),
+    ]);
+    expect(afterCallbacks).toHaveLength(1);
   });
 
   it('inserts as queued when a sibling source is already past uploaded', async () => {

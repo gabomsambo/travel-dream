@@ -305,6 +305,126 @@ describe('duplicate upload outcomes', () => {
   });
 });
 
+describe('late register into started sessions', () => {
+  it('keeps pre-Start registers as uploaded despite the pending DEFAULT', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO upload_sessions
+         (id,user_id,started_at,file_count,completed_count,failed_count,status,meta)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        'session_pre_start', ALICE.id, now, 1, 0, 0, 'active',
+        JSON.stringify({ uploadedFiles: [], errors: [] }),
+      ]
+    );
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => Uint8Array.from([4, 5, 6]).buffer,
+    }) as unknown as typeof fetch;
+
+    const { POST } = require('@/app/api/mass-upload/register/route') as
+      typeof import('@/app/api/mass-upload/register/route');
+    const res = await POST(apiRequest(
+      'http://local.test/api/mass-upload/register',
+      'POST',
+      {
+        sessionId: 'session_pre_start',
+        blobUrl: 'https://store.public.blob.vercel-storage.com/pre-start.jpg',
+        originalName: 'pre-start.jpg',
+        fileSize: 3,
+        mimeType: 'image/jpeg',
+      }
+    ) as never);
+    const body = await res.json() as { status: string; sourceId: string };
+    expect(body.status).toBe('success');
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [body.sourceId]))
+      .toBe('uploaded');
+  });
+
+  it('queues a late register when Start stored processingStarted as JSON 1', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO upload_sessions
+         (id,user_id,started_at,file_count,completed_count,failed_count,status,meta)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        'session_started_num', ALICE.id, now, 1, 0, 0, 'active',
+        JSON.stringify({ uploadedFiles: [], errors: [], processingStarted: 1 }),
+      ]
+    );
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => Uint8Array.from([7, 8, 9]).buffer,
+    }) as unknown as typeof fetch;
+
+    const { POST } = require('@/app/api/mass-upload/register/route') as
+      typeof import('@/app/api/mass-upload/register/route');
+    const res = await POST(apiRequest(
+      'http://local.test/api/mass-upload/register',
+      'POST',
+      {
+        sessionId: 'session_started_num',
+        blobUrl: 'https://store.public.blob.vercel-storage.com/late-num.jpg',
+        originalName: 'late-num.jpg',
+        fileSize: 3,
+        mimeType: 'image/jpeg',
+      }
+    ) as never);
+    const body = await res.json() as { status: string; sourceId: string };
+    expect(body.status).toBe('success');
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [body.sourceId]))
+      .toBe('queued');
+  });
+
+  it('Start writes a JSON boolean so a later register queues without siblings', async () => {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO upload_sessions
+         (id,user_id,started_at,file_count,completed_count,failed_count,status,meta)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        'session_start_bool', ALICE.id, now, 0, 0, 0, 'active',
+        JSON.stringify({ uploadedFiles: [], errors: [] }),
+      ]
+    );
+
+    const { POST: start } = require('@/app/api/mass-upload/start/route') as
+      typeof import('@/app/api/mass-upload/start/route');
+    const startRes = await start(apiRequest(
+      'http://local.test/api/mass-upload/start',
+      'POST',
+      { sessionId: 'session_start_bool' }
+    ) as never);
+    expect(startRes.status).toBe(200);
+
+    const meta = await jsonCell('SELECT meta FROM upload_sessions WHERE id = ?', ['session_start_bool']);
+    expect(meta.processingStarted).toBe(true);
+
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => Uint8Array.from([1, 1, 1]).buffer,
+    }) as unknown as typeof fetch;
+
+    const { POST: register } = require('@/app/api/mass-upload/register/route') as
+      typeof import('@/app/api/mass-upload/register/route');
+    const res = await register(apiRequest(
+      'http://local.test/api/mass-upload/register',
+      'POST',
+      {
+        sessionId: 'session_start_bool',
+        blobUrl: 'https://store.public.blob.vercel-storage.com/after-start.jpg',
+        originalName: 'after-start.jpg',
+        fileSize: 3,
+        mimeType: 'image/jpeg',
+      }
+    ) as never);
+    const body = await res.json() as { status: string; sourceId: string };
+    expect(body.status).toBe('success');
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [body.sourceId]))
+      .toBe('queued');
+  });
+});
+
 describe('stale uploaded recovery', () => {
   it('queues only stale uploaded rows without consuming either retry counter', async () => {
     const stale = '2026-10-18T08:00:00.000Z';

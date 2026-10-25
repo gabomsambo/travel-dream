@@ -34,6 +34,10 @@ async function sessionStillOpen(
   return row != null && row.status !== 'cancelled';
 }
 
+function isProcessingStartedFlag(value: unknown): boolean {
+  return value === true || value === 1;
+}
+
 /**
  * True when Start has already queued this session (or a sibling source is past
  * `uploaded`). Late registers must insert as `queued` so the queue claims them
@@ -44,16 +48,19 @@ async function sessionAlreadyStarted(
   sessionId: string,
   userId: string,
   meta: SessionMeta | null | undefined,
+  excludeSourceId: string,
 ): Promise<boolean> {
-  if (meta?.processingStarted === true) return true;
+  if (isProcessingStartedFlag(meta?.processingStarted)) return true;
   const siblings = await tx
     .select({ id: sourcesCurrentSchema.id })
     .from(sourcesCurrentSchema)
     .where(and(
       eq(sourcesCurrentSchema.userId, userId),
       sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`,
+      ne(sourcesCurrentSchema.id, excludeSourceId),
       isNotNull(sourcesCurrentSchema.processingStatus),
       ne(sourcesCurrentSchema.processingStatus, 'uploaded'),
+      ne(sourcesCurrentSchema.processingStatus, 'pending'),
     ))
     .limit(1);
   return siblings.length > 0;
@@ -266,7 +273,13 @@ export async function POST(request: NextRequest) {
         .from(uploadSessions)
         .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
         .limit(1);
-      const alreadyStarted = await sessionAlreadyStarted(tx, sessionId, user.id, statusSession?.meta);
+      const alreadyStarted = await sessionAlreadyStarted(
+        tx,
+        sessionId,
+        user.id,
+        statusSession?.meta,
+        created.id,
+      );
       const processingStatus = alreadyStarted ? 'queued' : 'uploaded';
 
       await tx.update(sourcesCurrentSchema)

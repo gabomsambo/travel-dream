@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       await tx.update(
         uploadSessions,
         {
-          meta: sql`json_set(COALESCE(${uploadSessions.meta}, '{}'), '$.processingStarted', true)`,
+          meta: sql`json_set(COALESCE(${uploadSessions.meta}, '{}'), '$.processingStarted', json('true'))`,
         },
         eq(uploadSessions.id, sessionId),
       );

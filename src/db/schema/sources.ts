@@ -114,8 +114,9 @@ export const uploadSessions = sqliteTable('upload_sessions', {
      * Set by POST /api/mass-upload/start without changing `status` (activity
      * still treats non-`active` sessions as unobservable). Late registers into
      * a started session insert as `queued` instead of `uploaded`.
+     * JSON boolean or `1` from SQLite json_set(true).
      */
-    processingStarted?: boolean;
+    processingStarted?: boolean | 1;
   }>(),
 }, (table) => ({
   statusIdx: index('upload_sessions_status_idx').on(table.status),

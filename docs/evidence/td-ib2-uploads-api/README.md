@@ -1,10 +1,12 @@
 # Evidence: `GET /api/inbox/uploads`
 
 Responses from the running app (`next dev`) on a seeded local SQLite file. `toReviewPlaceIds`
-is those captures' inbox place ids, once each, newest batch first. No Turso,
-no Blob store, no paid providers: the environment held only a `file:` database URL
-and an auth secret. Places were made by the real `createPlacesFromPipeline` with
-simulated extraction, mirroring the Inbox scout's walk:
+is those captures' inbox place ids, once each, newest batch first. `toReview.checkCount`
+is owned by `InboxUploadBatch` in `src/types/inbox-uploads.ts` (a number from
+`reviewChecks`); these captures omit that field rather than keep the old `null`
+placeholder. No Turso, no Blob store, no paid providers: the environment held only
+a `file:` database URL and an auth secret. Places were made by the real
+`createPlacesFromPipeline` with simulated extraction, mirroring the Inbox scout's walk:
 
 - **3:09 PM upload** (3 screenshots): a London list, a breakfast list and Huacachina.
   The breakfast places and Huacachina were then confirmed into the Library.

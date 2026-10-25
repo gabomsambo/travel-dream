@@ -187,7 +187,10 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const collected = React.useMemo(() => new Set(collections.flatMap((c) => c.placeIds)), [collections])
   const ctx = React.useMemo<FilterContext>(() => ({ searchIds, hearts, collected, now }), [searchIds, hearts, collected, now])
 
-  const filtered = React.useMemo(() => filterItems(items, filters, ctx), [items, filters, ctx])
+  // The list follows a deferred copy of the filters. Keyed on `filters` itself, every keystroke
+  // re-filtered, re-sorted and re-chaptered the page inside the urgent update.
+  const listFilters = React.useDeferredValue(filters)
+  const filtered = React.useMemo(() => filterItems(items, listFilters, ctx), [items, listFilters, ctx])
   const sorted = React.useMemo(() => sortItems(filtered, sort), [filtered, sort])
   const sparse = items.length < SPARSE_THRESHOLD
   const chapters = React.useMemo(() => buildChapters(sorted, sparse ? "none" : group, collections, now), [sorted, sparse, group, collections, now])
@@ -568,7 +571,10 @@ function LibraryPage({ data }: { data: LibraryData }) {
         if (!places.length) return
         e.preventDefault()
         const i = places.indexOf(document.activeElement as HTMLElement)
-        const next = i < 0 ? 0 : Math.min(Math.max(i + (key === "j" ? 1 : -1), 0), places.length - 1)
+        // The gallery keeps a few rows above the screen mounted; starting from one of those would scroll back up.
+        const top = document.querySelector("main")?.getBoundingClientRect().top ?? 0
+        const onScreen = Math.max(places.findIndex((el) => el.getBoundingClientRect().bottom > top), 0)
+        const next = i < 0 ? onScreen : Math.min(Math.max(i + (key === "j" ? 1 : -1), 0), places.length - 1)
         places[next].focus()
         places[next].scrollIntoView({ block: "nearest", behavior: "smooth" })
       } else if ((e.key === " " || key === "x") && focused) {

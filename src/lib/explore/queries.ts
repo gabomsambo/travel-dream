@@ -77,8 +77,10 @@ function mapExplorePlaces(rows: PlaceRow[], photos: PhotoRow[]): ExplorePlace[] 
     const coords = usablePin(r.coords && typeof r.coords === 'object' ? r.coords : null);
     const pics = (byPlace.get(r.id) ?? [])
       .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.createdAt.localeCompare(b.createdAt))
-      // Both sizes travel together: rails and covers render the thumbnail, the
-      // hero and the sheet render the full image.
+      // Both sizes travel together. `Photo` picks per box: the small ones use the
+      // thumbnail, the rest start from the full image and are resized to the box,
+      // so a photo with no thumbnail of its own (`thumb` falls back to `uri`)
+      // still never lands in a tile at full size.
       .map((a) => ({
         uri: a.uri,
         thumb: a.thumb || a.uri,

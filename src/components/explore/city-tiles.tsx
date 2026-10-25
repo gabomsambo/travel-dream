@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Photo } from '@/components/photo';
 import type { CountryGroup } from '@/lib/explore/types';
 import { FallbackArt } from './fallback-art';
 
@@ -24,12 +25,10 @@ export function CityTiles({ country }: { country: CountryGroup }) {
             )}
           >
             {c.cover ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <Photo
                 src={c.cover}
-                alt=""
-                loading="lazy"
-                className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                sizes={i === 0 ? '(min-width: 1024px) 50vw, 100vw' : '(min-width: 1024px) 25vw, 50vw'}
+                className="transition duration-700 group-hover:scale-105"
               />
             ) : (
               <FallbackArt name={c.city} kind="city" />

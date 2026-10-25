@@ -7,7 +7,15 @@ import type { ExplorePlace, RailShape } from "@/lib/explore/types"
 import { flagFor } from "@/lib/explore/geo"
 import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
 import { FallbackArt } from "./fallback-art"
+import { Photo } from "@/components/photo"
 import { kindLabel } from "./kind-icon"
+
+// What each shape's box measures at its widest, for the photo's `sizes`.
+const SIZES: Record<RailShape, string> = {
+  landscape: "(min-width: 640px) 340px, 72vw",
+  poster: "(min-width: 640px) 210px, 44vw",
+  hero: "(min-width: 1024px) 50vw, 100vw",
+}
 
 const SHAPES: Record<RailShape, string> = {
   // Widths are chosen so the last card is always cut off: the peek is the scroll hint.
@@ -37,6 +45,8 @@ export function PlaceTile({
   leading,
   actions,
   selected = false,
+  sizes,
+  priority = false,
   className,
 }: {
   place: ExplorePlace
@@ -56,6 +66,10 @@ export function PlaceTile({
   leading?: React.ReactNode
   actions?: React.ReactNode
   selected?: boolean
+  /** The tile's CSS width where a grid overrides the shape's own (see `Photo`). */
+  sizes?: string
+  /** The page's LCP tile: its photo is preloaded. */
+  priority?: boolean
   className?: string
 }) {
   const location = [place.city, place.country].filter(Boolean).join(", ")
@@ -95,14 +109,12 @@ export function PlaceTile({
       )}
     >
       {place.photos[0] ? (
-        // Plain <img>: photos are user content on Blob URLs, matching library-v2.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={place.photos[0].thumb}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="absolute inset-0 h-full w-full object-cover transition duration-700 ease-out group-hover:scale-[1.04]"
+        <Photo
+          src={place.photos[0].uri}
+          thumb={place.photos[0].thumb}
+          sizes={sizes ?? SIZES[shape]}
+          priority={priority}
+          className="transition duration-700 ease-out group-hover:scale-[1.04]"
         />
       ) : (
         <FallbackArt name={place.name} kind={place.kind} />

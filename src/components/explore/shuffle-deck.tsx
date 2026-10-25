@@ -25,6 +25,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { notify } from "@/lib/notify"
 import { useExplore } from "./explore-provider"
 import { FallbackArt } from "./fallback-art"
+import { Photo } from "@/components/photo"
+import { photoPrefetchSrc, photoRoute } from "@/lib/photo-url"
 import { kindLabel } from "./kind-icon"
 import { SaveCollectionDialog } from "./save-collection-dialog"
 
@@ -114,7 +116,7 @@ export function ShuffleDeck({
   const current = cards[session.index]
   const done = isDeckComplete(session, cards.length)
   const dreams = dreamsFromHistory(session.history)
-  const backdrop = (current ?? places.get(dreams[dreams.length - 1] ?? ""))?.photos[0]?.uri
+  const backdrop = (current ?? places.get(dreams[dreams.length - 1] ?? ""))?.photos[0]
 
   const decide = React.useCallback(
     (verdict: ShuffleVerdict) => {
@@ -169,7 +171,9 @@ export function ShuffleDeck({
   React.useEffect(() => {
     for (const p of cards.slice(session.index + 1, session.index + 3)) {
       const uri = p.photos[0]?.uri
-      if (uri) new window.Image().src = uri
+      if (!uri) continue
+      const width = photoRoute(uri) === "optimized" ? 1080 : 960
+      new window.Image().src = photoPrefetchSrc(uri, width)
     }
   }, [session.index, cards])
 
@@ -178,13 +182,13 @@ export function ShuffleDeck({
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden bg-neutral-950 text-white">
       {backdrop && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={backdrop}
-          src={backdrop}
-          alt=""
-          aria-hidden
-          className="absolute inset-0 h-full w-full scale-125 object-cover opacity-40 blur-3xl animate-in fade-in-0 duration-700"
+        <Photo
+          key={backdrop.uri}
+          src={backdrop.uri}
+          thumb={backdrop.thumb}
+          use="thumb"
+          sizes="160px"
+          className="scale-125 opacity-40 blur-3xl animate-in fade-in-0 duration-700"
         />
       )}
       <div className="absolute inset-0 bg-black/30" aria-hidden />
@@ -340,8 +344,7 @@ function CardFace({ place, interactive, onOpen }: { place: ExplorePlace; interac
   return (
     <div className="absolute inset-0 bg-neutral-800">
       {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={place.name} draggable={false} className="absolute inset-0 h-full w-full select-none object-cover" />
+        <Photo src={src} alt={place.name} draggable={false} sizes="(min-width: 640px) 520px, 100vw" className="select-none" />
       ) : (
         <FallbackArt name={place.name} kind={place.kind} />
       )}
@@ -487,8 +490,7 @@ function EndOfDeck({
               className={cn("relative h-24 w-[72px] overflow-hidden rounded-xl border-2 border-neutral-950 shadow-lg", i % 2 ? "rotate-6" : "-rotate-6")}
             >
               {p.photos[0] ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.photos[0].uri} alt={p.name} className="h-full w-full object-cover" />
+                <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} use="thumb" alt={p.name} sizes="72px" />
               ) : (
                 <FallbackArt name={p.name} kind={p.kind} />
               )}

@@ -9,6 +9,7 @@ import { flagFor } from "@/lib/explore/geo"
 import type { FeaturedPick } from "@/lib/explore/types"
 import { useExplore } from "./explore-provider"
 import { FallbackArt } from "./fallback-art"
+import { Photo } from "@/components/photo"
 
 /**
  * The billboard: today's five picks, each there for a different reason, behind
@@ -34,8 +35,7 @@ export function ExploreHero({ picks, greeting, stats }: { picks: FeaturedPick[];
     <section aria-roledescription="carousel" aria-label="Today's picks from your saves" className="relative overflow-hidden bg-black">
       <div key={place.id} className="absolute inset-0 animate-in fade-in zoom-in-[1.03] duration-700">
         {place.photos[0] ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={place.photos[0].uri} alt="" fetchPriority="high" className="h-full w-full object-cover opacity-90" />
+          <Photo src={place.photos[0].uri} sizes="100vw" priority className="opacity-90" />
         ) : (
           <FallbackArt name={place.name} kind={place.kind} />
         )}

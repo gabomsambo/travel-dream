@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { Photo } from "@/components/photo"
 import type { BrowseRail, RailGroup } from "@/lib/explore/types"
 import { FallbackArt } from "./fallback-art"
 
@@ -40,12 +41,10 @@ export function BrowseAll({ rails }: { rails: BrowseRail[] }) {
                     className="group relative block h-28 min-w-0 overflow-hidden rounded-2xl bg-muted outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:h-32"
                   >
                     {rail.cover ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <Photo
                         src={rail.cover}
-                        alt=""
-                        loading="lazy"
-                        className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                        sizes="(min-width: 1536px) 16vw, (min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+                        className="transition duration-700 group-hover:scale-105"
                       />
                     ) : (
                       rail.fallback && <FallbackArt name={rail.fallback.name} kind={rail.fallback.kind} />

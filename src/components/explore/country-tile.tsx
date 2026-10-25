@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Photo } from '@/components/photo';
 import type { CountryGroup } from '@/lib/explore/types';
 
 /** One country tile: cover photo (or fallback), flag top-left, name and counts. */
@@ -21,12 +22,10 @@ export function CountryTile({
       )}
     >
       {country.cover ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <Photo
           src={country.cover}
-          alt=""
-          loading="lazy"
-          className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
+          sizes={size === 'lg' ? '(min-width: 768px) 50vw, 100vw' : '(min-width: 768px) 25vw, 50vw'}
+          className="transition duration-700 group-hover:scale-105"
         />
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-primary/60 to-primary" />

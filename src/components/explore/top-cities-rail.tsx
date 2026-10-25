@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Photo } from '@/components/photo';
 import type { CityGroup } from '@/lib/explore/types';
 import { flagFor, slugify } from '@/lib/explore/geo';
 import { FallbackArt } from './fallback-art';
@@ -27,12 +28,11 @@ export function TopCitiesRail({ cities }: { cities: CityGroup[] }) {
               </span>
               <span className="relative block aspect-[3/4] w-[34vw] overflow-hidden rounded-2xl bg-muted shadow-lg sm:w-[150px]">
                 {c.cover ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <Photo
                     src={c.cover}
-                    alt=""
-                    loading="lazy"
-                    className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                    use="thumb"
+                    sizes="(min-width: 640px) 150px, 34vw"
+                    className="transition duration-700 group-hover:scale-105"
                   />
                 ) : (
                   <FallbackArt name={c.city} kind="city" />

@@ -6,6 +6,7 @@ import { ArrowRight, ChevronRight, Globe2, Shuffle, Star } from "lucide-react"
 import { cn } from "@/lib/utils"
 import * as Dialog from "@radix-ui/react-dialog"
 import { FallbackArt } from "@/components/explore/fallback-art"
+import { Photo } from "@/components/photo"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { editorialFont } from "@/components/explore/fonts"
 import { flagFor } from "@/lib/explore/geo"
@@ -37,8 +38,9 @@ function ChapterHeader({ chapter, group, items, collage }: { chapter: Chapter; g
       {collage && photos.length > 0 ? (
         <div className="grid aspect-[4/3] w-24 shrink-0 grid-cols-[2fr_1fr] grid-rows-2 gap-[2px] overflow-hidden rounded-xl bg-muted sm:w-[120px]">
           {photos.map((src, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={src + i} src={src} alt="" loading="lazy" className={cn("h-full w-full object-cover", i === 0 && "row-span-2")} />
+            <div key={src + i} className={cn("relative", i === 0 && "row-span-2")}>
+              <Photo src={src} use="thumb" sizes={i === 0 ? "80px" : "40px"} />
+            </div>
           ))}
         </div>
       ) : (
@@ -102,12 +104,11 @@ function StatusPill({ p, long = false }: { p: LibraryItem; long?: boolean }) {
   return <span className="whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-secondary-foreground">Dreaming</span>
 }
 
-function Thumb({ p, className }: { p: LibraryItem; className?: string }) {
+function Thumb({ p, className, sizes, small = false }: { p: LibraryItem; className?: string; sizes: string; small?: boolean }) {
   return (
     <div className={cn("relative shrink-0 overflow-hidden bg-muted", className)}>
       {p.photos[0] ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={p.photos[0].thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+        <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} use={small ? "thumb" : "full"} sizes={sizes} />
       ) : (
         <FallbackArt name={p.name} kind={p.kind} />
       )}
@@ -132,7 +133,7 @@ function JournalChapter({ items, siblings, single }: { items: LibraryItem[]; sib
               aria-label={`${p.name}, ${locationOf(p)}`}
               className="group relative aspect-square overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:aspect-[4/3] sm:rounded-2xl"
             >
-              <Thumb p={p} className="absolute inset-0 transition duration-700 group-hover:scale-[1.04]" />
+              <Thumb p={p} sizes="(min-width: 640px) 240px, 96px" className="absolute inset-0 transition duration-700 group-hover:scale-[1.04]" />
             </button>
             <div className="min-w-0 sm:pt-1">
               <div className="flex items-start gap-2">
@@ -218,7 +219,7 @@ function ListChapter({ items, siblings, collectionNames, single }: { items: Libr
             </span>
             <span role="cell" className="relative">
               <button type="button" onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })} aria-label={`Open ${p.name}`} className="block rounded-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <Thumb p={p} className="h-14 w-14 rounded-xl md:h-11 md:w-11 md:rounded-[10px]" />
+                <Thumb p={p} small sizes="56px" className="h-14 w-14 rounded-xl md:h-11 md:w-11 md:rounded-[10px]" />
               </button>
               {a.selecting && (
                 <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} className="absolute -left-1 -top-1 md:hidden" />

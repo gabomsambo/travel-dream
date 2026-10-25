@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { Photo } from "@/components/photo"
 import { flagFor } from "@/lib/explore/geo"
 import { groupBySlug } from "@/lib/explore/atlas"
 import { tallyCities } from "@/lib/city-names"
@@ -102,8 +103,14 @@ export function LibraryCover({
             key={p.id}
             className={cn("relative overflow-hidden", i === 0 && "col-span-2 row-span-2", i >= 3 && "hidden sm:block")}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={i === 0 ? p.src : p.thumb} alt="" className="absolute inset-0 h-full w-full object-cover animate-in fade-in-0 duration-700" />
+            <Photo
+              src={p.src}
+              thumb={p.thumb}
+              use={i === 0 ? "full" : "thumb"}
+              sizes={i === 0 ? "(min-width: 640px) 40vw, 67vw" : "(min-width: 640px) 20vw, 34vw"}
+              priority={i === 0}
+              className="animate-in fade-in-0 duration-700"
+            />
           </div>
         ))}
       </div>

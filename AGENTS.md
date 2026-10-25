@@ -292,6 +292,9 @@ Which photo becomes the cover is `PrimaryPolicy` in that file. Google photos are
 `/api/photos/resolve` turns into a URL on view (billed per view) — never persist Google image bytes or URLs.
 Google photo names expire (weeks, not years): the resolver refreshes an expired one from the place id with a
 free `photos`-only Place Details call and stores the new name, so don't treat a stored name as permanent.
+Library and Explore render through `Photo` (`src/components/photo.tsx`): Blob/Pexels/Wikimedia are resized by
+the Next optimizer (`images.remotePatterns` in `next.config.js`); Google resolver URLs use `?w=` and must
+never go through the optimizer, whose cache would keep Google image bytes.
 
 ## Mass-upload queue (reliability-critical)
 

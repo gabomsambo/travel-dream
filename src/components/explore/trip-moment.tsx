@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { ArrowRight, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Photo } from "@/components/photo"
 import { Button } from "@/components/adapters/button"
 import { flagFor } from "@/lib/explore/geo"
 import type { TripNudge } from "@/lib/explore/types"
@@ -62,8 +63,11 @@ export function TripMoment({ nudge, className }: { nudge: TripNudge; className?:
           {[0, 1, 2].map((slot) => (
             <div key={slot} className={cn("relative min-h-0 overflow-hidden bg-muted", slot === 0 && "col-span-2 row-span-2")}>
               {nudge.photos[slot] && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={nudge.photos[slot]} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+                <Photo
+                  src={nudge.photos[slot]}
+                  use={slot === 0 ? "full" : "thumb"}
+                  sizes={slot === 0 ? "(min-width: 768px) 400px, 60vw" : "(min-width: 768px) 200px, 30vw"}
+                />
               )}
             </div>
           ))}

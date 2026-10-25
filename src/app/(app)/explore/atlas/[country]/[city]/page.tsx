@@ -9,6 +9,7 @@ import { ExploreScope } from '@/components/explore/explore-scope';
 import { AtlasHero } from '@/components/explore/atlas-hero';
 import { PlaceGrid } from '@/components/explore/place-grid';
 import { TripNudgeCard } from '@/components/explore/trip-nudge-card';
+import { Photo } from '@/components/photo';
 
 /**
  * City page: full-bleed cover, the trip bridge right under it (shown from
@@ -86,8 +87,9 @@ export default async function CityPage({ params }: { params: Promise<{ country: 
                   className="group flex items-center gap-2 rounded-full border bg-card py-1 pl-1 pr-4 text-sm transition hover:bg-secondary"
                 >
                   {c.cover ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={c.cover} alt="" className="h-8 w-8 rounded-full object-cover" />
+                    <span className="relative h-8 w-8 overflow-hidden rounded-full">
+                      <Photo src={c.cover} use="thumb" sizes="32px" />
+                    </span>
                   ) : (
                     <span className="h-8 w-8 rounded-full bg-muted" />
                   )}

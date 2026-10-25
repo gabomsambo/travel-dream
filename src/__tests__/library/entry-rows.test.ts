@@ -5,7 +5,7 @@ import type { GroupMode, LibraryItem } from '@/lib/library/types';
 import { item } from '../helpers/library-items';
 
 const NOW = new Date('2026-10-05T12:00:00Z');
-const NONE: EntryRowOptions = { view: 'list', group: 'country', limits: new Map(), cityBy: new Map(), interlude: false };
+const NONE: EntryRowOptions = { view: 'list', group: 'country', limits: new Map(), cityBy: new Map(), columns: true, interlude: false };
 
 const places = (n: number, over: (i: number) => Partial<LibraryItem> = () => ({})) =>
   Array.from({ length: n }, (_, i) => item({ id: `p${i}`, ...over(i) }));
@@ -76,6 +76,13 @@ describe('buildEntryRows', () => {
     expect(entryChapterKey(rows[at - 1])).toBe('country:japan');
     expect(rows[at + 1]).toMatchObject({ kind: 'header', chapter: { key: 'country:italy' } });
     expect(kinds(rowsFor(items, 'country')).includes('interlude')).toBe(false);
+  });
+
+  it('omits list column titles and the interlude when those flags are off', () => {
+    const items = places(3);
+    expect(kinds(rowsFor(items, 'country', { columns: false }))).toEqual(['header', ...Array(3).fill('entry')]);
+    expect(kinds(rowsFor(items, 'country', { view: 'journal', columns: true }))).not.toContain('columns');
+    expect(kinds(rowsFor(items, 'country', { interlude: false }))).not.toContain('interlude');
   });
 
   it('gives every row a unique, stable key, even for a place that is in two chapters', () => {

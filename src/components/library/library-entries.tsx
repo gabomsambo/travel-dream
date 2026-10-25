@@ -349,12 +349,12 @@ export function VirtualEntries({
   const [limits, setLimits] = React.useState<ReadonlyMap<string, number>>(() => new Map())
   const [cityBy, setCityBy] = React.useState<ReadonlyMap<string, string | null>>(() => new Map())
   const hasInterlude = !!interlude
-  const rows = React.useMemo(
-    () => buildEntryRows(chapters, { view, group, limits, cityBy, interlude: hasInterlude }),
-    [chapters, view, group, limits, cityBy, hasInterlude]
-  )
   const wide = useMediaQuery("(min-width: 768px)", true)
   const phone = !useMediaQuery("(min-width: 640px)", true)
+  const rows = React.useMemo(
+    () => buildEntryRows(chapters, { view, group, limits, cityBy, columns: view === "list" && wide, interlude: hasInterlude && phone }),
+    [chapters, view, group, limits, cityBy, hasInterlude, wide, phone]
+  )
   const chips = group === "country" && view === "journal"
   const estimate = React.useCallback((row: EntryRow) => estimateEntry(row, view, wide, phone, chips), [view, wide, phone, chips])
 

@@ -50,6 +50,8 @@ export interface EntryRowOptions {
   limits: ReadonlyMap<string, number>;
   /** The city chip chosen in a country chapter (journal only). */
   cityBy: ReadonlyMap<string, string | null>;
+  /** List column titles (md+); false on phone so they are not counted in the table. */
+  columns: boolean;
   /** A phone shows the trips interlude after the first chapter; larger screens have it elsewhere. */
   interlude: boolean;
 }
@@ -77,7 +79,7 @@ export function buildEntryRows(chapters: Chapter[], o: EntryRowOptions): EntryRo
     const hidden = items.length - shown.length;
 
     if (!single) rows.push({ kind: 'header', key: `h:${chapter.key}`, chapter, city });
-    if (o.view === 'list') rows.push({ kind: 'columns', key: `c:${chapter.key}`, chapter });
+    if (o.view === 'list' && o.columns) rows.push({ kind: 'columns', key: `c:${chapter.key}`, chapter });
     shown.forEach((item, i) => {
       rows.push({ kind: 'entry', key: `e:${chapter.key}:${item.id}`, chapter, item, pos: i + 1, setSize: shown.length, last: i === shown.length - 1 && hidden === 0 });
     });

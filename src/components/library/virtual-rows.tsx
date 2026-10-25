@@ -116,13 +116,15 @@ export function VirtualRows<R extends { key: string }>({
     return () => observer.disconnect()
   }, [scrollParent])
 
+  const scrollPaddingStart = scrollEl?.hasAttribute("data-side-list") ? 0 : STICKY_OFFSET
+
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollEl,
     estimateSize: (i) => estimate(rows[i], width),
     overscan: OVERSCAN_ROWS,
     scrollMargin: margin,
-    scrollPaddingStart: STICKY_OFFSET,
+    scrollPaddingStart,
     getItemKey: (i) => rows[i].key,
     initialRect: FIRST_SCREEN,
     observeElementRect: observeScrollRect,

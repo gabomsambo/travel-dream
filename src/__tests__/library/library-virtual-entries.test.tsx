@@ -149,19 +149,27 @@ describe('the virtualized compact list', () => {
     expect(await screen.findByRole('table')).toHaveAttribute('aria-rowcount', String(1 + 200 + 1))
   })
 
-  it('keeps the phone trips interlude as a numbered table row', () => {
+  it('keeps the phone trips interlude as a numbered table row without column-title ghosts', () => {
     setScreen('phone')
     const collections = [{ id: 'col_1', name: 'Autumn trip', placeIds: ['0-1', '1-1'] }]
     renderLibrary(dataFor(library(5), collections))
     const table = screen.getByRole('table', { name: 'Places' })
-    // 30 chapters × (header + columns + 5 places) + the interlude after the first = 211.
-    expect(table).toHaveAttribute('aria-rowcount', String(30 * 7 + 1))
+    // Phone: no column-title rows — 30 chapters × (header + 5 places) + the interlude = 181.
+    expect(table).toHaveAttribute('aria-rowcount', String(30 * 6 + 1))
     const rows = within(table).getAllByRole('row')
     const indices = rows.map((r) => Number(r.getAttribute('aria-rowindex')))
-    // Header, columns, five places, then the interlude — index 8 must be a real row.
-    expect(indices).toContain(8)
+    // Header, five places, then the interlude — index 7 must be a real row.
+    expect(indices).toContain(7)
     expect(indices).toEqual([...indices].sort((a, b) => a - b))
     expect(new Set(indices).size).toBe(indices.length)
+  })
+
+  it('does not count the trips interlude in the table from sm up', () => {
+    setScreen('desktop')
+    const collections = [{ id: 'col_1', name: 'Autumn trip', placeIds: ['0-1', '1-1'] }]
+    renderLibrary(dataFor(library(5), collections))
+    // 30 chapters × (header + columns + 5 places); interlude lives under the tools, not in the table.
+    expect(screen.getByRole('table', { name: 'Places' })).toHaveAttribute('aria-rowcount', String(30 * 7))
   })
 })
 
@@ -349,12 +357,16 @@ describe('the virtualized map side list', () => {
       expect(saved.top).toBe(3000)
     })
 
-    it('restores the side list on Back from lg', async () => {
+    it('restores the side list on Back from lg without sticky-tools padding', async () => {
       setScreen('desktop')
       sessionStorage.setItem('td:library-scroll:v1:/library', JSON.stringify({ rowKey: 'h:country:Country 05', top: 9000 }))
       popped()
       const { side } = renderMap(library(100))
       await waitFor(() => expect(side.scrollTo).toHaveBeenCalled())
+      const { top } = (side.scrollTo as jest.Mock).mock.calls.at(-1)![0] as { top: number }
+      // Five prior chapters: header (45) + 99×80 + last row (80+16). No sticky-tools padding on the side list.
+      const chapterStart = 5 * (45 + 99 * 80 + 96)
+      expect(top).toBe(chapterStart)
     })
   })
 })

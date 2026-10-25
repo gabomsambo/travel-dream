@@ -29,7 +29,11 @@ import type { ReviewPostcard, ReviewQueueEntry } from '@/lib/review-queue'
 
 type ReviewOutcome = 'added' | 'archived' | 'skipped' | 'removed' | 'merged'
 type PlaceStatus = 'inbox' | 'library' | 'archived'
-type SessionEntry = ReviewQueueEntry & { postcard?: ReviewPostcard; postcardError?: string }
+type SessionEntry = ReviewQueueEntry & {
+  postcard?: ReviewPostcard
+  postcardError?: string
+  postcardGeneration?: number
+}
 
 interface ReviewQueueProps {
   entries: ReviewQueueEntry[]
@@ -188,10 +192,37 @@ function installPostcard(
   return { ...postcard, place: { ...postcard.place, status } }
 }
 
-function withInstalledPostcard(entry: SessionEntry, installed: ReviewPostcard | null): SessionEntry {
+function refreshSuperseded(
+  entry: SessionEntry,
+  incoming: ReviewPostcard,
+  refreshEpoch: number | null,
+): boolean {
+  if (!entry.postcard) return false
+  const currentAt = entry.postcard.place.updatedAt
+  const incomingAt = incoming.place.updatedAt
+  if (currentAt && incomingAt && incomingAt > currentAt) return false
+  if (
+    entry.postcardGeneration !== undefined
+    && (refreshEpoch === null || refreshEpoch <= entry.postcardGeneration)
+  ) {
+    return true
+  }
+  if (currentAt && incomingAt && incomingAt < currentAt) return true
+  return false
+}
+
+function withInstalledPostcard(
+  entry: SessionEntry,
+  installed: ReviewPostcard | null,
+  refreshEpoch: number | null = null,
+): SessionEntry {
   if (!installed || entry.placeId !== installed.place.id) return entry
+  if (refreshSuperseded(entry, installed, refreshEpoch)) return entry
   const next: SessionEntry = { ...entry, postcard: installed }
   delete next.postcardError
+  if (refreshEpoch !== null) {
+    next.postcardGeneration = Math.max(entry.postcardGeneration ?? 0, refreshEpoch)
+  }
   return next
 }
 
@@ -200,6 +231,7 @@ function mergeSession(
   entries: ReviewQueueEntry[],
   postcard: ReviewPostcard | null,
   written: Readonly<Record<string, PlaceStatus>>,
+  refreshEpoch: number | null,
 ): SessionEntry[] {
   const incoming = new Map(entries.map((entry) => [entry.placeId, entry]))
   const seen = new Set<string>()
@@ -209,13 +241,21 @@ function mergeSession(
     seen.add(existing.placeId)
     const update = incoming.get(existing.placeId)
     const next: SessionEntry = update ? { ...existing, ...update, postcard: existing.postcard } : existing
-    merged.push(withInstalledPostcard(next, installed))
+    merged.push(withInstalledPostcard(next, installed, refreshEpoch))
   }
   for (const entry of entries) {
     if (seen.has(entry.placeId)) continue
-    merged.push(withInstalledPostcard({ ...entry }, installed))
+    merged.push(withInstalledPostcard({ ...entry }, installed, refreshEpoch))
   }
   return merged
+}
+
+function refreshEpochFor(
+  postcard: ReviewPostcard | null,
+  outstanding: { placeId: string, generation: number } | null,
+): number | null {
+  if (!postcard || !outstanding || outstanding.placeId !== postcard.place.id) return null
+  return outstanding.generation
 }
 
 function startingPlaceId(entries: ReviewQueueEntry[], initialPlaceId: string | undefined): string | null {
@@ -649,7 +689,7 @@ function ReviewSummary({
 
 export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSessionId }: ReviewQueueProps) {
   const router = useRouter()
-  const [session, setSession] = React.useState<SessionEntry[]>(() => mergeSession([], entries, postcard, {}))
+  const [session, setSession] = React.useState<SessionEntry[]>(() => mergeSession([], entries, postcard, {}, null))
   const [incoming, setIncoming] = React.useState({ entries, postcard })
   const writtenStatusRef = React.useRef<Record<string, PlaceStatus>>({})
   const [currentId, setCurrentId] = React.useState<string | null>(() => startingPlaceId(entries, initialPlaceId))
@@ -704,6 +744,21 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
   const didRedirectStaleLink = React.useRef(false)
   const historyPlaceId = React.useRef(currentId)
   const shownIdRef = React.useRef<string | null>(currentId)
+  const reloadGenerationRef = React.useRef<Record<string, number>>({})
+  const mountedRef = React.useRef(true)
+  const refreshQueueRef = React.useRef({
+    tail: Promise.resolve(),
+    outstanding: null as { placeId: string, generation: number } | null,
+    waiters: [] as Array<() => void>,
+  })
+
+  const releaseRefreshWaiter = () => {
+    const queue = refreshQueueRef.current
+    if (queue.waiters.length === 0) return
+    queue.outstanding = null
+    const waiters = queue.waiters.splice(0)
+    waiters.forEach((resolve) => resolve())
+  }
 
   const commitStatus = React.useCallback((placeId: string, status: PlaceStatus) => {
     writtenStatusRef.current = { ...writtenStatusRef.current, [placeId]: status }
@@ -759,8 +814,24 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
 
   if (incoming.entries !== entries || incoming.postcard !== postcard) {
     setIncoming({ entries, postcard })
-    setSession((prev) => mergeSession(prev, entries, postcard, writtenStatusRef.current))
+    const refreshEpoch = refreshEpochFor(postcard, refreshQueueRef.current.outstanding)
+    setSession((prev) => mergeSession(prev, entries, postcard, writtenStatusRef.current, refreshEpoch))
   }
+
+  React.useEffect(() => {
+    return () => {
+      if (!mountedRef.current) return
+      releaseRefreshWaiter()
+    }
+  }, [postcard, entries])
+
+  React.useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      releaseRefreshWaiter()
+    }
+  }, [])
 
   const derivedId = deriveReviewCursor(session, outcomes, currentId, pinnedId)
   if (derivedId !== currentId) setCurrentId(derivedId)
@@ -1215,6 +1286,41 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
     setPinnedId((pin) => (pin === info.inboxPlaceId ? null : pin))
     setEditingId((id) => (id === info.inboxPlaceId ? null : id))
   }, [commitStatus])
+
+  const reloadPostcard = React.useCallback(async (placeId: string) => {
+    const generation = (reloadGenerationRef.current[placeId] ?? 0) + 1
+    reloadGenerationRef.current[placeId] = generation
+    let response: Response
+    let body: (ReviewPostcard & { message?: string }) | null
+    try {
+      response = await fetch(`/api/review/postcard/${encodeURIComponent(placeId)}`)
+      body = await response.json().catch(() => null) as (ReviewPostcard & { message?: string }) | null
+    } catch (error) {
+      if (reloadGenerationRef.current[placeId] !== generation) return
+      throw error
+    }
+    if (reloadGenerationRef.current[placeId] !== generation) return
+    if (!response.ok || !body?.place) {
+      throw new Error(body?.message || "We couldn't refresh this place. Try again.")
+    }
+    const serverPostcard = installPostcard(
+      { place: body.place, alsoIn: body.alsoIn ?? [], screenshot: body.screenshot ?? null },
+      writtenStatusRef.current,
+    )
+    setSession((prev) => prev.map((entry) => (
+      entry.placeId === placeId ? withInstalledPostcard(entry, serverPostcard, generation) : entry
+    )))
+    const queue = refreshQueueRef.current
+    queue.tail = queue.tail.then(() => new Promise<void>((resolve) => {
+      if (!mountedRef.current || reloadGenerationRef.current[placeId] !== generation) {
+        resolve()
+        return
+      }
+      queue.outstanding = { placeId, generation }
+      queue.waiters.push(resolve)
+      router.refresh()
+    }))
+  }, [router])
 
   const retryPostcard = () => {
     if (!derivedId) return
@@ -1688,13 +1794,18 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               }}
               onDoneEditing={() => {
                 setEditingId(null)
-                router.refresh()
+                void reloadPostcard(current.placeId).catch(() => {
+                  router.refresh()
+                })
               }}
               onOpenClassic={openClassic}
               onPrefetchEdit={() => { void import('@/components/places/place-full-view') }}
               onPhotoAttached={() => {
                 if (placeMerged || placeMerging) return
-                router.refresh()
+                const placeId = current.placeId
+                void reloadPostcard(placeId).catch(() => {
+                  void reloadPostcard(placeId).catch(() => undefined)
+                })
               }}
               blockWrites={placeMerged || placeMerging}
               onArchive={() => { void decide('archived') }}
@@ -1702,6 +1813,8 @@ export function ReviewQueue({ entries, postcard, trips, initialPlaceId, uploadSe
               onRestored={() => noteRestored(current.placeId)}
               blockRestore={placeMerged}
               showMobileActionBar={false}
+              showReviewChecks
+              onReviewPlaceUpdated={() => reloadPostcard(current.placeId)}
             />
           ) : current.postcardError ? (
             <div className="grid min-h-64 place-items-center gap-3 px-6 text-center text-sm text-muted-foreground">

@@ -14,6 +14,7 @@ import type { InboxPlaceAddedAnotherWay } from '@/lib/inbox-page-model';
 import { rankingSource } from '@/lib/review-order';
 import { forUser } from '@/lib/tenant-db';
 import { toUserFriendlyError } from '@/lib/mass-upload/friendly-error';
+import { reviewChecks } from '@/lib/review/review-checks';
 import type {
   InboxPlaceStatus,
   InboxScreenshotOutcome,
@@ -221,6 +222,9 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
         country: places.country,
         status: places.status,
         createdAt: places.createdAt,
+        kind: places.kind,
+        coords: places.coords,
+        confidence: places.confidence,
       },
       inArray(places.id, part)
     )
@@ -307,7 +311,19 @@ export async function getInboxUploads(userId: string): Promise<Omit<InboxUploads
       placesRead: createdPlaces.length + linkedPlaces.length,
       newPlaces: createdPlaces.length,
       rows: {
-        toReview: { ...placeRow(buckets.toReview), checkCount: null },
+        toReview: {
+          ...placeRow(buckets.toReview),
+          checkCount: buckets.toReview.filter((place) => {
+            const row = placesById.get(place.id);
+            if (!row) return false;
+            return reviewChecks({
+              coords: row.coords,
+              city: row.city,
+              confidence: row.confidence,
+              kind: row.kind,
+            }).length > 0;
+          }).length,
+        },
         added: placeRow(buckets.added),
         notAPlace: placeRow(buckets.notAPlace),
         alreadyInLibrary: placeRow(buckets.alreadyInLibrary),

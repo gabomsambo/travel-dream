@@ -155,7 +155,7 @@ describe('inbox page', () => {
     expect(screen.getByText(`IMG_2912.jpg was already in your ${skippedAt} upload, so we skipped it.`)).toBeInTheDocument();
     expect(screen.getByText(/IMG_3024.jpg/)).toBeInTheDocument();
     expect(screen.getByText(/AI service was unavailable/)).toBeInTheDocument();
-    expect(screen.getByText('1 needs you')).toBeInTheDocument();
+    expect(screen.getByText('2 needs you')).toBeInTheDocument();
 
     expect(screen.queryByText(/that look right/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();

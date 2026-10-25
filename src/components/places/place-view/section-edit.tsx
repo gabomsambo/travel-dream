@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { Check, Pencil } from "lucide-react"
 import { useDebouncedCallback } from "@/hooks/use-auto-save"
 import type { PlaceWithRelations } from "@/types/database"
+import { usablePin } from "@/lib/place-coords"
 import { SectionEditor } from "./section-editors"
 
 export type SectionId = "why" | "about" | "know" | "photos" | "links" | "plan" | "ground"
@@ -66,6 +67,10 @@ export interface SectionEditApi {
   error: string | null
   draft: PlaceDraft
   setField: <K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => void
+  setFields: (values: Partial<PlaceDraft>) => boolean
+  /** Merge non-draft fields (e.g. googlePlaceId) into the pending autosave body. */
+  queuePatch: (set: Record<string, unknown>) => boolean
+  flush: () => Promise<boolean>
   place: PlaceWithRelations
   refresh: () => void
   noteSaved: () => void
@@ -80,6 +85,7 @@ export function useSectionEdit(): SectionEditApi | null {
 
 function draftFrom(place: PlaceWithRelations): PlaceDraft {
   const hours = place.hours && typeof place.hours === "object" ? (place.hours as Record<string, string>) : null
+  const pin = usablePin(place.coords)
   return {
     name: place.name ?? "",
     kind: place.kind ?? "tip",
@@ -99,8 +105,8 @@ function draftFrom(place: PlaceWithRelations): PlaceDraft {
     city: place.city ?? "",
     admin: place.admin ?? "",
     country: place.country ?? "",
-    lat: place.coords && Number.isFinite(place.coords.lat) ? String(place.coords.lat) : "",
-    lon: place.coords && Number.isFinite(place.coords.lon) ? String(place.coords.lon) : "",
+    lat: pin ? String(pin.lat) : "",
+    lon: pin ? String(pin.lon) : "",
     hours,
     website: place.website ?? "",
     phone: place.phone ?? "",
@@ -113,14 +119,21 @@ function draftFrom(place: PlaceWithRelations): PlaceDraft {
   }
 }
 
+function draftCoords(draft: PlaceDraft): { lat: number; lon: number } | null | "unchanged" {
+  const latText = draft.lat.trim()
+  const lonText = draft.lon.trim()
+  if (latText === "" && lonText === "") return null
+  if (latText === "" || lonText === "") return "unchanged"
+  const lat = Number(latText)
+  const lon = Number(lonText)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "unchanged"
+  return { lat, lon }
+}
+
 /** The place with the section fields the user changed laid over it, so a seed taken mid-edit carries what was typed. */
 function placeWithDraft(place: PlaceWithRelations, draft: PlaceDraft, dirty: ReadonlySet<keyof PlaceDraft>): PlaceWithRelations {
-  let coords = place.coords
-  if (draft.lat.trim() === "" && draft.lon.trim() === "") {
-    coords = null
-  } else if (Number.isFinite(Number(draft.lat)) && Number.isFinite(Number(draft.lon))) {
-    coords = { lat: Number(draft.lat), lon: Number(draft.lon) }
-  }
+  const parsed = draftCoords(draft)
+  const coords = parsed === "unchanged" ? place.coords : parsed
   const overlay: Partial<PlaceWithRelations> = {
     name: draft.name,
     kind: draft.kind,
@@ -187,11 +200,9 @@ function patchFor(draft: PlaceDraft, key: keyof PlaceDraft): FieldPatch {
     return name ? { set: { name }, drop: [] } : { set: {}, drop: ["name"] }
   }
   if (key === "lat" || key === "lon") {
-    if (draft.lat.trim() === "" && draft.lon.trim() === "") return { set: { coords: null }, drop: [] }
-    const lat = Number(draft.lat)
-    const lon = Number(draft.lon)
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { set: {}, drop: [] }
-    return { set: { coords: { lat, lon } }, drop: [] }
+    const parsed = draftCoords(draft)
+    if (parsed === "unchanged") return { set: {}, drop: ["coords"] }
+    return { set: { coords: parsed }, drop: [] }
   }
   return { set: { [key]: draft[key] }, drop: [] }
 }
@@ -635,8 +646,7 @@ export function SectionEditProvider({
     }
   }, [handlesRef, save.flush])
 
-  const setField = React.useCallback(<K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => {
-    if (blockWrites) return
+  const markDirty = React.useCallback((key: keyof PlaceDraft, value: PlaceDraft[keyof PlaceDraft]) => {
     const nameCleared = key === "name" && (typeof value !== "string" || value.trim() === "")
     if (key === "lat" || key === "lon") {
       dirtyRef.current.add("lat")
@@ -648,12 +658,43 @@ export function SectionEditProvider({
       if (key === "name") retractedNameRef.current = false
       dirtyRef.current.add(key)
     }
+  }, [])
+
+  const setField = React.useCallback(<K extends keyof PlaceDraft>(key: K, value: PlaceDraft[K]) => {
+    if (blockWrites) return
+    markDirty(key, value)
     setDraft((prev) => {
       const next = { ...prev, [key]: value }
       draftRef.current = next
       save.update(patchFor(next, key))
       return next
     })
+  }, [blockWrites, markDirty, save])
+
+  const setFields = React.useCallback((values: Partial<PlaceDraft>) => {
+    if (blockWrites) return false
+    const prev = draftRef.current
+    let next = prev
+    const changed: Array<keyof PlaceDraft> = []
+    for (const key of Object.keys(values) as Array<keyof PlaceDraft>) {
+      const value = values[key]
+      if (value === undefined || Object.is(prev[key], value)) continue
+      markDirty(key, value)
+      next = { ...next, [key]: value } as PlaceDraft
+      changed.push(key)
+    }
+    if (changed.length === 0) return false
+    draftRef.current = next
+    setDraft(next)
+    for (const key of changed) save.update(patchFor(next, key))
+    return true
+  }, [blockWrites, markDirty, save])
+
+  const queuePatch = React.useCallback((set: Record<string, unknown>) => {
+    if (blockWrites) return false
+    if (Object.keys(set).length === 0) return false
+    save.update({ set, drop: [] })
+    return true
   }, [blockWrites, save])
 
   const cancelSave = save.cancel
@@ -720,11 +761,14 @@ export function SectionEditProvider({
     error: save.error,
     draft,
     setField,
+    setFields,
+    queuePatch,
+    flush: flushSave,
     place,
     refresh: onRefresh,
     noteSaved: save.noteSaved,
     noteError: save.noteError,
-  }), [active, editingAll, mobile, open, close, exitEditing, save.status, save.error, save.noteSaved, save.noteError, draft, setField, place, onRefresh])
+  }), [active, editingAll, mobile, open, close, exitEditing, save.status, save.error, save.noteSaved, save.noteError, draft, setField, setFields, queuePatch, flushSave, place, onRefresh])
 
   return (
     <SectionEditContext.Provider value={api}>

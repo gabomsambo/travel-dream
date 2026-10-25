@@ -28,6 +28,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
       editing,
       softCover,
       lead,
+      showReviewChecks,
       onArchive,
       onDeleted,
       onRestored,
@@ -37,11 +38,13 @@ jest.mock('@/components/places/place-view/place-view', () => {
       onPhotoAttached,
       blockWrites,
       handlesRef,
+      onReviewPlaceUpdated,
     }: {
       place: PlaceWithRelations
       editing?: boolean
       softCover?: boolean
       lead?: React.ReactNode
+      showReviewChecks?: boolean
       onArchive?: () => void
       onDeleted?: () => void
       onRestored?: () => void
@@ -55,6 +58,7 @@ jest.mock('@/components/places/place-view/place-view', () => {
         flushSections: () => Promise<boolean>
         displayPlace: () => PlaceWithRelations
       } | null>
+      onReviewPlaceUpdated?: () => Promise<void> | void
     }) => {
       const mountedId = React.useRef(place.id)
       React.useEffect(() => {
@@ -71,15 +75,20 @@ jest.mock('@/components/places/place-view/place-view', () => {
       return (
         <div
           data-testid="postcard"
+          data-review-checks={showReviewChecks ? 'yes' : 'no'}
           data-status={place.status}
+          data-kind={place.kind}
           data-mounted-id={mountedId.current}
           data-editing={editing ? 'yes' : 'no'}
           data-soft-cover={softCover ? 'yes' : 'no'}
+          data-photos={String(place.attachments.length)}
         >
           {place.name}
           {lead}
           {!blockWrites && <button type="button" onClick={() => onEdit?.()}>Edit postcard</button>}
           {!blockWrites && <button type="button" onClick={() => onPhotoAttached?.()}>Attach photo</button>}
+          <button type="button" onClick={() => { void onReviewPlaceUpdated?.() }}>Save section</button>
+          <button type="button" onClick={() => onPhotoAttached?.()}>Find a photo</button>
           <button type="button" onClick={() => onArchive?.()}>Archive from postcard</button>
           <button type="button" onClick={() => onDeleted?.()}>Deleted from postcard</button>
           {!blockRestore && (
@@ -2513,6 +2522,7 @@ describe('ReviewQueue decisions', () => {
     })
 
     expect(screen.getByTestId('postcard')).toHaveAttribute('data-soft-cover', 'yes')
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-review-checks', 'yes')
     expect(screen.getByRole('link', { name: /Saved Library/ })).toHaveAttribute('href', '/place/plc_saved')
     expect(screen.getByText(/In this screenshot/)).toBeInTheDocument()
 
@@ -2606,6 +2616,243 @@ describe('ReviewQueue decisions', () => {
     expect(screen.queryByText('Your Inbox is sorted for now.')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'All caught up' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to Inbox' })).toHaveAttribute('href', '/inbox')
+  })
+
+  it('keeps the later save when an earlier postcard reload finishes last', async () => {
+    const user = userEvent.setup()
+    const pending: Array<(response: Response) => void> = []
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        return await new Promise<Response>((resolve) => {
+          pending.push(resolve)
+        })
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    renderQueue()
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    const later = {
+      ...placeOne,
+      name: 'One Cafe Renamed',
+      kind: 'restaurant',
+      updatedAt: '2026-10-18T12:00:02.000Z',
+    }
+    const earlier = {
+      ...placeOne,
+      name: 'One Cafe Stale',
+      kind: 'cafe',
+      updatedAt: '2026-10-18T12:00:03.000Z',
+    }
+    await act(async () => {
+      pending[1](jsonResponse(postcardFor(later)))
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Renamed'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'restaurant')
+
+    await act(async () => {
+      pending[0](jsonResponse(postcardFor(earlier)))
+    })
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Renamed')
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'restaurant')
+  })
+
+  it('does not let an older refresh payload replace a newer postcard', async () => {
+    const user = userEvent.setup()
+    const pending: Array<(response: Response) => void> = []
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        return await new Promise<Response>((resolve) => {
+          pending.push(resolve)
+        })
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    const view = renderQueue()
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    const firstSave = {
+      ...placeOne,
+      name: 'One Cafe Renamed',
+      kind: 'bar',
+      updatedAt: '2026-10-18T12:00:02.000Z',
+    }
+    await act(async () => {
+      pending[0](jsonResponse(postcardFor(firstSave)))
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'bar'))
+
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(pending).toHaveLength(2))
+    const secondSave = {
+      ...placeOne,
+      name: 'One Cafe Renamed',
+      kind: 'restaurant',
+      updatedAt: '2026-10-18T12:00:02.000Z',
+    }
+    await act(async () => {
+      pending[1](jsonResponse(postcardFor(secondSave)))
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'restaurant'))
+
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(firstSave)}
+        trips={[]}
+      />
+    )
+    expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Renamed')
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'restaurant')
+
+    const newest = {
+      ...placeOne,
+      name: 'One Cafe Newest',
+      kind: 'park',
+      updatedAt: '2026-10-18T12:00:04.000Z',
+    }
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(newest)}
+        trips={[]}
+      />
+    )
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Newest'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-kind', 'park')
+  })
+
+  it('keeps a found photo when a same-timestamp refresh arrives later', async () => {
+    const user = userEvent.setup()
+    const pending: Array<(response: Response) => void> = []
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        return await new Promise<Response>((resolve) => {
+          pending.push(resolve)
+        })
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    const view = renderQueue()
+    await user.click(screen.getByRole('button', { name: 'Find a photo' }))
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    const withPhoto = {
+      ...placeOne,
+      attachments: [{
+        id: 'att_photo',
+        placeId: placeOne.id,
+        type: 'photo',
+        uri: 'https://example.test/photo.jpg',
+        filename: 'photo.jpg',
+        mimeType: 'image/jpeg',
+        fileSize: 12,
+        width: 8,
+        height: 8,
+        thumbnailUri: null,
+        caption: null,
+        takenAt: null,
+        isPrimary: 1,
+        createdAt: placeOne.updatedAt,
+        source: 'wikimedia',
+        sourceId: 'file',
+        attribution: null,
+      }],
+    }
+    await act(async () => {
+      pending[0](jsonResponse(postcardFor(withPhoto)))
+    })
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '1'))
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(placeOne)}
+        trips={[]}
+      />
+    )
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '1')
+
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(placeOne)}
+        trips={[]}
+      />
+    )
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '1')
+
+    const newer = {
+      ...placeOne,
+      name: 'One Cafe Newer',
+      updatedAt: '2026-10-18T12:00:05.000Z',
+    }
+    view.rerender(
+      <ReviewQueue
+        entries={entries}
+        postcard={postcardFor(newer)}
+        trips={[]}
+      />
+    )
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Newer'))
+    expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '0')
+  })
+
+  it('retries a postcard reload when attaching a photo fails to refresh', async () => {
+    const user = userEvent.setup()
+    let postcardCalls = 0
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('/api/review/postcard/')) {
+        postcardCalls += 1
+        if (postcardCalls === 1) {
+          return jsonResponse(postcardFor({ ...placeOne, name: 'One Cafe Saved' }))
+        }
+        if (postcardCalls === 2) throw new Error('network')
+        return jsonResponse(postcardFor({
+          ...placeOne,
+          attachments: [{
+            id: 'att_photo',
+            placeId: placeOne.id,
+            type: 'photo',
+            uri: 'https://example.test/photo.jpg',
+            filename: 'photo.jpg',
+            mimeType: 'image/jpeg',
+            fileSize: 12,
+            width: 8,
+            height: 8,
+            thumbnailUri: null,
+            caption: null,
+            takenAt: null,
+            isPrimary: 1,
+            createdAt: placeOne.updatedAt,
+            source: 'wikimedia',
+            sourceId: 'file',
+            attribution: null,
+          }],
+        }))
+      }
+      return jsonResponse({ status: 'success' })
+    })
+
+    renderQueue()
+    await user.click(screen.getByRole('button', { name: 'Save section' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveTextContent('One Cafe Saved'))
+
+    await user.click(screen.getByRole('button', { name: 'Find a photo' }))
+    await waitFor(() => expect(screen.getByTestId('postcard')).toHaveAttribute('data-photos', '1'))
+    expect(postcardCalls).toBe(3)
   })
 })
 

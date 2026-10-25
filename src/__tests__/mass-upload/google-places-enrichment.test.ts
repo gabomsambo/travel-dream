@@ -492,7 +492,7 @@ describe('GooglePlacesEnrichmentService', () => {
       expect(results[1].googlePlaceId).toBe('ChIJ_osaka'); // enriched
     });
 
-    it('handles missing geometry in details response (defaults coords to 0,0)', async () => {
+    it('treats missing geometry as no pin, not {lat: 0, lon: 0}', async () => {
       const detailsWithoutGeometry = makeDetailsResponse({ geometry: undefined });
       mockFetchSequence(makeAutocompleteResponse(), detailsWithoutGeometry);
 
@@ -502,7 +502,21 @@ describe('GooglePlacesEnrichmentService', () => {
       const results = await promise;
 
       expect(results[0].googlePlaceId).toBe('ChIJ_test_id');
-      expect(results[0].coords).toEqual({ lat: 0, lon: 0 });
+      expect(results[0].coords).toBeNull();
+    });
+
+    it('treats a 0,0 geometry as no pin', async () => {
+      const detailsAtNullIsland = makeDetailsResponse({
+        geometry: { location: { lat: 0, lng: 0 } },
+      });
+      mockFetchSequence(makeAutocompleteResponse(), detailsAtNullIsland);
+
+      const promise = service.enrichPlaces([makePlace()]);
+      await jest.runAllTimersAsync();
+      const results = await promise;
+
+      expect(results[0].googlePlaceId).toBe('ChIJ_test_id');
+      expect(results[0].coords).toBeNull();
     });
   });
 

@@ -9,6 +9,7 @@ import { withErrorHandling, withTransaction, generateSourceId, generatePlaceId, 
 import { retryBackoffUntilIso } from './mass-upload/queue-config';
 import { isClaimableNow } from './mass-upload/queue-sql';
 import { archivedAtForStatus } from './place-status';
+import { usablePin } from './place-coords';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
 import type { ExtractedPlace, ExtractionResult, ExtractionMetadata } from '@/types/llm-extraction';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
@@ -2071,7 +2072,7 @@ export async function createPlacesFromPipeline(
           admin: p.admin || null,
           country: p.country || null,
           address: p.address || null,
-          coords: p.coords || null,
+          coords: usablePin(p.coords),
           googlePlaceId: p.googlePlaceId || null,
           confidence: p.confidence,
           price_level: p.price_level || null,

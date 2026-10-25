@@ -9,6 +9,8 @@ import { formatDateOnly } from "@/lib/place-view/format"
 import { notify } from "@/lib/notify"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
 import type { ExploreCollection, ExplorePlace } from "@/lib/explore/types"
+import { reviewChecks, type ReviewCheckId } from "@/lib/review/review-checks"
+import { ReviewCheckPanel } from "@/components/review/review-check-panel"
 import { PlaceHero } from "./place-hero"
 import { About, GoodToKnow, Links, Photos, RecordInfo, SectionHeader, Sources, WhyItsHere } from "./place-sections"
 import { OnTheGround, YourPlan } from "./place-rail"
@@ -206,6 +208,8 @@ export function PlaceView({
   softCover = false,
   fitReviewBar = false,
   lead,
+  showReviewChecks = false,
+  onReviewPlaceUpdated,
 }: {
   place: PlaceWithRelations
   editing?: boolean
@@ -229,6 +233,10 @@ export function PlaceView({
   fitReviewBar?: boolean
   /** Review-only content under the hero, such as the possible-duplicate note. */
   lead?: React.ReactNode
+  /** Review marks the doubtful fields and offers a pin and a city fix. */
+  showReviewChecks?: boolean
+  /** Reload the review postcard after an edit is saved. */
+  onReviewPlaceUpdated?: () => Promise<void> | void
 }) {
   const router = useRouter()
   const photos = React.useMemo(() => orderedPhotos(place.attachments), [place.attachments])
@@ -306,6 +314,33 @@ export function PlaceView({
     }
   }, [handlesRef, flushStatus, displayPlace])
 
+  const [dismissedReviewChecks, setDismissedReviewChecks] = React.useState<ReviewCheckId[]>([])
+  const reviewCheckKey = [
+    place.id,
+    place.city ?? "",
+    place.coords?.lat ?? "",
+    place.coords?.lon ?? "",
+    place.confidence ?? "",
+    place.kind ?? "",
+    place.name ?? "",
+    place.admin ?? "",
+  ].join("\0")
+  const [trackedReviewKey, setTrackedReviewKey] = React.useState(reviewCheckKey)
+  if (trackedReviewKey !== reviewCheckKey) {
+    setTrackedReviewKey(reviewCheckKey)
+    setDismissedReviewChecks([])
+  }
+  const visibleReviewChecks = reviewChecks(place).filter((id) => !dismissedReviewChecks.includes(id))
+  const refreshPlace = React.useCallback(() => {
+    if (!onReviewPlaceUpdated) {
+      router.refresh()
+      return
+    }
+    void Promise.resolve(onReviewPlaceUpdated()).catch(() => {
+      router.refresh()
+    })
+  }, [onReviewPlaceUpdated, router])
+
   const setVisitStatus = (next: VisitStatus) => {
     if (blockWrites) return
     const displayed = (displayPlace.visitStatus as VisitStatus | null) ?? "not_visited"
@@ -324,9 +359,21 @@ export function PlaceView({
   const attachPhoto = blockWrites ? () => {} : onPhotoAttached
 
   return (
-    <SectionEditProvider place={place} onRefresh={() => router.refresh()} handlesRef={sectionHandlesRef} editingAll={blockWrites ? false : editing} onExitEditing={onDoneEditing} blockWrites={blockWrites}>
-      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} onEdit={editPlace} onOpenClassic={blockWrites ? undefined : onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={attachPhoto} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} blockWrites={blockWrites} />
+    <SectionEditProvider place={place} onRefresh={refreshPlace} handlesRef={sectionHandlesRef} editingAll={blockWrites ? false : editing} onExitEditing={onDoneEditing} blockWrites={blockWrites}>
+      <PlaceHero place={displayPlace} photos={photos} softCover={softCover} fitReviewBar={fitReviewBar} reviewCheckIds={showReviewChecks ? visibleReviewChecks : undefined} onEdit={editPlace} onOpenClassic={blockWrites ? undefined : onOpenClassic} onPrefetchEdit={onPrefetchEdit} onOpenPhoto={setLightbox} onPhotoAttached={attachPhoto} onArchive={onArchive} onDeleted={onDeleted} onRestored={onRestored} blockRestore={blockRestore} blockWrites={blockWrites} />
       {lead}
+      {showReviewChecks && onReviewPlaceUpdated && (
+        <ReviewCheckPanel
+          place={place}
+          onRename={editPlace}
+          onNotAPlace={onArchive}
+          onUpdated={onReviewPlaceUpdated}
+          visibleChecks={visibleReviewChecks}
+          onDismiss={(id) => {
+            setDismissedReviewChecks((current) => current.includes(id) ? current : [...current, id])
+          }}
+        />
+      )}
       <QuickFacts place={displayPlace} />
       <PlaceColumns
         place={place}
@@ -335,14 +382,14 @@ export function PlaceView({
         trips={trips}
         onEdit={editPlace}
         onStatusChange={setVisitStatus}
-        onTripsChanged={() => router.refresh()}
+        onTripsChanged={refreshPlace}
         onOpenPhoto={setLightbox}
         blockWrites={blockWrites}
       />
 
       {place.city && <AlsoInCity city={place.city} places={alsoIn} />}
 
-      {showMobileActionBar && <MobileActionBar place={place} trips={trips} onChanged={() => router.refresh()} blockWrites={blockWrites} />}
+      {showMobileActionBar && <MobileActionBar place={place} trips={trips} onChanged={refreshPlace} blockWrites={blockWrites} />}
 
       {photos.length > 0 && (
         <PhotoLightbox photos={photos} open={lightbox !== null} index={lightbox ?? 0} onClose={() => setLightbox(null)} />

@@ -1,12 +1,13 @@
 import { parseAddressComponents } from '@/lib/address-parser';
 import { GOOGLE_PLACES_LANGUAGE } from '@/lib/city-names';
+import { usablePin } from '@/lib/place-coords';
 import type { GeminiExtractedPlace, PipelinePlace } from '@/types/extraction-pipeline';
 
 // ─── Internal Types ───────────────────────────────────────────────────────────
 
 interface GoogleEnrichmentResult {
   googlePlaceId: string;
-  coords: { lat: number; lon: number };
+  coords: { lat: number; lon: number } | null;
   address: string;
   city?: string;
   country?: string;
@@ -196,10 +197,13 @@ export class GooglePlacesEnrichmentService {
 
     return {
       googlePlaceId: r.place_id,
-      // Google returns { lat, lng } but PipelinePlace uses { lat, lon }
-      coords: r.geometry?.location
-        ? { lat: r.geometry.location.lat, lon: r.geometry.location.lng }
-        : { lat: 0, lon: 0 },
+      // Google returns { lat, lng } but PipelinePlace uses { lat, lon }.
+      // No geometry used to become {lat: 0, lon: 0}, a pin in the Gulf of Guinea.
+      coords: usablePin(
+        r.geometry?.location
+          ? { lat: r.geometry.location.lat, lon: r.geometry.location.lng }
+          : null
+      ),
       address: r.formatted_address || '',
       city: parsed?.city ?? undefined,
       country: parsed?.country ?? undefined,

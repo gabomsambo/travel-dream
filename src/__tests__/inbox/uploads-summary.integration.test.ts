@@ -196,7 +196,7 @@ describe('GET /api/inbox/uploads', () => {
     expect(names(b.rows.toReview)).toEqual(['Medanos de Coro']);
     expect(b.rows.toReview.places[0].sourceIds).toEqual(['src_b1', 'src_b2']);
     expect(b.rows.toReview.placeIds).toEqual([coro]);
-    expect(b.rows.toReview.checkCount).toBeNull();
+    expect(b.rows.toReview.checkCount).toBe(1);
     expect(b.rows.added.places).toEqual([]);
     expect(names(b.rows.notAPlace)).toEqual(['Tea Terrace']);
     expect(b.rows.alreadyInLibrary.placeIds).toEqual(['plc_alice_pancakes']);

@@ -160,6 +160,34 @@ describe('PlacePage additions — trips', () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
+  it('reloads the review postcard from both add-to-trip menus', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'success' }) })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onReviewPlaceUpdated = jest.fn()
+
+    render(
+      <PlaceView
+        place={place}
+        trips={trips}
+        alsoIn={[]}
+        onEdit={jest.fn()}
+        onPhotoAttached={jest.fn()}
+        onReviewPlaceUpdated={onReviewPlaceUpdated}
+      />
+    )
+
+    const menus = screen.getAllByRole('button', { name: 'Add to trip' })
+    expect(menus).toHaveLength(2)
+    for (const menu of menus) {
+      mockRefresh.mockClear()
+      onReviewPlaceUpdated.mockClear()
+      await userEvent.click(menu)
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Kyoto in autumn' }))
+      await waitFor(() => expect(onReviewPlaceUpdated).toHaveBeenCalledTimes(1))
+      expect(mockRefresh).not.toHaveBeenCalled()
+    }
+  })
+
   it('creates a new trip named after the city and adds the place', async () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ collection: { id: 'col_new' } }) })
@@ -321,6 +349,14 @@ describe('PlacePage additions — on the ground + bar', () => {
     expect(directions.length).toBeGreaterThanOrEqual(2)
     expect(directions.every((el) => el.getAttribute('href') === 'https://www.google.com/maps/dir/?api=1&destination=34.9671,135.7727')).toBe(true)
     expect(screen.getByRole('link', { name: 'Call Fushimi Inari-taisha' })).toHaveAttribute('href', 'tel:+81756417331')
+  })
+
+  it('renders a stored 0,0 coordinate as no pin', () => {
+    render(<PlacePage place={{ ...place, coords: { lat: 0, lon: 0 }, address: 'Somewhere', phone: null }} trips={[]} />)
+    expect(screen.getByText('No pin yet.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Map of Fushimi Inari-taisha')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Directions' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/0\.0000/)).not.toBeInTheDocument()
   })
 
   it('leaves Directions and Call out when the place has no coords or phone', () => {

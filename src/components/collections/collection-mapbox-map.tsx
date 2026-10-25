@@ -13,6 +13,7 @@ import Map, {
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useCollectionMapContext } from './collection-map-context'
 import { getDefaultCenter } from '@/lib/map-utils'
+import { usablePin } from '@/lib/place-coords'
 import { MapPin } from 'lucide-react'
 
 interface PopupInfo {
@@ -40,12 +41,7 @@ export function CollectionMapboxMap() {
   const [mapLoaded, setMapLoaded] = useState(false)
 
   const placesWithCoords = useMemo(() => {
-    return currentPlaces.filter(p =>
-      p.coords &&
-      typeof p.coords === 'object' &&
-      'lat' in p.coords &&
-      'lon' in p.coords
-    )
+    return currentPlaces.filter((place) => usablePin(place.coords))
   }, [currentPlaces])
 
   const placesGeoJSON = useMemo(() => ({

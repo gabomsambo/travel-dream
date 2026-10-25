@@ -4,6 +4,7 @@ import { Badge } from "@/components/adapters/badge"
 import { Separator } from "@/components/adapters/separator"
 import { DollarSign, Calendar } from "lucide-react"
 import type { PlaceWithRelations } from "@/types/database"
+import { usablePin } from "@/lib/place-coords"
 
 interface OverviewTabProps {
   place: PlaceWithRelations
@@ -149,11 +150,11 @@ export function OverviewTab({ place }: OverviewTabProps) {
               <span className="ml-2 font-medium">{place.country}</span>
             </div>
           )}
-          {place.coords && (
+          {usablePin(place.coords) && (
             <div>
               <span className="text-muted-foreground">Coordinates:</span>
               <span className="ml-2 font-mono text-xs">
-                {place.coords.lat.toFixed(6)}, {place.coords.lon.toFixed(6)}
+                {usablePin(place.coords)!.lat.toFixed(6)}, {usablePin(place.coords)!.lon.toFixed(6)}
               </span>
             </div>
           )}

@@ -3,6 +3,7 @@
 import * as React from "react"
 import { CalendarCheck, CalendarHeart, Check, ChevronDown, Clock, Copy, ExternalLink, Folder, Globe, Mail, MapPin, Navigation, Pencil, Phone, Sparkles, Star, Ticket, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { isNullIsland, usablePin } from "@/lib/place-coords"
 import { displayUrl, formatDateOnly, formatTime, safeExternalUrl, summarizeHours } from "@/lib/place-view/format"
 import type { ExploreCollection } from "@/lib/explore/types"
 import type { PlaceWithRelations, Reservation } from "@/types/database"
@@ -272,7 +273,8 @@ export function YourPlan({
 
 export function OnTheGround({ place, onEdit }: { place: PlaceWithRelations; onEdit: () => void }) {
   const hours = summarizeHours(place.hours)
-  const coords = place.coords && Number.isFinite(place.coords.lat) && Number.isFinite(place.coords.lon) ? place.coords : null
+  const coords = usablePin(place.coords)
+  const nullIsland = isNullIsland(place.coords)
   const hasAny = Boolean(hours || place.address || coords || place.website || place.phone || place.email)
   const dirUrl = directionsUrl(coords)
   const call = callUrl(place.phone)
@@ -286,7 +288,7 @@ export function OnTheGround({ place, onEdit }: { place: PlaceWithRelations; onEd
       </div>
       {!hasAny ? (
         <div className="mt-2 space-y-3 text-sm text-muted-foreground">
-          <p>No address, hours or contact yet.</p>
+          <p>{nullIsland ? "No pin yet." : "No address, hours or contact yet."}</p>
           <button type="button" onClick={() => (sections ? sections.open("ground") : onEdit())} className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
             <Pencil className="h-3.5 w-3.5" aria-hidden /> Add address & hours
           </button>
@@ -294,6 +296,7 @@ export function OnTheGround({ place, onEdit }: { place: PlaceWithRelations; onEd
       ) : (
         <>
           {coords && <PlaceMap coords={coords} kind={place.kind} name={place.name} className="mt-3" />}
+          {!coords && nullIsland && <p className="mt-3 text-sm text-muted-foreground">No pin yet.</p>}
           {(dirUrl || call) && (
             <div className={cn("mt-3 grid gap-2", dirUrl && call ? "grid-cols-2" : "grid-cols-1")}>
               {dirUrl && (

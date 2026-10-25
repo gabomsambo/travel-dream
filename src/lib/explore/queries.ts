@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, ne, type SQL } from 'drizzle-orm';
 import { attachments, collections, places, placesToCollections } from '@/db/schema';
 import { storedCitiesMatching } from '@/lib/city-names';
+import { usablePin } from '@/lib/place-coords';
 import { forUser } from '@/lib/tenant-db';
 import { parseBestTime } from './best-time';
 import type { ExploreCollection, ExplorePlace } from './types';
@@ -73,7 +74,7 @@ function mapExplorePlaces(rows: PlaceRow[], photos: PhotoRow[]): ExplorePlace[] 
   for (const ph of photos) byPlace.set(ph.placeId, [...(byPlace.get(ph.placeId) ?? []), ph]);
 
   return rows.map((r) => {
-    const coords = r.coords && typeof r.coords === 'object' ? r.coords : null;
+    const coords = usablePin(r.coords && typeof r.coords === 'object' ? r.coords : null);
     const pics = (byPlace.get(r.id) ?? [])
       .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.createdAt.localeCompare(b.createdAt))
       // Both sizes travel together: rails and covers render the thumbnail, the

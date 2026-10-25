@@ -792,6 +792,33 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       }),
     },
   },
+  'review/places/[placeId]/city-suggestion': {
+    GET: {
+      slots: ['place'],
+      request: (t) => ({
+        url: `${API}/review/places/${t.place}/city-suggestion`,
+        params: { placeId: t.place },
+      }),
+    },
+  },
+  'review/places/[placeId]/branches': {
+    GET: {
+      slots: ['place'],
+      request: (t) => ({
+        url: `${API}/review/places/${t.place}/branches?q=cafe`,
+        params: { placeId: t.place },
+      }),
+    },
+  },
+  'review/places/[placeId]/pin': {
+    GET: {
+      slots: ['place'],
+      request: (t) => ({
+        url: `${API}/review/places/${t.place}/pin?googlePlaceId=ChIJ_sweep`,
+        params: { placeId: t.place },
+      }),
+    },
+  },
 
   // --- photos --------------------------------------------------------------
   'photos/resolve/[attachmentId]': {

@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMapContext } from './map-context'
 import { MapPlaceCard } from './map-place-card'
 import { MapPin } from 'lucide-react'
+import { usablePin } from '@/lib/place-coords'
 
 export function MapPlaceList() {
   const {
@@ -28,11 +29,9 @@ export function MapPlaceList() {
 
   const handlePlaceClick = useCallback((placeId: string) => {
     const place = filteredPlaces.find(p => p.id === placeId)
-    if (place?.coords && typeof place.coords === 'object' && 'lat' in place.coords) {
-      const coords = place.coords as { lat: number; lon: number }
-      selectPlace(placeId)
-      flyTo(coords.lon, coords.lat)
-    }
+    selectPlace(placeId)
+    const pin = usablePin(place?.coords)
+    if (pin) flyTo(pin.lon, pin.lat)
   }, [filteredPlaces, selectPlace, flyTo])
 
   if (filteredPlaces.length === 0) {

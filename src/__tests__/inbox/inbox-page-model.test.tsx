@@ -34,7 +34,7 @@ type InboxUploadRows = InboxUploadBatch['rows']
 
 function emptyRows(): InboxUploadRows {
   return {
-    toReview: { placeIds: [], sourceIds: [], places: [], checkCount: null },
+    toReview: { placeIds: [], sourceIds: [], places: [], checkCount: 0 },
     added: { placeIds: [], sourceIds: [], places: [] },
     notAPlace: { placeIds: [], sourceIds: [], places: [] },
     alreadyInLibrary: { placeIds: [], sourceIds: [], places: [] },
@@ -82,7 +82,7 @@ describe('inbox page model', () => {
           placeIds: ['P1', 'P2'],
           sourceIds: ['src_old'],
           places: [place({ id: 'P1', name: 'Older one', status: 'inbox' }), place({ id: 'P2', name: 'Older two', status: 'inbox' })],
-          checkCount: null,
+          checkCount: 0,
         },
       },
     })
@@ -94,7 +94,7 @@ describe('inbox page model', () => {
           placeIds: ['P3'],
           sourceIds: ['src_new'],
           places: [place({ id: 'P3', name: 'Newest', status: 'inbox' })],
-          checkCount: null,
+          checkCount: 0,
         },
       },
     })
@@ -136,7 +136,7 @@ describe('inbox page model', () => {
             place({ id: 'P1', name: 'Older', status: 'inbox', sourceIds: ['src_old'] }),
             place({ id: 'P2', name: 'Newer', status: 'inbox', sourceIds: ['src_new'] }),
           ],
-          checkCount: null,
+          checkCount: 0,
         },
       },
     })
@@ -213,7 +213,7 @@ describe('inbox page model', () => {
             place({ id: 'plc_b', name: 'Bee', status: 'inbox', createdAt: sameTime, sourceIds: ['src_tie'] }),
             place({ id: 'plc_a', name: 'Aye', status: 'inbox', createdAt: sameTime, sourceIds: ['src_tie'] }),
           ],
-          checkCount: null,
+          checkCount: 0,
         },
       },
     })
@@ -250,7 +250,7 @@ describe('inbox page model', () => {
             place({ id: 'plc_a', name: 'Aye', status: 'inbox', createdAt: sameTime, sourceIds: ['src_old'] }),
             place({ id: 'plc_b', name: 'Bee', status: 'inbox', createdAt: sameTime, sourceIds: ['src_old', 'src_new'] }),
           ],
-          checkCount: null,
+          checkCount: 0,
         },
       },
     })
@@ -295,7 +295,7 @@ describe('inbox page model', () => {
             place({ id: 'P2', name: 'Two', status: 'inbox' }),
             place({ id: 'P3', name: 'Three', status: 'inbox' }),
           ],
-          checkCount: null,
+          checkCount: 0,
         },
       },
     })
@@ -362,7 +362,7 @@ describe('inbox page model', () => {
           placeIds: ['p_new'],
           sourceIds: ['src_new'],
           places: [place({ id: 'p_new', name: 'Still New', status: 'inbox' })],
-          checkCount: null,
+          checkCount: 0,
         },
         uploadedBefore: {
           items: [{
@@ -406,7 +406,7 @@ describe('inbox page model', () => {
         shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
       ],
       rows: {
-        toReview: { placeIds: ['p_inbox'], sourceIds: ['src_link'], places: [inboxPlace], checkCount: null },
+        toReview: { placeIds: ['p_inbox'], sourceIds: ['src_link'], places: [inboxPlace], checkCount: 0 },
         added: { placeIds: ['p_saved'], sourceIds: ['src_saved'], places: [saved] },
         notAPlace: { placeIds: ['p_arch'], sourceIds: ['src_arch'], places: [archived] },
         uploadedBefore: {
@@ -467,7 +467,7 @@ describe('inbox page model', () => {
         shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
       ],
       rows: {
-        toReview: { placeIds: ['p_new'], sourceIds: ['src_mix'], places: [still], checkCount: null },
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_mix'], places: [still], checkCount: 0 },
         added: { placeIds: ['p_saved'], sourceIds: ['src_saved'], places: [saved] },
         notAPlace: {
           placeIds: ['p_arch', 'p_arch_saved'],
@@ -501,7 +501,7 @@ describe('inbox page model', () => {
         shot({ sourceId: 'src_wait', outcome: 'stillReading', processingStatus: 'queued' }),
       ],
       rows: {
-        toReview: { placeIds: ['p_new'], sourceIds: ['src_new'], places: [still], checkCount: null },
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_new'], places: [still], checkCount: 0 },
         added: { placeIds: ['p_saved'], sourceIds: ['src_created', 'src_new'], places: [saved] },
         alreadyInLibrary: { placeIds: ['p_match'], sourceIds: ['src_new'], places: [matched] },
         stillReading: { sourceIds: ['src_wait'] },
@@ -571,7 +571,7 @@ describe('inbox page model', () => {
         shot({ sourceId: 'src_both', createdPlaceIds: ['p_saved'], linkedPlaceIds: ['p_match'] }),
       ],
       rows: {
-        toReview: { placeIds: ['p_new'], sourceIds: ['src_partial'], places: [still], checkCount: null },
+        toReview: { placeIds: ['p_new'], sourceIds: ['src_partial'], places: [still], checkCount: 0 },
         added: { placeIds: ['p_saved'], sourceIds: ['src_partial', 'src_both'], places: [saved] },
         alreadyInLibrary: { placeIds: ['p_match'], sourceIds: ['src_both'], places: [matched] },
       },
@@ -633,7 +633,7 @@ describe('inbox page model', () => {
           placeIds: ['p1'],
           sourceIds: ['src'],
           places: [place({ id: 'p1', name: 'Medanos de Coro', status: 'inbox' })],
-          checkCount: null,
+          checkCount: 0,
         },
       },
     })

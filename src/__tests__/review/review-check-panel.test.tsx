@@ -426,11 +426,11 @@ describe('ReviewCheckPanel', () => {
     expect(fetchMock.mock.calls.some((call) => (call[1] as RequestInit | undefined)?.method === 'PATCH')).toBe(false)
   })
 
-  it.each<[string, Partial<PlaceWithRelations>, boolean]>([
-    ['region', { admin: 'Oregon' }, true],
-    ['street address', { address: '123 New St' }, true],
-    ['pin', { coords: { lat: 45.52, lon: -122.67 } }, false],
-  ])('does not save a branch chosen before the %s changes', async (_label, overrides, listStays) => {
+  it.each<[string, Partial<PlaceWithRelations>]>([
+    ['region', { admin: 'Oregon' }],
+    ['street address', { address: '123 New St' }],
+    ['pin', { coords: { lat: 45.52, lon: -122.67 } }],
+  ])('does not save a branch chosen before the %s changes', async (_label, overrides) => {
     const user = userEvent.setup()
     const onUpdated = jest.fn()
     let resolvePin: (value: Response) => void = () => {}
@@ -466,12 +466,7 @@ describe('ReviewCheckPanel', () => {
         onUpdated={onUpdated}
       />
     )
-    if (listStays) {
-      expect(screen.getByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
-      expect(screen.getByRole('listitem')).toBeEnabled()
-    } else {
-      expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
-    }
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
 
     await act(async () => {
       resolvePin(json({
@@ -639,8 +634,8 @@ describe('PlaceView review dismissal', () => {
     await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
     fireEvent.change(screen.getByRole('textbox', { name: field }), { target: { value } })
 
-    expect(screen.getByRole('listitem')).toBeEnabled()
-    expect(screen.getByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeInTheDocument()
 
     await act(async () => {
       resolvePin(json({
@@ -694,8 +689,8 @@ describe('PlaceView review dismissal', () => {
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Place name' }), { target: { value: 'Tartine' } })
 
-    expect(screen.getByRole('listitem')).toBeEnabled()
-    expect(screen.getByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeInTheDocument()
 
     await act(async () => {
       resolvePin(json({
@@ -721,6 +716,88 @@ describe('PlaceView review dismissal', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('clears a finished branch list when the draft name or city changes', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return Promise.resolve(json({
+          candidates: [{ googlePlaceId: 'stub-gails-dulwich', name: "Gail's Bakery", detail: '91 Lordship Ln, London SE22' }],
+          unavailable: false,
+        }))
+      }
+      if (url.includes('/pin')) {
+        return Promise.resolve(json({
+          pin: {
+            googlePlaceId: 'stub-gails-dulwich',
+            name: "Gail's Bakery",
+            address: '91 Lordship Ln',
+            city: 'London',
+            admin: 'England',
+            country: 'United Kingdom',
+            coords: { lat: 51.45, lon: -0.07 },
+          },
+          unavailable: false,
+        }))
+      }
+      if (init?.method === 'PATCH') return Promise.resolve(json({ status: 'success' }))
+      return Promise.resolve(json({ message: 'unexpected' }, 500))
+    })
+
+    render(reviewPlace(place({ coords: null }), onUpdated, true))
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    expect(await screen.findByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Paris' } })
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeEnabled()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Place name' }), { target: { value: 'Tartine' } })
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    expect(await screen.findByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Place name' }), { target: { value: 'Tartine Bakery' } })
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/pin'))).toBe(false)
+    expect(onUpdated).not.toHaveBeenCalled()
+  })
+
+  it('keeps a draft branch list when the saved place only echoes the draft', async () => {
+    const user = userEvent.setup()
+    const onUpdated = jest.fn()
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/branches')) {
+        return Promise.resolve(json({
+          candidates: [{ googlePlaceId: 'stub-tartine', name: 'Tartine', detail: '600 Guerrero St, San Francisco' }],
+          unavailable: false,
+        }))
+      }
+      return Promise.resolve(json({ status: 'success' }))
+    })
+
+    const initial = place({ coords: null, city: ' ', country: ' ' })
+    const { rerender } = render(reviewPlace(initial, onUpdated, true))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Place name' }), { target: { value: 'Tartine' } })
+    await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Paris' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Country' }), { target: { value: '   ' } })
+
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    expect(await screen.findByText('600 Guerrero St, San Francisco')).toBeInTheDocument()
+
+    rerender(reviewPlace(place({
+      ...initial,
+      name: 'Tartine',
+      city: 'Paris',
+      country: ' ',
+    }), onUpdated, true))
+    expect(screen.getByText('600 Guerrero St, San Francisco')).toBeInTheDocument()
+    expect(screen.getByRole('listitem')).toBeEnabled()
+  })
+
   it('saves a branch chosen after a draft edit when that edit is echoed back', async () => {
     const user = userEvent.setup()
     const onUpdated = jest.fn()
@@ -744,13 +821,13 @@ describe('PlaceView review dismissal', () => {
 
     const initial = place({ coords: null, city: null, admin: null, country: null })
     const { rerender } = render(reviewPlace(initial, onUpdated, true))
-    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
-    expect(await screen.findByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Edit On the ground' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Paris' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Region' }), { target: { value: 'Oregon' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Country' }), { target: { value: 'France' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Place name' }), { target: { value: 'Tartine' } })
+    await user.click(screen.getByRole('button', { name: /Look up this place/ }))
+    expect(await screen.findByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
     await user.click(screen.getByRole('listitem'))
     await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/pin'))).toBe(true))
 
@@ -761,8 +838,8 @@ describe('PlaceView review dismissal', () => {
       admin: 'Oregon',
       country: 'France',
     }), onUpdated, true))
-    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeDisabled()
+    expect(screen.getByText('91 Lordship Ln, London SE22')).toBeInTheDocument()
+    expect(screen.getByRole('listitem')).toBeDisabled()
 
     await act(async () => {
       resolvePin(json({
@@ -1073,7 +1150,8 @@ describe('PlaceView review dismissal', () => {
       admin: 'England',
     })
     fireEvent.change(screen.getByRole('textbox', { name: 'Region' }), { target: { value: 'Oregon' } })
-    expect(screen.getByRole('listitem')).toBeEnabled()
+    expect(screen.queryByText('91 Lordship Ln, London SE22')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Look up this place/ })).toBeEnabled()
     await act(async () => {
       resolveSave(json({ status: 'success' }))
     })

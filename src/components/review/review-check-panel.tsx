@@ -260,14 +260,14 @@ function PinCheck({
     const adoptingGeneration = generationChanged && adoptedGenerationRef.current === generationKey
     if (lookupChanged) {
       setTrackedLookupKey(lookupKey)
-      setCandidates(null)
-      setUnavailable(false)
-      setError(null)
     }
     if (generationChanged) {
       setTrackedGenerationKey(generationKey)
       if (!adoptingGeneration) {
         adoptedGenerationRef.current = null
+        setCandidates(null)
+        setUnavailable(false)
+        setError(null)
         if (pending) setPending(null)
         requestRef.current += 1
       }

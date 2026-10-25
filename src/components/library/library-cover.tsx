@@ -105,6 +105,8 @@ export function LibraryCover({
           >
             <Photo
               src={p.src}
+              thumb={p.thumb}
+              use={i === 0 ? "full" : "thumb"}
               sizes={i === 0 ? "(min-width: 640px) 40vw, 67vw" : "(min-width: 640px) 20vw, 34vw"}
               priority={i === 0}
               className="animate-in fade-in-0 duration-700"

@@ -76,6 +76,7 @@ function Collage({ photos }: { photos: string[] }) {
           {photos[i] && (
             <Photo
               src={photos[i]}
+              use={i === 0 ? "full" : "thumb"}
               sizes={i === 0 ? "(min-width: 1024px) 160px, (min-width: 640px) 220px, 26vw" : "(min-width: 1024px) 80px, (min-width: 640px) 110px, 13vw"}
               className="transition duration-700 group-hover:scale-[1.04]"
             />

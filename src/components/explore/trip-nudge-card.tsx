@@ -77,7 +77,7 @@ export function TripNudgeCard({
                 i === 2 && 'right-0 top-3 z-10 rotate-[9deg]',
               )}
             >
-              <Photo src={src} sizes="144px" />
+              <Photo src={src} use="thumb" sizes="144px" />
             </div>
           ))}
         </div>

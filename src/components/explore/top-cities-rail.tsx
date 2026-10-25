@@ -30,6 +30,7 @@ export function TopCitiesRail({ cities }: { cities: CityGroup[] }) {
                 {c.cover ? (
                   <Photo
                     src={c.cover}
+                    use="thumb"
                     sizes="(min-width: 640px) 150px, 34vw"
                     className="transition duration-700 group-hover:scale-105"
                   />

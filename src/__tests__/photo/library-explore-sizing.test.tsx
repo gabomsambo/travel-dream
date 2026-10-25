@@ -3,11 +3,15 @@ import { render } from '@testing-library/react';
 import { PlaceTile } from '@/components/explore/place-tile';
 import { CountryTile } from '@/components/explore/country-tile';
 import { CityTiles } from '@/components/explore/city-tiles';
+import { TopCitiesRail } from '@/components/explore/top-cities-rail';
+import { TripNudgeCard } from '@/components/explore/trip-nudge-card';
+import { ExploreProvider } from '@/components/explore/explore-provider';
 import { LibraryCover } from '@/components/library/library-cover';
 import { LibraryTile } from '@/components/library/library-tile';
 import { AddToCollectionDialog } from '@/components/library/library-add-to-collection';
 import { LibraryActionsContext, type LibraryActions } from '@/components/library/library-actions';
 import { LibraryChapters } from '@/components/library/library-chapters';
+import { TripsShelf } from '@/components/library/library-shelves';
 import type { CountryGroup, ExplorePlace } from '@/lib/explore/types';
 import { item } from '../helpers/library-items';
 
@@ -169,24 +173,157 @@ describe('Library and Explore photos are right-sized', () => {
         country: 'Portugal',
         photos: [{ uri: BLOB, thumb: BLOB_THUMB }],
       }),
+      item({
+        id: 'plc_2',
+        country: 'Japan',
+        photos: [{ uri: BLOB, thumb: BLOB_THUMB }],
+      }),
     ];
     const { container } = render(
       <LibraryCover
         items={items}
         stats={{
-          total: 1,
-          countries: 1,
-          cities: 1,
+          total: 2,
+          countries: 2,
+          cities: 2,
           been: 0,
           planned: 0,
-          dreaming: 1,
-          passport: [{ country: 'Portugal', flag: '🇵🇹', been: false }],
+          dreaming: 2,
+          passport: [
+            { country: 'Portugal', flag: '🇵🇹', been: false },
+            { country: 'Japan', flag: '🇯🇵', been: false },
+          ],
         }}
         onShelf={() => {}}
         onGroup={() => {}}
       />
     );
-    expectBlobSized(img(container), BLOB, '(min-width: 640px) 40vw, 67vw');
+    const coverImgs = imgs(container);
+    expect(coverImgs.length).toBeGreaterThanOrEqual(2);
+    expectBlobSized(coverImgs[0], BLOB, '(min-width: 640px) 40vw, 67vw');
+    expectBlobSized(coverImgs[1], BLOB_THUMB, '(min-width: 640px) 20vw, 34vw');
+  });
+
+  it('keeps Library cover secondary Google cells on thumb widths', () => {
+    const items = [
+      item({
+        id: 'plc_1',
+        country: 'Portugal',
+        photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }],
+      }),
+      item({
+        id: 'plc_2',
+        country: 'Japan',
+        photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }],
+      }),
+    ];
+    const { container } = render(
+      <LibraryCover
+        items={items}
+        stats={{
+          total: 2,
+          countries: 2,
+          cities: 2,
+          been: 0,
+          planned: 0,
+          dreaming: 2,
+          passport: [
+            { country: 'Portugal', flag: '🇵🇹', been: false },
+            { country: 'Japan', flag: '🇯🇵', been: false },
+          ],
+        }}
+        onShelf={() => {}}
+        onGroup={() => {}}
+      />
+    );
+    const coverImgs = imgs(container);
+    expectGoogleSized(coverImgs[0], [320, 640, 960, 1280], '(min-width: 640px) 40vw, 67vw');
+    expectGoogleSized(coverImgs[1], [160, 320], '(min-width: 640px) 20vw, 34vw');
+  });
+
+  it('keeps Top Cities rail covers on thumb Google widths', () => {
+    const { container } = render(
+      <TopCitiesRail
+        cities={[
+          {
+            city: 'Lisbon',
+            country: 'Portugal',
+            slug: 'lisbon',
+            places: [place([{ uri: GOOGLE, thumb: GOOGLE_THUMB }])],
+            cover: GOOGLE,
+          },
+        ]}
+      />
+    );
+    expectGoogleSized(img(container), [160, 320], '(min-width: 640px) 150px, 34vw');
+  });
+
+  it('keeps trip-nudge fan photos on thumb Google widths', () => {
+    const thumbs = [
+      '/api/photos/resolve/att_1?w=400',
+      '/api/photos/resolve/att_2?w=400',
+      '/api/photos/resolve/att_3?w=400',
+    ];
+    const { container } = render(
+      <ExploreProvider places={[]} collections={[]}>
+        <TripNudgeCard
+          dismissible={false}
+          nudge={{
+            city: 'Lisbon',
+            country: 'Portugal',
+            citySlug: 'lisbon',
+            countrySlug: 'portugal',
+            placeIds: ['plc_1', 'plc_2'],
+            photos: thumbs,
+            kinds: ['viewpoint'],
+            existingCollection: null,
+          }}
+        />
+      </ExploreProvider>
+    );
+    const fans = imgs(container).filter((el) => el.getAttribute('sizes') === '144px');
+    expect(fans.length).toBe(3);
+    for (const el of fans) {
+      const srcset = el.getAttribute('srcset') ?? '';
+      expect(srcset).not.toContain('_next/image');
+      expect(srcset).toMatch(/\?w=160 160w, .*\?w=320 320w/);
+      expect(srcset).not.toMatch(/\?w=640|\?w=960|\?w=1280/);
+      expect(el.getAttribute('sizes')).toBe('144px');
+    }
+  });
+
+  it('keeps TripsShelf secondary collage cells on thumb Google widths', () => {
+    const a = item({ id: 'plc_a', photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }] });
+    const b = item({ id: 'plc_b', photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }] });
+    const c = item({ id: 'plc_c', photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }] });
+    const { container } = render(
+      <TripsShelf
+        collections={[{ id: 'col_1', name: 'Lisbon', placeIds: [a.id, b.id, c.id] }]}
+        byId={new Map([
+          [a.id, a],
+          [b.id, b],
+          [c.id, c],
+        ])}
+        now={new Date('2024-06-01T00:00:00.000Z')}
+      />
+    );
+    const collage = imgs(container);
+    expect(collage.length).toBe(3);
+    expectGoogleSized(
+      collage[0],
+      [320, 640, 960, 1280],
+      '(min-width: 1024px) 160px, (min-width: 640px) 220px, 26vw'
+    );
+    expectGoogleSized(
+      collage[1],
+      [160, 320],
+      '(min-width: 1024px) 80px, (min-width: 640px) 110px, 13vw'
+    );
+    expectGoogleSized(
+      collage[2],
+      [160, 320],
+      '(min-width: 1024px) 80px, (min-width: 640px) 110px, 13vw'
+    );
   });
 
   it('keeps collection collage chips on thumb Google widths', () => {

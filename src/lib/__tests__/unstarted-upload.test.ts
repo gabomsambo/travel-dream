@@ -462,6 +462,119 @@ describe('unstarted-upload leave paths', () => {
       }
       queueMicrotask(tick)
     })
+
+    // Failed cancel must leave the binding flushable even after the store cleared.
+    const retryFetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return { ok: true, status: 200 } as Response
+      }
+      return { ok: false, status: 500 } as Response
+    })
+    global.fetch = retryFetch as unknown as typeof fetch
+    await cancelUnstartedUpload()
+    expect(
+      retryFetch.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/cancel')),
+    ).toBe(true)
+  })
+
+  it('pagehide keeps an empty-store binding flushable when cancel fails', async () => {
+    let finishCancel: (value: Response) => void = () => {}
+    const fetchMock = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return new Promise<Response>((resolve) => {
+          finishCancel = resolve
+        })
+      }
+      return Promise.resolve({ ok: false, status: 500 } as Response)
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const closed = bindWithHold('session-empty-failed-cancel')
+    closed.setLive(false, null)
+    parkUnstartedUpload(closed.binding)
+    closed.release()
+
+    discardUnstartedUpload()
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/cancel')),
+    ).toBe(true)
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/register')),
+    ).toBe(false)
+
+    finishCancel({ ok: false, status: 500 } as Response)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    let cancelAttempts = 0
+    const retryFetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        cancelAttempts += 1
+        return { ok: true, status: 200 } as Response
+      }
+      return { ok: false, status: 500 } as Response
+    })
+    global.fetch = retryFetch as unknown as typeof fetch
+
+    await cancelUnstartedUpload()
+    expect(cancelAttempts).toBe(1)
+  })
+
+  it('pagehide does not drop a Start-in-flight binding before the outcome when the store is empty', async () => {
+    let finishCancel: (value: Response) => void = () => {}
+    const fetchMock = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        return new Promise<Response>((resolve) => {
+          finishCancel = resolve
+        })
+      }
+      return Promise.resolve({ ok: false, status: 500 } as Response)
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    let finishStart: (value: boolean) => void = () => {}
+    const startPromise = new Promise<boolean>((resolve) => {
+      finishStart = resolve
+    })
+    const { holdOutcome, setLive, release } = bindWithHold('session-start-empty')
+    setLive(false, startPromise)
+    holdOutcome(startPromise)
+    setLive(false, null)
+
+    discardUnstartedUpload()
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/cancel')),
+    ).toBe(false)
+
+    finishStart(false)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/mass-upload/cancel')),
+    ).toBe(true)
+
+    finishCancel({ ok: false, status: 500 } as Response)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    let cancelAttempts = 0
+    const retryFetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/mass-upload/cancel')) {
+        cancelAttempts += 1
+        return { ok: true, status: 200 } as Response
+      }
+      return { ok: false, status: 500 } as Response
+    })
+    global.fetch = retryFetch as unknown as typeof fetch
+
+    await cancelUnstartedUpload()
+    expect(cancelAttempts).toBe(1)
+    release()
   })
 
   it('sign-out does not register pending blobs when cancel fails', async () => {

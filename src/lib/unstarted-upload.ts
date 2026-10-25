@@ -75,6 +75,14 @@ function releaseFlushableIfSettled(binding: UnstartedUploadBinding): void {
   if (active === binding) active = null
 }
 
+function releaseAfterTerminalOk(
+  binding: UnstartedUploadBinding,
+  gate: { ok: boolean; handOverDone: boolean },
+): void {
+  if (!gate.ok || !gate.handOverDone) return
+  releaseFlushableIfSettled(binding)
+}
+
 /** Clears module bindings between tests so a parked failed-cancel cannot leak. */
 export function resetUnstartedUploadsForTests(): void {
   active = null
@@ -215,12 +223,24 @@ async function cancelThenHandOver(
     releaseFlushableIfSettled(binding)
     return
   }
-  void binding.cancel().then(() => undefined, () => undefined)
-  void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive }).then(
-    () => {
-      releaseFlushableIfSettled(binding)
+  const gate = { ok: false, handOverDone: false }
+  void binding.cancel().then(
+    (cancel) => {
+      if (!cancel.ok) return
+      gate.ok = true
+      releaseAfterTerminalOk(binding, gate)
     },
     () => undefined,
+  )
+  void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive }).then(
+    () => {
+      gate.handOverDone = true
+      releaseAfterTerminalOk(binding, gate)
+    },
+    () => {
+      gate.handOverDone = true
+      releaseAfterTerminalOk(binding, gate)
+    },
   )
 }
 
@@ -254,14 +274,42 @@ async function flushBinding(
     // Pagehide: hand over immediately while keepalive still schedules. Start
     // may already have flipped the session (or will); register queues or the
     // session-wide flip claims an uploaded insert. Only cancel on failure.
-    void handOverStarted(sessionId, binding, { keepalive: options.keepalive })
-    void startOutcome.then(
-      (started) => {
-        if (started) return
-        void binding.cancel().then(() => undefined, () => undefined)
+    const gate = { ok: false, handOverDone: false }
+    void handOverPendingBlobs(sessionId, binding, { keepalive: options.keepalive }).then(
+      () => {
+        gate.handOverDone = true
+        releaseAfterTerminalOk(binding, gate)
       },
       () => {
-        void binding.cancel().then(() => undefined, () => undefined)
+        gate.handOverDone = true
+        releaseAfterTerminalOk(binding, gate)
+      },
+    )
+    void startOutcome.then(
+      (started) => {
+        if (started) {
+          gate.ok = true
+          releaseAfterTerminalOk(binding, gate)
+          return
+        }
+        void binding.cancel().then(
+          (cancel) => {
+            if (!cancel.ok) return
+            gate.ok = true
+            releaseAfterTerminalOk(binding, gate)
+          },
+          () => undefined,
+        )
+      },
+      () => {
+        void binding.cancel().then(
+          (cancel) => {
+            if (!cancel.ok) return
+            gate.ok = true
+            releaseAfterTerminalOk(binding, gate)
+          },
+          () => undefined,
+        )
       },
     )
     return

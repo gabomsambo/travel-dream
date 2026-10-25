@@ -370,3 +370,64 @@ describe('the virtualized map side list', () => {
     })
   })
 })
+
+/** 30 × 167 = 5,010 places — the size the performance gate was measured against. */
+const FIVE_K = library(167)
+const nodesIn = (root: ParentNode) => root.querySelectorAll('*').length
+
+describe('DOM budget at 5,000 places', () => {
+  it('keeps the compact list under about 3,000 nodes', () => {
+    query = 'view=list'
+    const { main } = renderLibrary(dataFor(FIVE_K))
+    expect(FIVE_K).toHaveLength(5010)
+    expect(placeButtons().length).toBeGreaterThan(0)
+    expect(placeButtons().length).toBeLessThan(80)
+    expect(nodesIn(main)).toBeLessThan(3000)
+  })
+
+  it('keeps the journal under about 3,000 nodes', () => {
+    query = 'view=journal'
+    const { main } = renderLibrary(dataFor(FIVE_K))
+    expect(placeButtons().length).toBeGreaterThan(0)
+    expect(placeButtons().length).toBeLessThan(40)
+    expect(nodesIn(main)).toBeLessThan(3000)
+  })
+
+  it('keeps the map side list under about 3,000 nodes (and far fewer than one img per place)', () => {
+    const view = render(
+      <LibraryActionsContext.Provider value={{
+        hearts: new Set(),
+        toggleHeart: jest.fn(),
+        selected: new Set(),
+        selecting: false,
+        toggleSelect: jest.fn(),
+        select: jest.fn(),
+        activate: jest.fn(),
+        openPlace: jest.fn(),
+        archive: jest.fn(),
+        remove: jest.fn(),
+        addToCollection: jest.fn(),
+        findImage: jest.fn(),
+      }}>
+        <main data-testid="main" className="overflow-y-auto">
+          <LibraryMapView
+            chapters={COUNTRIES.map((country) => ({
+              key: `country:${country}`,
+              title: country,
+              items: FIVE_K.filter((p) => p.country === country),
+            }))}
+            items={FIVE_K}
+            siblings={FIVE_K.map((p) => p.id)}
+            stats={{ total: 0, countries: 0, cities: 0, been: 0, planned: 0, dreaming: 0, passport: [] }}
+          />
+        </main>
+      </LibraryActionsContext.Provider>
+    )
+    const side = document.querySelector<HTMLElement>('[data-side-list]')!
+    expect(placeButtons().length).toBeGreaterThan(0)
+    expect(placeButtons().length).toBeLessThan(40)
+    expect(document.querySelectorAll('img').length).toBeLessThan(40)
+    expect(nodesIn(side)).toBeLessThan(3000)
+    view.unmount()
+  })
+})

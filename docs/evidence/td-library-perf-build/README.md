@@ -4,8 +4,9 @@ Before/after captures for the change that virtualizes the Library **Group by / N
 grouping** grid against the (app) shell's `<main>` (the real scroll container) with
 `@tanstack/react-virtual`. The gallery is one flat list of rows (chapter header, a
 row of tiles, the phone interlude); only rows near the screen are mounted. Peeks,
-"N more", city chips, index jump / scroll-spy, and every grouping stay. List,
-journal, and map views are out of scope here.
+"N more", city chips, index jump / scroll-spy, and every grouping stay. This
+folder is gallery-only; list, journal, and map side-list virtualization:
+[`docs/evidence/td-libperf-lists/`](../td-libperf-lists/).
 
 An earlier attempt virtualized the **window** and was reverted (wrong
 `scrollMargin` for the nested layout); this build measures against `<main>` with

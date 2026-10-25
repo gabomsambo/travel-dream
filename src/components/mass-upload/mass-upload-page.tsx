@@ -29,9 +29,12 @@ import { useActivityJobs } from '@/components/activity/activity-provider'
 import {
   bindUnstartedUpload,
   cancelUploadSession,
+  createAbandonedUploadStore,
   discardUnstartedUpload,
   registerAbandonedUploads,
   type AbandonedUpload,
+  type AbandonedUploadStore,
+  type UnstartedUploadBinding,
 } from '@/lib/unstarted-upload'
 
 interface MassUploadFile {
@@ -78,11 +81,10 @@ async function drainInFlight(pending: Set<Promise<unknown>>): Promise<void> {
 }
 
 async function abandonUnstartedSession(
+  binding: UnstartedUploadBinding,
   sessionId: string,
   startPromise: Promise<boolean> | null,
   pending: Set<Promise<unknown>>,
-  abandoned: AbandonedUpload[],
-  earlyCancel: Promise<Response> | null,
 ): Promise<void> {
   try {
     if (startPromise) {
@@ -90,9 +92,19 @@ async function abandonUnstartedSession(
       if (started) return
     }
     await drainInFlight(pending)
-    const cancel = await (earlyCancel ?? cancelUploadSession(sessionId))
+    // The cancel has to land first: once the session is closed, register
+    // takes its 409 path and deletes the blob with it. A cancel that failed
+    // leaves the session open, and registering then would leave the batch
+    // behind as "still reading" in the Inbox.
+    const cancel = await binding.cancel()
     if (!cancel.ok) return
-    await registerAbandonedUploads(sessionId, abandoned)
+    const blobs = binding.store.pending()
+    if (blobs.length === 0) return
+    const retry = await registerAbandonedUploads(sessionId, blobs)
+    const retried = new Set(retry.map((blob) => blob.blobUrl))
+    for (const blob of blobs) {
+      if (!retried.has(blob.blobUrl)) binding.store.remove(blob.blobUrl)
+    }
   } catch {
     return
   }
@@ -115,7 +127,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
   const startPromiseRef = useRef<Promise<boolean> | null>(null)
   const abortRef = useRef<AbortController>(new AbortController())
   const inFlightRef = useRef<Set<Promise<unknown>>>(new Set())
-  const abandonedRef = useRef<AbandonedUpload[]>([])
+  const abandonedStoreRef = useRef<AbandonedUploadStore | null>(null)
   const epochRef = useRef(0)
   const openingIdRef = useRef(0)
 
@@ -145,6 +157,11 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     startedRef.current = false
     let cancelled = false
     let releaseBinding = () => {}
+    let binding: UnstartedUploadBinding | null = null
+    let abandoning = false
+    let cancelRequest: Promise<Response> | null = null
+    const store = createAbandonedUploadStore()
+    abandonedStoreRef.current = store
     const create = async () => {
       try {
         const res = await fetch('/api/upload/sessions', {
@@ -156,14 +173,20 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         const data = await res.json()
         if (cancelled || controller.signal.aborted) return
         if (data.status === 'success' && data.session?.id) {
-          sessionIdRef.current = data.session.id
+          const id = data.session.id
+          sessionIdRef.current = id
           releaseBinding()
-          releaseBinding = bindUnstartedUpload({
-            sessionId: () => sessionIdRef.current,
+          binding = {
+            sessionId: () => id,
             startRequested: () => startedRef.current || startPromiseRef.current !== null,
-            abandonedUploads: () => abandonedRef.current,
-          })
-          setSessionId(data.session.id)
+            store,
+            cancel: () => {
+              if (!cancelRequest) cancelRequest = cancelUploadSession(id)
+              return cancelRequest
+            },
+          }
+          releaseBinding = bindUnstartedUpload(binding)
+          setSessionId(id)
           setSessionError(null)
         } else {
           setSessionError('Failed to create upload session')
@@ -179,17 +202,14 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       const startPromise = startPromiseRef.current
       const alreadyStarted = startedRef.current
       const startWasRequested = alreadyStarted || startPromise !== null
-      let earlyCancel: Promise<Response> | null = null
-      try {
-        if (currentSessionId && !startWasRequested) {
-          earlyCancel = cancelUploadSession(currentSessionId)
+      // The cancel goes out first, while the page is still there.
+      if (binding && currentSessionId && !startWasRequested) {
+        try {
+          void binding.cancel().then(() => undefined, () => undefined)
+        } catch {
+          // The hand-over below reports the failure.
         }
-      } catch {
-        earlyCancel = null
       }
-      releaseBinding()
-      const abandoned = abandonedRef.current
-      abandonedRef.current = []
       const pending = inFlightRef.current
       inFlightRef.current = new Set()
       epochRef.current += 1
@@ -200,8 +220,17 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       sessionIdRef.current = null
       startedRef.current = false
       startPromiseRef.current = null
-      if (currentSessionId && !alreadyStarted) {
-        void abandonUnstartedSession(currentSessionId, startPromise, pending, abandoned, earlyCancel)
+      if (binding && currentSessionId && !alreadyStarted) {
+        if (!abandoning) {
+          abandoning = true
+          // The binding stays live until the hand-over is on its way: a
+          // refresh or a sign-out in that window still has to find this
+          // session and the blobs that never got a source row.
+          void abandonUnstartedSession(binding, currentSessionId, startPromise, pending)
+            .finally(() => releaseBinding())
+        }
+      } else if (!abandoning) {
+        releaseBinding()
       }
     }
   }, [open])
@@ -259,12 +288,16 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     if (!sessionId) throw new Error('No session')
     if (signal.aborted || epochRef.current !== epoch) throw aborted()
 
+    // The store of the batch this file belongs to. A file that finishes
+    // uploading after the sheet closed still lands in that batch's store, so
+    // the hand-over can find it.
+    const store = abandonedStoreRef.current
+
     const timestamp = Date.now()
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
     const filename = `screenshots/${sessionId}/${timestamp}-${fileId.slice(0, 8)}.${ext}`
 
     const task = (async () => {
-      const abandonedSink = abandonedRef.current
       const blob = await upload(filename, file, {
         access: 'public',
         handleUploadUrl: '/api/blob/upload',
@@ -289,7 +322,9 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         fileSize: file.size,
         mimeType: file.type || 'application/octet-stream',
       }
-      abandonedSink.push(payload)
+      // The blob is in the store now: until the server confirms a source row
+      // it is an orphan that only this batch knows about.
+      store?.add(payload)
       if (signal.aborted || epochRef.current !== epoch) throw aborted()
 
       const response = await fetch('/api/mass-upload/register', {
@@ -310,6 +345,7 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
       }
 
       const result = await response.json()
+      store?.remove(payload.blobUrl)
       return { blobUrl: blob.url, sourceId: result.sourceId as string }
     })()
 

@@ -142,11 +142,13 @@ describe('shared photo blob on live delete routes', () => {
   it('cancel keeps a blob a place photo still uses and releases an unshared one', async () => {
     await insertPlace('plc_tacama', 'Tacama');
     await insertAttachment('att_tacama', 'plc_tacama', SHARED, null);
+    // Cancel finds a session's sources by the session id the register route
+    // wrote on the source itself, not by the session's uploadedFiles list.
     await insertSource('src_shared_q', SHARED, 'queued', {
-      uploadInfo: { originalName: 'shared.jpg' },
+      uploadInfo: { sessionId: FIXTURE.aliceSession, originalName: 'shared.jpg' },
     });
     await insertSource('src_orphan_q', ORPHAN, 'queued', {
-      uploadInfo: { originalName: 'orphan.jpg' },
+      uploadInfo: { sessionId: FIXTURE.aliceSession, originalName: 'orphan.jpg' },
     });
     await setSessionUploadedFiles(FIXTURE.aliceSession, ['src_shared_q', 'src_orphan_q']);
 
@@ -161,7 +163,9 @@ describe('shared photo blob on live delete routes', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.cancelled).toBe(2);
+    // The two sources above plus the fixture's own source, which carries the
+    // same session id.
+    expect(body.cancelled).toBe(3);
     expect(deletedBlobUrls()).not.toContain(SHARED);
     expect(deletedBlobUrls()).toContain(ORPHAN);
     expect(await readCell('SELECT uri FROM attachments WHERE id = ?', ['att_tacama'])).toBe(SHARED);

@@ -53,8 +53,8 @@ function callsTo(url: string, method: string) {
   return fetchMock.mock.calls.filter((call) => call[0] === url && (call[1]?.method ?? 'GET') === method)
 }
 
-function shot(): File {
-  return new File(['pixels'], 'coast.jpg', { type: 'image/jpeg' })
+function shot(name = 'coast.jpg'): File {
+  return new File(['pixels'], name, { type: 'image/jpeg' })
 }
 
 function mockSession(sessionId: string, start?: (init?: RequestInit) => Promise<unknown>) {
@@ -137,16 +137,10 @@ describe('discarding an upload before Start', () => {
     expect(cancels).toHaveLength(1)
     expect(cancels[0][1].keepalive).toBe(true)
     expect(JSON.parse(String(cancels[0][1].body))).toEqual({ sessionId: 'ses_pagehide' })
-    const registersAfter = callsTo('/api/mass-upload/register', 'POST')
-    expect(registersAfter).toHaveLength(registers + 1)
-    const leave = registersAfter[registersAfter.length - 1]
-    expect(leave[1].keepalive).toBe(true)
-    expect(leave[1].signal).toBeUndefined()
-    expect(JSON.parse(String(leave[1].body))).toMatchObject({
-      sessionId: 'ses_pagehide',
-      blobUrl: 'https://teststore.public.blob.vercel-storage.com/coast.jpg',
-      originalName: 'coast.jpg',
-    })
+    // The screenshot already has a source row, so there is nothing to hand
+    // over. Re-sending it would spend the browser's keepalive budget on a
+    // screenshot that is already registered.
+    expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(registers)
     expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(0)
   })
 
@@ -247,15 +241,12 @@ describe('discarding an upload before Start', () => {
     await act(async () => {
       finishCancel()
     })
-    await waitFor(() => expect(order).toEqual(['cancel', 'cancel-done', 'register-leave', 'sign-out']))
+    await waitFor(() => expect(order).toEqual(['cancel', 'cancel-done', 'sign-out']))
     expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/' })
+    // The screenshot already has a source row, so the sign-out has nothing to
+    // hand over.
     const leave = callsTo('/api/mass-upload/register', 'POST').filter((call) => call[1]?.keepalive)
-    expect(leave).toHaveLength(1)
-    expect(JSON.parse(String(leave[0][1].body))).toMatchObject({
-      sessionId: 'ses_signout',
-      blobUrl: 'https://teststore.public.blob.vercel-storage.com/coast.jpg',
-      originalName: 'coast.jpg',
-    })
+    expect(leave).toHaveLength(0)
   })
 
   it('signs out without cancelling a session Start has already queued', async () => {
@@ -351,10 +342,12 @@ describe('discarding an upload before Start', () => {
       finishUpload({ url: 'https://teststore.public.blob.vercel-storage.com/coast.jpg' })
     })
     await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(1))
-    const leave = callsTo('/api/mass-upload/register', 'POST')[0]
-    expect(leave[1].keepalive).toBe(true)
-    expect(leave[1].signal).toBeUndefined()
-    expect(JSON.parse(String(leave[1].body))).toMatchObject({
+    const handover = callsTo('/api/mass-upload/register', 'POST')[0]
+    // The sheet-close hand-over runs on a live page, so it must not spend the
+    // browser's keepalive budget.
+    expect(handover[1].keepalive).toBeFalsy()
+    expect(handover[1].signal).toBeUndefined()
+    expect(JSON.parse(String(handover[1].body))).toMatchObject({
       sessionId: 'ses_closing',
       blobUrl: 'https://teststore.public.blob.vercel-storage.com/coast.jpg',
     })
@@ -418,6 +411,197 @@ describe('discarding an upload before Start', () => {
 
     await act(async () => {
       finishRegister()
+    })
+  })
+
+  it('hands over only the screenshots that never got a source row when the page is discarded', async () => {
+    const urls = [
+      'https://teststore.public.blob.vercel-storage.com/one.jpg',
+      'https://teststore.public.blob.vercel-storage.com/two.jpg',
+    ]
+    let uploaded = 0
+    uploadMock.mockImplementation(() => Promise.resolve({ url: urls[uploaded++] }))
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_mixed' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        const body = JSON.parse(String(init?.body)) as { blobUrl?: string }
+        if (body.blobUrl === urls[1]) {
+          return new Promise(() => {})
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', sourceId: 'src_one' }),
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', cancelled: 1 }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    render(
+      <MassUploadSheet open onOpenChange={jest.fn()} initialFiles={[shot('one.jpg'), shot('two.jpg')]} />,
+    )
+    await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(2))
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    const registers = callsTo('/api/mass-upload/register', 'POST')
+    // Only the screenshot whose register never landed is handed over. The one
+    // that already has a source row is left alone.
+    expect(registers).toHaveLength(3)
+    const leave = registers[2]
+    expect(leave[1].keepalive).toBe(true)
+    expect(JSON.parse(String(leave[1].body))).toMatchObject({
+      sessionId: 'ses_mixed',
+      blobUrl: urls[1],
+      originalName: 'two.jpg',
+    })
+  })
+
+  it('hands the unregistered screenshot over when the page is discarded after the sheet closed', async () => {
+    const blobUrl = 'https://teststore.public.blob.vercel-storage.com/coast.jpg'
+    let finishRegister: () => void = () => {}
+    let finishCancel: () => void = () => {}
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_gap' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        if (init?.keepalive) {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: async () => ({ status: 'error', message: 'Upload session was closed' }),
+          })
+        }
+        return new Promise((resolve) => {
+          finishRegister = () => resolve({
+            ok: true,
+            json: async () => ({ status: 'success', sourceId: 'src_gap' }),
+          })
+        })
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        return new Promise((resolve) => {
+          finishCancel = () => resolve({
+            ok: true,
+            json: async () => ({ status: 'success', cancelled: 0 }),
+          })
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    const onOpenChange = jest.fn()
+    const { rerender } = render(
+      <MassUploadSheet open onOpenChange={onOpenChange} initialFiles={[shot()]} />,
+    )
+    await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(1))
+
+    // The sheet closes while that register is still in flight.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
+    rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={[shot()]} />)
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
+
+    // The page is discarded before the cancel answers. The screenshot that
+    // never got a source row still has to be handed over.
+    window.dispatchEvent(new Event('pagehide'))
+
+    const registers = callsTo('/api/mass-upload/register', 'POST')
+    expect(registers).toHaveLength(2)
+    expect(registers[1][1].keepalive).toBe(true)
+    expect(registers[1][1].signal).toBeUndefined()
+    expect(JSON.parse(String(registers[1][1].body))).toMatchObject({
+      sessionId: 'ses_gap',
+      blobUrl,
+    })
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
+
+    await act(async () => {
+      finishCancel()
+      finishRegister()
+    })
+  })
+
+  it('hands the unregistered screenshot over when the user signs out after the sheet closed', async () => {
+    const blobUrl = 'https://teststore.public.blob.vercel-storage.com/coast.jpg'
+    let finishCancel: () => void = () => {}
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_signout_gap' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        if (init?.keepalive) {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: async () => ({ status: 'error', message: 'Upload session was closed' }),
+          })
+        }
+        return new Promise(() => {})
+      }
+      if (url === '/api/mass-upload/cancel' && method === 'POST') {
+        return new Promise((resolve) => {
+          finishCancel = () => resolve({
+            ok: true,
+            json: async () => ({ status: 'success', cancelled: 0 }),
+          })
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+
+    const onOpenChange = jest.fn()
+    const { rerender } = render(
+      <>
+        <Header />
+        <MassUploadSheet open onOpenChange={onOpenChange} initialFiles={[shot()]} />
+      </>,
+    )
+    await waitFor(() => expect(callsTo('/api/mass-upload/register', 'POST')).toHaveLength(1))
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
+    rerender(
+      <>
+        <Header />
+        <MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={[shot()]} />
+      </>,
+    )
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
+
+    await clickSignOut()
+
+    // The sign-out waits for the cancel that is already on its way.
+    expect(mockSignOut).not.toHaveBeenCalled()
+    expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(1)
+
+    await act(async () => {
+      finishCancel()
+    })
+    await waitFor(() => expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/' }))
+    const leave = callsTo('/api/mass-upload/register', 'POST').filter((call) => call[1]?.keepalive)
+    expect(leave).toHaveLength(1)
+    expect(JSON.parse(String(leave[0][1].body))).toMatchObject({
+      sessionId: 'ses_signout_gap',
+      blobUrl,
     })
   })
 

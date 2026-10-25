@@ -1961,6 +1961,15 @@ export async function batchCreatePlaces(
 
 export type CreatePlacesFromPipelineResult = Place[] & { createdCount: number };
 
+/** Patch `$.massUpload.outcome` on the row as it is at commit time. */
+function metaSettingMassUploadOutcome(outcome: {
+  created: string[];
+  linked: Array<{ placeId: string; reason: string }>;
+}): SQL {
+  const meta = sourcesCurrentSchema.meta;
+  return sql`json_set(COALESCE(${meta}, '{}'), '$.massUpload.outcome', json(${JSON.stringify(outcome)}))`;
+}
+
 /**
  * Insert new places from one screenshot and attach it to places that already
  * exist. The same transaction stores `meta.massUpload.outcome`: `created` is
@@ -2127,13 +2136,7 @@ export async function createPlacesFromPipeline(
       };
       await tx.update(sourcesCurrentSchema)
         .set({
-          meta: {
-            ...(meta ?? {}),
-            massUpload: {
-              ...(meta?.massUpload ?? {}),
-              outcome,
-            },
-          },
+          meta: metaSettingMassUploadOutcome(outcome),
           updatedAt: new Date().toISOString(),
         })
         .where(and(

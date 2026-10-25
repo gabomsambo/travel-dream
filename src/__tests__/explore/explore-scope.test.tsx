@@ -35,6 +35,18 @@ describe('scopePlaces', () => {
   it('is empty for no ids', () => {
     expect(scopePlaces(library, [])).toEqual([])
   })
+
+  it('at 5,000 places, only the ~250 rendered ids remain for the client payload', () => {
+    const large = Array.from({ length: 5000 }, (_, i) => place(`p${i}`))
+    const renderedIds = large.slice(0, 250).map((p) => p.id)
+    const scoped = scopePlaces(large, renderedIds)
+    expect(scoped).toHaveLength(250)
+    expect(scoped.map((p) => p.id)).toEqual(renderedIds)
+    const fullBytes = Buffer.byteLength(JSON.stringify(large))
+    const scopedBytes = Buffer.byteLength(JSON.stringify(scoped))
+    // Home Explore shows ≤ ~250 places; shipping only those must beat a whole-library serialize.
+    expect(scopedBytes * 10).toBeLessThan(fullBytes)
+  })
 })
 
 describe('ExploreScope', () => {

@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, Shuffle } from 'lucide-react';
 import { Button } from '@/components/adapters/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/adapters/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Photo } from '@/components/photo';
 import { editorialFont } from './fonts';
 import { SeasonStrip } from './season-strip';
 
@@ -51,11 +52,11 @@ export function AtlasHero({
   return (
     <header className="relative min-h-[62vh] overflow-hidden bg-neutral-900 sm:min-h-[68vh]">
       {cover && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <Photo
           src={cover}
-          alt=""
-          className="absolute inset-0 h-full w-full scale-105 animate-in object-cover fade-in-0 zoom-in-[1.02] duration-1000"
+          sizes="100vw"
+          priority
+          className="scale-105 animate-in fade-in-0 zoom-in-[1.02] duration-1000"
         />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-black/40" />

@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { Check, FolderPlus, Loader2, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Photo } from "@/components/photo"
 import { notify } from "@/lib/notify"
 import { normalize } from "@/lib/library/search"
 import type { ExploreCollection } from "@/lib/explore/types"
@@ -112,8 +113,7 @@ function Collage({ photos }: { photos: string[] }) {
       {[0, 1, 2].map((i) => (
         <span key={i} className={cn("relative bg-muted-foreground/10", i === 0 && "row-span-2")}>
           {photos[i] && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={photos[i]} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            <Photo src={photos[i]} sizes={i === 0 ? "38px" : "19px"} />
           )}
         </span>
       ))}

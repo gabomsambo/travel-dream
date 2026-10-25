@@ -37,6 +37,7 @@ export function LibraryTile({
         showPlanned
         compact={a.selecting ? true : "mobile"}
         selected={checked}
+        sizes="(min-width: 1280px) 22vw, (min-width: 768px) 30vw, 46vw"
         onOpen={(e) => a.activate(item.id, siblings, { shiftKey: e.shiftKey })}
         className={cn("aspect-[3/4] w-full sm:w-full", className)}
         leading={

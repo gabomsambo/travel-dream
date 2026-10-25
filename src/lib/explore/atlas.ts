@@ -17,7 +17,8 @@ const SCENIC = new Set(['landmark', 'natural', 'viewpoint', 'beach', 'neighborho
 /**
  * Best cover for a group — a scenic place the owner was most excited about.
  * `avoid` keeps a country from wearing the same photo as its top city.
- * Returns the full image (uri), since the hero is large.
+ * Returns the full image (uri), since the hero is large; `Photo` resizes it down
+ * for the tiles, so no tile downloads it at full size.
  */
 export function coverOf(places: ExplorePlace[], avoid: Set<string> = new Set()): string | null {
   const score = (p: ExplorePlace) => p.priority + (SCENIC.has(p.kind) ? 2 : 0);

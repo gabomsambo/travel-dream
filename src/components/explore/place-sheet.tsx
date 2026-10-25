@@ -20,6 +20,7 @@ import { savedAgoLabel } from "@/lib/explore/rails"
 import { useExplore } from "./explore-provider"
 import { editorialFont } from "./fonts"
 import { FallbackArt } from "./fallback-art"
+import { Photo } from "@/components/photo"
 import { kindIcon, kindLabel } from "./kind-icon"
 
 interface SheetState {
@@ -117,12 +118,12 @@ export function PlaceSheet({
               {/* Photo side */}
               <div className="relative h-[42dvh] shrink-0 bg-muted md:h-auto md:w-[56%]">
                 {place.photos.length ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <Photo
                     key={place.photos[photo].uri}
                     src={place.photos[photo].uri}
                     alt={place.name}
-                    className="absolute inset-0 h-full w-full object-cover animate-in fade-in-0 duration-500"
+                    sizes="(min-width: 768px) 580px, 100vw"
+                    className="animate-in fade-in-0 duration-500"
                   />
                 ) : (
                   <FallbackArt name={place.name} kind={place.kind} />
@@ -251,8 +252,7 @@ export function PlaceSheet({
                             className="group relative h-20 w-28 shrink-0 overflow-hidden rounded-xl bg-muted text-left"
                           >
                             {p.photos[0] ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={p.photos[0].thumb} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" />
+                              <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} use="thumb" sizes="112px" className="transition group-hover:scale-105" />
                             ) : (
                               <FallbackArt name={p.name} kind={p.kind} />
                             )}

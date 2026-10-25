@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { Heart, Plus, Shuffle } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Photo } from "@/components/photo"
 import type { Shelf } from "@/lib/library/filters"
 import type { ExploreCollection } from "@/lib/explore/types"
 import type { LibraryItem } from "@/lib/library/types"
@@ -73,8 +74,11 @@ function Collage({ photos }: { photos: string[] }) {
       {[0, 1, 2].map((i) => (
         <div key={i} className={cn("relative overflow-hidden bg-muted-foreground/10", i === 0 && "row-span-2")}>
           {photos[i] && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={photos[i]} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" />
+            <Photo
+              src={photos[i]}
+              sizes={i === 0 ? "(min-width: 1024px) 160px, (min-width: 640px) 220px, 26vw" : "(min-width: 1024px) 80px, (min-width: 640px) 110px, 13vw"}
+              className="transition duration-700 group-hover:scale-[1.04]"
+            />
           )}
         </div>
       ))}

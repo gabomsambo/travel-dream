@@ -5,6 +5,7 @@ import { ArrowLeft, Clock, Globe2, Hash, MapPin, Search, Sparkles, Tag, X } from
 import type { LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FallbackArt } from "@/components/explore/fallback-art"
+import { Photo } from "@/components/photo"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { flagFor } from "@/lib/explore/geo"
 import { locationOf } from "@/lib/library/chapters"
@@ -122,8 +123,7 @@ function Thumb({ item }: { item: LibraryItem }) {
   return (
     <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted">
       {item.photos[0] ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.photos[0].thumb} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <Photo src={item.photos[0].uri} thumb={item.photos[0].thumb} use="thumb" sizes="40px" />
       ) : (
         <FallbackArt name={item.name} kind={item.kind} />
       )}

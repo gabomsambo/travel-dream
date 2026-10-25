@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { ArrowRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Photo } from '@/components/photo';
 import { Button } from '@/components/adapters/button';
 import { editorialFont } from './fonts';
 import { SaveCollectionDialog } from './save-collection-dialog';
@@ -67,19 +68,17 @@ export function TripNudgeCard({
         {/* A fanned stack of the user's own photos from that city. */}
         <div className="relative mx-auto h-44 w-56 sm:h-52 sm:w-64" aria-hidden>
           {nudge.photos.slice(0, 3).map((src, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <div
               key={src}
-              src={src}
-              alt=""
-              loading="lazy"
               className={cn(
-                'absolute h-40 w-32 rounded-2xl border-4 border-card object-cover shadow-xl sm:h-48 sm:w-36',
+                'absolute h-40 w-32 overflow-hidden rounded-2xl border-4 border-card shadow-xl sm:h-48 sm:w-36',
                 i === 0 && 'left-1/2 top-0 z-30 -ml-16 sm:-ml-[72px]',
                 i === 1 && 'left-0 top-3 z-20 -rotate-[9deg]',
                 i === 2 && 'right-0 top-3 z-10 rotate-[9deg]',
               )}
-            />
+            >
+              <Photo src={src} sizes="144px" />
+            </div>
           ))}
         </div>
         <div className="space-y-4 text-center sm:text-left">

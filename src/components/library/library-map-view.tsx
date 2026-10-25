@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import { MapPinOff } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FallbackArt } from "@/components/explore/fallback-art"
+import { Photo } from "@/components/photo"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { flagFor } from "@/lib/explore/geo"
 import { tallyCities } from "@/lib/city-names"
@@ -37,8 +38,7 @@ function Row({ p, siblings }: { p: LibraryItem; siblings: string[] }) {
       >
         <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted sm:h-16 sm:w-16">
           {p.photos[0] ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={p.photos[0].thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+            <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} use="thumb" sizes="64px" />
           ) : (
             <FallbackArt name={p.name} kind={p.kind} />
           )}

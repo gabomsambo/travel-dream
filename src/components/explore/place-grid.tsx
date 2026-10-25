@@ -29,6 +29,7 @@ export function PlaceGrid({
             place={p}
             shape={i === 0 && list.length > 1 ? 'hero' : 'poster'}
             caption={captions[p.id]}
+            sizes={i === 0 && list.length > 1 ? '(min-width: 1024px) 50vw, 100vw' : '(min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw'}
             onOpen={() => openPlace(p.id, placeIds)}
             className={cn('aspect-auto h-full w-full sm:w-full lg:w-full', i === 0 && leadClass(list.length))}
           />

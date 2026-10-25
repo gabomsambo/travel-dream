@@ -9,6 +9,7 @@ import { countriesIn, orderRail, type RailOrder } from "@/lib/explore/rails"
 import type { RailRef } from "@/lib/explore/types"
 import { useExplore } from "./explore-provider"
 import { PlaceTile } from "./place-tile"
+import { Photo } from "@/components/photo"
 import { SaveCollectionDialog } from "./save-collection-dialog"
 
 // Alternating aspect ratios give the grid a magazine rhythm instead of a catalogue.
@@ -55,8 +56,9 @@ export function RailGridPage({ rail }: { rail: RailRef }) {
       <header className="relative h-[46vh] min-h-[340px] overflow-hidden bg-foreground">
         <div className="absolute inset-0 grid grid-cols-2 gap-0.5 sm:grid-cols-4" aria-hidden>
           {cover.map((p, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={p.id} src={p.photos[0].thumb} alt="" className={cn("h-full w-full object-cover", i > 1 && "hidden sm:block")} />
+            <div key={p.id} className={cn("relative", i > 1 && "hidden sm:block")}>
+              <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} sizes="(min-width: 640px) 25vw, 50vw" />
+            </div>
           ))}
         </div>
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/10" />
@@ -159,6 +161,7 @@ export function RailGridPage({ rail }: { rail: RailRef }) {
             place={p}
             shape="poster"
             caption={rail.captions[p.id]}
+            sizes="(min-width: 1536px) 20vw, (min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
             onOpen={() => openPlace(p.id, visibleIds)}
             className={cn("mb-3 block w-full break-inside-avoid sm:mb-4 sm:w-full", ASPECTS[i % ASPECTS.length])}
           />

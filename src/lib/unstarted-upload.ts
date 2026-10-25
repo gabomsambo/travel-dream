@@ -61,18 +61,6 @@ export function cancelUploadSession(sessionId: string): Promise<Response> {
   })
 }
 
-export function startMassUploadSession(
-  sessionId: string,
-  options: { keepalive?: boolean } = {},
-): Promise<Response> {
-  return fetch('/api/mass-upload/start', {
-    method: 'POST',
-    keepalive: options.keepalive === true,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId }),
-  })
-}
-
 /**
  * Hands blobs that have no source row to the server.
  *
@@ -89,6 +77,9 @@ export function startMassUploadSession(
  * a request that never landed, or a server error that left the blob without
  * a source row, stays in `retry`. A 409 means the session was closed and the
  * blob was deleted — handled, but not an insert.
+ *
+ * When Start has already run, register inserts those rows as `queued` and
+ * dispatches processors itself — no second client hop after unload.
  */
 export async function registerAbandonedUploads(
   sessionId: string,
@@ -160,32 +151,12 @@ export async function handOverPendingBlobs(
 }
 
 /**
- * After Start has already queued a session, late blobs still insert as
- * `uploaded`. Re-POST start so they flip to `queued` and the queue claims
- * them immediately instead of waiting on the 30-minute requeue cron.
- * Skips the re-POST when nothing registered.
- */
-export async function handOverPendingBlobsAfterStart(
-  sessionId: string,
-  binding: UnstartedUploadBinding,
-  options: { keepalive?: boolean } = {},
-): Promise<void> {
-  const registered = await handOverPendingBlobs(sessionId, binding, options)
-  if (registered === 0) return
-  try {
-    await startMassUploadSession(sessionId, options)
-  } catch {
-    return
-  }
-}
-
-/**
  * Sign-out path. The caller awaits this before the cookie is cleared, so the
  * cancel has to land and the blobs have to be on their way first.
  *
  * A session whose Start was already requested is never cancelled — that would
- * race the queue — but pending blobs still have to be registered into it and
- * then started so they join the queue.
+ * race the queue — but pending blobs still have to be registered into it.
+ * Register inserts those as `queued` when the session is already started.
  */
 export async function cancelUnstartedUpload(): Promise<void> {
   try {
@@ -193,7 +164,7 @@ export async function cancelUnstartedUpload(): Promise<void> {
     if (!current) return
     const { sessionId, binding } = current
     if (binding.startRequested()) {
-      await handOverPendingBlobsAfterStart(sessionId, binding, { keepalive: true })
+      await handOverPendingBlobs(sessionId, binding, { keepalive: true })
       return
     }
     const cancel = await binding.cancel()
@@ -210,9 +181,9 @@ export async function cancelUnstartedUpload(): Promise<void> {
  * cancel creates a source that the cancel then cancels; one that lands after
  * takes the closed-session path and deletes the blob.
  *
- * When Start was already requested, skip cancel, hand over pending blobs into
- * the still-open (or already-queued) session, and re-POST start so late rows
- * join the queue.
+ * When Start was already requested, skip cancel and hand over pending blobs
+ * into the still-open session. Register queues them server-side — do not chain
+ * a second start hop after unload.
  */
 export function discardUnstartedUpload(): void {
   try {
@@ -220,7 +191,7 @@ export function discardUnstartedUpload(): void {
     if (!current) return
     const { sessionId, binding } = current
     if (binding.startRequested()) {
-      void handOverPendingBlobsAfterStart(sessionId, binding, { keepalive: true })
+      void handOverPendingBlobs(sessionId, binding, { keepalive: true })
       return
     }
     void binding.cancel().then(() => undefined, () => undefined)

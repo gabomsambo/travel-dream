@@ -105,6 +105,11 @@ describe('POST /api/mass-upload/start', () => {
     };
     mockDb.select.mockReturnValueOnce(selectChain);
 
+    const metaSet = jest.fn().mockReturnValue({
+      where: jest.fn().mockResolvedValue(undefined),
+    });
+    mockDb.update.mockReturnValueOnce({ set: metaSet });
+
     const req = createStartRequest({ sessionId: 'session_test-1' });
     const res = await POST(req as never);
     const data = await res.json();
@@ -112,8 +117,13 @@ describe('POST /api/mass-upload/start', () => {
     expect(res.status).toBe(200);
     expect(data.status).toBe('success');
     expect(data.queued).toBe(0);
-    // Should NOT call db.update since there's nothing to transition
-    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(metaSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meta: expect.objectContaining({ processingStarted: true }),
+      }),
+    );
+    // Nothing to transition on sources — only the session meta mark.
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
 
   it('transitions uploaded sources to queued and returns count', async () => {
@@ -134,6 +144,13 @@ describe('POST /api/mass-upload/start', () => {
       }),
     };
     mockDb.select.mockReturnValueOnce(selectChain);
+
+    // Mark session processingStarted (status stays active)
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue(undefined),
+      }),
+    });
 
     // Update sources: uploaded → queued
     const updateChain = {
@@ -162,6 +179,11 @@ describe('POST /api/mass-upload/start', () => {
     mockDb.select.mockReturnValueOnce({
       from: jest.fn().mockReturnValue({
         where: jest.fn().mockReturnValue({ get: jest.fn().mockResolvedValue(session) }),
+      }),
+    });
+    mockDb.update.mockReturnValueOnce({
+      set: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue(undefined),
       }),
     });
     const sourceWhere = jest.fn().mockReturnValue({

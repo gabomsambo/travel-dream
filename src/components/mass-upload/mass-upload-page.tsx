@@ -32,7 +32,6 @@ import {
   createAbandonedUploadStore,
   discardUnstartedUpload,
   handOverPendingBlobs,
-  handOverPendingBlobsAfterStart,
   type AbandonedUpload,
   type AbandonedUploadStore,
   type UnstartedUploadBinding,
@@ -92,8 +91,8 @@ async function abandonUnstartedSession(
     await drainInFlight(pending)
     if (started) {
       // Start already queued the session — leave it alone, but still register
-      // blobs that never got a source row and re-queue them.
-      await handOverPendingBlobsAfterStart(sessionId, binding)
+      // blobs that never got a source row. Register inserts them as queued.
+      await handOverPendingBlobs(sessionId, binding)
       return
     }
     // The cancel has to land first: once the session is closed, register

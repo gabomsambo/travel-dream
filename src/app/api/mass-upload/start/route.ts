@@ -40,7 +40,26 @@ export async function POST(request: NextRequest) {
     // is rebuilt from source metadata by mass-upload/register, so it is input to
     // filter, not an authorization boundary. The update below goes through the
     // tenant accessor, which re-scopes to the caller on its own.
-    const sourceIds = found.row.meta?.uploadedFiles || [];
+    //
+    // Mark the session started for processing without flipping `status` away
+    // from `active` — the activity provider treats a non-active session as not
+    // observable. Register uses this flag so a late blob into this session
+    // inserts as `queued` (and dispatches) without a second client hop.
+    const currentMeta = found.row.meta ?? { uploadedFiles: [], errors: [] };
+    await tdb.update(
+      uploadSessions,
+      {
+        meta: {
+          ...currentMeta,
+          uploadedFiles: currentMeta.uploadedFiles ?? [],
+          errors: currentMeta.errors ?? [],
+          processingStarted: true,
+        },
+      },
+      eq(uploadSessions.id, sessionId),
+    );
+
+    const sourceIds = currentMeta.uploadedFiles || [];
     if (sourceIds.length === 0) {
       return NextResponse.json({ status: 'success', queued: 0, timestamp: new Date().toISOString() });
     }

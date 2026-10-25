@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import crypto from 'crypto';
 // TODO(tenant-db): migrate to `forUser(user.id)` from '@/lib/tenant-db'.
@@ -10,13 +10,16 @@ import crypto from 'crypto';
 import { db } from '@/db';
 import { uploadSessions } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, ne, isNotNull } from 'drizzle-orm';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { withTransaction, generateSourceId } from '@/lib/db-utils';
 import { isAllowedBlobUrl, BLOB_URL_REJECTED_MESSAGE } from '@/lib/blob-url';
 import { releaseBlobIfUnreferencedByAnyTenant } from '@/lib/shared-blob';
+import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 
 export const runtime = 'nodejs';
+
+type SessionMeta = NonNullable<(typeof uploadSessions.$inferSelect)['meta']>;
 
 async function sessionStillOpen(
   tx: Pick<typeof db, 'update'>,
@@ -29,6 +32,45 @@ async function sessionStillOpen(
     .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, userId)))
     .returning({ status: uploadSessions.status });
   return row != null && row.status !== 'cancelled';
+}
+
+/**
+ * True when Start has already queued this session (or a sibling source is past
+ * `uploaded`). Late registers must insert as `queued` so the queue claims them
+ * without a second client hop that pagehide cannot chain.
+ */
+async function sessionAlreadyStarted(
+  tx: Pick<typeof db, 'select'>,
+  sessionId: string,
+  userId: string,
+  meta: SessionMeta | null | undefined,
+): Promise<boolean> {
+  if (meta?.processingStarted === true) return true;
+  const siblings = await tx
+    .select({ id: sourcesCurrentSchema.id })
+    .from(sourcesCurrentSchema)
+    .where(and(
+      eq(sourcesCurrentSchema.userId, userId),
+      sql`json_extract(${sourcesCurrentSchema.meta}, '$.uploadInfo.sessionId') = ${sessionId}`,
+      isNotNull(sourcesCurrentSchema.processingStatus),
+      ne(sourcesCurrentSchema.processingStatus, 'uploaded'),
+    ))
+    .limit(1);
+  return siblings.length > 0;
+}
+
+function scheduleQueueDispatch(reason: string): void {
+  try {
+    after(async () => {
+      try {
+        await dispatchProcessors(reason, 'grow');
+      } catch (err) {
+        console.error('[Mass Upload Register] Failed to trigger processing:', err);
+      }
+    });
+  } catch (err) {
+    console.error('[Mass Upload Register] Could not schedule processing trigger:', err);
+  }
 }
 
 async function rejectClosedSession(blobUrl: string) {
@@ -191,6 +233,14 @@ export async function POST(request: NextRequest) {
     const sourceData = await withTransaction(async (tx) => {
       if (!(await sessionStillOpen(tx, sessionId, user.id))) return null;
 
+      const [currentSession] = await tx.select({ meta: uploadSessions.meta })
+        .from(uploadSessions)
+        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
+        .limit(1);
+      const currentMeta = currentSession?.meta;
+      const alreadyStarted = await sessionAlreadyStarted(tx, sessionId, user.id, currentMeta);
+      const processingStatus = alreadyStarted ? 'queued' : 'uploaded';
+
       // Step 1: Create source record
       const [created] = await tx.insert(sourcesCurrentSchema).values({
         id: sourceId,
@@ -216,9 +266,9 @@ export async function POST(request: NextRequest) {
         updatedAt: now,
       }).returning();
 
-      // Step 2: Set processing status to 'uploaded'
+      // Step 2: Claimable when Start already ran; otherwise wait for Start.
       await tx.update(sourcesCurrentSchema)
-        .set({ processingStatus: 'uploaded', updatedAt: now })
+        .set({ processingStatus, updatedAt: now })
         .where(eq(sourcesCurrentSchema.id, created.id));
 
       // Step 3: Atomically increment session count
@@ -237,11 +287,6 @@ export async function POST(request: NextRequest) {
         ));
 
       const allSourceIds = sessionSources.map((s: { id: string }) => s.id);
-      const [currentSession] = await tx.select({ meta: uploadSessions.meta })
-        .from(uploadSessions)
-        .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)))
-        .limit(1);
-      const currentMeta = currentSession?.meta;
       await tx.update(uploadSessions)
         .set({
           meta: {
@@ -252,16 +297,20 @@ export async function POST(request: NextRequest) {
         })
         .where(and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, user.id)));
 
-      return created;
+      return { created, queued: alreadyStarted };
     });
 
     if (!sourceData) {
       return rejectClosedSession(blobUrl);
     }
 
+    if (sourceData.queued) {
+      scheduleQueueDispatch('register-late');
+    }
+
     return NextResponse.json({
       status: 'success',
-      sourceId: sourceData.id,
+      sourceId: sourceData.created.id,
       blobUrl,
       timestamp: new Date().toISOString(),
     });

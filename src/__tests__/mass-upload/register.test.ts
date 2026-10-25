@@ -2,6 +2,8 @@
  * @jest-environment node
  */
 
+const afterCallbacks: Array<() => unknown> = [];
+
 // ── Module mocks (BEFORE imports) ──────────────────────────────────────
 jest.mock('@/db', () => ({
   db: { select: jest.fn(), update: jest.fn(), transaction: jest.fn() },
@@ -12,38 +14,78 @@ jest.mock('@/lib/auth-helpers', () => ({
   isAuthError: jest.fn((err: unknown) => err instanceof Error && err.message === 'Unauthorized'),
 }));
 
-jest.mock('@/lib/db-utils', () => ({
-  withTransaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
-    // Simulate transaction by calling fn with a mock tx
-    const tx = {
-      insert: jest.fn().mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          returning: jest.fn().mockResolvedValue([{ id: 'src_test-new' }]),
-        }),
+jest.mock('@/lib/mass-upload/dispatch', () => ({
+  dispatchProcessors: jest.fn().mockResolvedValue({ spawned: 0 }),
+}));
+
+jest.mock('next/server', () => {
+  const actual = jest.requireActual('next/server');
+  return {
+    ...actual,
+    after: (fn: () => unknown) => {
+      afterCallbacks.push(fn);
+    },
+  };
+});
+
+function createTx(options: {
+  sessionMeta?: { processingStarted?: boolean } | null;
+  siblingIds?: string[];
+} = {}) {
+  const sessionMeta = options.sessionMeta === undefined ? null : options.sessionMeta;
+  const siblingIds = options.siblingIds ?? [];
+  const statusSets: Array<Record<string, unknown>> = [];
+  let limitCalls = 0;
+
+  const tx = {
+    insert: jest.fn().mockReturnValue({
+      values: jest.fn().mockReturnValue({
+        returning: jest.fn().mockResolvedValue([{ id: 'src_test-new' }]),
       }),
-      update: jest.fn().mockReturnValue({
-        set: jest.fn().mockReturnValue({
+    }),
+    update: jest.fn().mockReturnValue({
+      set: jest.fn().mockImplementation((values: Record<string, unknown>) => {
+        if ('processingStatus' in values) statusSets.push(values);
+        return {
           where: jest.fn().mockImplementation(() => {
             const pending = Promise.resolve(undefined) as Promise<undefined> & { returning: jest.Mock };
             pending.returning = jest.fn().mockResolvedValue([{ status: 'active' }]);
             return pending;
           }),
-        }),
+        };
       }),
-      select: jest.fn().mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockImplementation(() => {
-            const rows = Promise.resolve([{ id: 'src_test-new' }]) as Promise<unknown> & {
-              limit: () => Promise<Array<{ meta: null }>>;
-            };
-            rows.limit = () => Promise.resolve([{ meta: null }]);
-            return rows;
-          }),
-        }),
+    }),
+    select: jest.fn().mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockImplementation(() => ({
+          // First `.limit(1)` is session meta; a second is the sibling probe
+          // (skipped when meta.processingStarted is already true). A bare
+          // await rebuilds uploadedFiles from session sources.
+          limit: () => {
+            limitCalls += 1;
+            if (limitCalls === 1) return Promise.resolve([{ meta: sessionMeta }]);
+            return Promise.resolve(siblingIds.map((id) => ({ id })));
+          },
+          then(
+            onFulfilled?: (value: Array<{ id: string }>) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+          ) {
+            const ids = [
+              ...siblingIds.map((id) => ({ id })),
+              { id: 'src_test-new' },
+            ];
+            return Promise.resolve(ids).then(onFulfilled, onRejected);
+          },
+        })),
       }),
-    };
-    return fn(tx);
-  }),
+    }),
+    statusSets,
+  };
+  return tx;
+}
+
+jest.mock('@/lib/db-utils', () => ({
+  withTransaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(createTx())),
   generateSourceId: jest.fn().mockReturnValue('src_test-new'),
 }));
 
@@ -56,8 +98,11 @@ import { POST } from '@/app/api/mass-upload/register/route';
 import { db } from '@/db';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { withTransaction } from '@/lib/db-utils';
+import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { del } from '@vercel/blob';
 import { createMockUser, createMockSession } from '../helpers/mass-upload-helpers';
+
+const mockDispatch = dispatchProcessors as jest.Mock;
 
 const mockDb = db as unknown as { select: jest.Mock; update: jest.Mock; transaction: jest.Mock };
 
@@ -132,8 +177,12 @@ describe('POST /api/mass-upload/register', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    afterCallbacks.length = 0;
     mockRequireAuth.mockResolvedValue(mockUser);
     mockDb.select.mockImplementation(() => referenceSelect([]));
+    (withTransaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn(createTx()),
+    );
   });
 
   it('rejects unauthenticated request', async () => {
@@ -196,6 +245,10 @@ describe('POST /api/mass-upload/register', () => {
 
   it('creates source and returns success on happy path', async () => {
     const session = createMockSession();
+    const tx = createTx();
+    (withTransaction as jest.Mock).mockImplementationOnce(async (fn: (t: unknown) => Promise<unknown>) =>
+      fn(tx),
+    );
 
     // 1. Session lookup
     mockSessionSelect(session);
@@ -206,8 +259,6 @@ describe('POST /api/mass-upload/register', () => {
     // 3. Duplicate detection returns no match
     mockDedupSelectNoMatch();
 
-    // withTransaction mock handles the rest (insert, update, select inside tx)
-
     const req = createRegisterRequest(validBody);
     const res = await POST(req as never);
     const data = await res.json();
@@ -215,6 +266,68 @@ describe('POST /api/mass-upload/register', () => {
     expect(res.status).toBe(200);
     expect(data.status).toBe('success');
     expect(data.sourceId).toBe('src_test-new');
+    expect(tx.statusSets).toEqual([
+      expect.objectContaining({ processingStatus: 'uploaded' }),
+    ]);
+    expect(afterCallbacks).toHaveLength(0);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it('inserts as queued and dispatches when the session was already started', async () => {
+    const session = createMockSession({
+      meta: {
+        uploadedFiles: ['src_earlier'],
+        errors: [],
+        processingStarted: true,
+      },
+    });
+    const tx = createTx({
+      sessionMeta: { processingStarted: true },
+      siblingIds: ['src_earlier'],
+    });
+    (withTransaction as jest.Mock).mockImplementationOnce(async (fn: (t: unknown) => Promise<unknown>) =>
+      fn(tx),
+    );
+
+    mockSessionSelect(session);
+    mockBlobFetchSuccess();
+    mockDedupSelectNoMatch();
+
+    const res = await POST(createRegisterRequest(validBody) as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.status).toBe('success');
+    expect(data.sourceId).toBe('src_test-new');
+    expect(tx.statusSets).toEqual([
+      expect.objectContaining({ processingStatus: 'queued' }),
+    ]);
+    expect(afterCallbacks).toHaveLength(1);
+    await afterCallbacks[0]();
+    expect(mockDispatch).toHaveBeenCalledWith('register-late', 'grow');
+  });
+
+  it('inserts as queued when a sibling source is already past uploaded', async () => {
+    const session = createMockSession();
+    const tx = createTx({
+      sessionMeta: null,
+      siblingIds: ['src_queued_sibling'],
+    });
+    (withTransaction as jest.Mock).mockImplementationOnce(async (fn: (t: unknown) => Promise<unknown>) =>
+      fn(tx),
+    );
+
+    mockSessionSelect(session);
+    mockBlobFetchSuccess();
+    mockDedupSelectNoMatch();
+
+    const res = await POST(createRegisterRequest(validBody) as never);
+
+    expect(res.status).toBe(200);
+    expect(tx.statusSets).toEqual([
+      expect.objectContaining({ processingStatus: 'queued' }),
+    ]);
+    expect(afterCallbacks).toHaveLength(1);
   });
 
   it('returns duplicate when same hash exists in same session', async () => {

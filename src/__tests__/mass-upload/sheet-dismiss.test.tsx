@@ -362,10 +362,8 @@ describe('upload sheet dismiss', () => {
         ),
       ).toBe(true)
     })
-    await waitFor(() => expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(2))
-    const starts = callsTo('/api/mass-upload/start', 'POST')
-    expect(JSON.parse(String(starts[1][1].body))).toEqual({ sessionId: 'ses_pending_start' })
-    expect(starts[1][1].keepalive).toBeFalsy()
+    // Register itself queues late rows into a started session — no second start hop.
+    expect(callsTo('/api/mass-upload/start', 'POST')).toHaveLength(1)
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
     expect(mockObserveSession).toHaveBeenCalledWith('ses_pending_start')
   })

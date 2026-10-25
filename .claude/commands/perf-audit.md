@@ -51,7 +51,7 @@ Each pattern is one we've learned matters for this stack. Run the grep, then **r
 ```bash
 grep -rn '<img ' src/ --include='*.tsx' --include='*.jsx'
 ```
-Allowed exceptions: blob/object-URL preview, third-party avatar like `session.user.image`. Note these in the report under "soft" findings, not failures.
+Allowed exceptions: blob/object-URL preview, third-party avatar like `session.user.image`, and the intentional `<img>` in `src/components/photo.tsx` for Google resolver / plain hosts (those must not enter the Next optimizer — see AGENTS.md File Storage). Note these in the report under "soft" findings, not failures.
 
 **b. `<Image fill>` without `sizes`** (next/image serves the largest variant otherwise):
 ```bash

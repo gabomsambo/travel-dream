@@ -33,3 +33,6 @@ branch, and cross-tenant isolation of the Explore queries against a real SQLite 
 **Scoped Explore payloads** (each page sends only the places it renders; Browse-all covers
 and quick look's "Also in this city" no longer need the whole library on the client): see
 [`docs/evidence/td-libperf-explore/`](../td-libperf-explore/).
+
+**Right-sized Library and Explore photos** (`Photo` + optimizer / `?w=`): see
+[`docs/evidence/td-libperf-images/`](../td-libperf-images/).

@@ -4,6 +4,7 @@ import { loadExploreCached } from "@/lib/explore/load"
 import { shufflePool, weightedShuffle } from "@/lib/explore/shuffle"
 import { getHeartIds } from "@/lib/library/store"
 import { ShuffleDeck } from "@/components/explore/shuffle-deck"
+import { ExploreScope } from "@/components/explore/explore-scope"
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
 
@@ -12,7 +13,7 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
 export default async function ShufflePage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams
   const user = await requireAuth()
-  const [{ places }, heartIds] = await Promise.all([loadExploreCached(user.id), getHeartIds(user.id)])
+  const [{ places, collections }, heartIds] = await Promise.all([loadExploreCached(user.id), getHeartIds(user.id)])
   const now = new Date()
   const scope = shufflePool(
     places,
@@ -23,5 +24,9 @@ export default async function ShufflePage({ searchParams }: { searchParams: Sear
   const { title, backHref, pool } = scope
   // Random per visit on purpose: a fresh deck every time you open it.
   const deck = weightedShuffle(pool, now).map((p) => p.id)
-  return <ShuffleDeck title={title} backHref={backHref} deck={deck} heartIds={heartIds} />
+  return (
+    <ExploreScope places={places} ids={deck} collections={collections}>
+      <ShuffleDeck title={title} backHref={backHref} deck={deck} heartIds={heartIds} />
+    </ExploreScope>
+  )
 }

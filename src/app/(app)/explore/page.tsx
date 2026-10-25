@@ -2,6 +2,7 @@ import { requireAuth } from "@/lib/auth-helpers"
 import { tallyCities } from "@/lib/city-names"
 import { loadExploreCached } from "@/lib/explore/load"
 import { buildRails, homeRails, toRailRef } from "@/lib/explore/rails"
+import { buildBrowseRails } from "@/lib/explore/browse"
 import { pickFeatured } from "@/lib/explore/featured"
 import { buildTripNudges } from "@/lib/explore/trip-nudges"
 import { buildAtlas } from "@/lib/explore/atlas"
@@ -12,6 +13,7 @@ import { BrowseAll } from "@/components/explore/browse-all"
 import { ExploreEmpty } from "@/components/explore/explore-empty"
 import { AtlasStrip } from "@/components/explore/atlas-strip"
 import { TopCitiesRail } from "@/components/explore/top-cities-rail"
+import { ExploreScope } from "@/components/explore/explore-scope"
 
 export default async function ExplorePage() {
   const user = await requireAuth()
@@ -29,6 +31,11 @@ export default async function ExplorePage() {
   // The top-10 rail sorts every city across the atlas, deduped.
   const cityGroups = atlas.flatMap((c) => c.cities).sort((a, b) => b.places.length - a.places.length).slice(0, 10)
 
+  const picks = pickFeatured(places, now)
+  // Only the places this page renders cross to the client; Browse all brings its
+  // own covers, so the rails it lists add none.
+  const shown = [...rails.flatMap((r) => r.placeIds), ...picks.map((p) => p.placeId)]
+
   // Rails come first (the captain's ask). The first one sits over the hero's
   // fading photo; trip moments interrupt the rest so the page has a rhythm
   // instead of a dozen identical rows.
@@ -41,19 +48,21 @@ export default async function ExplorePage() {
   })
 
   return (
-    <div className="space-y-10 sm:space-y-14">
-      <div>
-        <ExploreHero
-          picks={pickFeatured(places, now)}
-          greeting={`Where to next${firstName ? `, ${firstName}` : ""}?`}
-          stats={`${places.length} places · ${countries} ${countries === 1 ? "country" : "countries"} · ${cities} ${cities === 1 ? "city" : "cities"}`}
-        />
-        {first && <RailRow rail={first} className="relative z-10 -mt-14 sm:-mt-20" />}
+    <ExploreScope places={places} ids={shown} collections={collections}>
+      <div className="space-y-10 sm:space-y-14">
+        <div>
+          <ExploreHero
+            picks={picks}
+            greeting={`Where to next${firstName ? `, ${firstName}` : ""}?`}
+            stats={`${places.length} places · ${countries} ${countries === 1 ? "country" : "countries"} · ${cities} ${cities === 1 ? "city" : "cities"}`}
+          />
+          {first && <RailRow rail={first} className="relative z-10 -mt-14 sm:-mt-20" />}
+        </div>
+        <AtlasStrip countries={atlas.slice(0, 12)} total={atlas.length} />
+        {blocks}
+        {cityGroups.length > 0 && <TopCitiesRail cities={cityGroups} />}
+        <BrowseAll rails={buildBrowseRails(all)} />
       </div>
-      <AtlasStrip countries={atlas.slice(0, 12)} total={atlas.length} />
-      {blocks}
-      {cityGroups.length > 0 && <TopCitiesRail cities={cityGroups} />}
-      <BrowseAll rails={all.map((r) => ({ id: r.id, title: r.title, group: r.group, placeIds: r.places.map((p) => p.id) }))} />
-    </div>
+    </ExploreScope>
   )
 }

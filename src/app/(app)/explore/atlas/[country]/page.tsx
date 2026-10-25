@@ -6,6 +6,7 @@ import { buildTripNudges } from '@/lib/explore/trip-nudges';
 import { captionFor } from '@/lib/explore/rails';
 import { SECTIONS, sectionOf } from '@/lib/explore/sections';
 import type { RailRef } from '@/lib/explore/types';
+import { ExploreScope } from '@/components/explore/explore-scope';
 import { AtlasHero } from '@/components/explore/atlas-hero';
 import { CityTiles } from '@/components/explore/city-tiles';
 import { RailRow } from '@/components/explore/rail-row';
@@ -46,28 +47,30 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
   }).filter((r) => r.placeIds.length > 0);
 
   return (
-    <div className="space-y-12 sm:space-y-16">
-      <AtlasHero
-        cover={country.cover}
-        eyebrow={country.flag}
-        title={country.country}
-        stats={`${country.places.length} saved places · ${country.cities.length} ${
-          country.cities.length === 1 ? 'city' : 'cities'
-        } · ${country.places.filter((p) => p.visitStatus === 'visited').length} visited`}
-        crumbs={[{ label: 'Atlas', href: '/explore/atlas' }]}
-        siblings={atlas.map((c) => ({ label: `${c.flag} ${c.country}`, href: `/explore/atlas/${c.slug}`, count: c.places.length }))}
-        curve={seasonCurve(country.places)}
-        currentMonth={now.getMonth() + 1}
-        shuffleHref={`/explore/shuffle?country=${encodeURIComponent(slug)}`}
-      />
+    <ExploreScope places={places} ids={country.places.map((p) => p.id)} collections={collections}>
+      <div className="space-y-12 sm:space-y-16">
+        <AtlasHero
+          cover={country.cover}
+          eyebrow={country.flag}
+          title={country.country}
+          stats={`${country.places.length} saved places · ${country.cities.length} ${
+            country.cities.length === 1 ? 'city' : 'cities'
+          } · ${country.places.filter((p) => p.visitStatus === 'visited').length} visited`}
+          crumbs={[{ label: 'Atlas', href: '/explore/atlas' }]}
+          siblings={atlas.map((c) => ({ label: `${c.flag} ${c.country}`, href: `/explore/atlas/${c.slug}`, count: c.places.length }))}
+          curve={seasonCurve(country.places)}
+          currentMonth={now.getMonth() + 1}
+          shuffleHref={`/explore/shuffle?country=${encodeURIComponent(slug)}`}
+        />
 
-      {country.cities.length > 1 && <CityTiles country={country} />}
+        {country.cities.length > 1 && <CityTiles country={country} />}
 
-      {nudges[0] && <TripNudgeCard nudge={nudges[0]} dismissible />}
+        {nudges[0] && <TripNudgeCard nudge={nudges[0]} dismissible />}
 
-      {sections.map((r) => (
-        <RailRow key={r.id} rail={r} seeAllHref={null} />
-      ))}
-    </div>
+        {sections.map((r) => (
+          <RailRow key={r.id} rail={r} seeAllHref={null} />
+        ))}
+      </div>
+    </ExploreScope>
   );
 }

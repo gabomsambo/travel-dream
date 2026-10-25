@@ -30,5 +30,6 @@ the quick-look sheet and its next/previous stepping.
 place, up to five — fewer when fewer qualify), trip moment kinds and the existing-collection
 branch, and cross-tenant isolation of the Explore queries against a real SQLite file.
 
-**Reasoned only:** behaviour with a production-sized library (the payload carries every
-browsable place to the client provider).
+**Scoped Explore payloads** (each page sends only the places it renders; Browse-all covers
+and quick look's "Also in this city" no longer need the whole library on the client): see
+[`docs/evidence/td-libperf-explore/`](../td-libperf-explore/).

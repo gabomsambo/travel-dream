@@ -945,6 +945,14 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
     },
   },
 
+  // --- explore --------------------------------------------------------------
+  'explore/same-city/[placeId]': {
+    GET: {
+      slots: ['place'],
+      request: (t) => ({ url: `${API}/explore/same-city/${t.place}`, params: { placeId: t.place } }),
+    },
+  },
+
   // --- places --------------------------------------------------------------
   'places': {
     GET: { slots: [], request: () => ({ url: `${API}/places` }) },

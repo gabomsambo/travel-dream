@@ -61,10 +61,17 @@ async function addPlaces(collectionId: string, placeIds: string[]): Promise<numb
 export function ExploreProvider({
   places,
   collections,
+  sameCity = "local",
   children,
 }: {
   places: ExplorePlace[]
   collections: ExploreCollection[]
+  /**
+   * Where quick look finds "Also in this city". "local" scans `places`, right
+   * when they are the whole library (the Library page). A page that holds only
+   * what it renders asks the server when the sheet opens.
+   */
+  sameCity?: "local" | "fetch"
   children: React.ReactNode
 }) {
   const router = useRouter()
@@ -151,6 +158,7 @@ export function ExploreProvider({
       {children}
       <PlaceSheet
         state={open}
+        sameCity={sameCity}
         onNavigate={(id) => setOpen((s) => (s ? { ...s, id } : s))}
         onClose={() => setOpen(null)}
       />

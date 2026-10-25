@@ -1,11 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import type { RailGroup, RailRef } from "@/lib/explore/types"
-import { useExplore } from "./explore-provider"
+import type { BrowseRail, RailGroup } from "@/lib/explore/types"
 import { FallbackArt } from "./fallback-art"
-
-export type BrowseRail = Pick<RailRef, "id" | "title" | "group" | "placeIds">
 
 const GROUPS: Array<{ id: RailGroup; label: string }> = [
   { id: "timing", label: "Timing" },
@@ -20,18 +17,6 @@ const GROUPS: Array<{ id: RailGroup; label: string }> = [
  * saves support is ever out of reach.
  */
 export function BrowseAll({ rails }: { rails: BrowseRail[] }) {
-  const { places } = useExplore()
-  // One cover per tile, never repeated: the same strong photo tops many rails.
-  const used = new Set<string>()
-  const covers = new Map<string, string>()
-  for (const rail of rails) {
-    const withPhoto = rail.placeIds.map((id) => places.get(id)).filter((p) => p?.photos.length)
-    const pick = withPhoto.find((p) => !used.has(p!.photos[0].thumb)) ?? withPhoto[0]
-    if (!pick) continue
-    used.add(pick.photos[0].thumb)
-    covers.set(rail.id, pick.photos[0].thumb)
-  }
-
   return (
     <section aria-labelledby="browse-all" className="space-y-7 px-4 sm:px-8">
       <div>
@@ -48,29 +33,27 @@ export function BrowseAll({ rails }: { rails: BrowseRail[] }) {
             <h3 className="text-sm font-semibold text-muted-foreground">{group.label}</h3>
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 2xl:grid-cols-6">
               {items.map((rail) => {
-                const cover = covers.get(rail.id)
-                const first = places.get(rail.placeIds[0])
                 return (
                   <Link
                     key={rail.id}
                     href={`/explore/r/${rail.id}`}
                     className="group relative block h-28 min-w-0 overflow-hidden rounded-2xl bg-muted outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:h-32"
                   >
-                    {cover ? (
+                    {rail.cover ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={cover}
+                        src={rail.cover}
                         alt=""
                         loading="lazy"
                         className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
                       />
                     ) : (
-                      first && <FallbackArt name={first.name} kind={first.kind} />
+                      rail.fallback && <FallbackArt name={rail.fallback.name} kind={rail.fallback.kind} />
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10" />
                     <div className="absolute inset-x-0 bottom-0 p-3">
                       <p className="line-clamp-2 font-editorial text-xl leading-[1.05] text-white sm:text-2xl">{rail.title}</p>
-                      <p className="mt-0.5 text-[11px] font-medium text-white/75">{rail.placeIds.length} places</p>
+                      <p className="mt-0.5 text-[11px] font-medium text-white/75">{rail.count} places</p>
                     </div>
                   </Link>
                 )

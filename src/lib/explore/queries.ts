@@ -129,12 +129,16 @@ export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> 
  * The stored strings are read and passed back into `IN` — nothing is rewritten.
  * Country stays an exact match, so a null never widens the rail and Paris,
  * France does not meet Paris, United States.
+ *
+ * `limit` keeps the photo query to that many places: a quick look needs six, and
+ * a big city can hold hundreds.
  */
 export async function getExplorePlacesInCity(
   userId: string,
   city: string,
   country: string | null,
-  excludeId: string
+  excludeId: string,
+  limit?: number
 ): Promise<ExplorePlace[]> {
   const scoped = forUser(userId);
   const countryCond = country ? eq(places.country, country) : isNull(places.country);
@@ -157,7 +161,7 @@ export async function getExplorePlacesInCity(
   const inCity = and(...conditions);
   const ids = await scoped.selectFields(places, { id: places.id }, inCity);
   if (ids.length === 0) return [];
-  const idList = ids.map((r) => r.id);
+  const idList = ids.map((r) => r.id).slice(0, limit);
   return queryExplorePlaces(
     scoped,
     inArray(places.id, idList),

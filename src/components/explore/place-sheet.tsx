@@ -15,6 +15,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/adapters/dropdown-menu"
 import { flagFor, slugify } from "@/lib/explore/geo"
+import type { ExplorePlace } from "@/lib/explore/types"
 import { savedAgoLabel } from "@/lib/explore/rails"
 import { useExplore } from "./explore-provider"
 import { editorialFont } from "./fonts"
@@ -26,17 +27,55 @@ interface SheetState {
   siblings: string[]
 }
 
+/**
+ * The neighbours the server found for a place, keyed by place id. A place the
+ * page does not hold can still be opened from here, so they resolve too.
+ */
+function useRemoteSameCity(placeId: string | undefined, enabled: boolean) {
+  const [byPlace, setByPlace] = React.useState<Record<string, ExplorePlace[]>>({})
+  const have = placeId !== undefined && byPlace[placeId] !== undefined
+
+  React.useEffect(() => {
+    if (!enabled || !placeId || have) return
+    const controller = new AbortController()
+    fetch(`/api/explore/same-city/${encodeURIComponent(placeId)}`, { signal: controller.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<{ places?: ExplorePlace[] }>) : null))
+      .then((body) => {
+        if (body && Array.isArray(body.places)) setByPlace((prev) => ({ ...prev, [placeId]: body.places! }))
+      })
+      .catch(() => {
+        // The rail is a nicety: a failed lookup leaves it out, and the next open asks again.
+      })
+    return () => controller.abort()
+  }, [enabled, placeId, have])
+
+  return byPlace
+}
+
 export function PlaceSheet({
   state,
+  sameCity: sameCityMode,
   onNavigate,
   onClose,
 }: {
   state: SheetState | null
+  sameCity: "local" | "fetch"
   onNavigate: (id: string) => void
   onClose: () => void
 }) {
   const { places, collections, createCollection, addToTrip, busy, openPlace } = useExplore()
-  const place = state ? places.get(state.id) : undefined
+  // A place on the page with no city has no neighbours to look up. One that is
+  // not on the page was itself a neighbour, so it has a city.
+  const held = state ? places.get(state.id) : undefined
+  const remote = useRemoteSameCity(state?.id, sameCityMode === "fetch" && (!held || !!held.city))
+  // A neighbour opened from "Also in" is not on the page, only in the lookup.
+  const known = React.useMemo(() => {
+    if (sameCityMode !== "fetch") return places
+    const all = new Map(places)
+    for (const list of Object.values(remote)) for (const p of list) if (!all.has(p.id)) all.set(p.id, p)
+    return all
+  }, [places, remote, sameCityMode])
+  const place = state ? known.get(state.id) : undefined
   const [photo, setPhoto] = React.useState(0)
 
   React.useEffect(() => setPhoto(0), [state?.id])
@@ -52,8 +91,9 @@ export function PlaceSheet({
 
   const sameCity = React.useMemo(() => {
     if (!place?.city) return []
+    if (sameCityMode === "fetch") return remote[place.id] ?? []
     return [...places.values()].filter((p) => citiesMatchInCountry(p, place) && p.id !== place.id).slice(0, 6)
-  }, [place, places])
+  }, [place, places, remote, sameCityMode])
 
   const Icon = place ? kindIcon(place.kind) : null
   const inCollections = place ? collections.filter((c) => c.placeIds.includes(place.id)) : []

@@ -105,6 +105,17 @@ export interface ExploreCollection {
 /** What crosses the server/client boundary: ids only, resolved against the provider's place map. */
 export type RailRef = Omit<Rail, 'places'> & { placeIds: string[]; captions: Record<string, string> };
 
+/** One "Browse all" tile. The cover is chosen on the server, so no place crosses with it. */
+export interface BrowseRail {
+  id: string;
+  title: string;
+  group: RailGroup;
+  count: number;
+  cover: string | null;
+  /** The name and kind that draw the tile's art when no place in the rail has a photo. */
+  fallback: { name: string; kind: string } | null;
+}
+
 /** One billboard pick: a place plus the reason it is today's pick. */
 export interface FeaturedPick {
   placeId: string;

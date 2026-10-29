@@ -2,32 +2,20 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowRight, ChevronRight, Globe2, Shuffle, Star } from "lucide-react"
+import { ArrowRight, Globe2, Shuffle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import * as Dialog from "@radix-ui/react-dialog"
-import { FallbackArt } from "@/components/explore/fallback-art"
 import { Photo } from "@/components/photo"
-import { kindLabel } from "@/components/explore/kind-icon"
 import { editorialFont } from "@/components/explore/fonts"
-import { flagFor } from "@/lib/explore/geo"
-import { citiesMatch } from "@/lib/city-names"
-import { chapterSummary, fullDate, locationOf, monthYear, type Chapter } from "@/lib/library/chapters"
-import { activeCityOf } from "@/lib/library/gallery-rows"
+import { chapterSummary, type Chapter } from "@/lib/library/chapters"
 import type { GroupMode, LibraryItem, LibraryView } from "@/lib/library/types"
-import { useLibraryActions, useLongPress } from "./library-actions"
-import { CityChips } from "./library-chapter-parts"
-import { VirtualGallery, type VirtualGalleryHandle } from "./library-virtual-gallery"
-import { HeartButton, LibraryPlaceMenu, SelectMark } from "./library-place-menu"
+import { useLibraryActions } from "./library-actions"
+import { VirtualEntries } from "./library-entries"
+import { VirtualGallery } from "./library-virtual-gallery"
+import type { VirtualRowsHandle } from "./virtual-rows"
 
 const MemoVirtualGallery = React.memo(VirtualGallery)
-const NO_KEYS: string[] = []
-
-/** A row or entry that starts Select mode on a long press (touch only). */
-function Pressable({ id, as: Tag = "div", ...props }: { id: string; as?: "div" | "article" } & React.HTMLAttributes<HTMLElement>) {
-  const a = useLibraryActions()
-  const press = useLongPress(() => a.select(id), !a.selecting)
-  return <Tag {...props} {...press} />
-}
+const MemoVirtualEntries = React.memo(VirtualEntries)
 
 /** Header of one chapter: flag, serif name, the counts, and where it continues. */
 function ChapterHeader({ chapter, group, items, collage }: { chapter: Chapter; group: GroupMode; items: LibraryItem[]; collage?: boolean }) {
@@ -70,249 +58,6 @@ function ChapterHeader({ chapter, group, items, collage }: { chapter: Chapter; g
       )}
     </div>
   )
-}
-
-/**
- * How many rows a chapter shows: a peek that opens fully on "more", or — for
- * the single ungrouped chapter — a page at a time.
- */
-function useLimit(base: number, paged: boolean, total: number): [number, () => void] {
-  const [limit, setLimit] = React.useState(base)
-  return [limit, () => setLimit((n) => (paged ? n + base : total))]
-}
-
-function Stars({ n }: { n: number }) {
-  if (!n) return null
-  return (
-    <span className="inline-flex items-center gap-0.5 text-amber-500 [[data-theme=tropical]_&]:text-accent" aria-label={`Rated ${n} of 5`}>
-      {Array.from({ length: n }, (_, i) => (
-        <Star key={i} className="h-3 w-3 fill-current" />
-      ))}
-    </span>
-  )
-}
-
-function StatusPill({ p, long = false }: { p: LibraryItem; long?: boolean }) {
-  if (p.visitStatus === "visited") {
-    const when = long ? fullDate(p.lastVisited) : null
-    return <span className="whitespace-nowrap rounded-full bg-foreground px-2 py-0.5 text-[11px] font-semibold text-background">✓ Been{when ? ` · ${when}` : ""}</span>
-  }
-  if (p.visitStatus === "planned") {
-    const when = long ? fullDate(p.plannedVisit) : null
-    return <span className="whitespace-nowrap rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">Planned{when ? ` · ${when}` : ""}</span>
-  }
-  return <span className="whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-secondary-foreground">Dreaming</span>
-}
-
-function Thumb({ p, className, sizes, small = false }: { p: LibraryItem; className?: string; sizes: string; small?: boolean }) {
-  return (
-    <div className={cn("relative shrink-0 overflow-hidden bg-muted", className)}>
-      {p.photos[0] ? (
-        <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} use={small ? "thumb" : "full"} sizes={sizes} />
-      ) : (
-        <FallbackArt name={p.name} kind={p.kind} />
-      )}
-    </div>
-  )
-}
-
-/** A trip read as a diary: photo, serif name, your note as a quote, the day you went. */
-function JournalChapter({ items, siblings, single }: { items: LibraryItem[]; siblings: string[]; single: boolean }) {
-  const a = useLibraryActions()
-  const [limit, more] = useLimit(single ? 24 : 6, single, items.length)
-  const shown = items.slice(0, limit)
-  return (
-    <div className="max-w-[980px]">
-      {shown.map((p) => {
-        const checked = a.selected.has(p.id)
-        return (
-          <Pressable as="article" id={p.id} key={p.id} className={cn("grid grid-cols-[96px_minmax(0,1fr)] gap-4 border-b py-4 [-webkit-touch-callout:none] sm:grid-cols-[240px_minmax(0,1fr)] sm:gap-5", checked && "bg-primary/5")}>
-            <button
-              type="button"
-              onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })}
-              aria-label={`${p.name}, ${locationOf(p)}`}
-              className="group relative aspect-square overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:aspect-[4/3] sm:rounded-2xl"
-            >
-              <Thumb p={p} sizes="(min-width: 640px) 240px, 96px" className="absolute inset-0 transition duration-700 group-hover:scale-[1.04]" />
-            </button>
-            <div className="min-w-0 sm:pt-1">
-              <div className="flex items-start gap-2">
-                <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  {flagFor(p.country) && <span className="mr-1">{flagFor(p.country)}</span>}
-                  {locationOf(p) || "Somewhere"} · {kindLabel(p.kind)}
-                </p>
-                {a.selecting && <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} tone="plain" />}
-                <HeartButton id={p.id} name={p.name} className="h-7 w-7 bg-secondary text-foreground backdrop-blur-none hover:bg-secondary/80" />
-                <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
-              </div>
-              <h3>
-                <button
-                  type="button"
-                  data-place-id={p.id}
-                  onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })}
-                  className="mt-1 text-left font-editorial text-[28px] leading-none outline-none hover:underline focus-visible:underline sm:text-[38px]"
-                >
-                  {p.name}
-                </button>
-              </h3>
-              {p.notes?.trim() ? (
-                <blockquote className="mt-2.5 border-l-2 border-primary pl-3.5 font-editorial text-lg italic leading-tight sm:text-[21px]">“{p.notes.trim()}”</blockquote>
-              ) : p.description ? (
-                <p className="mt-2 line-clamp-3 max-w-[560px] text-sm text-muted-foreground">{p.description}</p>
-              ) : null}
-              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-                <StatusPill p={p} long />
-                <Stars n={p.ratingSelf} />
-                {p.recommendedBy && <span>Tip from {p.recommendedBy}</span>}
-                {p.bestTimeText && p.visitStatus !== "visited" && <span>Best: {p.bestTimeText}</span>}
-                {monthYear(p.createdAt) && <span>Saved {monthYear(p.createdAt)}</span>}
-              </div>
-            </div>
-          </Pressable>
-        )
-      })}
-      {items.length > shown.length && (
-        <button type="button" onClick={more} className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
-          {items.length - shown.length} more {items.length - shown.length === 1 ? "entry" : "entries"} <ChevronRight className="h-4 w-4" />
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** The dense mode: one row per place, thumbnails kept, no table to squeeze onto a phone. */
-function ListChapter({ items, siblings, collectionNames, single }: { items: LibraryItem[]; siblings: string[]; collectionNames: Map<string, string[]>; single: boolean }) {
-  const a = useLibraryActions()
-  const [limit, more] = useLimit(single ? 100 : 40, single, items.length)
-  const shown = items.slice(0, limit)
-  const cols = "md:grid-cols-[22px_44px_minmax(0,2fr)_minmax(0,1.2fr)_110px_92px_76px_minmax(0,1.3fr)_76px_28px]"
-  return (
-    <div role="table" aria-label="Places" className="text-[13px]">
-      <div role="row" className={cn("hidden items-center gap-3 border-b px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:grid", cols)}>
-        <span role="columnheader"><span className="sr-only">Select</span></span>
-        <span role="columnheader"><span className="sr-only">Photo</span></span>
-        <span role="columnheader">Name</span>
-        <span role="columnheader">Where</span>
-        <span role="columnheader">Kind</span>
-        <span role="columnheader">Status</span>
-        <span role="columnheader">Rating</span>
-        <span role="columnheader">Collections</span>
-        <span role="columnheader">Saved</span>
-        <span role="columnheader"><span className="sr-only">Actions</span></span>
-      </div>
-      {shown.map((p) => {
-        const checked = a.selected.has(p.id)
-        const cols2 = collectionNames.get(p.id) ?? []
-        return (
-          <Pressable
-            id={p.id}
-            role="row"
-            key={p.id}
-            className={cn(
-              "grid grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-3 border-b px-2 py-2 transition [-webkit-touch-callout:none] hover:bg-secondary/40",
-              cols,
-              checked && "bg-primary/5"
-            )}
-          >
-            <span role="cell" className="hidden md:block">
-              <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} tone="plain" className="h-[18px] w-[18px]" />
-            </span>
-            <span role="cell" className="relative">
-              <button type="button" onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })} aria-label={`Open ${p.name}`} className="block rounded-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <Thumb p={p} small sizes="56px" className="h-14 w-14 rounded-xl md:h-11 md:w-11 md:rounded-[10px]" />
-              </button>
-              {a.selecting && (
-                <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} className="absolute -left-1 -top-1 md:hidden" />
-              )}
-            </span>
-            <span role="cell" className="min-w-0">
-              <button type="button" data-place-id={p.id} onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })} className="block max-w-full truncate text-left font-semibold outline-none hover:underline focus-visible:underline">
-                {p.name}
-              </button>
-              <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground md:hidden">
-                <span className="truncate">{[p.city, kindLabel(p.kind)].filter(Boolean).join(" · ")}</span>
-              </span>
-              <span className="mt-1 block md:hidden"><StatusPill p={p} /></span>
-            </span>
-            <span role="cell" className="hidden truncate text-muted-foreground md:block">{locationOf(p) || "—"}</span>
-            <span role="cell" className="hidden md:block">
-              <span className="rounded-full border px-2 py-0.5 text-[11px]">{kindLabel(p.kind)}</span>
-            </span>
-            <span role="cell" className="hidden md:block"><StatusPill p={p} /></span>
-            <span role="cell" className="hidden md:block">{p.ratingSelf ? <Stars n={p.ratingSelf} /> : <span className="text-muted-foreground">—</span>}</span>
-            <span role="cell" className="hidden truncate text-muted-foreground md:block">{cols2.length ? cols2.join(", ") : "—"}</span>
-            <span role="cell" className="hidden text-muted-foreground md:block">{monthYear(p.createdAt) ?? "—"}</span>
-            <span role="cell" className="flex justify-end">
-              <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
-            </span>
-          </Pressable>
-        )
-      })}
-      {items.length > shown.length && (
-        <button type="button" onClick={more} className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
-          Show {items.length - shown.length} more <ChevronRight className="h-4 w-4" />
-        </button>
-      )}
-    </div>
-  )
-}
-
-function ChapterSection({
-  chapter,
-  group,
-  view,
-  siblings,
-  collectionNames,
-}: {
-  chapter: Chapter
-  group: GroupMode
-  view: LibraryView
-  siblings: string[]
-  collectionNames: Map<string, string[]>
-}) {
-  const [city, setCity] = React.useState<string | null>(null)
-  const showCities = group === "country" && view !== "list"
-  const activeCity = showCities ? activeCityOf(chapter, city) : null
-  const items = activeCity ? chapter.items.filter((p) => citiesMatch(p.city, activeCity)) : chapter.items
-  const single = chapter.key === "all"
-
-  return (
-    <section id={`chapter-${chapter.key}`} data-chapter={chapter.key} className="mb-10 scroll-mt-20 sm:mb-12" aria-label={single ? "Your places" : chapter.title}>
-      {!single && <ChapterHeader chapter={chapter} group={group} items={chapter.items} collage={group === "collection" && view === "journal"} />}
-      {showCities && <CityChips items={chapter.items} city={activeCity} onCity={setCity} />}
-      {view === "journal" ? (
-        <JournalChapter items={items} siblings={siblings} single={single} />
-      ) : (
-        <ListChapter items={items} siblings={siblings} collectionNames={collectionNames} single={single} />
-      )}
-    </section>
-  )
-}
-
-function useScrollSpy(keys: string[]): string | null {
-  const [active, setActive] = React.useState<string | null>(keys[0] ?? null)
-  React.useEffect(() => {
-    if (!keys.length) return
-    const seen = new Map<string, boolean>()
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) seen.set((e.target as HTMLElement).dataset.chapter!, e.isIntersecting)
-        const first = keys.find((k) => seen.get(k))
-        if (first) setActive(first)
-      },
-      { rootMargin: "-90px 0px -55% 0px" }
-    )
-    for (const k of keys) {
-      const el = document.querySelector<HTMLElement>(`[data-chapter="${CSS.escape(k)}"]`)
-      if (el) io.observe(el)
-    }
-    return () => io.disconnect()
-  }, [keys])
-  return active
-}
-
-function jumpTo(key: string) {
-  document.getElementById(`chapter-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
 }
 
 function IndexLink({ chapter, active, onJump, size = "rail" }: { chapter: Chapter; active: boolean; onJump: (k: string) => void; size?: "rail" | "sheet" }) {
@@ -438,22 +183,17 @@ export const LibraryChapters = React.memo(function LibraryChapters({
   /** Phones only: shown after the first chapter, so the first places come right under the tools. */
   interlude?: React.ReactNode
 }) {
-  const keys = React.useMemo(() => chapters.map((c) => c.key), [chapters])
-  // The gallery is windowed, so its chapters are not all in the DOM to observe: it reports the one you are in itself.
-  const gallery = view === "grid"
-  const spied = useScrollSpy(gallery ? NO_KEYS : keys)
-  const [galleryActive, setGalleryActive] = React.useState<string | null>(null)
-  const active = gallery ? galleryActive : spied
-  const handle = React.useRef<VirtualGalleryHandle | null>(null)
-  const jump = React.useCallback((key: string) => (gallery && handle.current ? handle.current.jumpTo(key) : jumpTo(key)), [gallery])
+  const [active, setActive] = React.useState<string | null>(null)
+  const handle = React.useRef<VirtualRowsHandle | null>(null)
+  const jump = React.useCallback((key: string) => handle.current?.jumpTo(key), [])
   const renderHeader = React.useCallback(
     (c: Chapter, chips: React.ReactNode) => (
       <>
-        <ChapterHeader chapter={c} group={group} items={c.items} />
+        <ChapterHeader chapter={c} group={group} items={c.items} collage={group === "collection" && view === "journal"} />
         {chips}
       </>
     ),
-    [group]
+    [group, view]
   )
   const indexed = group !== "none" && chapters.length > 1
 
@@ -461,15 +201,21 @@ export const LibraryChapters = React.memo(function LibraryChapters({
     <div className={cn("px-4 py-6 sm:px-8", indexed && "lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-7")}>
       {indexed && <IndexRail chapters={chapters} group={group} active={active} onJump={jump} />}
       <div className="min-w-0">
-        {gallery ? (
-          <MemoVirtualGallery key={group} chapters={chapters} group={group} siblings={siblings} interlude={interlude} header={renderHeader} onActive={setGalleryActive} handle={handle} />
+        {view === "grid" ? (
+          <MemoVirtualGallery key={group} chapters={chapters} group={group} siblings={siblings} interlude={interlude} header={renderHeader} onActive={setActive} handle={handle} />
         ) : (
-          chapters.map((c, i) => (
-            <React.Fragment key={`${group}:${view}:${c.key}`}>
-              <ChapterSection chapter={c} group={group} view={view} siblings={siblings} collectionNames={collectionNames} />
-              {i === 0 && interlude && <div className="mb-10 sm:hidden">{interlude}</div>}
-            </React.Fragment>
-          ))
+          <MemoVirtualEntries
+            key={`${group}:${view}`}
+            chapters={chapters}
+            group={group}
+            view={view}
+            siblings={siblings}
+            collectionNames={collectionNames}
+            interlude={interlude}
+            header={renderHeader}
+            onActive={setActive}
+            handle={handle}
+          />
         )}
       </div>
       {indexed && <MobileIndex chapters={chapters} group={group} active={active} onJump={jump} />}

@@ -4,16 +4,13 @@ import * as React from "react"
 import dynamic from "next/dynamic"
 import { MapPinOff } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { FallbackArt } from "@/components/explore/fallback-art"
-import { Photo } from "@/components/photo"
-import { kindLabel } from "@/components/explore/kind-icon"
 import { flagFor } from "@/lib/explore/geo"
 import { tallyCities } from "@/lib/city-names"
 import type { Chapter } from "@/lib/library/chapters"
 import type { LibraryItem } from "@/lib/library/types"
 import type { CoverStats } from "./library-cover"
 import { useLibraryActions } from "./library-actions"
-import { LibraryPlaceMenu } from "./library-place-menu"
+import { VirtualEntries } from "./library-entries"
 
 const LibraryMapbox = dynamic(() => import("./library-mapbox"), {
   ssr: false,
@@ -26,38 +23,13 @@ const LibraryMapbox = dynamic(() => import("./library-mapbox"), {
 
 const HAS_TOKEN = Boolean(process.env.NEXT_PUBLIC_MAPBOX_TOKEN)
 
-function Row({ p, siblings }: { p: LibraryItem; siblings: string[] }) {
-  const a = useLibraryActions()
+/** A chapter's title above its places in the side list. */
+function chapterTitle(c: Chapter) {
   return (
-    <div className={cn("flex items-center gap-3 py-2", a.selected.has(p.id) && "rounded-xl bg-primary/5")}>
-      <button
-        type="button"
-        data-place-id={p.id}
-        onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted sm:h-16 sm:w-16">
-          {p.photos[0] ? (
-            <Photo src={p.photos[0].uri} thumb={p.photos[0].thumb} use="thumb" sizes="64px" />
-          ) : (
-            <FallbackArt name={p.name} kind={p.kind} />
-          )}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-semibold">{p.name}</span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {[p.city, kindLabel(p.kind)].filter(Boolean).join(" · ")}
-            {p.lat === null && " · not on the map"}
-          </span>
-        </span>
-        {/* Badge colours mirror the map pins and the legend under Passport. */}
-        {p.visitStatus === "visited" ? (
-          <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">Been</span>
-        ) : p.visitStatus === "planned" ? (
-          <span className="rounded-full bg-[hsl(var(--map-planned))] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--map-planned-foreground))]">Planned</span>
-        ) : null}
-      </button>
-      <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
+    <div className="mb-0.5 mt-3 flex items-baseline gap-2">
+      {c.flag && <span className="text-xl" aria-hidden>{c.flag}</span>}
+      <h2 className="font-editorial text-[28px] leading-none">{c.title}</h2>
+      <span className="text-xs text-muted-foreground">{c.items.length}</span>
     </div>
   )
 }
@@ -89,21 +61,8 @@ export function LibraryMapView({
 
   return (
     <div className="flex flex-col lg:grid lg:min-h-[calc(100vh-140px)] lg:grid-cols-[minmax(340px,440px)_minmax(0,1fr)]">
-      <div className="order-2 px-4 pb-10 pt-2 sm:px-8 lg:order-1 lg:max-h-[calc(100vh-130px)] lg:overflow-y-auto lg:border-r lg:pt-4">
-        {chapters.map((c) => (
-          <section key={c.key} aria-label={c.title} className="mb-4">
-            {c.key !== "all" && (
-              <div className="mb-0.5 mt-3 flex items-baseline gap-2">
-                {c.flag && <span className="text-xl" aria-hidden>{c.flag}</span>}
-                <h2 className="font-editorial text-[28px] leading-none">{c.title}</h2>
-                <span className="text-xs text-muted-foreground">{c.items.length}</span>
-              </div>
-            )}
-            {c.items.map((p) => (
-              <Row key={p.id} p={p} siblings={siblings} />
-            ))}
-          </section>
-        ))}
+      <div data-side-list className="order-2 px-4 pb-10 pt-2 sm:px-8 lg:order-1 lg:max-h-[calc(100vh-130px)] lg:overflow-y-auto lg:border-r lg:pt-4">
+        <VirtualEntries chapters={chapters} group="none" view="map" siblings={siblings} header={chapterTitle} />
       </div>
 
       <div className="order-1 space-y-4 p-4 sm:p-5 lg:order-2 lg:sticky lg:top-[40px] lg:self-start">

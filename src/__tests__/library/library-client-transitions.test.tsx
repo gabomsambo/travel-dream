@@ -184,4 +184,28 @@ describe('discrete filter transitions vs urgent search', () => {
     expect(window.location.search).not.toMatch(/visitStatus=visited/)
     expect(input).toHaveValue('a')
   })
+
+  it('does not let a pending shelf transition undo Back', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: /Been\s*4/ }))
+    await waitFor(() => expect(window.location.search).toMatch(/visitStatus=visited/))
+    const afterVisited = window.history.length
+    holdTransitions = true
+    await user.click(screen.getByRole('button', { name: /Planned\s*2/ }))
+    expect(pending.length).toBeGreaterThan(0)
+    act(() => {
+      window.history.replaceState(null, '', '/')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(screen.getByRole('button', { name: /Planned\s*2/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /Been\s*4/ })).toHaveAttribute('aria-pressed', 'false')
+    flushHeld()
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe('/')
+    })
+    expect(window.location.search).not.toMatch(/visitStatus=planned/)
+    expect(window.history.length).toBe(afterVisited)
+    expect(screen.getByRole('button', { name: /Planned\s*2/ })).toHaveAttribute('aria-pressed', 'false')
+  })
 })

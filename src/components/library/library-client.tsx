@@ -130,6 +130,13 @@ function LibraryPage({ data }: { data: LibraryData }) {
   // consume it.
   const [historyEpoch, setHistoryEpoch] = React.useState(0)
   const appliedEpoch = React.useRef(0)
+  // Back/forward bumps this so a still-pending discrete transition cannot
+  // overwrite the restored URL state (or push a new history entry) when it commits.
+  const navGen = React.useRef(0)
+  const unlessNavigated = <T,>(gen: number, next: T | ((prev: T) => T)) => (prev: T): T => {
+    if (navGen.current !== gen) return prev
+    return typeof next === "function" ? (next as (p: T) => T)(prev) : next
+  }
 
   // A discrete change re-lists the whole library, so it renders as a transition: the click
   // paints first and the page follows, instead of the press waiting on the render.
@@ -143,33 +150,38 @@ function LibraryPage({ data }: { data: LibraryData }) {
       setFilters(apply)
       return
     }
+    const gen = navGen.current
     React.startTransition(() => {
-      setHistoryEpoch((e) => e + 1)
-      setFilters(apply)
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setFilters(unlessNavigated(gen, apply))
     })
   }, [])
   const replaceFilters = React.useCallback((next: LibraryFilterState | ((prev: LibraryFilterState) => LibraryFilterState)) => {
+    const gen = navGen.current
     React.startTransition(() => {
-      setHistoryEpoch((e) => e + 1)
-      setFilters(next)
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setFilters(unlessNavigated(gen, next))
     })
   }, [])
   const setView = React.useCallback((v: LibraryView) => {
+    const gen = navGen.current
     React.startTransition(() => {
-      setHistoryEpoch((e) => e + 1)
-      setViewState(v)
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setViewState(unlessNavigated(gen, v))
     })
   }, [])
   const setSort = React.useCallback((s: string) => {
+    const gen = navGen.current
     React.startTransition(() => {
-      setHistoryEpoch((e) => e + 1)
-      setSortState(s)
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setSortState(unlessNavigated(gen, s))
     })
   }, [])
   const setGroup = React.useCallback((g: GroupMode) => {
+    const gen = navGen.current
     React.startTransition(() => {
-      setHistoryEpoch((e) => e + 1)
-      setGroupState(g)
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setGroupState(unlessNavigated(gen, g))
     })
   }, [])
 
@@ -195,6 +207,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
 
   React.useEffect(() => {
     const onPop = () => {
+      navGen.current += 1
       const p = new URLSearchParams(window.location.search)
       setFilters(parseFilters(p))
       setViewState(parseView(p.get("view"), fallbackView))
@@ -305,12 +318,13 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const applyView = React.useCallback(
     (v: SavedViewRow) => {
       const p = new URLSearchParams(v.query)
+      const gen = navGen.current
       React.startTransition(() => {
-        setHistoryEpoch((e) => e + 1)
-        setFilters(parseFilters(p))
-        setViewState(parseView(p.get("view"), "grid"))
-        setSortState(p.get("sort") || DEFAULT_SORT)
-        setGroupState(parseGroup(p.get("group")))
+        setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+        setFilters(unlessNavigated(gen, parseFilters(p)))
+        setViewState(unlessNavigated(gen, parseView(p.get("view"), "grid")))
+        setSortState(unlessNavigated(gen, p.get("sort") || DEFAULT_SORT))
+        setGroupState(unlessNavigated(gen, parseGroup(p.get("group"))))
       })
     },
     []

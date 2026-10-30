@@ -7,6 +7,7 @@ import { useLibraryIndex } from "@/lib/library/index-store"
 import type { LibraryData } from "@/lib/library/types"
 import { LibraryFirstScreen } from "./library-first-screen"
 import { LibraryPage } from "./library-client"
+import { LibrarySyncProvider } from "./library-sync"
 
 /**
  * A library too big to ride in the page: the server's first screen paints at
@@ -32,22 +33,24 @@ export function LibraryIndexed({ seed }: { seed: IndexedSeed }) {
 
   // One provider across the swap, so a quick look opened on the first screen stays open.
   return (
-    <ExploreProvider places={data ? data.items : preview} collections={data ? data.collections : []}>
-      {data ? (
-        <>
-          {error && (
-            <p className="px-4 pt-3 text-sm text-muted-foreground sm:px-8" role="status">
-              Couldn&apos;t refresh your library.{" "}
-              <button type="button" onClick={retry} className="font-medium text-foreground underline underline-offset-4">
-                Try again
-              </button>
-            </p>
-          )}
-          <LibraryPage data={data} />
-        </>
-      ) : (
-        <LibraryFirstScreen seed={seed} error={error} onRetry={retry} />
-      )}
-    </ExploreProvider>
+    <LibrarySyncProvider userId={seed.userId}>
+      <ExploreProvider places={data ? data.items : preview} collections={data ? data.collections : []}>
+        {data ? (
+          <>
+            {error && (
+              <p className="px-4 pt-3 text-sm text-muted-foreground sm:px-8" role="status">
+                Couldn&apos;t refresh your library.{" "}
+                <button type="button" onClick={retry} className="font-medium text-foreground underline underline-offset-4">
+                  Try again
+                </button>
+              </p>
+            )}
+            <LibraryPage data={data} />
+          </>
+        ) : (
+          <LibraryFirstScreen seed={seed} error={error} onRetry={retry} />
+        )}
+      </ExploreProvider>
+    </LibrarySyncProvider>
   )
 }

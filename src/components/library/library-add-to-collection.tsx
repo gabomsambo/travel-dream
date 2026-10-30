@@ -10,6 +10,7 @@ import { normalize } from "@/lib/library/search"
 import type { ExploreCollection } from "@/lib/explore/types"
 import type { LibraryItem } from "@/lib/library/types"
 import { LibrarySheet } from "./library-sheet"
+import { useLibrarySync } from "./library-sync"
 
 /** The add-places route takes at most this many ids per request. */
 const ADD_BATCH = 100
@@ -141,6 +142,7 @@ export function AddToCollectionDialog({
   onDone: () => void
 }) {
   const router = useRouter()
+  const sync = useLibrarySync()
   const open = placeIds !== null
   const ids = React.useMemo(() => placeIds ?? [], [placeIds])
   const items = React.useMemo(() => ids.map((id) => byId.get(id)).filter((p): p is LibraryItem => !!p), [ids, byId])
@@ -183,7 +185,9 @@ export function AddToCollectionDialog({
     const failed = await removePlaces(collectionId, added)
     if (failed) notify.error(`Couldn't take ${failed} back out of ${name}.`)
     else notify.success(`Removed ${added.length} from ${name}`)
-    router.refresh()
+    // Which ones stayed is not known when some failed; the library says.
+    if (failed) sync.revalidate()
+    else sync.apply({ kind: "members", id: collectionId, remove: added })
   }
 
   const finish = (collectionId: string, name: string, added: string[], already: number, failed: number) => {
@@ -199,7 +203,6 @@ export function AddToCollectionDialog({
     else notify.success(message, { ...opts, duration: 8_000 })
     onDone()
     onOpenChange(false)
-    router.refresh()
   }
 
   const addToExisting = async (c: ExploreCollection) => {
@@ -212,10 +215,11 @@ export function AddToCollectionDialog({
     setBusy(c.id)
     try {
       const { added, failed } = await addPlaces(c.id, fresh)
+      sync.apply({ kind: "members", id: c.id, add: added })
       finish(c.id, c.name, added, ids.length - fresh.length, failed)
     } catch {
       notify.error(`Couldn't add to ${c.name}. Try again in a moment.`)
-      router.refresh()
+      sync.revalidate()
     } finally {
       setBusy(null)
     }
@@ -250,6 +254,10 @@ export function AddToCollectionDialog({
       const remaining = freshPlacesForHalfBuilt(id, ids, collections, entry)
       if (failed === 0 && remaining.length === 0) halfBuiltByPlaces.delete(selectionKey)
       const already = ids.length - fresh.length
+      const collectionId = id
+      // The collection exists on the server from here on, whatever happens to its places.
+      if (!collections.some((c) => c.id === collectionId)) sync.apply({ kind: "collection", collection: { id: collectionId, name: entry.name, description: null, placeIds: [] } })
+      sync.apply({ kind: "members", id: collectionId, add: added })
       finish(id, storedCollectionName(id, collections, entry.name), added, already, failed)
     } catch {
       const orphan = halfBuiltByPlaces.get(selectionKey)
@@ -258,7 +266,7 @@ export function AddToCollectionDialog({
         orphan ? `${label} was created, but the places didn't save to it.` : "Couldn't create that collection. Try again in a moment.",
         orphan ? { description: "Press Create again to fill it — you won't get a second copy." } : undefined
       )
-      if (orphan) router.refresh()
+      if (orphan) sync.revalidate()
     } finally {
       setBusy(null)
     }

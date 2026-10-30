@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { notify } from "@/lib/notify"
 import type { ExploreCollection, ExplorePlace } from "@/lib/explore/types"
+import { useLibrarySync } from "@/components/library/library-sync"
 import { PlaceSheet } from "./place-sheet"
 
 export interface NewCollection {
@@ -75,6 +76,7 @@ export function ExploreProvider({
   children: React.ReactNode
 }) {
   const router = useRouter()
+  const sync = useLibrarySync()
   const byId = React.useMemo(() => new Map(places.map((p) => [p.id, p])), [places])
   const [open, setOpen] = React.useState<{ id: string; siblings: string[] } | null>(null)
   const [busy, setBusy] = React.useState(false)
@@ -138,14 +140,16 @@ export function ExploreProvider({
             action: { label: "Open", onClick: () => router.push(`/collections/${collectionId}/planner`) },
           })
         }
-        router.refresh()
+        // Which ones landed is not known when some failed; the library says.
+        if (failed > 0) sync.revalidate()
+        else sync.apply({ kind: "members", id: collectionId, add: placeIds })
       } catch {
         notify.error("Couldn't add to that trip.")
       } finally {
         setBusy(false)
       }
     },
-    [collections, router]
+    [collections, router, sync]
   )
 
   const value = React.useMemo(

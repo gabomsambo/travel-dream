@@ -457,6 +457,9 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   'library/index': {
     GET: { slots: [], request: () => ({ url: `${API}/library/index?v=sweep` }) },
   },
+  'library/version': {
+    GET: { slots: [], request: () => ({ url: `${API}/library/version` }) },
+  },
   'library/photos/[placeId]': {
     GET: { slots: ['place'], request: (t) => ({ url: `${API}/library/photos/${t.place}`, params: { placeId: t.place } }) },
   },

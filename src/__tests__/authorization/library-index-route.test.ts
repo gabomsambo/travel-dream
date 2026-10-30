@@ -19,6 +19,8 @@ jest.mock('@/lib/auth-helpers', () => ({
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { GET as getIndex } from '@/app/api/library/index/route';
 import { GET as getPhotos } from '@/app/api/library/photos/[placeId]/route';
+import { GET as getVersion } from '@/app/api/library/version/route';
+import { batchArchivePlaces, batchDeletePlaces, batchRestorePlaces, batchSetVisitStatus } from '@/lib/db-mutations';
 import { loadLibrarySeed } from '@/lib/library/seed';
 import { libraryVersion } from '@/lib/library/version';
 import { decodeIndex } from '@/lib/library/wire';
@@ -129,6 +131,44 @@ describe('libraryVersion', () => {
     await addPhoto('att_bob_new', FIXTURE.bobPlace, { primary: true });
     await exec(`UPDATE collections SET name = 'Bob trip', updated_at = ? WHERE id = ?`, [later(), FIXTURE.bobCollection]);
     expect(await libraryVersion(ALICE.id)).toBe(before);
+  });
+});
+
+describe('libraryVersion and the edits the Library makes', () => {
+  // The page patches its copy after one of these and then asks for the version: if the server's
+  // version did not move, the page takes the server's word over its patch. So each must move it.
+  it('moves for an archive, a restore, a status change and a delete, through the bulk-action writes themselves', async () => {
+    const seen = [await libraryVersion(ALICE.id)];
+    const step = async (edit: () => Promise<unknown>) => {
+      await edit();
+      seen.push(await libraryVersion(ALICE.id));
+    };
+    await step(() => batchSetVisitStatus([FIXTURE.alicePlace], 'visited', ALICE.id));
+    await step(() => batchSetVisitStatus([FIXTURE.alicePlace], 'not_visited', ALICE.id));
+    await step(() => batchArchivePlaces([FIXTURE.alicePlace], ALICE.id));
+    await step(() => batchRestorePlaces([FIXTURE.alicePlace], ALICE.id));
+    await step(() => batchDeletePlaces([FIXTURE.alicePlace], ALICE.id));
+    for (let i = 1; i < seen.length; i++) expect(seen[i]).not.toBe(seen[i - 1]);
+  });
+});
+
+describe('GET /api/library/version', () => {
+  it('answers with the caller’s current version, never from a cache', async () => {
+    const res = await getVersion();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(await res.json()).toEqual({ version: await libraryVersion(ALICE.id) });
+  });
+
+  it('is the version the index route labels its answer with', async () => {
+    const { version } = (await (await getVersion()).json()) as { version: string };
+    const index = decodeIndex(await (await ask(version)).json());
+    expect(index?.version).toBe(version);
+  });
+
+  it('answers 401 when signed out', async () => {
+    mockAuth.mockRejectedValueOnce(new Error('Unauthorized'));
+    expect((await getVersion()).status).toBe(401);
   });
 });
 

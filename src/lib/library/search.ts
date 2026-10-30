@@ -118,7 +118,18 @@ function fieldValues(p: LibraryItem): Array<[SearchField, string | null | undefi
   ];
 }
 
+// A place that comes through an edit unchanged is the same object, so an edit re-indexes the places it touched, not the library.
+const docs = new WeakMap<LibraryItem, SearchDoc>();
+
 function searchDocOf(p: LibraryItem): SearchDoc {
+  const known = docs.get(p);
+  if (known) return known;
+  const doc = buildSearchDoc(p);
+  docs.set(p, doc);
+  return doc;
+}
+
+function buildSearchDoc(p: LibraryItem): SearchDoc {
   return {
     id: p.id,
     fields: fieldValues(p).flatMap(([field, value]) => {

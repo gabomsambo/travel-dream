@@ -3,7 +3,7 @@
 import * as React from "react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { Inbox, Loader2, Plus, SearchX, Trash2, Upload } from "lucide-react"
 import { notify } from "@/lib/notify"
 import { ExploreProvider, useExplore } from "@/components/explore/explore-provider"
@@ -27,6 +27,7 @@ import {
   hasActiveFilters, isPlanningSoon, isRecentlyAdded, parseFilters, parseGroup, parseView, shelfOf, smartOf, sortItems,
   toSearchParams, withShelf, withSmart, type Facet, type FilterContext, type LibraryFilterState, type Shelf, type SmartShelf,
 } from "@/lib/library/filters"
+import { coverPatchAfterAttach, type IndexPatch } from "@/lib/library/index-patch"
 import { searchLibrary, startSearchIndex } from "@/lib/library/search"
 import type { GroupMode, LibraryData, LibraryItem, LibraryView, SavedViewRow } from "@/lib/library/types"
 import type { ExportFormat } from "@/types/export"
@@ -38,6 +39,7 @@ import { LibraryCover, SparseCover, coverStats } from "./library-cover"
 import { FilterChips, LibraryFilterPills, LibraryFiltersSheetButton, type Chip, type FilterOptions, type FilterPatch } from "./library-filter-bar"
 import { LibraryShelves, TripsShelf } from "./library-shelves"
 import { LibraryShortcuts } from "./library-shortcuts"
+import { useLibrarySync } from "./library-sync"
 import { LibrarySmartShelves } from "./library-smart-shelves"
 import { LibraryViewBar } from "./library-view-bar"
 import { LibraryChapters } from "./library-chapters"
@@ -90,21 +92,36 @@ async function download(res: Response, format: ExportFormat) {
   window.URL.revokeObjectURL(url)
 }
 
+/** A bulk action that stopped part-way: `done` are the ids whose batches the server took before it failed. */
+class BulkFailure extends Error {
+  constructor(message: string, readonly done: string[]) {
+    super(message)
+  }
+}
+
 /** Runs one bulk action over any number of ids, in the route's batches. Returns how many rows changed. */
 async function runBulk(action: "archive" | "restore" | "delete" | "set-visit-status", ids: string[], extra?: { visitStatus: VisitStatus }): Promise<number> {
   let updated = 0
   for (let i = 0; i < ids.length; i += BULK_BATCH) {
-    const res = await fetch("/api/places/bulk-actions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, placeIds: ids.slice(i, i + BULK_BATCH), ...extra }),
-    })
-    const body = (await res.json().catch(() => null)) as { message?: string; result?: { updatedCount?: number } } | null
-    if (!res.ok) throw new Error(body?.message || `Failed to ${action} places`)
-    updated += body?.result?.updatedCount ?? 0
+    try {
+      const res = await fetch("/api/places/bulk-actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, placeIds: ids.slice(i, i + BULK_BATCH), ...extra }),
+      })
+      const body = (await res.json().catch(() => null)) as { message?: string; result?: { updatedCount?: number } } | null
+      if (!res.ok) throw new Error(body?.message || `Failed to ${action} places`)
+      updated += body?.result?.updatedCount ?? 0
+    } catch (e) {
+      throw new BulkFailure(e instanceof Error ? e.message : `Failed to ${action} places`, ids.slice(0, i))
+    }
   }
   return updated
 }
+
+/** What stays on screen after a bulk edit failed: the batches the server did take. */
+const landed = (e: unknown, patchFor: (ids: string[]) => IndexPatch): IndexPatch | undefined =>
+  e instanceof BulkFailure && e.done.length ? patchFor(e.done) : undefined
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 const STATUS_LABEL: Record<string, string> = { not_visited: "Dreaming", planned: "Planned", visited: "Been" }
@@ -112,7 +129,7 @@ const STATUS_LABEL: Record<string, string> = { not_visited: "Dreaming", planned:
 export function LibraryPage({ data }: { data: LibraryData }) {
   const { items, collections, inboxCount } = data
   const searchParams = useSearchParams()
-  const router = useRouter()
+  const sync = useLibrarySync()
   const pathname = usePathname()
   const { openPlace } = useExplore()
   const [preferences] = useLocalStorage<UserPreferences>("user-preferences", DEFAULT_PREFERENCES)
@@ -409,39 +426,47 @@ export function LibraryPage({ data }: { data: LibraryData }) {
   const searchRef = React.useRef<HTMLInputElement>(null)
   const selectedIds = React.useMemo(() => [...sel.selected], [sel.selected])
 
+  // An edit shows on the page the moment it starts and comes off again if the server refuses it
+  // (`sync.begin` → `commit` / `rollback`), so nothing waits on the library coming back from the server.
   const restore = React.useCallback(
-    async (ids: string[]) => {
+    async (places: LibraryItem[]) => {
+      const pending = sync.begin({ kind: "upsert", items: places })
       try {
-        const n = await runBulk("restore", ids)
+        const n = await runBulk("restore", places.map((p) => p.id))
+        pending.commit()
         notify.success(`Restored ${plural(n, "place")}`)
       } catch (e) {
+        pending.rollback(landed(e, (done) => ({ kind: "upsert", items: places.filter((p) => done.includes(p.id)) })))
         notify.error(e instanceof Error ? e.message : "Couldn't restore those places.")
       }
-      router.refresh()
     },
-    [router]
+    [sync]
   )
 
   const archive = React.useCallback(
     async (ids: string[]) => {
       if (!ids.length) return
+      // Undo puts these back, so keep them: the page no longer holds them once they are archived.
+      const archived = ids.flatMap((id) => byId.get(id) ?? [])
       setBusy(true)
+      const pending = sync.begin({ kind: "remove", ids })
       try {
         const n = await runBulk("archive", ids)
+        pending.commit()
         sel.remove(ids)
         notify.success(`Archived ${plural(n, "place")}`, {
           description: "They're in your Archive.",
           duration: 8_000,
-          cancel: { label: "Undo", onClick: () => void restore(ids) },
+          cancel: { label: "Undo", onClick: () => void restore(archived) },
         })
-        router.refresh()
       } catch (e) {
+        pending.rollback(landed(e, (done) => ({ kind: "remove", ids: done })))
         notify.error(e instanceof Error ? e.message : "Couldn't archive those places.")
       } finally {
         setBusy(false)
       }
     },
-    [router, restore, sel]
+    [byId, sync, restore, sel]
   )
 
   const setStatus = React.useCallback(
@@ -458,9 +483,11 @@ export function LibraryPage({ data }: { data: LibraryData }) {
         return
       }
       setBusy(true)
+      const changed = [...before.values()].flat()
+      const pending = sync.begin({ kind: "visit", ids: changed, status })
       try {
-        const changed = [...before.values()].flat()
         await runBulk("set-visit-status", changed, { visitStatus: status })
+        pending.commit()
         notify.success(`Marked ${plural(changed.length, "place")} as ${label}`, {
           duration: 8_000,
           cancel: {
@@ -468,23 +495,31 @@ export function LibraryPage({ data }: { data: LibraryData }) {
             onClick: () =>
               void (async () => {
                 try {
-                  for (const [was, list] of before) await runBulk("set-visit-status", list, { visitStatus: was })
+                  for (const [was, list] of before) {
+                    const revert = sync.begin({ kind: "visit", ids: list, status: was })
+                    try {
+                      await runBulk("set-visit-status", list, { visitStatus: was })
+                      revert.commit()
+                    } catch (e) {
+                      revert.rollback(landed(e, (done) => ({ kind: "visit", ids: done, status: was })))
+                      throw e
+                    }
+                  }
                   notify.success("Put back as they were")
                 } catch {
                   notify.error("Couldn't undo that. Set the status again by hand.")
                 }
-                router.refresh()
               })(),
           },
         })
-        router.refresh()
       } catch (e) {
+        pending.rollback(landed(e, (done) => ({ kind: "visit", ids: done, status })))
         notify.error(e instanceof Error ? e.message : "Couldn't change the status.")
       } finally {
         setBusy(false)
       }
     },
-    [byId, router]
+    [byId, sync]
   )
 
   const heartMany = React.useCallback(
@@ -503,20 +538,22 @@ export function LibraryPage({ data }: { data: LibraryData }) {
   const reallyDelete = React.useCallback(
     async (ids: string[]) => {
       setBusy(true)
+      const pending = sync.begin({ kind: "remove", ids, purge: true })
       try {
         const n = await runBulk("delete", ids)
+        pending.commit()
         notify.success(`Deleted ${plural(n, "place")}`)
         setPendingDelete(null)
         setConfirmText("")
         sel.remove(ids)
-        router.refresh()
       } catch (e) {
+        pending.rollback(landed(e, (done) => ({ kind: "remove", ids: done, purge: true })))
         notify.errorPersistent(e instanceof Error ? e.message : "Couldn't delete those places.")
       } finally {
         setBusy(false)
       }
     },
-    [router, sel]
+    [sync, sel]
   )
 
   const handleExport = React.useCallback(
@@ -880,9 +917,15 @@ export function LibraryPage({ data }: { data: LibraryData }) {
         hasGooglePlaceId={false}
         open={findImageFor !== null}
         onOpenChange={(o) => !o && setFindImageFor(null)}
-        onAttached={() => router.refresh()}
+        onAttached={(attached) => {
+          if (attached?.deduped) return
+          const place = findImageFor && (byId.get(findImageFor.id) ?? findImageFor)
+          const patch = place && attached ? coverPatchAfterAttach(place, attached.attachment, false) : null
+          if (patch) sync.apply(patch)
+          else sync.revalidate()
+        }}
       />
-      {addPlaceOpen && <AddPlaceDialog open={addPlaceOpen} onOpenChange={setAddPlaceOpen} onPlaceCreated={() => router.refresh()} />}
+      {addPlaceOpen && <AddPlaceDialog open={addPlaceOpen} onOpenChange={setAddPlaceOpen} />}
 
       <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => !o && !busy && setPendingDelete(null)}>
         <AlertDialogContent>

@@ -98,10 +98,11 @@ function usePlacePhotos(place: ExplorePlace | undefined): ExplorePhoto[] {
       .then((res) => (res.ok ? (res.json() as Promise<{ photos?: ExplorePhoto[] }>) : null))
       .then((body) => {
         if (!body || !Array.isArray(body.photos)) return
+        const fetched = body.photos
         const stillHeld =
           richer.current?.key === requestKey ? richer.current.photos.length : 0
-        if (body.photos.length < Math.max(minLength, stillHeld)) return
-        setByKey((prev) => ({ ...prev, [requestKey]: body.photos }))
+        if (fetched.length < Math.max(minLength, stillHeld)) return
+        setByKey((prev) => ({ ...prev, [requestKey]: fetched }))
       })
       .catch(() => {
         // The first photo is already showing; the next open asks again.
@@ -120,8 +121,9 @@ function usePlacePhotos(place: ExplorePlace | undefined): ExplorePhoto[] {
   if (!prev || prev.key !== key || wire.length >= prev.photos.length) {
     richer.current = { key, photos: wire }
   }
-  if (wanted && richer.current.key === key && richer.current.photos.length > wire.length) {
-    return richer.current.photos
+  const held = richer.current
+  if (wanted && held && held.key === key && held.photos.length > wire.length) {
+    return held.photos
   }
   return wire
 }

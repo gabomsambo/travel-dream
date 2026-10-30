@@ -14,13 +14,15 @@ import type { AttributionMeta } from '@/db/schema/attachments';
  * Narrowed row shape for the /library and /archive routes.
  *
  * Drops 13 columns vs Place that are not used by:
- *   - loadLibrary (src/lib/library/load.ts), which joins these rows with
- *     Explore's projection for /library's tags, search and export fields
+ *   - loadLibrary / loadLibraryContent (src/lib/library/load.ts), which join
+ *     these rows with Explore's projection for /library's tags, search and
+ *     export fields (inline RSC for small libraries; the cached index wire
+ *     for larger ones — see src/lib/library/seed.ts)
  *   - loadArchive (src/lib/archive/load.ts): the archive list, gallery
  *     (PlaceCardV2) and journal
  *   - search-service.ts Fuse index keys
  *
- * Saves ~470B/row × N rows off the RSC payload + Fuse index memory.
+ * Saves ~470B/row × N rows vs Place on those loaders and the Fuse index.
  *
  * If /library or /archive needs a dropped column, add it back here AND
  * to the projection in searchLibraryPlaces() — both must move together.
@@ -258,8 +260,9 @@ export async function searchPlaces(query: {
  * Narrow-projected fetch for the /library and /archive routes.
  *
  * Returns ~470B/row less than searchPlaces. Use ONLY when the caller stays
- * inside this projection: loadLibrary, loadArchive (list, gallery, journal),
- * and the Fuse index. A caller that needs a dropped column uses a wider query.
+ * inside this projection: loadLibrary / loadLibraryContent, loadArchive
+ * (list, gallery, journal), and the Fuse index. A caller that needs a dropped
+ * column uses a wider query.
  */
 export async function searchLibraryPlaces(query: {
   userId: string;

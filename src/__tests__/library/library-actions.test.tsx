@@ -240,3 +240,32 @@ describe('LibraryActionsProvider', () => {
     spy.mockRestore()
   })
 })
+
+describe('per-tile subscriptions at library scale', () => {
+  it('hearting one of 5000 places re-renders only that place', () => {
+    const ids = Array.from({ length: 5000 }, (_, i) => `plc_${i}`)
+    const kids = (
+      <>
+        {ids.map((id) => (
+          <Probe key={id} id={id} />
+        ))}
+      </>
+    )
+    const view = (hearts: string[]) => (
+      <LibraryActionsProvider value={actionsWith({ hearts: new Set(hearts) })}>{kids}</LibraryActionsProvider>
+    )
+    const { rerender } = render(view([]))
+    const before = { ...renders }
+    const t0 = performance.now()
+    rerender(view(['plc_2500']))
+    const ms = performance.now() - t0
+    expect(screen.getByTestId('plc_2500')).toHaveTextContent('hearted/unselected')
+    expect(screen.getByTestId('plc_0')).toHaveTextContent('plain/unselected')
+    expect(screen.getByTestId('plc_4999')).toHaveTextContent('plain/unselected')
+    expect(renders.plc_2500).toBe((before.plc_2500 ?? 0) + 1)
+    const touched = Object.entries(renders).filter(([id, n]) => (before[id] ?? 0) < n)
+    expect(touched).toEqual([['plc_2500', (before.plc_2500 ?? 0) + 1]])
+    // Bound for the store notify + one subscriber commit; not a browser INP claim.
+    expect(ms).toBeLessThan(500)
+  })
+})

@@ -241,6 +241,59 @@ describe('PlaceSheet place photos', () => {
     expect(await screen.findAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
   })
 
+  it('ignores a short photos fetch and keeps the richer list already held', async () => {
+    photosReply({
+      miradouro: [photo('a')],
+    })
+    const rich = place({
+      id: 'miradouro',
+      name: 'Miradouro',
+      city: 'Lisbon',
+      country: 'Portugal',
+      photos: [photo('a'), photo('b'), photo('c'), photo('d')],
+      photoCount: 4,
+    })
+    const slim = place({
+      id: 'miradouro',
+      name: 'Miradouro',
+      city: 'Lisbon',
+      country: 'Portugal',
+      photos: [photo('a')],
+      photoCount: 4,
+    })
+
+    const { rerender } = render(
+      <ExploreProvider places={[rich]} collections={[]}>
+        <Open id="miradouro" />
+      </ExploreProvider>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Open miradouro' }))
+    expect(await screen.findAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
+
+    rerender(
+      <ExploreProvider places={[slim]} collections={[]}>
+        <Open id="miradouro" />
+      </ExploreProvider>,
+    )
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/library/photos/miradouro', expect.anything()))
+    expect(screen.getAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    photosReply({
+      miradouro: [photo('a'), photo('b'), photo('c'), photo('d')],
+    })
+    rerender(
+      <ExploreProvider places={[slim]} collections={[]}>
+        <Open id="miradouro" />
+      </ExploreProvider>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Open miradouro' }))
+    expect(await screen.findAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/library/photos/'))).toHaveLength(2)
+  })
+
   it('drops a stale photos fetch when the index cover or count changes', async () => {
     photosReply({
       miradouro: [photo('a'), photo('b'), photo('c')],

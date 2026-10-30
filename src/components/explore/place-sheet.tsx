@@ -70,31 +70,50 @@ function usePlacePhotos(place: ExplorePlace | undefined): ExplorePhoto[] {
   const richer = React.useRef<{ key: string; photos: ExplorePhoto[] } | null>(null)
   const id = place?.id
   const key = place ? placePhotosCacheKey(place) : undefined
+  const wire = place?.photos ?? []
   const wanted = place !== undefined && (place.photoCount ?? place.photos.length) > place.photos.length
-  const have = key !== undefined && byKey[key] !== undefined
+  const heldFloor =
+    key !== undefined && richer.current?.key === key ? richer.current.photos.length : 0
+  const floor = Math.max(wire.length, heldFloor)
+  const cached = key !== undefined ? byKey[key] : undefined
+  const usable = cached !== undefined && cached.length >= floor
+  const shortCached = cached !== undefined && !usable
 
   React.useEffect(() => {
-    if (!id || !key || !wanted || have) return
+    if (!key || !shortCached) return
+    setByKey((prev) => {
+      if (prev[key] === undefined) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }, [key, shortCached])
+
+  React.useEffect(() => {
+    if (!id || !key || !wanted || usable || shortCached) return
     const controller = new AbortController()
     const requestKey = key
+    const minLength = floor
     fetch(`/api/library/photos/${encodeURIComponent(id)}`, { signal: controller.signal })
       .then((res) => (res.ok ? (res.json() as Promise<{ photos?: ExplorePhoto[] }>) : null))
       .then((body) => {
-        if (body && Array.isArray(body.photos)) setByKey((prev) => ({ ...prev, [requestKey]: body.photos! }))
+        if (!body || !Array.isArray(body.photos)) return
+        const stillHeld =
+          richer.current?.key === requestKey ? richer.current.photos.length : 0
+        if (body.photos.length < Math.max(minLength, stillHeld)) return
+        setByKey((prev) => ({ ...prev, [requestKey]: body.photos }))
       })
       .catch(() => {
         // The first photo is already showing; the next open asks again.
       })
     return () => controller.abort()
-  }, [id, key, wanted, have])
+  }, [id, key, wanted, usable, shortCached, floor])
 
-  const wire = place?.photos ?? []
   if (!key) return wire
 
-  if (have) {
-    const photos = byKey[key]
-    richer.current = { key, photos }
-    return photos
+  if (usable) {
+    richer.current = { key, photos: cached }
+    return cached
   }
 
   const prev = richer.current

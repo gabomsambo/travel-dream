@@ -1,4 +1,16 @@
-/** Hold discrete startTransition work so urgent search can interleave before it commits. */
+/**
+ * Discrete library updates use startTransition; urgent search must not steal their
+ * history push. React 18.3 runs the transition callback synchronously and only
+ * defers committing the setStates inside — Jest's act() flushes those commits in
+ * the same turn as a click, so these tests hold the callback to keep discrete
+ * work pending across an urgent search.
+ *
+ * Push intent is committed `historyEpoch` state scheduled inside that callback
+ * (not a ref armed when the callback runs). Holding the callback is therefore
+ * equivalent to a pending transition commit: an urgent search cannot see a push
+ * flag that has not committed yet. flushHeld runs the real startTransition so
+ * the epoch advances with the discrete filters.
+ */
 const pending: Array<() => void> = []
 let holdTransitions = false
 
@@ -7,7 +19,7 @@ jest.mock('react', () => {
   return {
     ...actual,
     startTransition: (cb: () => void) => {
-      if (holdTransitions) pending.push(cb)
+      if (holdTransitions) pending.push(() => actual.startTransition(cb))
       else actual.startTransition(cb)
     },
   }
@@ -101,5 +113,19 @@ describe('discrete filter transitions vs urgent search', () => {
     })
     expect(input).toHaveValue('Place')
     expect(screen.getByRole('button', { name: /Planned\s*2/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('pushState once for a shelf click when search follows under real startTransition', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    const startLen = window.history.length
+    await user.click(screen.getByRole('button', { name: /Planned\s*2/ }))
+    await waitFor(() => expect(window.location.search).toMatch(/visitStatus=planned/))
+    expect(window.history.length).toBe(startLen + 1)
+    const input = screen.getByRole('combobox', { name: 'Search your library' })
+    await user.type(input, 'a')
+    await waitFor(() => expect(window.location.search).toContain('search=a'))
+    expect(window.location.search).toMatch(/visitStatus=planned/)
+    expect(window.history.length).toBe(startLen + 1)
   })
 })

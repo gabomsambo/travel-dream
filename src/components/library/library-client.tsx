@@ -124,8 +124,12 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const [sort, setSortState] = React.useState(searchParams.get("sort") || DEFAULT_SORT)
   const [group, setGroupState] = React.useState<GroupMode>(() => parseGroup(searchParams.get("group")))
   // Discrete changes (a chip, a shelf, a view) push a history entry so Back
-  // steps back through them; typing replaces the current one.
-  const pushNext = React.useRef(false)
+  // steps back through them; typing replaces the current one. Push intent is
+  // committed state (not a ref): startTransition's callback runs sync, so a ref
+  // would arm before the discrete update commits and an urgent search could
+  // consume it.
+  const [historyEpoch, setHistoryEpoch] = React.useState(0)
+  const appliedEpoch = React.useRef(0)
 
   // A discrete change re-lists the whole library, so it renders as a transition: the click
   // paints first and the page follows, instead of the press waiting on the render.
@@ -136,31 +140,31 @@ function LibraryPage({ data }: { data: LibraryData }) {
       return
     }
     React.startTransition(() => {
-      pushNext.current = true
+      setHistoryEpoch((e) => e + 1)
       setFilters((f) => ({ ...f, ...patch }))
     })
   }, [])
   const replaceFilters = React.useCallback((next: LibraryFilterState | ((prev: LibraryFilterState) => LibraryFilterState)) => {
     React.startTransition(() => {
-      pushNext.current = true
+      setHistoryEpoch((e) => e + 1)
       setFilters(next)
     })
   }, [])
   const setView = React.useCallback((v: LibraryView) => {
     React.startTransition(() => {
-      pushNext.current = true
+      setHistoryEpoch((e) => e + 1)
       setViewState(v)
     })
   }, [])
   const setSort = React.useCallback((s: string) => {
     React.startTransition(() => {
-      pushNext.current = true
+      setHistoryEpoch((e) => e + 1)
       setSortState(s)
     })
   }, [])
   const setGroup = React.useCallback((g: GroupMode) => {
     React.startTransition(() => {
-      pushNext.current = true
+      setHistoryEpoch((e) => e + 1)
       setGroupState(g)
     })
   }, [])
@@ -170,20 +174,20 @@ function LibraryPage({ data }: { data: LibraryData }) {
   React.useEffect(() => {
     const write = () => {
       const url = query ? `${pathname}?${query}` : pathname
-      const push = pushNext.current
-      pushNext.current = false
+      const push = historyEpoch !== appliedEpoch.current
+      if (push) appliedEpoch.current = historyEpoch
       if (url === window.location.pathname + window.location.search) return
       // Native history, not router.push: a server round-trip would only re-send the same rows.
       if (push) window.history.pushState(null, "", url)
       else window.history.replaceState(null, "", url)
     }
-    if (pushNext.current) {
+    if (historyEpoch !== appliedEpoch.current) {
       write()
       return
     }
     const t = window.setTimeout(write, 300)
     return () => window.clearTimeout(t)
-  }, [query, pathname])
+  }, [query, pathname, historyEpoch])
 
   React.useEffect(() => {
     const onPop = () => {
@@ -300,7 +304,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
     (v: SavedViewRow) => {
       const p = new URLSearchParams(v.query)
       React.startTransition(() => {
-        pushNext.current = true
+        setHistoryEpoch((e) => e + 1)
         setFilters(parseFilters(p))
         setViewState(parseView(p.get("view"), "grid"))
         setSortState(p.get("sort") || DEFAULT_SORT)

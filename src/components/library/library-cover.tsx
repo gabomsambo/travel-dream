@@ -3,64 +3,13 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { Photo } from "@/components/photo"
-import { flagFor } from "@/lib/explore/geo"
-import { groupBySlug } from "@/lib/explore/atlas"
-import { tallyCities } from "@/lib/city-names"
+import { coverPhotos, coverStats, type CoverPhoto, type CoverStats } from "@/lib/library/cover"
 import type { LibraryItem } from "@/lib/library/types"
 import type { Shelf } from "@/lib/library/filters"
 import type { GroupMode } from "@/lib/library/types"
 
-const SCENIC = new Set(["landmark", "natural", "viewpoint", "beach", "neighborhood", "park"])
-
-/** Up to `n` cover photos, one country at a time first so the collage reads as a journey. */
-export function coverPhotos(items: LibraryItem[], n: number): Array<{ id: string; src: string; thumb: string }> {
-  const score = (p: LibraryItem) => p.priority + (SCENIC.has(p.kind) ? 2 : 0) + (p.visitStatus === "visited" ? 1 : 0)
-  const ranked = items.filter((p) => p.photos.length).sort((a, b) => score(b) - score(a) || a.createdAt.localeCompare(b.createdAt))
-  const picked: LibraryItem[] = []
-  const countries = new Set<string>()
-  for (const p of ranked) {
-    const c = p.country?.trim().toLowerCase() ?? ""
-    if (countries.has(c)) continue
-    countries.add(c)
-    picked.push(p)
-    if (picked.length === n) break
-  }
-  for (const p of ranked) {
-    if (picked.length === n) break
-    if (!picked.includes(p)) picked.push(p)
-  }
-  return picked.map((p) => ({ id: p.id, src: p.photos[0].uri, thumb: p.photos[0].thumb }))
-}
-
-export interface CoverStats {
-  total: number
-  countries: number
-  cities: number
-  been: number
-  planned: number
-  dreaming: number
-  /** Every country, most-saved first, with whether you've been. */
-  passport: Array<{ country: string; flag: string; been: boolean }>
-}
-
-export function coverStats(items: LibraryItem[]): CoverStats {
-  const located = items.filter((p) => p.country?.trim())
-  const groups = groupBySlug(located, (p) => p.country!.trim()).sort((a, b) => b.places.length - a.places.length)
-  const cities = tallyCities(items)
-  return {
-    total: items.length,
-    countries: groups.length,
-    cities: cities.length,
-    been: items.filter((p) => p.visitStatus === "visited").length,
-    planned: items.filter((p) => p.visitStatus === "planned").length,
-    dreaming: items.filter((p) => p.visitStatus === "not_visited").length,
-    passport: groups.map((g) => ({
-      country: g.name,
-      flag: flagFor(g.name),
-      been: g.places.some((p) => p.visitStatus === "visited"),
-    })),
-  }
-}
+export { coverPhotos, coverStats }
+export type { CoverStats }
 
 function plural(n: number, one: string, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`
@@ -72,16 +21,20 @@ function plural(n: number, one: string, many = `${one}s`) {
  */
 export function LibraryCover({
   items,
+  photos: given,
   stats,
   onShelf,
   onGroup,
 }: {
-  items: LibraryItem[]
+  /** The whole library; the collage is picked from it. */
+  items?: LibraryItem[]
+  /** The collage already picked (the server's first screen has no library to pick from). */
+  photos?: CoverPhoto[]
   stats: CoverStats
   onShelf: (shelf: Shelf) => void
   onGroup: (group: GroupMode) => void
 }) {
-  const photos = React.useMemo(() => coverPhotos(items, 7), [items])
+  const photos = React.useMemo(() => given ?? coverPhotos(items ?? [], 7), [given, items])
   const beenCountries = stats.passport.filter((c) => c.been).length
   const link = "rounded underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-white/70"
   const stat = (n: number, label: string, shelf: Shelf, strong = true) => (

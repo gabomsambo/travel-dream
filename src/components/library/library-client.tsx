@@ -27,7 +27,7 @@ import {
   hasActiveFilters, isPlanningSoon, isRecentlyAdded, parseFilters, parseGroup, parseView, shelfOf, smartOf, sortItems,
   toSearchParams, withShelf, withSmart, type Facet, type FilterContext, type LibraryFilterState, type Shelf, type SmartShelf,
 } from "@/lib/library/filters"
-import { buildSearchIndex, searchLibrary } from "@/lib/library/search"
+import { searchLibrary, startSearchIndex } from "@/lib/library/search"
 import type { GroupMode, LibraryData, LibraryItem, LibraryView, SavedViewRow } from "@/lib/library/types"
 import type { ExportFormat } from "@/types/export"
 import { LibraryActionsProvider, type LibraryActions } from "./library-actions"
@@ -109,7 +109,7 @@ async function runBulk(action: "archive" | "restore" | "delete" | "set-visit-sta
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 const STATUS_LABEL: Record<string, string> = { not_visited: "Dreaming", planned: "Planned", visited: "Been" }
 
-function LibraryPage({ data }: { data: LibraryData }) {
+export function LibraryPage({ data }: { data: LibraryData }) {
   const { items, collections, inboxCount } = data
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -221,10 +221,28 @@ function LibraryPage({ data }: { data: LibraryData }) {
   // ---- hearts, search, filtering --------------------------------------------
   const { hearts, setHearts } = useLibraryHearts({ heartIds: data.heartIds })
   const now = React.useMemo(() => new Date(), [])
-  const index = React.useMemo(() => buildSearchIndex(items), [items])
+  // Indexed in idle time once the page is up. A search typed before that finishes the rest on the spot.
+  const indexBuild = React.useMemo(() => startSearchIndex(items), [items])
+  React.useEffect(() => {
+    const w = window as { requestIdleCallback?: (cb: () => void) => number; cancelIdleCallback?: (id: number) => void }
+    let handle = 0
+    let stopped = false
+    const schedule = () => {
+      handle = w.requestIdleCallback ? w.requestIdleCallback(tick) : window.setTimeout(tick, 16)
+    }
+    const tick = () => {
+      if (!stopped && !indexBuild.step(8)) schedule()
+    }
+    schedule()
+    return () => {
+      stopped = true
+      if (w.cancelIdleCallback) w.cancelIdleCallback(handle)
+      else window.clearTimeout(handle)
+    }
+  }, [indexBuild])
   // Typing stays instant; the page catches up a frame behind on a slow device.
   const deferredSearch = React.useDeferredValue(filters.search)
-  const hits = React.useMemo(() => (deferredSearch.trim() ? searchLibrary(index, deferredSearch) : null), [index, deferredSearch])
+  const hits = React.useMemo(() => (deferredSearch.trim() ? searchLibrary(indexBuild.finish(), deferredSearch) : null), [indexBuild, deferredSearch])
   const searchIds = React.useMemo(() => (hits ? new Set(hits.map((h) => h.id)) : null), [hits])
   const collected = React.useMemo(() => new Set(collections.flatMap((c) => c.placeIds)), [collections])
   // The list follows a deferred copy of the filters. Keyed on `filters` itself, every keystroke

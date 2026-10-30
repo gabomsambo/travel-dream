@@ -1,4 +1,4 @@
-import { buildSearchIndex, editDistance, matchesValue, normalize, searchLibrary } from '@/lib/library/search';
+import { buildSearchIndex, editDistance, matchesValue, normalize, searchLibrary, startSearchIndex } from '@/lib/library/search';
 import { item } from '../helpers/library-items';
 
 const places = [
@@ -92,5 +92,24 @@ describe('search speed', () => {
     for (const q of ['ramen tok', 'lisbn', 'mexico', 'view food', 'parqe']) searchLibrary(idx, q);
     const perQuery = (performance.now() - start) / 5;
     expect(perQuery).toBeLessThan(150);
+  });
+});
+
+describe('an index built a slice at a time', () => {
+  it('ends up the same as one built in a single pass', () => {
+    const build = startSearchIndex(places);
+    let slices = 0;
+    // A zero budget still indexes one place per slice, so a long list takes many.
+    while (!build.step(0)) slices++;
+    expect(slices).toBeGreaterThan(0);
+    expect(build.finish()).toEqual(buildSearchIndex(places));
+  });
+
+  it('can be finished at once by a search that cannot wait', () => {
+    const build = startSearchIndex(places);
+    build.step(0);
+    expect(searchLibrary(build.finish(), 'ramen tokyo').map((h) => h.id)).toEqual(['ichiran']);
+    expect(build.finish().docs).toHaveLength(places.length);
+    expect(build.step(5)).toBe(true);
   });
 });

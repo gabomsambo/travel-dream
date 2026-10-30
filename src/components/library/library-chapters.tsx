@@ -18,7 +18,20 @@ const MemoVirtualGallery = React.memo(VirtualGallery)
 const MemoVirtualEntries = React.memo(VirtualEntries)
 
 /** Header of one chapter: flag, serif name, the counts, and where it continues. */
-function ChapterHeader({ chapter, group, items, collage }: { chapter: Chapter; group: GroupMode; items: LibraryItem[]; collage?: boolean }) {
+export function ChapterHeader({
+  chapter,
+  group,
+  items,
+  collage,
+  summary,
+}: {
+  chapter: Omit<Chapter, "items">
+  group: GroupMode
+  items: LibraryItem[]
+  collage?: boolean
+  /** The summary line when `items` is only the chapter's first few (the server's first screen). */
+  summary?: string
+}) {
   const photos = collage ? items.filter((p) => p.photos.length).slice(0, 3).map((p) => p.photos[0].thumb) : []
   const isCountry = group === "country" && chapter.key !== "country:none"
   return (
@@ -39,7 +52,7 @@ function ChapterHeader({ chapter, group, items, collage }: { chapter: Chapter; g
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">{chapter.eyebrow}</p>
         )}
         <h2 className="font-editorial text-[38px] leading-[0.9] sm:text-[56px]">{chapter.title}</h2>
-        <p className="mt-2 text-[12px] text-muted-foreground sm:text-[13px]">{chapterSummary(items, group !== "city")}</p>
+        <p className="mt-2 text-[12px] text-muted-foreground sm:text-[13px]">{summary ?? chapterSummary(items, group !== "city")}</p>
       </div>
       {chapter.href && (
         <div className="ml-auto hidden items-center gap-3 pb-1 sm:flex">

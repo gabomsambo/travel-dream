@@ -4,7 +4,7 @@ import { storedCitiesMatching } from '@/lib/city-names';
 import { usablePin } from '@/lib/place-coords';
 import { forUser } from '@/lib/tenant-db';
 import { parseBestTime } from './best-time';
-import type { ExploreCollection, ExplorePlace } from './types';
+import type { ExploreCollection, ExplorePhoto, ExplorePlace } from './types';
 
 /** Explore browses what the user has kept: confirmed (library) and not-yet-reviewed (inbox). Archived stays out. */
 const BROWSABLE = ['library', 'inbox'];
@@ -64,6 +64,25 @@ interface PhotoRow {
   source: string;
 }
 
+/** One place's photo rows as the client shows them: primary first, `/uploads/` leftovers dropped, capped. */
+function toExplorePhotos(photos: PhotoRow[]): ExplorePhoto[] {
+  return [...photos]
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.createdAt.localeCompare(b.createdAt))
+    // Both sizes travel together. `Photo` picks per box: the small ones use the
+    // thumbnail, the rest start from the full image and are resized to the box,
+    // so a photo with no thumbnail of its own (`thumb` falls back to `uri`)
+    // still never lands in a tile at full size.
+    .map((a) => ({
+      uri: a.uri,
+      thumb: a.thumb || a.uri,
+      attribution: a.attribution ?? null,
+      source: a.source,
+    }))
+    // Pre-Blob /uploads/ rows never existed on Vercel; treat them as missing (AGENTS.md § File Storage).
+    .filter((p) => !p.uri.startsWith('/uploads/'))
+    .slice(0, PHOTOS_PER_PLACE);
+}
+
 /**
  * The shared projection from place + photo rows to `ExplorePlace`. Both queries
  * below feed it, so the photo ordering, `/uploads/` filtering and status
@@ -75,21 +94,7 @@ function mapExplorePlaces(rows: PlaceRow[], photos: PhotoRow[]): ExplorePlace[] 
 
   return rows.map((r) => {
     const coords = usablePin(r.coords && typeof r.coords === 'object' ? r.coords : null);
-    const pics = (byPlace.get(r.id) ?? [])
-      .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.createdAt.localeCompare(b.createdAt))
-      // Both sizes travel together. `Photo` picks per box: the small ones use the
-      // thumbnail, the rest start from the full image and are resized to the box,
-      // so a photo with no thumbnail of its own (`thumb` falls back to `uri`)
-      // still never lands in a tile at full size.
-      .map((a) => ({
-        uri: a.uri,
-        thumb: a.thumb || a.uri,
-        attribution: a.attribution ?? null,
-        source: a.source,
-      }))
-      // Pre-Blob /uploads/ rows never existed on Vercel; treat them as missing (AGENTS.md § File Storage).
-      .filter((p) => !p.uri.startsWith('/uploads/'))
-      .slice(0, PHOTOS_PER_PLACE);
+    const pics = toExplorePhotos(byPlace.get(r.id) ?? []);
     const visit = r.visitStatus === 'visited' || r.visitStatus === 'planned' ? r.visitStatus : 'not_visited';
     return {
       id: r.id, name: r.name, kind: r.kind, city: r.city, country: r.country, description: r.description, notes: r.notes,
@@ -120,6 +125,21 @@ async function queryExplorePlaces(
 export async function getExplorePlaces(userId: string): Promise<ExplorePlace[]> {
   const scoped = forUser(userId);
   return queryExplorePlaces(scoped, inArray(places.status, BROWSABLE), eq(attachments.type, 'photo'));
+}
+
+/**
+ * One place's photos, primary first, for the quick-look sheet — the Library's
+ * index carries only the first. Empty for a place that is not the caller's: the
+ * photo rows are scoped through the caller's places, so another tenant's place
+ * id finds nothing.
+ */
+export async function getPlacePhotos(userId: string, placeId: string): Promise<ExplorePhoto[]> {
+  const photos = await forUser(userId).selectFieldsVia(
+    attachments,
+    PHOTO_FIELDS,
+    and(eq(attachments.placeId, placeId), eq(attachments.type, 'photo'))
+  );
+  return toExplorePhotos(photos);
 }
 
 /**

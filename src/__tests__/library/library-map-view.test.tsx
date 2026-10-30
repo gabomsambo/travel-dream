@@ -2,7 +2,7 @@ import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LibraryMapView } from '@/components/library/library-map-view'
-import { LibraryActionsContext, type LibraryActions } from '@/components/library/library-actions'
+import { LibraryActionsProvider, type LibraryActions } from '@/components/library/library-actions'
 import type { CoverStats } from '@/components/library/library-cover'
 import { item } from '../helpers/library-items'
 
@@ -48,9 +48,9 @@ const stats: CoverStats = {
 
 function renderView() {
   return render(
-    <LibraryActionsContext.Provider value={actions}>
+    <LibraryActionsProvider value={actions}>
       <LibraryMapView chapters={[{ key: 'all', title: 'All', items }]} items={items} siblings={items.map((p) => p.id)} stats={stats} />
-    </LibraryActionsContext.Provider>
+    </LibraryActionsProvider>
   )
 }
 
@@ -78,9 +78,9 @@ describe('LibraryMapView selection', () => {
     const activate = jest.fn()
     const siblings = items.map((p) => p.id)
     render(
-      <LibraryActionsContext.Provider value={{ ...actions, selecting: true, activate }}>
+      <LibraryActionsProvider value={{ ...actions, selecting: true, activate }}>
         <LibraryMapView chapters={[{ key: 'all', title: 'All', items }]} items={items} siblings={siblings} stats={stats} />
-      </LibraryActionsContext.Provider>
+      </LibraryActionsProvider>
     )
     const row = (id: string) => {
       const el = document.querySelector<HTMLButtonElement>(`button[data-place-id="${id}"]`)

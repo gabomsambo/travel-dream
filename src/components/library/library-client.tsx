@@ -30,7 +30,7 @@ import {
 import { buildSearchIndex, searchLibrary } from "@/lib/library/search"
 import type { GroupMode, LibraryData, LibraryItem, LibraryView, SavedViewRow } from "@/lib/library/types"
 import type { ExportFormat } from "@/types/export"
-import { LibraryActionsContext, type LibraryActions } from "./library-actions"
+import { LibraryActionsProvider, type LibraryActions } from "./library-actions"
 import { AddToCollectionDialog } from "./library-add-to-collection"
 import { LibraryBulkBar, STATUS_OPTIONS, type VisitStatus } from "./library-bulk-bar"
 import { LibraryCommandBar, type FacetOptions, type SuggestionFacet } from "./library-command-bar"
@@ -52,6 +52,9 @@ export const SPARSE_THRESHOLD = 12
 
 /** The bulk-actions route takes at most this many ids per request. */
 const BULK_BATCH = 500
+
+/** What the filters see as hearts everywhere but the Hearts shelf, so a heart elsewhere re-lists nothing. */
+const NO_HEARTS = new Set<string>()
 
 export function LibraryClient({ data }: { data: LibraryData }) {
   return (
@@ -124,25 +127,32 @@ function LibraryPage({ data }: { data: LibraryData }) {
   // steps back through them; typing replaces the current one.
   const pushNext = React.useRef(false)
 
+  // A discrete change re-lists the whole library, so it renders as a transition: the click
+  // paints first and the page follows, instead of the press waiting on the render.
+  // Typing is the exception and stays urgent.
   const update = React.useCallback((patch: Partial<LibraryFilterState>, push = true) => {
-    if (push) pushNext.current = true
-    setFilters((f) => ({ ...f, ...patch }))
+    if (!push) {
+      setFilters((f) => ({ ...f, ...patch }))
+      return
+    }
+    pushNext.current = true
+    React.startTransition(() => setFilters((f) => ({ ...f, ...patch })))
   }, [])
   const replaceFilters = React.useCallback((next: LibraryFilterState) => {
     pushNext.current = true
-    setFilters(next)
+    React.startTransition(() => setFilters(next))
   }, [])
   const setView = React.useCallback((v: LibraryView) => {
     pushNext.current = true
-    setViewState(v)
+    React.startTransition(() => setViewState(v))
   }, [])
   const setSort = React.useCallback((s: string) => {
     pushNext.current = true
-    setSortState(s)
+    React.startTransition(() => setSortState(s))
   }, [])
   const setGroup = React.useCallback((g: GroupMode) => {
     pushNext.current = true
-    setGroupState(g)
+    React.startTransition(() => setGroupState(g))
   }, [])
 
   const query = React.useMemo(() => toSearchParams(filters, { view, sort, group }).toString(), [filters, view, sort, group])
@@ -168,10 +178,12 @@ function LibraryPage({ data }: { data: LibraryData }) {
   React.useEffect(() => {
     const onPop = () => {
       const p = new URLSearchParams(window.location.search)
-      setFilters(parseFilters(p))
-      setViewState(parseView(p.get("view"), fallbackView))
-      setSortState(p.get("sort") || DEFAULT_SORT)
-      setGroupState(parseGroup(p.get("group")))
+      React.startTransition(() => {
+        setFilters(parseFilters(p))
+        setViewState(parseView(p.get("view"), fallbackView))
+        setSortState(p.get("sort") || DEFAULT_SORT)
+        setGroupState(parseGroup(p.get("group")))
+      })
     }
     window.addEventListener("popstate", onPop)
     return () => window.removeEventListener("popstate", onPop)
@@ -186,11 +198,13 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const hits = React.useMemo(() => (deferredSearch.trim() ? searchLibrary(index, deferredSearch) : null), [index, deferredSearch])
   const searchIds = React.useMemo(() => (hits ? new Set(hits.map((h) => h.id)) : null), [hits])
   const collected = React.useMemo(() => new Set(collections.flatMap((c) => c.placeIds)), [collections])
-  const ctx = React.useMemo<FilterContext>(() => ({ searchIds, hearts, collected, now }), [searchIds, hearts, collected, now])
-
   // The list follows a deferred copy of the filters. Keyed on `filters` itself, every keystroke
   // re-filtered, re-sorted and re-chaptered the page inside the urgent update.
   const listFilters = React.useDeferredValue(filters)
+  // Hearts only decide what is listed on the Hearts shelf. Anywhere else a heart must not
+  // rebuild the context, or it re-filters, re-sorts and re-chapters every place in the library.
+  const filterHearts = filters.hearts || listFilters.hearts ? hearts : NO_HEARTS
+  const ctx = React.useMemo<FilterContext>(() => ({ searchIds, hearts: filterHearts, collected, now }), [searchIds, filterHearts, collected, now])
   const filtered = React.useMemo(() => filterItems(items, listFilters, ctx), [items, listFilters, ctx])
   const sorted = React.useMemo(() => sortItems(filtered, sort), [filtered, sort])
   const sparse = items.length < SPARSE_THRESHOLD
@@ -276,10 +290,12 @@ function LibraryPage({ data }: { data: LibraryData }) {
     (v: SavedViewRow) => {
       const p = new URLSearchParams(v.query)
       pushNext.current = true
-      setFilters(parseFilters(p))
-      setViewState(parseView(p.get("view"), "grid"))
-      setSortState(p.get("sort") || DEFAULT_SORT)
-      setGroupState(parseGroup(p.get("group")))
+      React.startTransition(() => {
+        setFilters(parseFilters(p))
+        setViewState(parseView(p.get("view"), "grid"))
+        setSortState(p.get("sort") || DEFAULT_SORT)
+        setGroupState(parseGroup(p.get("group")))
+      })
     },
     []
   )
@@ -670,7 +686,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
   )
 
   return (
-    <LibraryActionsContext.Provider value={actions}>
+    <LibraryActionsProvider value={actions}>
       {empty || sparse ? <SparseCover total={items.length} countries={stats.countries} /> : <LibraryCover items={items} stats={stats} onShelf={setShelf} onGroup={setGroup} />}
 
       {!empty && (
@@ -846,7 +862,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </LibraryActionsContext.Provider>
+    </LibraryActionsProvider>
   )
 }
 

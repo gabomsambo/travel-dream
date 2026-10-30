@@ -11,11 +11,16 @@ export interface ActivateOptions {
 /**
  * What a place on the Library page can do, provided once by `LibraryClient` so
  * tiles, journal entries, list rows and map rows stay presentational.
+ *
+ * This is what the page hands to `LibraryActionsProvider`, rebuilt whenever
+ * hearts or the selection change. Places never read it directly: they get the
+ * stable functions from `useLibraryActions` and subscribe to their own heart
+ * and selection state, so one heart re-renders one tile, not the screen.
  */
 export interface LibraryActions {
-  hearts: Set<string>
+  hearts: ReadonlySet<string>
   toggleHeart: (id: string) => void
-  selected: Set<string>
+  selected: ReadonlySet<string>
   /** True while anything is selected or Select is switched on: clicks then toggle. */
   selecting: boolean
   toggleSelect: (id: string, opts?: ActivateOptions) => void
@@ -30,12 +35,109 @@ export interface LibraryActions {
   findImage: (item: LibraryItem) => void
 }
 
-export const LibraryActionsContext = React.createContext<LibraryActions | null>(null)
+/** The part of `LibraryActions` that does things; its identity never changes. */
+export type LibraryActionFns = Omit<LibraryActions, "hearts" | "selected" | "selecting">
 
-export function useLibraryActions(): LibraryActions {
+/** The part that places subscribe to, one id at a time. */
+export interface LibraryLiveState {
+  hearts: ReadonlySet<string>
+  selected: ReadonlySet<string>
+  selecting: boolean
+}
+
+export interface LibraryLive {
+  get: () => LibraryLiveState
+  set: (next: LibraryLiveState) => void
+  subscribe: (listener: () => void) => () => void
+}
+
+export function createLibraryLive(initial: LibraryLiveState): LibraryLive {
+  let snapshot = initial
+  const listeners = new Set<() => void>()
+  return {
+    get: () => snapshot,
+    set: (next) => {
+      if (next.hearts === snapshot.hearts && next.selected === snapshot.selected && next.selecting === snapshot.selecting) return
+      snapshot = next
+      listeners.forEach((listener) => listener())
+    },
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+  }
+}
+
+interface LibraryActionsContextValue {
+  fns: LibraryActionFns
+  live: LibraryLive
+}
+
+const LibraryActionsContext = React.createContext<LibraryActionsContextValue | null>(null)
+
+// A layout effect on the client; the server renders once and never runs either.
+const useCommitEffect = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect
+
+/**
+ * Publishes `value` to the places beneath it without re-rendering them when it
+ * changes. The functions are a fixed facade over the latest `value`; hearts and
+ * selection reach places through a store they subscribe to by id.
+ */
+export function LibraryActionsProvider({ value, children }: { value: LibraryActions; children: React.ReactNode }) {
+  const latest = React.useRef(value)
+  const [ctx] = React.useState<LibraryActionsContextValue>(() => ({
+    fns: {
+      toggleHeart: (id) => latest.current.toggleHeart(id),
+      toggleSelect: (id, opts) => latest.current.toggleSelect(id, opts),
+      select: (id) => latest.current.select(id),
+      activate: (id, siblings, opts) => latest.current.activate(id, siblings, opts),
+      openPlace: (id, siblings) => latest.current.openPlace(id, siblings),
+      archive: (ids) => latest.current.archive(ids),
+      remove: (ids) => latest.current.remove(ids),
+      addToCollection: (ids) => latest.current.addToCollection(ids),
+      findImage: (item) => latest.current.findImage(item),
+    },
+    live: createLibraryLive({ hearts: value.hearts, selected: value.selected, selecting: value.selecting }),
+  }))
+  // After commit, never during render: a render that is thrown away must not leak into the store.
+  useCommitEffect(() => {
+    latest.current = value
+    ctx.live.set({ hearts: value.hearts, selected: value.selected, selecting: value.selecting })
+  })
+  return <LibraryActionsContext.Provider value={ctx}>{children}</LibraryActionsContext.Provider>
+}
+
+function useLibraryContext(): LibraryActionsContextValue {
   const ctx = React.useContext(LibraryActionsContext)
-  if (!ctx) throw new Error("useLibraryActions must be used inside <LibraryActionsContext.Provider>")
+  if (!ctx) throw new Error("Library places must be rendered inside <LibraryActionsProvider>")
   return ctx
+}
+
+/** What a place can do. Never changes identity, so reading it never re-renders. */
+export function useLibraryActions(): LibraryActionFns {
+  return useLibraryContext().fns
+}
+
+/** Re-renders only when this selector's (primitive) result changes. */
+function useLibraryLive<T extends boolean>(select: (s: LibraryLiveState) => T): T {
+  const { live } = useLibraryContext()
+  const read = () => select(live.get())
+  return React.useSyncExternalStore(live.subscribe, read, read)
+}
+
+export function useIsHearted(id: string): boolean {
+  return useLibraryLive((s) => s.hearts.has(id))
+}
+
+export function useIsSelected(id: string): boolean {
+  return useLibraryLive((s) => s.selected.has(id))
+}
+
+/** True while Select mode is on or anything is selected. */
+export function useIsSelecting(): boolean {
+  return useLibraryLive((s) => s.selecting)
 }
 
 /**

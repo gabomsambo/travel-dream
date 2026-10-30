@@ -230,14 +230,13 @@ export function smartOf(f: LibraryFilterState): Set<SmartShelf> {
 }
 
 /**
- * Picking a smart shelf replaces any other smart shelf (they are shelves, not
- * stacking filters); picking the only active one again turns it off. Search
- * and the filter bar's other filters stay as they are.
+ * Force a smart shelf on or off. Picking one on replaces any other smart shelf
+ * (they are shelves, not stacking filters). `on: false` or a null shelf clears
+ * smart fields. Search and the filter bar's other filters stay as they are.
  */
-export function withSmart(f: LibraryFilterState, shelf: SmartShelf | null): LibraryFilterState {
+export function withSmart(f: LibraryFilterState, shelf: SmartShelf | null, on = true): LibraryFilterState {
   const off = { ...f, soonWeeks: 0, addedDays: 0, uncollected: false, photo: f.photo === 'without' ? 'any' : f.photo } as LibraryFilterState;
-  const active = smartOf(f);
-  if (!shelf || (active.size === 1 && active.has(shelf))) return off;
+  if (!shelf || !on) return off;
   switch (shelf) {
     case 'soon':
       return { ...off, soonWeeks: f.soonWeeks || DEFAULT_SOON_WEEKS };

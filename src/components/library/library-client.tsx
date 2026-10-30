@@ -754,7 +754,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
             counts={smartCounts}
             active={smart}
             soonWeeks={filters.soonWeeks || 8}
-            onSmart={(s) => replaceFilters((f) => withSmart(f, s))}
+            onSmart={(s, on) => replaceFilters((f) => withSmart(f, s, on))}
             onSoonWeeks={(w) => update({ soonWeeks: w })}
             views={views}
             activeViewId={activeView?.id ?? null}

@@ -180,7 +180,7 @@ export function LibrarySmartShelves({
   counts: Record<SmartShelf, number>
   active: Set<SmartShelf>
   soonWeeks: number
-  onSmart: (s: SmartShelf) => void
+  onSmart: (s: SmartShelf, on: boolean) => void
   onSoonWeeks: (weeks: number) => void
   views: SavedViewRow[]
   activeViewId: string | null
@@ -213,7 +213,7 @@ export function LibrarySmartShelves({
         if (s.value === "soon" && on) {
           return (
             <span key={s.value} className={cn("inline-flex h-8 shrink-0 items-center rounded-full", chipOn)}>
-              <button type="button" aria-pressed onClick={() => onSmart(s.value)} title={s.title} className="inline-flex h-full items-center gap-1.5 rounded-l-full pl-3 pr-1.5 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <button type="button" aria-pressed onClick={() => onSmart(s.value, false)} title={s.title} className="inline-flex h-full items-center gap-1.5 rounded-l-full pl-3 pr-1.5 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 {body}
               </button>
               <DropdownMenu modal={false}>
@@ -237,7 +237,7 @@ export function LibrarySmartShelves({
           )
         }
         return (
-          <button key={s.value} type="button" aria-pressed={on} onClick={() => onSmart(s.value)} title={s.title} className={cn(chip, on ? chipOn : chipOff)}>
+          <button key={s.value} type="button" aria-pressed={on} onClick={() => onSmart(s.value, !on)} title={s.title} className={cn(chip, on ? chipOn : chipOff)}>
             {body}
           </button>
         )

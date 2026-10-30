@@ -208,4 +208,45 @@ describe('discrete filter transitions vs urgent search', () => {
     expect(window.history.length).toBe(afterVisited)
     expect(screen.getByRole('button', { name: /Planned\s*2/ })).toHaveAttribute('aria-pressed', 'false')
   })
+
+  it('keeps a repeated smart-shelf click as click-time on/off, not a re-toggle', async () => {
+    render(<LibraryClient data={data} />)
+    const chip = () => screen.getByRole('button', { name: /No collection\s*12/ })
+    holdTransitions = true
+    fireEvent.click(chip())
+    fireEvent.click(chip())
+    expect(pending.length).toBe(2)
+    expect(chip()).toHaveAttribute('aria-pressed', 'false')
+    flushHeld()
+    await waitFor(() => expect(chip()).toHaveAttribute('aria-pressed', 'true'))
+    holdTransitions = true
+    fireEvent.click(chip())
+    fireEvent.click(chip())
+    expect(pending.length).toBe(2)
+    expect(chip()).toHaveAttribute('aria-pressed', 'true')
+    flushHeld()
+    await waitFor(() => expect(chip()).toHaveAttribute('aria-pressed', 'false'))
+  })
+
+  it('keeps repeated Set facet clicks as click-time on/off, not a re-toggle', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: 'Country' }))
+    const italy = await screen.findByRole('checkbox', { name: /Italy/ })
+    holdTransitions = true
+    fireEvent.click(italy)
+    fireEvent.click(italy)
+    expect(pending.length).toBe(2)
+    expect(italy).toHaveAttribute('aria-checked', 'false')
+    flushHeld()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove filter 🇮🇹 Italy' })).toBeInTheDocument())
+    const italyOn = screen.getByRole('checkbox', { name: /Italy/ })
+    expect(italyOn).toHaveAttribute('aria-checked', 'true')
+    holdTransitions = true
+    fireEvent.click(italyOn)
+    fireEvent.click(italyOn)
+    expect(pending.length).toBe(2)
+    flushHeld()
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Remove filter .*Italy/ })).not.toBeInTheDocument())
+  })
 })

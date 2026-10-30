@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRouter } from 'next/navigation'
 import { parseBestTime } from '@/lib/explore/best-time'
@@ -163,5 +163,126 @@ describe('PlaceSheet "Also in" when the page holds only what it renders', () => 
     await userEvent.click(screen.getByRole('button', { name: 'Open miradouro' }))
     expect(await screen.findByRole('button', { name: 'Praça' })).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('PlaceSheet place photos', () => {
+  const originalFetch = global.fetch
+  const fetchMock = jest.fn()
+
+  const photo = (uri: string) => ({ uri, thumb: uri })
+
+  function photosReply(map: Record<string, ReturnType<typeof photo>[]>) {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (!String(url).startsWith('/api/library/photos/')) {
+        return { ok: false, json: async () => ({}) }
+      }
+      const id = decodeURIComponent(url.split('/').pop() ?? '')
+      return { ok: id in map, json: async () => ({ photos: map[id] ?? [] }) }
+    })
+  }
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    global.fetch = fetchMock as unknown as typeof fetch
+  })
+  afterAll(() => {
+    global.fetch = originalFetch
+  })
+
+  it('keeps the richer first-screen photos while the slim index refetch is in flight', async () => {
+    let release!: (body: { photos: ReturnType<typeof photo>[] }) => void
+    const pending = new Promise<{ photos: ReturnType<typeof photo>[] }>((resolve) => {
+      release = resolve
+    })
+    fetchMock.mockImplementation(async (url: string) => {
+      if (!String(url).startsWith('/api/library/photos/')) {
+        return { ok: false, json: async () => ({}) }
+      }
+      const body = await pending
+      return { ok: true, json: async () => body }
+    })
+
+    const rich = place({
+      id: 'miradouro',
+      name: 'Miradouro',
+      city: 'Lisbon',
+      country: 'Portugal',
+      photos: [photo('a'), photo('b'), photo('c'), photo('d')],
+      photoCount: 4,
+    })
+    const slim = place({
+      id: 'miradouro',
+      name: 'Miradouro',
+      city: 'Lisbon',
+      country: 'Portugal',
+      photos: [photo('a')],
+      photoCount: 4,
+    })
+
+    const { rerender } = render(
+      <ExploreProvider places={[rich]} collections={[]}>
+        <Open id="miradouro" />
+      </ExploreProvider>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Open miradouro' }))
+    expect(await screen.findAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    rerender(
+      <ExploreProvider places={[slim]} collections={[]}>
+        <Open id="miradouro" />
+      </ExploreProvider>,
+    )
+    expect(screen.getAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/library/photos/miradouro', expect.anything()))
+
+    await act(async () => release({ photos: [photo('a'), photo('b'), photo('c'), photo('d')] }))
+    expect(await screen.findAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
+  })
+
+  it('drops a stale photos fetch when the index cover or count changes', async () => {
+    photosReply({
+      miradouro: [photo('a'), photo('b'), photo('c')],
+    })
+    const slim = place({
+      id: 'miradouro',
+      name: 'Miradouro',
+      city: 'Lisbon',
+      country: 'Portugal',
+      photos: [photo('a')],
+      photoCount: 3,
+    })
+    const { rerender } = render(
+      <ExploreProvider places={[slim]} collections={[]}>
+        <Open id="miradouro" />
+      </ExploreProvider>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Open miradouro' }))
+    expect(await screen.findAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(3)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    photosReply({
+      miradouro: [photo('new'), photo('b'), photo('c'), photo('d')],
+    })
+    const edited = place({
+      id: 'miradouro',
+      name: 'Miradouro',
+      city: 'Lisbon',
+      country: 'Portugal',
+      photos: [photo('new')],
+      photoCount: 4,
+    })
+    rerender(
+      <ExploreProvider places={[edited]} collections={[]}>
+        <Open id="miradouro" />
+      </ExploreProvider>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Open miradouro' }))
+    expect(await screen.findAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
+    expect(screen.getAllByRole('button', { name: /^Photo \d$/ })).toHaveLength(4)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/library/photos/'))).toHaveLength(2)
   })
 })

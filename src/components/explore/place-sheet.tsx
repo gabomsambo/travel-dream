@@ -53,32 +53,58 @@ function useRemoteSameCity(placeId: string | undefined, enabled: boolean) {
   return byPlace
 }
 
+/** Cache key for a place's photo set as the index describes it (count + cover). */
+function placePhotosCacheKey(place: ExplorePlace): string {
+  const count = place.photoCount ?? place.photos.length
+  return `${place.id}:${count}:${place.photos[0]?.uri ?? ""}`
+}
+
 /**
  * A place's photos for the sheet. A place that carries only its first photo
  * (the Library's index does, with a count) asks the server for the rest when it
- * is opened; until they arrive the sheet shows the one it has.
+ * is opened; until they arrive the sheet keeps whatever richer list it already
+ * held rather than shrinking to the slim wire photo.
  */
 function usePlacePhotos(place: ExplorePlace | undefined): ExplorePhoto[] {
-  const [byPlace, setByPlace] = React.useState<Record<string, ExplorePhoto[]>>({})
+  const [byKey, setByKey] = React.useState<Record<string, ExplorePhoto[]>>({})
+  const richer = React.useRef<{ key: string; photos: ExplorePhoto[] } | null>(null)
   const id = place?.id
+  const key = place ? placePhotosCacheKey(place) : undefined
   const wanted = place !== undefined && (place.photoCount ?? place.photos.length) > place.photos.length
-  const have = id !== undefined && byPlace[id] !== undefined
+  const have = key !== undefined && byKey[key] !== undefined
 
   React.useEffect(() => {
-    if (!id || !wanted || have) return
+    if (!id || !key || !wanted || have) return
     const controller = new AbortController()
+    const requestKey = key
     fetch(`/api/library/photos/${encodeURIComponent(id)}`, { signal: controller.signal })
       .then((res) => (res.ok ? (res.json() as Promise<{ photos?: ExplorePhoto[] }>) : null))
       .then((body) => {
-        if (body && Array.isArray(body.photos)) setByPlace((prev) => ({ ...prev, [id]: body.photos! }))
+        if (body && Array.isArray(body.photos)) setByKey((prev) => ({ ...prev, [requestKey]: body.photos! }))
       })
       .catch(() => {
         // The first photo is already showing; the next open asks again.
       })
     return () => controller.abort()
-  }, [id, wanted, have])
+  }, [id, key, wanted, have])
 
-  return (id !== undefined ? byPlace[id] : undefined) ?? place?.photos ?? []
+  const wire = place?.photos ?? []
+  if (!key) return wire
+
+  if (have) {
+    const photos = byKey[key]
+    richer.current = { key, photos }
+    return photos
+  }
+
+  const prev = richer.current
+  if (!prev || prev.key !== key || wire.length >= prev.photos.length) {
+    richer.current = { key, photos: wire }
+  }
+  if (wanted && richer.current.key === key && richer.current.photos.length > wire.length) {
+    return richer.current.photos
+  }
+  return wire
 }
 
 export function PlaceSheet({

@@ -154,4 +154,31 @@ describe('LibraryIndexed', () => {
     expect(screen.getByPlaceholderText('Search your atlas…')).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('/api/library/index'))
   })
+
+  it('keeps the stale library on screen and offers Try again when a newer index fails', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementation(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(indexBody()) }))
+    const { rerender } = render(<LibraryIndexed seed={seed} />)
+    await screen.findByPlaceholderText('Search your atlas…')
+
+    fetchMock.mockImplementation(() => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }))
+    const nextSeed = { ...seed, version: 'v2' }
+    rerender(<LibraryIndexed seed={nextSeed} />)
+
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/Couldn.t refresh your library/)
+    expect(screen.getByPlaceholderText('Search your atlas…')).toBeInTheDocument()
+    expect(screen.getByText('200 places', { selector: 'p.sr-only' })).toBeInTheDocument()
+
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(JSON.parse(JSON.stringify(encodeIndex({ version: 'v2', items, collections })))),
+      })
+    )
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument())
+    expect(screen.getByPlaceholderText('Search your atlas…')).toBeInTheDocument()
+  })
 })

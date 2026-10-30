@@ -94,4 +94,44 @@ describe('useLibraryIndex', () => {
     await waitFor(() => expect(result.current.error).toBe(true))
     expect(result.current.index?.version).toBe('v1')
   })
+
+  it('treats a successful response as satisfying the requested version even when the body is newer', async () => {
+    fetchMock.mockReturnValue(answer(body('v2', ['a', 'b'])))
+    const { result } = renderHook(() => useLibraryIndex('usr_1', 'v1'))
+
+    await waitFor(() => expect(result.current.index?.version).toBe('v2'))
+    expect(result.current.index?.items.map((p) => p.id)).toEqual(['a', 'b'])
+    expect(result.current.error).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/library/index?v=v1')
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20))
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a late response for an older request once a newer version was asked for', async () => {
+    let releaseV1!: (b: unknown) => void
+    let releaseV2!: (b: unknown) => void
+    fetchMock
+      .mockReturnValueOnce(new Promise((resolve) => (releaseV1 = (b) => resolve({ ok: true, status: 200, json: () => Promise.resolve(b) }))))
+      .mockReturnValueOnce(new Promise((resolve) => (releaseV2 = (b) => resolve({ ok: true, status: 200, json: () => Promise.resolve(b) }))))
+
+    const { result, rerender } = renderHook(({ v }) => useLibraryIndex('usr_1', v), { initialProps: { v: 'v1' } })
+    expect(fetchMock).toHaveBeenCalledWith('/api/library/index?v=v1')
+
+    rerender({ v: 'v2' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/library/index?v=v2')
+
+    await act(async () => releaseV2(body('v2', ['new'])))
+    await waitFor(() => expect(result.current.index?.items.map((p) => p.id)).toEqual(['new']))
+
+    await act(async () => releaseV1(body('v1', ['stale'])))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20))
+    })
+    expect(result.current.index?.items.map((p) => p.id)).toEqual(['new'])
+    expect(result.current.index?.version).toBe('v2')
+  })
 })

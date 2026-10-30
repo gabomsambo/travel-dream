@@ -7,6 +7,11 @@
  * Stale while revalidating: when the page asks for a newer version, the older
  * copy stays on screen until the new one lands, so the Library never falls back
  * to its first screen after an edit.
+ *
+ * A successful response satisfies the *requested* `?v=` even when the body is
+ * labelled with a newer version (the route's stale-`?v=` contract). Late
+ * responses for an older request are ignored once a newer version has been
+ * asked for.
  */
 import * as React from 'react';
 import { decodeIndex, type LibraryIndexContent } from './wire';
@@ -14,12 +19,17 @@ import { decodeIndex, type LibraryIndexContent } from './wire';
 interface Entry {
   index: LibraryIndexContent | null;
   error: boolean;
+  /** Requested versions whose fetch completed successfully (body may be newer). */
+  satisfied: ReadonlySet<string>;
 }
 
-const EMPTY: Entry = { index: null, error: false };
+const EMPTY_SATISFIED: ReadonlySet<string> = new Set();
+const EMPTY: Entry = { index: null, error: false, satisfied: EMPTY_SATISFIED };
 
 const entries = new Map<string, Entry>();
 const inflight = new Map<string, Promise<void>>();
+/** Latest version each user has asked for; responses for anything else are dropped. */
+const latestRequested = new Map<string, string>();
 const listeners = new Set<() => void>();
 
 function publish(userId: string, entry: Entry) {
@@ -34,6 +44,11 @@ function subscribe(listener: () => void) {
   };
 }
 
+function isHeld(entry: Entry | undefined, version: string): boolean {
+  if (!entry) return false;
+  return entry.index?.version === version || entry.satisfied.has(version);
+}
+
 async function fetchIndex(version: string): Promise<LibraryIndexContent> {
   const res = await fetch(`/api/library/index?v=${encodeURIComponent(version)}`);
   if (!res.ok) throw new Error(`Library index failed (${res.status})`);
@@ -44,13 +59,28 @@ async function fetchIndex(version: string): Promise<LibraryIndexContent> {
 
 /** Starts loading `version` unless it is already held or on its way. */
 export function ensureIndex(userId: string, version: string): void {
-  const held = entries.get(userId);
-  if (held?.index?.version === version) return;
+  if (isHeld(entries.get(userId), version)) return;
   const key = `${userId}:${version}`;
   if (inflight.has(key)) return;
+  latestRequested.set(userId, version);
+  const requested = version;
   const run = fetchIndex(version)
-    .then((index) => publish(userId, { index, error: false }))
-    .catch(() => publish(userId, { index: entries.get(userId)?.index ?? null, error: true }))
+    .then((index) => {
+      if (latestRequested.get(userId) !== requested) return;
+      const prev = entries.get(userId);
+      const satisfied = new Set(prev?.satisfied ?? EMPTY_SATISFIED);
+      satisfied.add(requested);
+      publish(userId, { index, error: false, satisfied });
+    })
+    .catch(() => {
+      if (latestRequested.get(userId) !== requested) return;
+      const prev = entries.get(userId);
+      publish(userId, {
+        index: prev?.index ?? null,
+        error: true,
+        satisfied: prev?.satisfied ?? EMPTY_SATISFIED,
+      });
+    })
     .finally(() => inflight.delete(key));
   inflight.set(key, run);
 }
@@ -59,6 +89,7 @@ export function ensureIndex(userId: string, version: string): void {
 export function clearLibraryIndex(): void {
   entries.clear();
   inflight.clear();
+  latestRequested.clear();
   listeners.forEach((l) => l());
 }
 
@@ -73,12 +104,17 @@ export function useLibraryIndex(userId: string, version: string): { index: Libra
     () => entries.get(userId) ?? EMPTY,
     () => EMPTY
   );
-  const held = entry.index?.version === version;
+  const held = isHeld(entry, version);
   React.useEffect(() => {
     if (!held) ensureIndex(userId, version);
   }, [userId, version, held]);
   const retry = React.useCallback(() => {
-    publish(userId, { index: entries.get(userId)?.index ?? null, error: false });
+    const prev = entries.get(userId);
+    publish(userId, {
+      index: prev?.index ?? null,
+      error: false,
+      satisfied: prev?.satisfied ?? EMPTY_SATISFIED,
+    });
     ensureIndex(userId, version);
   }, [userId, version]);
   return { index: entry.index, error: entry.error && !held, retry };

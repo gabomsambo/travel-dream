@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/adapters/dropdown-menu"
 import type { LibraryItem } from "@/lib/library/types"
-import { useLibraryActions } from "./library-actions"
+import { useIsHearted, useIsSelected, useLibraryActions } from "./library-actions"
 
 /**
  * The ⋯ menu every Library view shares: look, open, heart, add to a
@@ -31,7 +31,8 @@ export function LibraryPlaceMenu({
   className?: string
 }) {
   const a = useLibraryActions()
-  const hearted = a.hearts.has(item.id)
+  const hearted = useIsHearted(item.id)
+  const selected = useIsSelected(item.id)
 
   return (
     <DropdownMenu modal={false}>
@@ -72,7 +73,7 @@ export function LibraryPlaceMenu({
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={() => a.select(item.id)}>
-          <SquareCheck className="mr-2 h-4 w-4" /> {a.selected.has(item.id) ? "Deselect" : "Select"}
+          <SquareCheck className="mr-2 h-4 w-4" /> {selected ? "Deselect" : "Select"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => a.archive([item.id])}>
@@ -130,7 +131,7 @@ export function SelectMark({
 /** The glass heart on a tile: saved to the account, the same hearts Shuffle keeps. */
 export function HeartButton({ id, name, className }: { id: string; name: string; className?: string }) {
   const a = useLibraryActions()
-  const on = a.hearts.has(id)
+  const on = useIsHearted(id)
   return (
     <button
       type="button"

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { LibraryClient } from '@/components/library/library-client'
 import { LibraryMapView } from '@/components/library/library-map-view'
-import { LibraryActionsContext, type LibraryActions } from '@/components/library/library-actions'
+import { LibraryActionsProvider, type LibraryActions } from '@/components/library/library-actions'
 import { resetHeartWriterForTests } from '@/lib/explore/dreams'
 import type { LibraryData, LibraryItem } from '@/lib/library/types'
 import { item, photo } from '../helpers/library-items'
@@ -232,11 +232,11 @@ describe('the virtualized map side list', () => {
 
   function renderMap(items: LibraryItem[]) {
     const view = render(
-      <LibraryActionsContext.Provider value={actions}>
+      <LibraryActionsProvider value={actions}>
         <main data-testid="main" className="overflow-y-auto">
           <LibraryMapView chapters={chaptersOf(items)} items={items} siblings={items.map((p) => p.id)} stats={stats} />
         </main>
-      </LibraryActionsContext.Provider>
+      </LibraryActionsProvider>
     )
     const main = screen.getByTestId('main')
     main.scrollTo = jest.fn()
@@ -395,7 +395,7 @@ describe('DOM budget at 5,000 places', () => {
 
   it('keeps the map side list under about 3,000 nodes (and far fewer than one img per place)', () => {
     const view = render(
-      <LibraryActionsContext.Provider value={{
+      <LibraryActionsProvider value={{
         hearts: new Set(),
         toggleHeart: jest.fn(),
         selected: new Set(),
@@ -421,7 +421,7 @@ describe('DOM budget at 5,000 places', () => {
             stats={{ total: 0, countries: 0, cities: 0, been: 0, planned: 0, dreaming: 0, passport: [] }}
           />
         </main>
-      </LibraryActionsContext.Provider>
+      </LibraryActionsProvider>
     )
     const side = document.querySelector<HTMLElement>('[data-side-list]')!
     expect(placeButtons().length).toBeGreaterThan(0)

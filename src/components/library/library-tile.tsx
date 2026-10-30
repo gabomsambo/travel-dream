@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { PlaceTile } from "@/components/explore/place-tile"
 import { captionFor } from "@/lib/library/chapters"
 import type { LibraryItem } from "@/lib/library/types"
-import { useLibraryActions, useLongPress } from "./library-actions"
+import { useIsSelected, useIsSelecting, useLibraryActions, useLongPress } from "./library-actions"
 import { HeartButton, LibraryPlaceMenu, SelectMark } from "./library-place-menu"
 
 /**
@@ -24,8 +24,9 @@ export function LibraryTile({
 }) {
   const a = useLibraryActions()
   const caption = captionFor(item)
-  const checked = a.selected.has(item.id)
-  const press = useLongPress(() => a.select(item.id), !a.selecting)
+  const checked = useIsSelected(item.id)
+  const selecting = useIsSelecting()
+  const press = useLongPress(() => a.select(item.id), !selecting)
 
   return (
     <div className="relative [-webkit-touch-callout:none]" {...press}>
@@ -35,7 +36,7 @@ export function LibraryTile({
         caption={caption?.text}
         captionQuote={caption?.quote}
         showPlanned
-        compact={a.selecting ? true : "mobile"}
+        compact={selecting ? true : "mobile"}
         selected={checked}
         sizes="(min-width: 1280px) 22vw, (min-width: 768px) 30vw, 46vw"
         onOpen={(e) => a.activate(item.id, siblings, { shiftKey: e.shiftKey })}
@@ -46,7 +47,7 @@ export function LibraryTile({
             label={`Select ${item.name}`}
             onToggle={(e) => a.toggleSelect(item.id, { shiftKey: e.shiftKey })}
             className={cn(
-              !a.selecting &&
+              !selecting &&
                 "hidden [@media(hover:hover)]:group-hover:flex [@media(hover:hover)]:group-has-[:focus-visible]:flex"
             )}
           />
@@ -62,7 +63,7 @@ export function LibraryTile({
           </>
         }
       />
-      {item.photos.length === 0 && !a.selecting && (
+      {item.photos.length === 0 && !selecting && (
         <button
           type="button"
           onClick={() => a.findImage(item)}

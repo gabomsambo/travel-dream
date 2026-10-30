@@ -14,7 +14,7 @@ import { flagFor } from "@/lib/explore/geo"
 import { fullDate, locationOf, monthYear, type Chapter } from "@/lib/library/chapters"
 import { buildEntryRows, entryChapterKey, type EntryRow, type EntryView } from "@/lib/library/entry-rows"
 import type { GroupMode, LibraryItem } from "@/lib/library/types"
-import { useLibraryActions, useLongPress } from "./library-actions"
+import { useIsSelected, useIsSelecting, useLibraryActions, useLongPress } from "./library-actions"
 import { CityChips } from "./library-chapter-parts"
 import { HeartButton, LibraryPlaceMenu, SelectMark } from "./library-place-menu"
 import { mainOf, useMediaQuery, VirtualRows, type VirtualRowsHandle } from "./virtual-rows"
@@ -26,7 +26,8 @@ type Entry = Extract<EntryRow, { kind: "entry" }>
 /** A row or entry that starts Select mode on a long press (touch only). */
 function Pressable({ id, as: Tag = "div", ...props }: { id: string; as?: "div" | "article" } & React.HTMLAttributes<HTMLElement>) {
   const a = useLibraryActions()
-  const press = useLongPress(() => a.select(id), !a.selecting)
+  const selecting = useIsSelecting()
+  const press = useLongPress(() => a.select(id), !selecting)
   return <Tag {...props} {...press} />
 }
 
@@ -69,7 +70,8 @@ function Thumb({ p, className, sizes, small = false }: { p: LibraryItem; classNa
 function JournalEntry({ row, siblings }: { row: Entry; siblings: string[] }) {
   const a = useLibraryActions()
   const { item: p } = row
-  const checked = a.selected.has(p.id)
+  const checked = useIsSelected(p.id)
+  const selecting = useIsSelecting()
   return (
     <Pressable
       as="article"
@@ -96,7 +98,7 @@ function JournalEntry({ row, siblings }: { row: Entry; siblings: string[] }) {
             {flagFor(p.country) && <span className="mr-1">{flagFor(p.country)}</span>}
             {locationOf(p) || "Somewhere"} · {kindLabel(p.kind)}
           </p>
-          {a.selecting && <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} tone="plain" />}
+          {selecting && <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} tone="plain" />}
           <HeartButton id={p.id} name={p.name} className="h-7 w-7 bg-secondary text-foreground backdrop-blur-none hover:bg-secondary/80" />
           <LibraryPlaceMenu item={p} siblings={siblings} tone="plain" />
         </div>
@@ -150,7 +152,8 @@ function ListColumns({ index }: { index: number }) {
 function ListEntry({ row, index, siblings, collectionNames }: { row: Entry; index: number; siblings: string[]; collectionNames: Map<string, string[]> }) {
   const a = useLibraryActions()
   const { item: p } = row
-  const checked = a.selected.has(p.id)
+  const checked = useIsSelected(p.id)
+  const selecting = useIsSelecting()
   const inCollections = collectionNames.get(p.id) ?? []
   return (
     <Pressable
@@ -171,7 +174,7 @@ function ListEntry({ row, index, siblings, collectionNames }: { row: Entry; inde
         <button type="button" onClick={(e) => a.activate(p.id, siblings, { shiftKey: e.shiftKey })} aria-label={`Open ${p.name}`} className="block rounded-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Thumb p={p} small sizes="56px" className="h-14 w-14 rounded-xl md:h-11 md:w-11 md:rounded-[10px]" />
         </button>
-        {a.selecting && (
+        {selecting && (
           <SelectMark checked={checked} label={`Select ${p.name}`} onToggle={(e) => a.toggleSelect(p.id, { shiftKey: e.shiftKey })} className="absolute -left-1 -top-1 md:hidden" />
         )}
       </span>
@@ -203,11 +206,12 @@ function ListEntry({ row, index, siblings, collectionNames }: { row: Entry; inde
 function MapEntry({ row, siblings }: { row: Entry; siblings: string[] }) {
   const a = useLibraryActions()
   const { item: p } = row
+  const checked = useIsSelected(p.id)
   return (
     <div
       aria-setsize={row.setSize}
       aria-posinset={row.pos}
-      className={cn("flex items-center gap-3 py-2", row.last && "mb-4", a.selected.has(p.id) && "rounded-xl bg-primary/5")}
+      className={cn("flex items-center gap-3 py-2", row.last && "mb-4", checked && "rounded-xl bg-primary/5")}
     >
       <button
         type="button"

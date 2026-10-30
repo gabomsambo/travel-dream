@@ -10,7 +10,7 @@ import { ExploreProvider } from '@/components/explore/explore-provider';
 import { LibraryCover } from '@/components/library/library-cover';
 import { LibraryTile } from '@/components/library/library-tile';
 import { AddToCollectionDialog } from '@/components/library/library-add-to-collection';
-import { LibraryActionsContext, type LibraryActions } from '@/components/library/library-actions';
+import { LibraryActionsProvider, type LibraryActions } from '@/components/library/library-actions';
 import { LibraryChapters } from '@/components/library/library-chapters';
 import { TripsShelf } from '@/components/library/library-shelves';
 import { BrowseAll } from '@/components/explore/browse-all';
@@ -122,9 +122,9 @@ describe('Library and Explore photos are right-sized', () => {
       photos: [{ uri: BLOB, thumb: BLOB_THUMB }],
     });
     const { container } = render(
-      <LibraryActionsContext.Provider value={actions}>
+      <LibraryActionsProvider value={actions}>
         <LibraryTile item={libraryItem} siblings={[libraryItem.id]} />
-      </LibraryActionsContext.Provider>
+      </LibraryActionsProvider>
     );
     expectBlobSized(img(container), BLOB, '(min-width: 1280px) 22vw, (min-width: 768px) 30vw, 46vw');
   });
@@ -477,7 +477,7 @@ describe('Library and Explore photos are right-sized', () => {
       item({ id: 'plc_b', photos: [{ uri: BLOB, thumb: BLOB_THUMB }] }),
     ];
     const { container, unmount } = render(
-      <LibraryActionsContext.Provider value={actions}>
+      <LibraryActionsProvider value={actions}>
         <LibraryChapters
           chapters={[{ key: 'collection:col_1', title: 'Lisbon trip', items: blobPlaces }]}
           group="collection"
@@ -485,7 +485,7 @@ describe('Library and Explore photos are right-sized', () => {
           siblings={blobPlaces.map((p) => p.id)}
           collectionNames={new Map()}
         />
-      </LibraryActionsContext.Provider>
+      </LibraryActionsProvider>
     );
     const collage = imgs(container).filter((el) => el.getAttribute('sizes') === '80px' || el.getAttribute('sizes') === '40px');
     expect(collage.length).toBeGreaterThan(0);
@@ -499,7 +499,7 @@ describe('Library and Explore photos are right-sized', () => {
       item({ id: 'plc_g', photos: [{ uri: GOOGLE, thumb: GOOGLE_THUMB }] }),
     ];
     const google = render(
-      <LibraryActionsContext.Provider value={actions}>
+      <LibraryActionsProvider value={actions}>
         <LibraryChapters
           chapters={[{ key: 'collection:col_2', title: 'Google trip', items: googlePlaces }]}
           group="collection"
@@ -507,7 +507,7 @@ describe('Library and Explore photos are right-sized', () => {
           siblings={googlePlaces.map((p) => p.id)}
           collectionNames={new Map()}
         />
-      </LibraryActionsContext.Provider>
+      </LibraryActionsProvider>
     );
     const googleChip = imgs(google.container).find((el) => el.getAttribute('sizes') === '80px');
     expect(googleChip).toBeTruthy();

@@ -429,6 +429,26 @@ describe('hearts, saved to the account', () => {
     expect(screen.queryByRole('button', { name: /^Place 4,/ })).not.toBeInTheDocument()
     expect(window.location.search).toBe('?hearts=1')
   })
+
+  it('lists a place hearted on another shelf once the Hearts shelf opens', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_5'] }} />)
+    await user.click(screen.getByRole('button', { name: 'Heart Place 2' }))
+    await user.click(screen.getByRole('button', { name: /^Hearts\s*2/ }))
+    expect(screen.getAllByRole('button', { name: /^Place 2,/ }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: /^Place 5,/ }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /^Place 4,/ })).not.toBeInTheDocument()
+  })
+
+  it('takes a place off the Hearts shelf as soon as its heart is removed there', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={{ ...data, heartIds: ['plc_5', 'plc_6'] }} />)
+    await user.click(screen.getByRole('button', { name: /^Hearts\s*2/ }))
+    expect(screen.getAllByRole('button', { name: /^Place 5,/ }).length).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: 'Remove heart from Place 5' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Place 5,/ })).not.toBeInTheDocument())
+    expect(screen.getAllByRole('button', { name: /^Place 6,/ }).length).toBeGreaterThan(0)
+  })
 })
 
 describe('command-bar search', () => {

@@ -30,12 +30,12 @@ import {
 import { buildSearchIndex, searchLibrary } from "@/lib/library/search"
 import type { GroupMode, LibraryData, LibraryItem, LibraryView, SavedViewRow } from "@/lib/library/types"
 import type { ExportFormat } from "@/types/export"
-import { LibraryActionsContext, type LibraryActions } from "./library-actions"
+import { LibraryActionsProvider, type LibraryActions } from "./library-actions"
 import { AddToCollectionDialog } from "./library-add-to-collection"
 import { LibraryBulkBar, STATUS_OPTIONS, type VisitStatus } from "./library-bulk-bar"
 import { LibraryCommandBar, type FacetOptions, type SuggestionFacet } from "./library-command-bar"
 import { LibraryCover, SparseCover, coverStats } from "./library-cover"
-import { FilterChips, LibraryFilterPills, LibraryFiltersSheetButton, type Chip, type FilterOptions } from "./library-filter-bar"
+import { FilterChips, LibraryFilterPills, LibraryFiltersSheetButton, type Chip, type FilterOptions, type FilterPatch } from "./library-filter-bar"
 import { LibraryShelves, TripsShelf } from "./library-shelves"
 import { LibraryShortcuts } from "./library-shortcuts"
 import { LibrarySmartShelves } from "./library-smart-shelves"
@@ -52,6 +52,9 @@ export const SPARSE_THRESHOLD = 12
 
 /** The bulk-actions route takes at most this many ids per request. */
 const BULK_BATCH = 500
+
+/** What the filters see as hearts everywhere but the Hearts shelf, so a heart elsewhere re-lists nothing. */
+const NO_HEARTS = new Set<string>()
 
 export function LibraryClient({ data }: { data: LibraryData }) {
   return (
@@ -121,28 +124,65 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const [sort, setSortState] = React.useState(searchParams.get("sort") || DEFAULT_SORT)
   const [group, setGroupState] = React.useState<GroupMode>(() => parseGroup(searchParams.get("group")))
   // Discrete changes (a chip, a shelf, a view) push a history entry so Back
-  // steps back through them; typing replaces the current one.
-  const pushNext = React.useRef(false)
+  // steps back through them; typing replaces the current one. Push intent is
+  // committed state (not a ref): startTransition's callback runs sync, so a ref
+  // would arm before the discrete update commits and an urgent search could
+  // consume it.
+  const [historyEpoch, setHistoryEpoch] = React.useState(0)
+  const appliedEpoch = React.useRef(0)
+  // Back/forward bumps this so a still-pending discrete transition cannot
+  // overwrite the restored URL state (or push a new history entry) when it commits.
+  const navGen = React.useRef(0)
+  const unlessNavigated = <T,>(gen: number, next: T | ((prev: T) => T)) => (prev: T): T => {
+    if (navGen.current !== gen) return prev
+    return typeof next === "function" ? (next as (p: T) => T)(prev) : next
+  }
 
-  const update = React.useCallback((patch: Partial<LibraryFilterState>, push = true) => {
-    if (push) pushNext.current = true
-    setFilters((f) => ({ ...f, ...patch }))
+  // A discrete change re-lists the whole library, so it renders as a transition: the click
+  // paints first and the page follows, instead of the press waiting on the render.
+  // Typing is the exception and stays urgent.
+  const update = React.useCallback((patch: FilterPatch, push = true) => {
+    const apply = (f: LibraryFilterState): LibraryFilterState => {
+      const next = typeof patch === "function" ? patch(f) : patch
+      return { ...f, ...next }
+    }
+    if (!push) {
+      setFilters(apply)
+      return
+    }
+    const gen = navGen.current
+    React.startTransition(() => {
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setFilters(unlessNavigated(gen, apply))
+    })
   }, [])
-  const replaceFilters = React.useCallback((next: LibraryFilterState) => {
-    pushNext.current = true
-    setFilters(next)
+  const replaceFilters = React.useCallback((next: LibraryFilterState | ((prev: LibraryFilterState) => LibraryFilterState)) => {
+    const gen = navGen.current
+    React.startTransition(() => {
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setFilters(unlessNavigated(gen, next))
+    })
   }, [])
   const setView = React.useCallback((v: LibraryView) => {
-    pushNext.current = true
-    setViewState(v)
+    const gen = navGen.current
+    React.startTransition(() => {
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setViewState(unlessNavigated(gen, v))
+    })
   }, [])
   const setSort = React.useCallback((s: string) => {
-    pushNext.current = true
-    setSortState(s)
+    const gen = navGen.current
+    React.startTransition(() => {
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setSortState(unlessNavigated(gen, s))
+    })
   }, [])
   const setGroup = React.useCallback((g: GroupMode) => {
-    pushNext.current = true
-    setGroupState(g)
+    const gen = navGen.current
+    React.startTransition(() => {
+      setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+      setGroupState(unlessNavigated(gen, g))
+    })
   }, [])
 
   const query = React.useMemo(() => toSearchParams(filters, { view, sort, group }).toString(), [filters, view, sort, group])
@@ -150,23 +190,24 @@ function LibraryPage({ data }: { data: LibraryData }) {
   React.useEffect(() => {
     const write = () => {
       const url = query ? `${pathname}?${query}` : pathname
-      const push = pushNext.current
-      pushNext.current = false
+      const push = historyEpoch !== appliedEpoch.current
+      if (push) appliedEpoch.current = historyEpoch
       if (url === window.location.pathname + window.location.search) return
       // Native history, not router.push: a server round-trip would only re-send the same rows.
       if (push) window.history.pushState(null, "", url)
       else window.history.replaceState(null, "", url)
     }
-    if (pushNext.current) {
+    if (historyEpoch !== appliedEpoch.current) {
       write()
       return
     }
     const t = window.setTimeout(write, 300)
     return () => window.clearTimeout(t)
-  }, [query, pathname])
+  }, [query, pathname, historyEpoch])
 
   React.useEffect(() => {
     const onPop = () => {
+      navGen.current += 1
       const p = new URLSearchParams(window.location.search)
       setFilters(parseFilters(p))
       setViewState(parseView(p.get("view"), fallbackView))
@@ -186,11 +227,13 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const hits = React.useMemo(() => (deferredSearch.trim() ? searchLibrary(index, deferredSearch) : null), [index, deferredSearch])
   const searchIds = React.useMemo(() => (hits ? new Set(hits.map((h) => h.id)) : null), [hits])
   const collected = React.useMemo(() => new Set(collections.flatMap((c) => c.placeIds)), [collections])
-  const ctx = React.useMemo<FilterContext>(() => ({ searchIds, hearts, collected, now }), [searchIds, hearts, collected, now])
-
   // The list follows a deferred copy of the filters. Keyed on `filters` itself, every keystroke
   // re-filtered, re-sorted and re-chaptered the page inside the urgent update.
   const listFilters = React.useDeferredValue(filters)
+  // Hearts only decide what is listed on the Hearts shelf. Anywhere else a heart must not
+  // rebuild the context, or it re-filters, re-sorts and re-chapters every place in the library.
+  const filterHearts = filters.hearts || listFilters.hearts ? hearts : NO_HEARTS
+  const ctx = React.useMemo<FilterContext>(() => ({ searchIds, hearts: filterHearts, collected, now }), [searchIds, filterHearts, collected, now])
   const filtered = React.useMemo(() => filterItems(items, listFilters, ctx), [items, listFilters, ctx])
   const sorted = React.useMemo(() => sortItems(filtered, sort), [filtered, sort])
   const sparse = items.length < SPARSE_THRESHOLD
@@ -257,7 +300,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
   }, [items, collected, now, filters.soonWeeks])
   const heartCount = React.useMemo(() => items.filter((p) => hearts.has(p.id)).length, [items, hearts])
 
-  const setShelf = React.useCallback((s: Shelf) => replaceFilters(withShelf(filters, s)), [filters, replaceFilters])
+  const setShelf = React.useCallback((s: Shelf) => replaceFilters((f) => withShelf(f, s)), [replaceFilters])
   const clearFilters = React.useCallback(() => replaceFilters(EMPTY_FILTERS), [replaceFilters])
 
   // ---- saved views ------------------------------------------------------------
@@ -275,11 +318,14 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const applyView = React.useCallback(
     (v: SavedViewRow) => {
       const p = new URLSearchParams(v.query)
-      pushNext.current = true
-      setFilters(parseFilters(p))
-      setViewState(parseView(p.get("view"), "grid"))
-      setSortState(p.get("sort") || DEFAULT_SORT)
-      setGroupState(parseGroup(p.get("group")))
+      const gen = navGen.current
+      React.startTransition(() => {
+        setHistoryEpoch(unlessNavigated(gen, (e) => e + 1))
+        setFilters(unlessNavigated(gen, parseFilters(p)))
+        setViewState(unlessNavigated(gen, parseView(p.get("view"), "grid")))
+        setSortState(unlessNavigated(gen, p.get("sort") || DEFAULT_SORT))
+        setGroupState(unlessNavigated(gen, parseGroup(p.get("group"))))
+      })
     },
     []
   )
@@ -606,12 +652,13 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const chips = React.useMemo<Chip[]>(() => {
     const out: Chip[] = []
     const drop = <K extends keyof LibraryFilterState>(key: K, v: unknown) => () => {
-      const cur = filters[key]
-      if (cur instanceof Set) {
+      update((f) => {
+        const cur = f[key]
+        if (!(cur instanceof Set)) return {}
         const next = new Set(cur as Set<unknown>)
         next.delete(v)
-        update({ [key]: next } as Partial<LibraryFilterState>)
-      }
+        return { [key]: next } as Partial<LibraryFilterState>
+      })
     }
     if (filters.search.trim()) out.push({ key: "search", label: `“${filters.search.trim()}”`, onRemove: () => update({ search: "" }) })
     if (shelf !== "all" && shelf !== null) out.push({ key: "shelf", label: shelf === "hearts" ? "♥ Hearts" : STATUS_LABEL[shelf], onRemove: () => setShelf("all") })
@@ -635,10 +682,12 @@ function LibraryPage({ data }: { data: LibraryData }) {
 
   const applySuggestion = React.useCallback(
     (facet: SuggestionFacet, value: string) => {
-      const cur = filters[facet]
-      replaceFilters({ ...filters, search: "", [facet]: new Set([...cur, value]) })
+      replaceFilters((f) => {
+        const cur = f[facet]
+        return { ...f, search: "", [facet]: new Set([...cur, value]) }
+      })
     },
-    [filters, replaceFilters]
+    [replaceFilters]
   )
 
   const empty = items.length === 0
@@ -663,14 +712,14 @@ function LibraryPage({ data }: { data: LibraryData }) {
           options={filterOptions}
           countsFor={countsFor}
           shownCount={sorted.length}
-          onClearAll={() => replaceFilters({ ...EMPTY_FILTERS, search: filters.search })}
+          onClearAll={() => replaceFilters((f) => ({ ...EMPTY_FILTERS, search: f.search }))}
         />
       </div>
     </>
   )
 
   return (
-    <LibraryActionsContext.Provider value={actions}>
+    <LibraryActionsProvider value={actions}>
       {empty || sparse ? <SparseCover total={items.length} countries={stats.countries} /> : <LibraryCover items={items} stats={stats} onShelf={setShelf} onGroup={setGroup} />}
 
       {!empty && (
@@ -688,7 +737,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
             mobileOpen={searchSheetOpen}
             onMobileOpenChange={setSearchSheetOpen}
             narrowed={chips.some((c) => c.key !== "search")}
-            onSearchEverywhere={() => replaceFilters({ ...EMPTY_FILTERS, search: filters.search })}
+            onSearchEverywhere={() => replaceFilters((f) => ({ ...EMPTY_FILTERS, search: f.search }))}
           />
         </div>
       )}
@@ -705,7 +754,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
             counts={smartCounts}
             active={smart}
             soonWeeks={filters.soonWeeks || 8}
-            onSmart={(s) => replaceFilters(withSmart(filters, s))}
+            onSmart={(s, on) => replaceFilters((f) => withSmart(f, s, on))}
             onSoonWeeks={(w) => update({ soonWeeks: w })}
             views={views}
             activeViewId={activeView?.id ?? null}
@@ -756,7 +805,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
             <NoMatches
               filters={filters}
               onClear={clearFilters}
-              onKeepSearch={chips.some((c) => c.key !== "search") && filters.search.trim() ? () => replaceFilters({ ...EMPTY_FILTERS, search: filters.search }) : undefined}
+              onKeepSearch={chips.some((c) => c.key !== "search") && filters.search.trim() ? () => replaceFilters((f) => ({ ...EMPTY_FILTERS, search: f.search })) : undefined}
             />
           ) : view === "map" ? (
             <LibraryMapView chapters={chapters} items={sorted} siblings={siblings} stats={stats} />
@@ -846,7 +895,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </LibraryActionsContext.Provider>
+    </LibraryActionsProvider>
   )
 }
 

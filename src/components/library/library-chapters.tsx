@@ -9,7 +9,7 @@ import { Photo } from "@/components/photo"
 import { editorialFont } from "@/components/explore/fonts"
 import { chapterSummary, type Chapter } from "@/lib/library/chapters"
 import type { GroupMode, LibraryItem, LibraryView } from "@/lib/library/types"
-import { useLibraryActions } from "./library-actions"
+import { useIsSelecting } from "./library-actions"
 import { VirtualEntries } from "./library-entries"
 import { VirtualGallery } from "./library-virtual-gallery"
 import type { VirtualRowsHandle } from "./virtual-rows"
@@ -111,7 +111,7 @@ function IndexRail({ chapters, group, active, onJump }: { chapters: Chapter[]; g
 /** Phones: a floating "Index" pill that opens the chapters as a two-column sheet. */
 function MobileIndex({ chapters, group, active, onJump }: { chapters: Chapter[]; group: GroupMode; active: string | null; onJump: (key: string) => void }) {
   const [open, setOpen] = React.useState(false)
-  const { selecting } = useLibraryActions()
+  const selecting = useIsSelecting()
   // The bulk bar owns the bottom of the screen while selecting.
   if (selecting) return null
   const [, many] = GROUP_NOUN[group]

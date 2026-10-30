@@ -196,15 +196,16 @@ describe('shelves', () => {
     expect(withShelf(start, 'all')).toEqual(f({ search: 'kyoto' }));
   });
 
-  it('smart shelves are one at a time and toggle off, leaving the other filters alone', () => {
+  it('smart shelves are one at a time; force on/off leaves the other filters alone', () => {
     const base = f({ countries: new Set(['Japan']) });
-    const soon = withSmart(base, 'soon');
+    const soon = withSmart(base, 'soon', true);
     expect(soon.soonWeeks).toBe(8);
     expect([...smartOf(soon)]).toEqual(['soon']);
-    const photoless = withSmart(soon, 'nophoto');
+    const photoless = withSmart(soon, 'nophoto', true);
     expect(photoless).toEqual(f({ countries: new Set(['Japan']), photo: 'without' }));
-    expect(withSmart(photoless, 'nophoto')).toEqual(base);
-    expect(withSmart(f({ photo: 'with' }), 'recent')).toEqual(f({ photo: 'with', addedDays: 30 }));
+    expect(withSmart(photoless, 'nophoto', false)).toEqual(base);
+    expect(withSmart(photoless, 'nophoto', true)).toEqual(photoless);
+    expect(withSmart(f({ photo: 'with' }), 'recent', true)).toEqual(f({ photo: 'with', addedDays: 30 }));
   });
 });
 

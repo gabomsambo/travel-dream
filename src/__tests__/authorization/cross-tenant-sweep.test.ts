@@ -454,6 +454,12 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       },
     ],
   },
+  'library/index': {
+    GET: { slots: [], request: () => ({ url: `${API}/library/index?v=sweep` }) },
+  },
+  'library/photos/[placeId]': {
+    GET: { slots: ['place'], request: (t) => ({ url: `${API}/library/photos/${t.place}`, params: { placeId: t.place } }) },
+  },
   'library/views': {
     GET: { slots: [], request: () => ({ url: `${API}/library/views` }) },
     POST: {
@@ -1294,10 +1300,15 @@ async function invoke(route: string, method: Method, spec: RequestSpec): Promise
   };
 }
 
-/** A response with the run-to-run noise removed: timestamps, minted ids, timings. */
+/**
+ * A response with the run-to-run noise removed: timestamps, minted ids, timings, and the Library
+ * index's version, a digest of the caller's own row timestamps that differs whenever the fixture is
+ * re-seeded (library-index-route.test.ts holds the version still against Bob's edits at fixed times).
+ */
 function comparable(o: Outcome): { status: number; body: string } {
   const body = o.text
     .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '<ts>')
+    .replace(/"version":"[A-Za-z0-9_-]{22}"/g, '"version":"<version>"')
     .replace(/tenant-fixture-\d+-\d+/g, '<uuid>')
     .replace(/batch_\d+_[a-z0-9]+/g, '<batch>')
     .replace(/"(processing_duration_ms|avg_processing_time_ms)":\d+/g, '"$1":<ms>');

@@ -118,17 +118,52 @@ function fieldValues(p: LibraryItem): Array<[SearchField, string | null | undefi
   ];
 }
 
-export function buildSearchIndex(items: LibraryItem[]): SearchIndex {
+function searchDocOf(p: LibraryItem): SearchDoc {
   return {
-    docs: items.map((p) => ({
-      id: p.id,
-      fields: fieldValues(p).flatMap(([field, value]) => {
-        const raw = Array.isArray(value) ? value.join(' ') : value ?? '';
-        const text = normalize(raw);
-        if (!text) return [];
-        return [{ field, weight: WEIGHTS[field], words: [...new Set(text.split(' '))], text }];
-      }),
-    })),
+    id: p.id,
+    fields: fieldValues(p).flatMap(([field, value]) => {
+      const raw = Array.isArray(value) ? value.join(' ') : value ?? '';
+      const text = normalize(raw);
+      if (!text) return [];
+      return [{ field, weight: WEIGHTS[field], words: [...new Set(text.split(' '))], text }];
+    }),
+  };
+}
+
+export function buildSearchIndex(items: LibraryItem[]): SearchIndex {
+  return { docs: items.map(searchDocOf) };
+}
+
+/** An index built a slice at a time, so a big library never holds the main thread for the whole build. */
+export interface SearchIndexBuild {
+  /** Indexes places until `budgetMs` has passed; true once every place is in. */
+  step: (budgetMs: number) => boolean;
+  /** The finished index, indexing whatever is left right now (a search that cannot wait for idle time). */
+  finish: () => SearchIndex;
+}
+
+/** A slice never takes more places than this, whatever the clock says (a stopped clock must not loop forever). */
+const SLICE_MAX = 250;
+
+export function startSearchIndex(items: LibraryItem[]): SearchIndexBuild {
+  const docs: SearchDoc[] = [];
+  const index: SearchIndex = { docs };
+  return {
+    step: (budgetMs) => {
+      if (docs.length >= items.length) return true;
+      const until = performance.now() + budgetMs;
+      // At least one place per slice, so a build always gets there.
+      let n = 0;
+      do {
+        docs.push(searchDocOf(items[docs.length]));
+        n++;
+      } while (n < SLICE_MAX && docs.length < items.length && performance.now() < until);
+      return docs.length >= items.length;
+    },
+    finish: () => {
+      while (docs.length < items.length) docs.push(searchDocOf(items[docs.length]));
+      return index;
+    },
   };
 }
 

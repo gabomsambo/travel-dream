@@ -48,6 +48,11 @@ export interface ExplorePlace {
   lon: number | null;
   /** Primary photo first. Empty when the place has no photo yet. */
   photos: ExplorePhoto[];
+  /**
+   * How many photos the place has when `photos` holds fewer (the Library's index
+   * carries only the first). Quick look asks for the rest when it opens.
+   */
+  photoCount?: number;
 }
 
 /**

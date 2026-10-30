@@ -15,7 +15,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/adapters/dropdown-menu"
 import { flagFor, slugify } from "@/lib/explore/geo"
-import type { ExplorePlace } from "@/lib/explore/types"
+import type { ExplorePhoto, ExplorePlace } from "@/lib/explore/types"
 import { savedAgoLabel } from "@/lib/explore/rails"
 import { useExplore } from "./explore-provider"
 import { editorialFont } from "./fonts"
@@ -53,6 +53,81 @@ function useRemoteSameCity(placeId: string | undefined, enabled: boolean) {
   return byPlace
 }
 
+/** Cache key for a place's photo set as the index describes it (count + cover). */
+function placePhotosCacheKey(place: ExplorePlace): string {
+  const count = place.photoCount ?? place.photos.length
+  return `${place.id}:${count}:${place.photos[0]?.uri ?? ""}`
+}
+
+/**
+ * A place's photos for the sheet. A place that carries only its first photo
+ * (the Library's index does, with a count) asks the server for the rest when it
+ * is opened; until they arrive the sheet keeps whatever richer list it already
+ * held rather than shrinking to the slim wire photo.
+ */
+function usePlacePhotos(place: ExplorePlace | undefined): ExplorePhoto[] {
+  const [byKey, setByKey] = React.useState<Record<string, ExplorePhoto[]>>({})
+  const richer = React.useRef<{ key: string; photos: ExplorePhoto[] } | null>(null)
+  const id = place?.id
+  const key = place ? placePhotosCacheKey(place) : undefined
+  const wire = place?.photos ?? []
+  const wanted = place !== undefined && (place.photoCount ?? place.photos.length) > place.photos.length
+  const heldFloor =
+    key !== undefined && richer.current?.key === key ? richer.current.photos.length : 0
+  const floor = Math.max(wire.length, heldFloor)
+  const cached = key !== undefined ? byKey[key] : undefined
+  const usable = cached !== undefined && cached.length >= floor
+  const shortCached = cached !== undefined && !usable
+
+  React.useEffect(() => {
+    if (!key || !shortCached) return
+    setByKey((prev) => {
+      if (prev[key] === undefined) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }, [key, shortCached])
+
+  React.useEffect(() => {
+    if (!id || !key || !wanted || usable || shortCached) return
+    const controller = new AbortController()
+    const requestKey = key
+    const minLength = floor
+    fetch(`/api/library/photos/${encodeURIComponent(id)}`, { signal: controller.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<{ photos?: ExplorePhoto[] }>) : null))
+      .then((body) => {
+        if (!body || !Array.isArray(body.photos)) return
+        const fetched = body.photos
+        const stillHeld =
+          richer.current?.key === requestKey ? richer.current.photos.length : 0
+        if (fetched.length < Math.max(minLength, stillHeld)) return
+        setByKey((prev) => ({ ...prev, [requestKey]: fetched }))
+      })
+      .catch(() => {
+        // The first photo is already showing; the next open asks again.
+      })
+    return () => controller.abort()
+  }, [id, key, wanted, usable, shortCached, floor])
+
+  if (!key) return wire
+
+  if (usable) {
+    richer.current = { key, photos: cached }
+    return cached
+  }
+
+  const prev = richer.current
+  if (!prev || prev.key !== key || wire.length >= prev.photos.length) {
+    richer.current = { key, photos: wire }
+  }
+  const held = richer.current
+  if (wanted && held && held.key === key && held.photos.length > wire.length) {
+    return held.photos
+  }
+  return wire
+}
+
 export function PlaceSheet({
   state,
   sameCity: sameCityMode,
@@ -77,6 +152,7 @@ export function PlaceSheet({
     return all
   }, [places, remote, sameCityMode])
   const place = state ? known.get(state.id) : undefined
+  const photos = usePlacePhotos(place)
   const [photo, setPhoto] = React.useState(0)
 
   React.useEffect(() => setPhoto(0), [state?.id])
@@ -117,10 +193,10 @@ export function PlaceSheet({
             <>
               {/* Photo side */}
               <div className="relative h-[42dvh] shrink-0 bg-muted md:h-auto md:w-[56%]">
-                {place.photos.length ? (
+                {photos.length ? (
                   <Photo
-                    key={place.photos[photo].uri}
-                    src={place.photos[photo].uri}
+                    key={photos[photo].uri}
+                    src={photos[photo].uri}
                     alt={place.name}
                     sizes="(min-width: 768px) 580px, 100vw"
                     className="animate-in fade-in-0 duration-500"
@@ -129,10 +205,10 @@ export function PlaceSheet({
                   <FallbackArt name={place.name} kind={place.kind} />
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20" />
-                {place.photos.length > 1 && (
+                {photos.length > 1 && (
                   <>
                     <div className="absolute inset-x-4 top-4 flex gap-1.5">
-                      {place.photos.map((_, i) => (
+                      {photos.map((_, i) => (
                         <button
                           key={i}
                           aria-label={`Photo ${i + 1}`}
@@ -144,12 +220,12 @@ export function PlaceSheet({
                     <button
                       aria-label="Previous photo"
                       className="absolute inset-y-0 left-0 w-1/3"
-                      onClick={() => setPhoto((p) => (p - 1 + place.photos.length) % place.photos.length)}
+                      onClick={() => setPhoto((p) => (p - 1 + photos.length) % photos.length)}
                     />
                     <button
                       aria-label="Next photo"
                       className="absolute inset-y-0 right-0 w-1/3"
-                      onClick={() => setPhoto((p) => (p + 1) % place.photos.length)}
+                      onClick={() => setPhoto((p) => (p + 1) % photos.length)}
                     />
                   </>
                 )}

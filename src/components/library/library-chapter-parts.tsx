@@ -7,14 +7,28 @@ import type { LibraryItem } from "@/lib/library/types"
 
 /** "All 16 · Kyoto 7 · Tokyo 7 · Osaka 2" inside a country chapter. */
 export function CityChips({ items, city, onCity }: { items: LibraryItem[]; city: string | null; onCity: (c: string | null) => void }) {
-  const cities = citiesOf(items)
+  return <CityChipsList cities={citiesOf(items)} total={items.length} city={city} onCity={onCity} />
+}
+
+/** The chips from counts already worked out (the first screen has the counts, not the places). */
+export function CityChipsList({
+  cities,
+  total,
+  city,
+  onCity,
+}: {
+  cities: Array<{ city: string; count: number }>
+  total: number
+  city: string | null
+  onCity: (c: string | null) => void
+}) {
   if (cities.length < 2) return null
   const chip = "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
   const on = "border-transparent bg-foreground text-background"
   return (
     <div className="-mx-4 mb-3.5 flex gap-1.5 overflow-x-auto px-4 pb-0.5 hide-scrollbar sm:mx-0 sm:flex-wrap sm:px-0">
       <button type="button" aria-pressed={city === null} onClick={() => onCity(null)} className={cn(chip, city === null ? on : "bg-background hover:bg-secondary")}>
-        All {items.length}
+        All {total}
       </button>
       {cities.map((c) => (
         <button

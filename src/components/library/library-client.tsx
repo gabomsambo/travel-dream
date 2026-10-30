@@ -135,24 +135,34 @@ function LibraryPage({ data }: { data: LibraryData }) {
       setFilters((f) => ({ ...f, ...patch }))
       return
     }
-    pushNext.current = true
-    React.startTransition(() => setFilters((f) => ({ ...f, ...patch })))
+    React.startTransition(() => {
+      pushNext.current = true
+      setFilters((f) => ({ ...f, ...patch }))
+    })
   }, [])
-  const replaceFilters = React.useCallback((next: LibraryFilterState) => {
-    pushNext.current = true
-    React.startTransition(() => setFilters(next))
+  const replaceFilters = React.useCallback((next: LibraryFilterState | ((prev: LibraryFilterState) => LibraryFilterState)) => {
+    React.startTransition(() => {
+      pushNext.current = true
+      setFilters(next)
+    })
   }, [])
   const setView = React.useCallback((v: LibraryView) => {
-    pushNext.current = true
-    React.startTransition(() => setViewState(v))
+    React.startTransition(() => {
+      pushNext.current = true
+      setViewState(v)
+    })
   }, [])
   const setSort = React.useCallback((s: string) => {
-    pushNext.current = true
-    React.startTransition(() => setSortState(s))
+    React.startTransition(() => {
+      pushNext.current = true
+      setSortState(s)
+    })
   }, [])
   const setGroup = React.useCallback((g: GroupMode) => {
-    pushNext.current = true
-    React.startTransition(() => setGroupState(g))
+    React.startTransition(() => {
+      pushNext.current = true
+      setGroupState(g)
+    })
   }, [])
 
   const query = React.useMemo(() => toSearchParams(filters, { view, sort, group }).toString(), [filters, view, sort, group])
@@ -271,7 +281,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
   }, [items, collected, now, filters.soonWeeks])
   const heartCount = React.useMemo(() => items.filter((p) => hearts.has(p.id)).length, [items, hearts])
 
-  const setShelf = React.useCallback((s: Shelf) => replaceFilters(withShelf(filters, s)), [filters, replaceFilters])
+  const setShelf = React.useCallback((s: Shelf) => replaceFilters((f) => withShelf(f, s)), [replaceFilters])
   const clearFilters = React.useCallback(() => replaceFilters(EMPTY_FILTERS), [replaceFilters])
 
   // ---- saved views ------------------------------------------------------------
@@ -289,8 +299,8 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const applyView = React.useCallback(
     (v: SavedViewRow) => {
       const p = new URLSearchParams(v.query)
-      pushNext.current = true
       React.startTransition(() => {
+        pushNext.current = true
         setFilters(parseFilters(p))
         setViewState(parseView(p.get("view"), "grid"))
         setSortState(p.get("sort") || DEFAULT_SORT)
@@ -651,10 +661,12 @@ function LibraryPage({ data }: { data: LibraryData }) {
 
   const applySuggestion = React.useCallback(
     (facet: SuggestionFacet, value: string) => {
-      const cur = filters[facet]
-      replaceFilters({ ...filters, search: "", [facet]: new Set([...cur, value]) })
+      replaceFilters((f) => {
+        const cur = f[facet]
+        return { ...f, search: "", [facet]: new Set([...cur, value]) }
+      })
     },
-    [filters, replaceFilters]
+    [replaceFilters]
   )
 
   const empty = items.length === 0
@@ -679,7 +691,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
           options={filterOptions}
           countsFor={countsFor}
           shownCount={sorted.length}
-          onClearAll={() => replaceFilters({ ...EMPTY_FILTERS, search: filters.search })}
+          onClearAll={() => replaceFilters((f) => ({ ...EMPTY_FILTERS, search: f.search }))}
         />
       </div>
     </>
@@ -704,7 +716,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
             mobileOpen={searchSheetOpen}
             onMobileOpenChange={setSearchSheetOpen}
             narrowed={chips.some((c) => c.key !== "search")}
-            onSearchEverywhere={() => replaceFilters({ ...EMPTY_FILTERS, search: filters.search })}
+            onSearchEverywhere={() => replaceFilters((f) => ({ ...EMPTY_FILTERS, search: f.search }))}
           />
         </div>
       )}
@@ -721,7 +733,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
             counts={smartCounts}
             active={smart}
             soonWeeks={filters.soonWeeks || 8}
-            onSmart={(s) => replaceFilters(withSmart(filters, s))}
+            onSmart={(s) => replaceFilters((f) => withSmart(f, s))}
             onSoonWeeks={(w) => update({ soonWeeks: w })}
             views={views}
             activeViewId={activeView?.id ?? null}
@@ -772,7 +784,7 @@ function LibraryPage({ data }: { data: LibraryData }) {
             <NoMatches
               filters={filters}
               onClear={clearFilters}
-              onKeepSearch={chips.some((c) => c.key !== "search") && filters.search.trim() ? () => replaceFilters({ ...EMPTY_FILTERS, search: filters.search }) : undefined}
+              onKeepSearch={chips.some((c) => c.key !== "search") && filters.search.trim() ? () => replaceFilters((f) => ({ ...EMPTY_FILTERS, search: f.search })) : undefined}
             />
           ) : view === "map" ? (
             <LibraryMapView chapters={chapters} items={sorted} siblings={siblings} stats={stats} />

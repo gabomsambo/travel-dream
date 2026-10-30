@@ -21,7 +21,9 @@ export interface FilterOptions {
   vibes: string[]
 }
 
-export type UpdateFilters = (patch: Partial<LibraryFilterState>) => void
+/** Absolute fields, or a patch derived from the latest filters inside the update. */
+export type FilterPatch = Partial<LibraryFilterState> | ((prev: LibraryFilterState) => Partial<LibraryFilterState>)
+export type UpdateFilters = (patch: FilterPatch) => void
 
 const pill =
   "inline-flex h-[30px] shrink-0 items-center gap-1 whitespace-nowrap rounded-full border bg-background px-2.5 text-xs font-medium outline-none transition hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-secondary"
@@ -257,7 +259,7 @@ function MoreFilters({ filters, update }: { filters: LibraryFilterState; update:
               type="button"
               role="checkbox"
               aria-checked={on}
-              onClick={() => update({ visitStatus: toggleIn(filters.visitStatus, s.value), hearts: false })}
+              onClick={() => update((f) => ({ visitStatus: toggleIn(f.visitStatus, s.value), hearts: false }))}
               className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm outline-none hover:bg-secondary focus-visible:bg-secondary"
             >
               <span className={cn("flex h-4 w-4 items-center justify-center rounded border", on ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40")} aria-hidden>
@@ -349,7 +351,7 @@ export function FacetBody({
   if (facet === "more") return <MoreFilters filters={filters} update={update} />
   const counts = countsFor(facet)
   if (facet === "months") {
-    return <MonthGrid selected={filters.months} counts={counts} onToggle={(m) => update({ months: toggleIn(filters.months, m) })} />
+    return <MonthGrid selected={filters.months} counts={counts} onToggle={(m) => update((f) => ({ months: toggleIn(f.months, m) }))} />
   }
   if (facet === "photo") {
     return (
@@ -372,7 +374,7 @@ export function FacetBody({
       label={label === "Tags" ? "Tag" : label === "Vibes" ? "Vibe" : label}
       options={facetListOptions(key, options, counts, filters)}
       selected={filters[key]}
-      onToggle={(v) => update({ [key]: toggleIn(filters[key], v) } as Partial<LibraryFilterState>)}
+      onToggle={(v) => update((f) => ({ [key]: toggleIn(f[key], v) } as Partial<LibraryFilterState>))}
       onClear={() => update({ [key]: new Set<string>() } as Partial<LibraryFilterState>)}
       autoFocus={autoFocus}
     />

@@ -35,7 +35,7 @@ import { AddToCollectionDialog } from "./library-add-to-collection"
 import { LibraryBulkBar, STATUS_OPTIONS, type VisitStatus } from "./library-bulk-bar"
 import { LibraryCommandBar, type FacetOptions, type SuggestionFacet } from "./library-command-bar"
 import { LibraryCover, SparseCover, coverStats } from "./library-cover"
-import { FilterChips, LibraryFilterPills, LibraryFiltersSheetButton, type Chip, type FilterOptions } from "./library-filter-bar"
+import { FilterChips, LibraryFilterPills, LibraryFiltersSheetButton, type Chip, type FilterOptions, type FilterPatch } from "./library-filter-bar"
 import { LibraryShelves, TripsShelf } from "./library-shelves"
 import { LibraryShortcuts } from "./library-shortcuts"
 import { LibrarySmartShelves } from "./library-smart-shelves"
@@ -134,14 +134,18 @@ function LibraryPage({ data }: { data: LibraryData }) {
   // A discrete change re-lists the whole library, so it renders as a transition: the click
   // paints first and the page follows, instead of the press waiting on the render.
   // Typing is the exception and stays urgent.
-  const update = React.useCallback((patch: Partial<LibraryFilterState>, push = true) => {
+  const update = React.useCallback((patch: FilterPatch, push = true) => {
+    const apply = (f: LibraryFilterState): LibraryFilterState => {
+      const next = typeof patch === "function" ? patch(f) : patch
+      return { ...f, ...next }
+    }
     if (!push) {
-      setFilters((f) => ({ ...f, ...patch }))
+      setFilters(apply)
       return
     }
     React.startTransition(() => {
       setHistoryEpoch((e) => e + 1)
-      setFilters((f) => ({ ...f, ...patch }))
+      setFilters(apply)
     })
   }, [])
   const replaceFilters = React.useCallback((next: LibraryFilterState | ((prev: LibraryFilterState) => LibraryFilterState)) => {
@@ -192,12 +196,10 @@ function LibraryPage({ data }: { data: LibraryData }) {
   React.useEffect(() => {
     const onPop = () => {
       const p = new URLSearchParams(window.location.search)
-      React.startTransition(() => {
-        setFilters(parseFilters(p))
-        setViewState(parseView(p.get("view"), fallbackView))
-        setSortState(p.get("sort") || DEFAULT_SORT)
-        setGroupState(parseGroup(p.get("group")))
-      })
+      setFilters(parseFilters(p))
+      setViewState(parseView(p.get("view"), fallbackView))
+      setSortState(p.get("sort") || DEFAULT_SORT)
+      setGroupState(parseGroup(p.get("group")))
     }
     window.addEventListener("popstate", onPop)
     return () => window.removeEventListener("popstate", onPop)
@@ -636,12 +638,13 @@ function LibraryPage({ data }: { data: LibraryData }) {
   const chips = React.useMemo<Chip[]>(() => {
     const out: Chip[] = []
     const drop = <K extends keyof LibraryFilterState>(key: K, v: unknown) => () => {
-      const cur = filters[key]
-      if (cur instanceof Set) {
+      update((f) => {
+        const cur = f[key]
+        if (!(cur instanceof Set)) return {}
         const next = new Set(cur as Set<unknown>)
         next.delete(v)
-        update({ [key]: next } as Partial<LibraryFilterState>)
-      }
+        return { [key]: next } as Partial<LibraryFilterState>
+      })
     }
     if (filters.search.trim()) out.push({ key: "search", label: `“${filters.search.trim()}”`, onRemove: () => update({ search: "" }) })
     if (shelf !== "all" && shelf !== null) out.push({ key: "shelf", label: shelf === "hearts" ? "♥ Hearts" : STATUS_LABEL[shelf], onRemove: () => setShelf("all") })

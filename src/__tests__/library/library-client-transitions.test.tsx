@@ -8,8 +8,8 @@
  * Push intent is committed `historyEpoch` state scheduled inside that callback
  * (not a ref armed when the callback runs). Holding the callback is therefore
  * equivalent to a pending transition commit: an urgent search cannot see a push
- * flag that has not committed yet. flushHeld runs the real startTransition so
- * the epoch advances with the discrete filters.
+ * flag that has not committed yet. flushHeld replays held callbacks inside one
+ * real startTransition so functional filter updaters chain in commit order.
  */
 const pending: Array<() => void> = []
 let holdTransitions = false
@@ -19,13 +19,15 @@ jest.mock('react', () => {
   return {
     ...actual,
     startTransition: (cb: () => void) => {
-      if (holdTransitions) pending.push(() => actual.startTransition(cb))
+      // Hold the setState callback itself so several discrete updates can be
+      // replayed in one startTransition (functional updaters then chain).
+      if (holdTransitions) pending.push(cb)
       else actual.startTransition(cb)
     },
   }
 })
 
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LibraryClient } from '@/components/library/library-client'
 import { resetHeartWriterForTests } from '@/lib/explore/dreams'
@@ -62,9 +64,13 @@ const fetchMock = global.fetch as jest.Mock
 const json = (body: unknown, status = 200) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) })
 
 function flushHeld() {
+  const actual = jest.requireActual('react') as typeof import('react')
   act(() => {
     const batch = pending.splice(0)
-    for (const cb of batch) cb()
+    if (!batch.length) return
+    actual.startTransition(() => {
+      for (const cb of batch) cb()
+    })
   })
 }
 
@@ -127,5 +133,55 @@ describe('discrete filter transitions vs urgent search', () => {
     await waitFor(() => expect(window.location.search).toContain('search=a'))
     expect(window.location.search).toMatch(/visitStatus=planned/)
     expect(window.history.length).toBe(startLen + 1)
+  })
+
+  it('applies rapid Set chip removals from latest filters, not a stale snapshot', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    const input = screen.getByRole('combobox', { name: 'Search your library' })
+    await user.click(input)
+    await user.type(input, 'itly')
+    await user.click(within(await screen.findByRole('listbox')).getByText('Italy'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove filter 🇮🇹 Italy' })).toBeInTheDocument())
+    await user.click(input)
+    await user.clear(input)
+    await user.type(input, 'japn')
+    await user.click(within(await screen.findByRole('listbox')).getByText('Japan'))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Remove filter 🇮🇹 Italy' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Remove filter 🇯🇵 Japan' })).toBeInTheDocument()
+    })
+    holdTransitions = true
+    fireEvent.click(screen.getByRole('button', { name: 'Remove filter 🇮🇹 Italy' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove filter 🇯🇵 Japan' }))
+    expect(pending.length).toBe(2)
+    flushHeld()
+    // Absolute Set patches from the same snapshot would leave one country chip.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Remove filter .*Italy/ })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Remove filter .*Japan/ })).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('heading', { level: 2, name: 'Italy' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Japan' })).toBeInTheDocument()
+  })
+
+  it('keeps Back URL when typing after popstate restores filters sync', async () => {
+    const user = userEvent.setup()
+    render(<LibraryClient data={data} />)
+    await user.click(screen.getByRole('button', { name: /Been\s*4/ }))
+    await waitFor(() => expect(window.location.search).toMatch(/visitStatus=visited/))
+    holdTransitions = true
+    act(() => {
+      window.history.replaceState(null, '', '/?visitStatus=planned')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(pending.length).toBe(0)
+    expect(screen.getByRole('button', { name: /Planned\s*2/ })).toHaveAttribute('aria-pressed', 'true')
+    const input = screen.getByRole('combobox', { name: 'Search your library' })
+    await user.type(input, 'a')
+    await waitFor(() => expect(window.location.search).toContain('search=a'))
+    expect(window.location.search).toMatch(/visitStatus=planned/)
+    expect(window.location.search).not.toMatch(/visitStatus=visited/)
+    expect(input).toHaveValue('a')
   })
 })

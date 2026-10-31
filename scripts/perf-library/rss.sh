@@ -4,7 +4,7 @@
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 source "$HERE/env.sh" >/dev/null 2>&1 || true
-root=$(cat "${PERF_WORK:-/tmp/td-perf-library}/chrome.pid")
+root=$(cat "${PERF_WORK:?PERF_WORK unset}/chrome.pid")
 best=0
 for p in $(pgrep -f -- '--type=renderer'); do
   pp=$p; ok=0

@@ -5,8 +5,8 @@
 #   scripts/perf-library/run.sh [--skip-build] [--regen-images]
 #
 # Env knobs (defaults shown):
-#   PERF_WORK=/tmp/td-perf-library  PERF_SESSION=perf-library
-#   PERF_PORT / PERF_CHROME_PORT derive from the session (override to pin)
+#   PERF_SESSION=perf-library  PERF_WORK=/tmp/td-perf-library-<session>
+#   PERF_PORT / PERF_CHROME_PORT / PERF_WORK derive from the session (override to pin)
 #   PERF_SIZES="2000 5000"  PERF_REPS=2  PERF_ARCHIVE_REPS=3
 #   PERF_CHROME_BIN=$HOME/.cache/puppeteer/chrome/linux-152.0.7977.75/chrome-linux64/chrome
 #

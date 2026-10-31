@@ -31,6 +31,7 @@ const CHECKS = [
 ];
 
 let fails = 0;
+let checked = 0;
 for (const label of labels) {
   for (const size of [2000, 5000]) {
     for (const vp of ['desktop', 'mobile']) {
@@ -41,24 +42,36 @@ for (const label of labels) {
       for (const [name, path, gate, agg] of CHECKS) {
         const v = agg(cell.map((r) => get(r, path)));
         const g = gates[gate];
-        if (v === null || g === undefined) continue;
+        if (g === undefined) continue;
+        checked++;
+        if (v === null) {
+          fails++;
+          console.log(`FAIL  ${name}: missing (budget ${g})`);
+          continue;
+        }
         const ok = v <= g;
         if (!ok) fails++;
         console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}: ${v} (budget ${g})`);
       }
       if (vp === 'desktop' && gates.archiveMs !== undefined) {
+        checked++;
         const runs = arch.filter((r) => r.label === label && r.size === size);
         const v = med(runs.map((r) => get(r, 'archive.msToUpdated')).filter((x) => x > 0));
-        if (v !== null) {
+        if (v === null) {
+          fails++;
+          console.log(`FAIL  archive -> count on screen ms: missing (budget ${gates.archiveMs})`);
+        } else {
           const ok = v <= gates.archiveMs;
           if (!ok) fails++;
           console.log(`${ok ? 'PASS' : 'FAIL'}  archive -> count on screen ms: ${v} (budget ${gates.archiveMs}, n=${runs.length})`);
-        } else {
-          console.log('SKIP  archive: no successful archive runs');
         }
       }
     }
   }
+}
+if (checked === 0) {
+  fails++;
+  console.log('\nFAIL  no gate measurements found for required 2k/5k library cells');
 }
 console.log(fails ? `\n${fails} gate(s) FAILED` : '\nAll gates PASSED');
 process.exit(fails ? 1 : 0);

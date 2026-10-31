@@ -32,11 +32,13 @@ separate from anything else on the machine:
 
 - Binary: `~/.cache/puppeteer/chrome/linux-152.0.7977.75/chrome-linux64/chrome`
   (the puppeteer-managed build; override with `PERF_CHROME_BIN`).
-- Ports: the app server (front), its upstream `next start` (port + 1) and the
-  Chrome debugging port all derive deterministically from `PERF_SESSION`
-  (default `perf-library`), so parallel runs on one machine never share a
-  browser or kill each other's server. Override with `PERF_PORT` /
-  `PERF_CHROME_PORT`; pass a task id as `PERF_SESSION` to keep lanes apart.
+- Ports and scratch dir: the app server (front), its upstream `next start`
+  (port + 1), the Chrome debugging port, and `PERF_WORK` (default
+  `/tmp/td-perf-library-<PERF_SESSION>`) all derive deterministically from
+  `PERF_SESSION` (default `perf-library`), so parallel runs on one machine
+  never share a browser, server, DB, or results dir. Override with `PERF_PORT` /
+  `PERF_CHROME_PORT` / `PERF_WORK`; pass a task id as `PERF_SESSION` to keep
+  lanes apart.
 - Bridge session: `PERF_SESSION`, exported as `CHROME_DEVTOOLS_AXI_SESSION`,
   with `CHROME_DEVTOOLS_AXI_BROWSER_URL` pointing at the derived debugging port.
 

@@ -11,13 +11,16 @@ const arch = fs.existsSync(archiveFile)
   : [];
 
 const labels = wantLabel ? [wantLabel] : [...new Set(rows.map((r) => r.label))];
+const allFinite = (xs) =>
+  xs.length > 0 && xs.every((x) => typeof x === 'number' && Number.isFinite(x));
 const med = (xs) => {
-  xs = xs.filter((x) => typeof x === 'number' && !Number.isNaN(x)).sort((a, b) => a - b);
-  return xs.length ? xs[Math.floor((xs.length - 1) / 2)] : null;
+  if (!allFinite(xs)) return null;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
 };
 const worst = (xs) => {
-  xs = xs.filter((x) => typeof x === 'number' && !Number.isNaN(x));
-  return xs.length ? Math.max(...xs) : null;
+  if (!allFinite(xs)) return null;
+  return Math.max(...xs);
 };
 const get = (r, path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), r);
 
@@ -68,7 +71,9 @@ for (const label of labels) {
       if (vp === 'desktop' && gates.archiveMs !== undefined) {
         checked++;
         const runs = arch.filter((r) => r.label === label && r.size === size);
-        const v = med(runs.map((r) => get(r, 'archive.msToUpdated')).filter((x) => x > 0));
+        const times = runs.map((r) => get(r, 'archive.msToUpdated'));
+        const complete = allFinite(times) && times.every((x) => x > 0);
+        const v = complete ? med(times) : null;
         if (v === null) {
           fails++;
           console.log(`FAIL  archive -> count on screen ms: missing (budget ${gates.archiveMs})`);

@@ -22,7 +22,7 @@ PERF_WORK="${PERF_WORK:-/tmp/td-perf-library-${PERF_SESSION}}"
 # listens on PORT+1.
 if [ -z "${PERF_PORT:-}" ]; then
   _h=$(printf '%s' "$PERF_SESSION" | cksum | awk '{print $1}')
-  PERF_PORT=$((3420 + _h % 80))
+  PERF_PORT=$((3420 + (_h % 40) * 2))
 fi
 if [ -z "${PERF_CHROME_PORT:-}" ]; then
   _h=$(printf '%s' "$PERF_SESSION" | cksum | awk '{print $1}')

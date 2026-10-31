@@ -1,0 +1,19 @@
+{
+  "_note": "Library perf gates at 2,000 / 5,000 places, from the merged PR 1-7 measurements (production build, local SQLite, headless Chrome; phone = 390x844 @3x, 4x CPU throttle, Fast 4G). Budgets carry headroom over the measured values so a single harness run is a gate, not a reproduction. INP is the worst rep; the rest are medians.",
+  "_measured": {
+    "desktop-2000": { "docKB": 27, "tbtMs": 37, "inpSearchMs": 32, "inpShelfMs": 0, "inpHeartMs": 0, "archiveMs": 40 },
+    "desktop-5000": { "docKB": 28, "tbtMs": 80, "inpSearchMs": 40, "inpShelfMs": 24, "inpHeartMs": 0, "archiveMs": 73 },
+    "mobile-2000": { "docKB": 27, "tbtMs": 247, "inpSearchMs": 96, "inpShelfMs": 48, "inpHeartMs": 24 },
+    "mobile-5000": { "docKB": 29, "tbtMs": 455, "inpSearchMs": 104, "inpShelfMs": 40, "inpHeartMs": 32 }
+  },
+  "library": {
+    "2000": {
+      "desktop": { "docKB": 60, "tbtMs": 150, "inpSearchMs": 100, "inpShelfMs": 150, "inpHeartMs": 100, "archiveMs": 300 },
+      "mobile": { "docKB": 60, "tbtMs": 600, "inpSearchMs": 200, "inpShelfMs": 250, "inpHeartMs": 200 }
+    },
+    "5000": {
+      "desktop": { "docKB": 60, "tbtMs": 300, "inpSearchMs": 150, "inpShelfMs": 150, "inpHeartMs": 150, "archiveMs": 300 },
+      "mobile": { "docKB": 60, "tbtMs": 1000, "inpSearchMs": 250, "inpShelfMs": 250, "inpHeartMs": 250 }
+    }
+  }
+}

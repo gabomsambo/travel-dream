@@ -11,8 +11,8 @@ slim (unused fields dropped, nulls/empties omitted, first photo plus a count);
 quick look loads the rest from `GET /api/library/photos/[placeId]`. The index is
 private user data in the browser HTTP cache, so sign-out sends
 `Clear-Site-Data: "cache"`. Libraries of 150 places or fewer still ride in the
-page whole. Mutations still `router.refresh()`; patching the local store is the
-next stage.
+page whole. How edits update a cached index (stage 2):
+[`docs/evidence/td-libperf-mutations/`](../td-libperf-mutations/).
 
 Desktop is 1440×900; phone is 390 wide at 2×. 5,000-place seeded library, local
 SQLite database, production build (see the PR body for the harness and numbers).

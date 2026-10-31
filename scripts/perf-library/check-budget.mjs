@@ -30,14 +30,26 @@ const CHECKS = [
   ['INP heart ms', 'heart.inp', 'inpHeartMs', worst],
 ];
 
+const sizes = Object.keys(budget)
+  .map(Number)
+  .filter((n) => !Number.isNaN(n))
+  .sort((a, b) => a - b);
+
 let fails = 0;
 let checked = 0;
 for (const label of labels) {
-  for (const size of [2000, 5000]) {
-    for (const vp of ['desktop', 'mobile']) {
+  for (const size of sizes) {
+    const sizeBudget = budget[String(size)];
+    for (const vp of Object.keys(sizeBudget)) {
       const cell = rows.filter((r) => r.label === label && r.size === size && r.vp === vp && r.route === '/library');
-      if (!cell.length) continue;
-      const gates = budget[String(size)][vp];
+      const gates = sizeBudget[vp];
+      if (!cell.length) {
+        checked++;
+        fails++;
+        console.log(`\n## ${label} /library ${size} places ${vp}`);
+        console.log('FAIL  missing /library results for required gate cell');
+        continue;
+      }
       console.log(`\n## ${label} /library ${size} places ${vp} (${cell.length} run${cell.length > 1 ? 's' : ''})`);
       for (const [name, path, gate, agg] of CHECKS) {
         const v = agg(cell.map((r) => get(r, path)));

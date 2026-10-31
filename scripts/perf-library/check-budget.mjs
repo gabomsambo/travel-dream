@@ -1,6 +1,9 @@
 // check-budget.mjs — pass/fail the harness results against budget.json.
 // Usage: node check-budget.mjs <results.jsonl> <results-archive.jsonl> [budget.json] [label]
-// INP gates use the worst rep; everything else uses the median. Exits non-zero on any fail.
+// Every budgeted size×viewport must have /library rows. INP gates use the worst
+// rep; everything else uses the median. Every rep must contribute a finite value
+// (INP with inputs:0 and missing/zero archive times count as missing). Exits
+// non-zero on any fail.
 import fs from 'fs';
 
 const [resultsFile, archiveFile, budgetFile = 'budget.json', wantLabel] = process.argv.slice(2);

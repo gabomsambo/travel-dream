@@ -9,7 +9,8 @@ Promoted from the §8 scouting harness (report §8 row 8); **not wired into CI**
 ## Run
 
 ```bash
-scripts/perf-library/run.sh
+npm run perf:library
+# same as: scripts/perf-library/run.sh
 ```
 
 Useful variants:
@@ -22,10 +23,13 @@ PERF_REPS=1 PERF_ARCHIVE_REPS=1 scripts/perf-library/run.sh   # quicker, noisier
 
 `run.sh` prints the median summary table, then a `PASS`/`FAIL` line per gate
 (check-budget.mjs exits non-zero on any fail). The budget gate always requires
-every size×viewport in `budget.json` (currently 2k and 5k, desktop and mobile);
-a partial `PERF_SIZES` (e.g. `PERF_SIZES="5000"`) is fine for measurement or
-debug, but check-budget will FAIL any missing gate cell. Raw rows stay in
-`$PERF_WORK/results.jsonl` and `results-archive.jsonl`.
+every size×viewport in `budget.json` (currently 2k and 5k, desktop and mobile),
+and every gated metric must be a finite number from **every** rep in that cell
+(failed probes, INP with `inputs: 0`, or missing/zero archive times → FAIL — they
+are not dropped from the aggregate). A partial `PERF_SIZES` (e.g.
+`PERF_SIZES="5000"`) is fine for measurement or debug, but check-budget will
+FAIL any missing gate cell. Raw rows stay in `$PERF_WORK/results.jsonl` and
+`results-archive.jsonl`.
 
 ## Chrome (not on PATH)
 
@@ -58,7 +62,7 @@ no cookies); `rss.sh` reads the tab's renderer RSS from `/proc`.
 | `server.sh` | `next start` (upstream) + `proxy.mjs` front, which adds the brotli/gzip layer Vercel would (route-handler JSON is uncompressed under `next start`) |
 | `chrome.sh` / `cycle.sh` / `rss.sh` / `axi.sh` | Chrome lifecycle, fresh profile per run, tab memory, axi bridge binding |
 | `gen.mjs` + `metrics.fn.js` + `helpers.fn.js` | Generates the `chrome-devtools-axi run` scripts and in-page probes (LCP/TBT/INP/scroll/archive timing) |
-| `login.sh` | Cookie jars per bench user (credentials provider over HTTP) |
+| `login.sh` | Cookie jars per bench user (credentials provider over HTTP); aborts if any jar lacks a `session-token` |
 | `bench.sh` | Cold load + scroll + interactions per size/viewport → `results.jsonl` |
 | `bench-archive.sh` + `restore.py` | Archive-one-place timing (DB restored per rep) → `results-archive.jsonl` |
 | `server-bench.sh` | curl TTFB + raw/gzip/brotli sizes for HTML and RSC |

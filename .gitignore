@@ -247,4 +247,7 @@ test-example-photos/
 .loadtest-stub-state.json
 .loadtest-calls.tsv
 
+# Library perf harness: generated bench images (rebuilt by scripts/perf-library/run.sh)
+public/bench/
+
 .env.local.realcreds

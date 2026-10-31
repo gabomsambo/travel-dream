@@ -18,11 +18,13 @@ Useful variants:
 scripts/perf-library/run.sh --skip-build      # reuse the existing .next build
 scripts/perf-library/run.sh --regen-images    # rebuild public/bench from dest_*.png
 PERF_REPS=1 PERF_ARCHIVE_REPS=1 scripts/perf-library/run.sh   # quicker, noisier
-PERF_SIZES="5000" scripts/perf-library/run.sh                 # one size only
 ```
 
 `run.sh` prints the median summary table, then a `PASS`/`FAIL` line per gate
-(check-budget.mjs exits non-zero on any fail). Raw rows stay in
+(check-budget.mjs exits non-zero on any fail). The budget gate always requires
+every size×viewport in `budget.json` (currently 2k and 5k, desktop and mobile);
+a partial `PERF_SIZES` (e.g. `PERF_SIZES="5000"`) is fine for measurement or
+debug, but check-budget will FAIL any missing gate cell. Raw rows stay in
 `$PERF_WORK/results.jsonl` and `results-archive.jsonl`.
 
 ## Chrome (not on PATH)

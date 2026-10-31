@@ -8,6 +8,7 @@
 #   PERF_SESSION=perf-library  PERF_WORK=/tmp/td-perf-library-<session>
 #   PERF_PORT / PERF_CHROME_PORT / PERF_WORK derive from the session (override to pin)
 #   PERF_SIZES="2000 5000"  PERF_REPS=2  PERF_ARCHIVE_REPS=3
+#   (partial PERF_SIZES is measurement/debug only; check-budget requires the full budget.json matrix)
 #   PERF_CHROME_BIN=$HOME/.cache/puppeteer/chrome/linux-152.0.7977.75/chrome-linux64/chrome
 #
 # LOCAL DATABASE ONLY: env.sh unsets every TURSO_*/Upstash/Blob variable, the seed and

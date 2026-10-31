@@ -16,8 +16,15 @@ import { Button } from '@/components/adapters/button';
 import { PhotoAttribution } from '@/components/attribution/photo-attribution';
 import { cn } from '@/lib/utils';
 import type { AttributionMeta } from '@/db/schema/attachments';
+import type { Attachment } from '@/lib/place-photos';
 
 type Source = 'google_places' | 'wikimedia' | 'pexels';
+
+/** The photo the server stored for an attach, as its route answered. */
+export interface AttachedPhoto {
+  attachment: Attachment;
+  deduped: boolean;
+}
 
 interface SearchItem {
   source: Source;
@@ -57,7 +64,8 @@ interface FindImageDialogProps {
   hasGooglePlaceId: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAttached?: () => void;
+  /** `attached` is the photo the server stored; absent if the server did not say. */
+  onAttached?: (attached?: AttachedPhoto) => void;
   /** `always` makes the attached photo the cover. Defaults to first-photo-only. */
   primary?: 'if-first' | 'always';
 }
@@ -205,7 +213,7 @@ export function FindImageDialog({
         throw new Error(body?.error || `Attach failed (${res.status})`);
       }
       notify.success(body.deduped ? 'Image already attached' : 'Image added');
-      onAttached?.();
+      onAttached?.(body.attachment ? { attachment: body.attachment, deduped: Boolean(body.deduped) } : undefined);
       onOpenChange(false);
     } catch (err) {
       notify.error('Could not add image', {

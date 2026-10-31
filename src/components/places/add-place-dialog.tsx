@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useLibrarySync } from '@/components/library/library-sync'
+import { itemOfPlace } from '@/lib/library/index-patch'
 import Link from 'next/link'
 import {
   Dialog,
@@ -94,7 +95,7 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated, seed }: Add
   } | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const router = useRouter()
+  const sync = useLibrarySync()
 
   const [tagInput, setTagInput] = useState('')
   const [vibeInput, setVibeInput] = useState('')
@@ -280,7 +281,8 @@ export function AddPlaceDialog({ open, onOpenChange, onPlaceCreated, seed }: Add
       onPlaceCreated?.(place)
       resetForm()
       onOpenChange(false)
-      router.refresh()
+      // A new place is in the Library: patch it in when one is on screen, otherwise have the page render again.
+      sync.apply({ kind: 'upsert', items: [itemOfPlace(place)] })
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Failed to create place')
     } finally {

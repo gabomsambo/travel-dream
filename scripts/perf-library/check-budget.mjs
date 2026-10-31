@@ -22,7 +22,11 @@ const worst = (xs) => {
   if (!allFinite(xs)) return null;
   return Math.max(...xs);
 };
-const get = (r, path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), r);
+const get = (r, path) => {
+  const [head] = path.split('.');
+  if (r[head] && typeof r[head] === 'object' && 'inputs' in r[head] && !r[head].inputs) return null;
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), r);
+};
 
 const CHECKS = [
   ['document wire kB', 'load.docKB', 'docKB', med],

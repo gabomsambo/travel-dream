@@ -1,6 +1,6 @@
 import Image from "next/image"
 import { cn } from "@/lib/utils"
-import { photoRoute, photoTint, resolverSrc, resolverSrcSet } from "@/lib/photo-url"
+import { photoRoute, photoTint, privateBlobSrc, resolverSrc, resolverSrcSet } from "@/lib/photo-url"
 
 const FULL_WIDTHS = [320, 640, 960, 1280] as const
 const THUMB_WIDTHS = [160, 320] as const
@@ -63,7 +63,7 @@ export function Photo({
     // Resolver and unknown hosts stay out of the optimizer (see above).
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={route === "resolver" ? resolverSrc(url, widths[1]) : url}
+      src={route === "resolver" ? resolverSrc(url, widths[1]) : route === "private" ? privateBlobSrc(url) : url}
       srcSet={route === "resolver" ? resolverSrcSet(url, widths) : undefined}
       sizes={route === "resolver" ? sizes : undefined}
       alt={alt}

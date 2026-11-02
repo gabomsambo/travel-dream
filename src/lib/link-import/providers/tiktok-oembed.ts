@@ -1,13 +1,8 @@
 import type { CanonicalSocialLink, LinkDetails } from '@/types/link-import';
 import type { LinkDetailsProvider } from '../details';
+import type { LinkProviderResult } from '@/types/link-import';
 
 type OEmbedResponse = Record<string, unknown>;
-
-export interface LinkProviderResult {
-  details?: LinkDetails;
-  cachedResponse?: Record<string, string | number | boolean | null>;
-  empty?: boolean;
-}
 
 export class TikTokOEmbedNoDataError extends Error {
   constructor() {
@@ -24,7 +19,7 @@ function stringField(response: OEmbedResponse, field: string): string | undefine
 function scalarFields(response: OEmbedResponse): Record<string, string | number | boolean | null> {
   const fields = [
     'version', 'type', 'width', 'height', 'provider_url', 'provider_name', 'embed_product_id',
-    'embed_type', 'title', 'author_name', 'author_url', 'thumbnail_url',
+    'embed_type', 'title', 'author_name', 'author_url',
   ];
   const cached: Record<string, string | number | boolean | null> = {};
   for (const field of fields) {
@@ -56,11 +51,9 @@ export function createTikTokOEmbedProvider(
       const object = payload as OEmbedResponse;
       const author = stringField(object, 'author_name');
       const title = stringField(object, 'title');
-      const thumbnailReference = stringField(object, 'thumbnail_url');
       const details: LinkDetails = {
         ...(author ? { author } : {}),
         ...(title ? { title } : {}),
-        ...(thumbnailReference ? { thumbnailReference } : {}),
       };
       return {
         ...(Object.keys(details).length > 0 ? { details } : {}),

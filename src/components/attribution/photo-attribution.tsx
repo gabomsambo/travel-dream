@@ -102,5 +102,16 @@ export function PhotoAttribution({ attribution, className }: PhotoAttributionPro
     );
   }
 
+  if (attribution.kind === 'tiktok') {
+    return (
+      <p className={cls}>
+        From{' '}
+        <a href={attribution.postUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+          @{attribution.handle} on TikTok
+        </a>
+      </p>
+    );
+  }
+
   return null;
 }

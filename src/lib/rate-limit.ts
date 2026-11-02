@@ -8,11 +8,12 @@ export type RateLimitTier =
   | 'relaxed'
   | 'auth'
   | 'photo-search'
-  | 'photo-resolve';
+  | 'photo-resolve'
+  | 'tiktok-page';
 
 interface RateLimitConfig {
   requests: number;
-  window: `${number} ${'s' | 'm' | 'h'}`;
+  window: `${number} ${'s' | 'm' | 'h' | 'd'}`;
   prefix: string;
 }
 
@@ -25,6 +26,7 @@ const RATE_LIMIT_TIERS: Record<RateLimitTier, RateLimitConfig> = {
   // One call per Google-backed photo on screen; a library page shows dozens, and
   // the browser caches each redirect for 45 min, so this only clips bursts.
   'photo-resolve': { requests: 600, window: '1 m', prefix: 'rl:photo-resolve' },
+  'tiktok-page': { requests: 30, window: '1 d', prefix: 'rl:tiktok-page' },
 };
 
 const ROUTE_TIERS: Record<string, RateLimitTier> = {

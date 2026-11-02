@@ -25,6 +25,11 @@ export type AttributionMeta =
       photoUrl: string;
     }
   | {
+      kind: 'tiktok';
+      postUrl: string;
+      handle: string;
+    }
+  | {
       kind: 'upload';
     };
 

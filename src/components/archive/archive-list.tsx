@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { Trash2, RotateCcw } from "lucide-react"
 import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
+import { PrivateImage } from "@/components/private-image"
 import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { SelectMark } from "@/components/library/library-place-menu"
@@ -49,8 +50,7 @@ export function ArchiveList({
                   className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {place.coverUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={place.coverUrl} alt="" className="h-full w-full object-cover" />
+                    <PrivateImage src={place.coverUrl} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <FallbackArt name={place.name} kind={place.kind} />
                   )}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui-v2/button';
 import { DuplicateMemberSheet } from './duplicate-member-sheet';
+import { PrivateImage } from '@/components/private-image';
 import {
   CERTAINTY_LABEL,
   certaintyWord,
@@ -346,8 +347,7 @@ export function DuplicateWorkbench({
                   <button type="button" onClick={() => setPanelId(place.id)} className="text-left" aria-label={`See everything about ${place.name}`}>
                     <span className={cn('relative flex h-28 items-center justify-center bg-muted text-3xl font-semibold text-muted-foreground', isOut && 'grayscale')}>
                       {place.photoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={place.photoUrl} alt="" className="h-full w-full object-cover" />
+                        <PrivateImage src={place.photoUrl} alt="" className="h-full w-full object-cover" />
                       ) : (place.name.trim().charAt(0) || '?').toUpperCase()}
                       <span className={cn(
                         'absolute left-2 top-2 rounded px-1.5 py-0.5 text-xs font-semibold',

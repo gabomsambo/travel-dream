@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { Heart, RotateCcw, Trash2 } from "lucide-react"
 import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
+import { PrivateImage } from "@/components/private-image"
 import { FallbackArt } from "@/components/explore/fallback-art"
 import { kindLabel } from "@/components/explore/kind-icon"
 import { FindImageButton } from "@/components/places/find-image-button"
@@ -48,8 +49,7 @@ export function ArchiveJournal({
                 className="group relative block aspect-square overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring sm:aspect-[4/3] sm:rounded-2xl"
               >
                 {place.coverUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={place.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" />
+                  <PrivateImage src={place.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" />
                 ) : (
                   <FallbackArt name={place.name} kind={place.kind} />
                 )}

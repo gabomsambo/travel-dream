@@ -8,6 +8,7 @@ import { forUser, type TenantDb } from '@/lib/tenant-db';
 import { parseSocialLink } from '@/lib/link-import/url';
 import { resolveTikTokShortLink } from '@/lib/link-import/resolve-short-link';
 import { enrichLinkDetails } from '@/lib/link-import/details';
+import { extractionContext } from '@/lib/link-import/extraction-context';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import type {
   CanonicalSocialLink,
@@ -18,36 +19,19 @@ import type {
 } from '@/types/link-import';
 
 export const runtime = 'nodejs';
+// Page reads can make one 8s retry after reserving the shared 10s request slot.
+export const maxDuration = 60;
 
 const SaveLinkSchema = z.object({
   url: z.string().trim().min(1).max(2048),
   caption: z.string().max(8_000).optional(),
 });
 
-const MAX_EXTRACTION_CONTEXT = 10_000;
-
 type SourceRow = typeof sourcesCurrentSchema.$inferSelect;
 type SourceMeta = NonNullable<SourceRow['meta']>;
 type ScopedDb = Omit<TenantDb, 'findOwned' | 'transaction'> | Parameters<
   Parameters<TenantDb['transaction']>[0]
 >[0];
-
-function extractionContext(
-  link: CanonicalSocialLink,
-  caption: string | undefined,
-  details: LinkDetails | undefined,
-): string {
-  const lines = [
-    `Social link: ${link.canonicalUrl}`,
-    `Platform: ${link.platform}; content type: ${link.kind}`,
-    link.placeName || details?.placeName ? `Place mentioned in link: ${link.placeName ?? details?.placeName}` : '',
-    link.handle ? `Creator handle: @${link.handle}` : '',
-    details?.author && details.author !== `@${link.handle}` ? `Creator: ${details.author}` : '',
-    details?.title ? `Post title: ${details.title}` : '',
-    caption ? `Pasted caption:\n${caption}` : '',
-  ].filter(Boolean);
-  return lines.join('\n').slice(0, MAX_EXTRACTION_CONTEXT);
-}
 
 function sourceResponse(source: { id: string; uri: string; meta: unknown }, duplicate: boolean, status: number) {
   return NextResponse.json(
@@ -109,8 +93,9 @@ function fillLinkDetails(prior: LinkDetails | undefined, next: LinkDetails): Lin
   const merged: LinkDetails = {};
   for (const source of [prior, next]) {
     if (!source) continue;
-    for (const [key, value] of Object.entries(source) as Array<[keyof LinkDetails, string | undefined]>) {
-      if (value && !merged[key]) merged[key] = value;
+    for (const key of Object.keys(source) as Array<keyof LinkDetails>) {
+      const value = source[key];
+      if (value && !merged[key]) Object.assign(merged, { [key]: value });
     }
   }
   return merged;
@@ -283,17 +268,17 @@ async function refreshExistingLink(
   resolution: LinkResolution,
   caption: string | undefined,
 ): Promise<{ source: SourceRow; requeued: boolean }> {
-  const enrichment = await enrichLinkDetails(link);
+  const enrichment = await enrichLinkDetails(link, undefined, { userId: tdb.userId });
   const details = enrichment.details;
   const priorMeta = (existing.meta ?? {}) as SourceMeta;
   const priorLink = priorMeta.link;
   const priorCaption = priorLink?.captionText;
-  const mergedCaption = caption || priorCaption;
+  const mergedCaption = caption || details.caption || priorCaption;
   const hasPlaces = await sourceHasLinkedPlaces(tdb, existing.id);
   const requeue = shouldRequeueExisting(
     existing.processingStatus,
     priorCaption,
-    caption,
+    mergedCaption,
     hasPlaces,
   );
   const metaLink = buildLinkMeta(
@@ -420,13 +405,14 @@ export async function POST(request: NextRequest) {
     }
 
     const caption = parsedBody.data.caption?.trim() || undefined;
-    const enrichment = await enrichLinkDetails(link);
+    const enrichment = await enrichLinkDetails(link, undefined, { userId: user.id });
     const details = enrichment.details;
+    const effectiveCaption = caption || details.caption;
     const metaLink = buildLinkMeta(
       parsedLink.link,
       link,
       resolution,
-      caption,
+      effectiveCaption,
       details,
       enrichment.providers,
     );
@@ -437,7 +423,7 @@ export async function POST(request: NextRequest) {
       ...(details.author || link.handle ? { author: details.author ?? `@${link.handle}` } : {}),
       link: metaLink,
     };
-    const ocrText = extractionContext(link, caption, details);
+    const ocrText = extractionContext(link, effectiveCaption, details);
     const sourceId = `src_${crypto.randomUUID()}`;
     const now = new Date().toISOString();
 

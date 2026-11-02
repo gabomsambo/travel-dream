@@ -11,6 +11,7 @@ import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
 import { SectionPencilSlot } from "./section-edit"
+import { PrivateImage } from "@/components/private-image"
 
 /** Explore's rail header: a primary eyebrow that says why, a title that says what. */
 export function SectionHeader({ eyebrow, title, id, action }: { eyebrow: string; title?: string; id?: string; action?: ReactNode }) {
@@ -137,8 +138,7 @@ export function Photos({ photos, onOpen }: { photos: Attachment[]; onOpen: (inde
       aria-label={`Open photo ${index + 1} of ${photos.length}`}
       className={cn("group relative overflow-hidden bg-muted", className)}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+      <PrivateImage
         src={index === 0 ? photo.uri : photo.thumbnailUri || photo.uri}
         alt={photo.caption || ""}
         loading="lazy"

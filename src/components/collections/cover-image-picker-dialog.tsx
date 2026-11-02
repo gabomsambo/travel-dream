@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/adapters/button";
 import { Loader2, Upload, Image as ImageIcon, Check } from 'lucide-react';
 import { upload } from '@vercel/blob/client';
+import { PrivateImage } from '@/components/private-image';
 import { cn } from '@/lib/utils';
 import {
   ALLOWED_IMAGE_MIME_TYPES,
@@ -300,7 +301,7 @@ export function CoverImagePickerDialog({
                       : "border-transparent hover:border-muted-foreground/25"
                   )}
                 >
-                  <img
+                  <PrivateImage
                     src={image.thumbnailUri || image.uri}
                     alt={image.placeName}
                     className="w-full h-full object-cover"

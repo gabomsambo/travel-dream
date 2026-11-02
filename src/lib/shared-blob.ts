@@ -7,6 +7,7 @@
  */
 
 import { del } from '@vercel/blob';
+import { deleteTikTokPrivateBlob, isPrivateBlobUrl } from '@/lib/tiktok-private-blob';
 import { and, eq, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { attachments, collections, places, sources } from '@/db/schema';
@@ -97,7 +98,8 @@ export async function releaseBlobIfUnreferenced(
   }
 
   try {
-    await del(url);
+    if (isPrivateBlobUrl(url)) await deleteTikTokPrivateBlob(url);
+    else await del(url);
   } catch (cleanupError) {
     console.warn(`${logPrefix} Failed to delete blob ${url}:`, cleanupError);
   }
@@ -203,7 +205,8 @@ export async function releaseBlobIfUnreferencedByAnyTenant(
   }
 
   try {
-    await del(url);
+    if (isPrivateBlobUrl(url)) await deleteTikTokPrivateBlob(url);
+    else await del(url);
   } catch (cleanupError) {
     console.warn(`${logPrefix} Failed to delete blob ${url}:`, cleanupError);
   }

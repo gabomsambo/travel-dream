@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { put } from '@vercel/blob';
 import type { Source } from '@/types/database';
 import type { GeminiExtractionResult } from '@/types/extraction-pipeline';
+import type { LinkDetails, LinkProviderResult } from '@/types/link-import';
 import {
   cacheSourceProcessingWork,
   claimNextQueuedSource,
@@ -17,6 +18,15 @@ import { getQueueDepth } from '@/lib/db-queries';
 import { getGeminiExtractionService } from './gemini-extraction-service';
 import { getGooglePlacesEnrichmentService, GooglePlacesUnavailableError } from './google-places-enrichment';
 import { QUEUE_CONFIG } from './queue-config';
+import { extractionContext } from '@/lib/link-import/extraction-context';
+import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
+import { isAllowedBlobUrl } from '@/lib/blob-url';
+import {
+  deleteTikTokPrivateBlob,
+  getTikTokPrivateBlob,
+  isPrivateBlobUrl,
+  putTikTokPrivateBlob,
+} from '@/lib/tiktok-private-blob';
 
 /**
  * A run was cut short. NOT a verdict about the screenshot: the item is requeued
@@ -27,6 +37,16 @@ export class ProcessingInterrupted extends Error {
     super(message);
     this.name = 'ProcessingInterrupted';
   }
+}
+
+function isLinkProviderResult(value: unknown): value is LinkProviderResult {
+  return !!value && typeof value === 'object' &&
+    ('details' in value || 'reason' in value || 'transient' in value || 'empty' in value);
+}
+
+function isLinkDetails(value: unknown): value is LinkDetails {
+  return !!value && typeof value === 'object' &&
+    !('details' in value) && !('reason' in value) && !('transient' in value) && !('empty' in value);
 }
 
 export interface ProcessQueueResult {
@@ -406,7 +426,8 @@ async function runPipeline(
   if (source.type === 'url') {
     if (!extraction) {
       signal.throwIfAborted();
-      const pending = getGeminiExtractionService().extractFromText(source.ocrText ?? '', meta.platform ?? 'social link');
+      const text = await linkTextForExtraction(source, meta, signal);
+      const pending = getGeminiExtractionService().extractFromText(text, meta.platform ?? 'social link');
       // Keep the same paid-work salvage and lease cache used by screenshot OCR.
       inFlight.extraction = { promise: pending };
       extraction = await withAbort(pending, signal);
@@ -450,6 +471,43 @@ async function runPipeline(
   signal.throwIfAborted();
   const created = await createPlacesFromPipeline(enrichedPlaces, source.id, source.userId);
   return created.createdCount;
+}
+
+async function linkTextForExtraction(
+  source: Source,
+  meta: NonNullable<Source['meta']>,
+  signal: AbortSignal,
+): Promise<string> {
+  const link = meta.link;
+  const fallback = source.ocrText ?? '';
+  if (!link || link.platform !== 'tiktok' || !link.postId || !link.handle ||
+      (link.kind !== 'tiktok-photo' && link.kind !== 'tiktok-video')) {
+    return fallback;
+  }
+
+  const previous = link.providers.find((record) => record.provider === 'tiktok-page');
+  if (previous?.status === 'ok') return fallback;
+  if (previous?.reason === 'disabled') return fallback;
+
+  signal.throwIfAborted();
+  let output: Awaited<ReturnType<typeof tiktokPageProvider.getDetails>>;
+  try {
+    output = await tiktokPageProvider.getDetails(link, { userId: source.userId });
+  } catch {
+    throw new ProcessingInterrupted('TikTok page read was interrupted', 'upstream');
+  }
+
+  const result = isLinkProviderResult(output) ? output : undefined;
+  const details = isLinkDetails(output) ? output : result?.details;
+  const reason = result?.reason;
+  if (reason === 'blocked' || reason === 'transient' || reason === 'throttled' || reason === 'safety_unavailable') {
+    throw new ProcessingInterrupted(`TikTok page read deferred: ${reason}`, 'upstream');
+  }
+  if (!details) return fallback;
+
+  const merged = { ...details, ...link.details };
+  const caption = link.captionText ?? details.caption ?? link.details?.caption;
+  return extractionContext(link, caption, merged);
 }
 
 /**
@@ -499,9 +557,28 @@ async function salvageInFlightExtraction(
 }
 
 async function downloadScreenshot(uri: string, signal: AbortSignal): Promise<Buffer> {
-  const res = await fetch(uri, {
-    signal: AbortSignal.any([signal, AbortSignal.timeout(QUEUE_CONFIG.blobFetchTimeoutMs)]),
-  });
+  let res: Response;
+  if (isPrivateBlobUrl(uri)) {
+    if (!isAllowedBlobUrl(uri)) throw new Error('Private screenshot URL is not allowed');
+    let blob: Awaited<ReturnType<typeof getTikTokPrivateBlob>>;
+    try {
+      blob = await getTikTokPrivateBlob(uri);
+    } catch {
+      throw new ProcessingInterrupted('Private Blob fetch failed', 'upstream');
+    }
+    if (!blob || blob.statusCode !== 200) throw new Error('Private screenshot was not found');
+    res = new Response(blob.stream, {
+      status: blob.statusCode,
+      headers: {
+        'content-length': String(blob.blob.size),
+        'content-type': blob.blob.contentType,
+      },
+    });
+  } else {
+    res = await fetch(uri, {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(QUEUE_CONFIG.blobFetchTimeoutMs)]),
+    });
+  }
   if (!res.ok) {
     // 5xx from blob storage is transient; 404 means the file is genuinely gone.
     if (res.status >= 500 || res.status === 429) {
@@ -535,11 +612,17 @@ async function generateThumbnail(
       .jpeg({ quality: 80 })
       .toBuffer();
     const thumbKey = `thumbnails/${source.userId}/${source.id}_thumb.jpg`;
-    const thumbBlob = await put(thumbKey, thumbnailBuffer, {
-      access: 'public',
-      contentType: 'image/jpeg',
-      allowOverwrite: true,
-    });
+    const thumbBlob = source.meta?.tiktokPhotoImport
+      ? await putTikTokPrivateBlob(thumbKey, thumbnailBuffer, 'image/jpeg')
+      : await put(thumbKey, thumbnailBuffer, {
+          access: 'public',
+          contentType: 'image/jpeg',
+          allowOverwrite: true,
+        });
+    if (!isAllowedBlobUrl(thumbBlob.url)) {
+      if (isPrivateBlobUrl(thumbBlob.url)) await deleteTikTokPrivateBlob(thumbBlob.url).catch(() => undefined);
+      return undefined;
+    }
     return thumbBlob.url;
   } catch (err) {
     if (signal.aborted) throw err;

@@ -39,12 +39,16 @@ jest.mock('sharp', () => jest.fn(() => ({
 jest.mock('@vercel/blob', () => ({
   put: jest.fn(async () => ({ url: 'https://store.public.blob.vercel-storage.com/thumb.jpg' })),
 }));
+jest.mock('@/lib/link-import/providers/tiktok-page', () => ({
+  tiktokPageProvider: { getDetails: jest.fn() },
+}));
 
 const mockExtractFromImage = jest.fn();
 const mockExtractFromText = jest.fn();
 const mockEnrichPlaces = jest.fn();
 
 import { processQueue } from '@/lib/mass-upload/queue-processor';
+import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
 import { QUEUE_CONFIG } from '@/lib/mass-upload/queue-config';
 import { GooglePlacesUnavailableError } from '@/lib/mass-upload/google-places-enrichment';
 import {
@@ -178,6 +182,43 @@ describe('processQueue', () => {
       extraction: expect.any(Object),
     });
     expect(mockEnrichPlaces).toHaveBeenCalledWith(expect.any(Array), expect.any(AbortSignal));
+  });
+
+  it('requeues TikTok links when the daily page-read cap is reached', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Caption supplied by the user',
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          providers: [],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason: 'throttled' });
+
+    const result = await processQueue({ workerId: 'w_tiktok_cap' });
+
+    expect(tiktokPageProvider.getDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: '7694185850497666335', platform: 'tiktok' }),
+      { userId: source.userId },
+    );
+    expect(mockInterruption).toHaveBeenCalledTimes(1);
+    expect(mockInterruption).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.stringContaining('throttled'),
+      QUEUE_CONFIG.maxInterruptions,
+    );
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(mockExtractFromText).not.toHaveBeenCalled();
+    expect(result.interrupted).toBe(1);
   });
 
   it('treats a 5xx from blob storage as an interruption, not a bad screenshot', async () => {

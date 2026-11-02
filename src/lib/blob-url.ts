@@ -10,6 +10,7 @@
  */
 
 const VERCEL_BLOB_HOST_SUFFIX = '.public.blob.vercel-storage.com';
+const VERCEL_PRIVATE_BLOB_HOST_SUFFIX = '.private.blob.vercel-storage.com';
 
 /**
  * Optional comma-separated override for the configured store host, e.g.
@@ -36,7 +37,7 @@ export function isAllowedBlobUrl(url: string): boolean {
   if (parsed.protocol !== 'https:') return false;
 
   const host = parsed.host.toLowerCase();
-  if (host.endsWith(VERCEL_BLOB_HOST_SUFFIX)) return true;
+  if (host.endsWith(VERCEL_BLOB_HOST_SUFFIX) || host.endsWith(VERCEL_PRIVATE_BLOB_HOST_SUFFIX)) return true;
 
   return configuredBlobHosts().has(host);
 }

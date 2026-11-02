@@ -5,6 +5,7 @@ import { Check, Loader2 } from 'lucide-react'
 import { Button } from '@/components/adapters/button'
 import { CERTAINTY_WORD_CLASS } from '@/components/duplicates/certainty-word-class'
 import { DuplicateComparisonPanel } from '@/components/duplicates/duplicate-comparison-panel'
+import { PrivateImage } from '@/components/private-image'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import type { CertaintyWord } from '@/lib/duplicate-certainty'
 import { notify } from '@/lib/notify'
@@ -39,8 +40,7 @@ function Thumb({ url, name }: { url: string | null; name: string }) {
   return (
     <span className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border-2 border-card bg-muted text-sm font-semibold text-muted-foreground">
       {url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt="" className="h-full w-full object-cover" />
+        <PrivateImage src={url} alt="" className="h-full w-full object-cover" />
       ) : (
         initial(name)
       )}

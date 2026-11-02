@@ -40,6 +40,12 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
     author?: string;
     platform?: string;
     link?: LinkSourceMeta;
+    tiktokPhotoImport?: {
+      postId: string;
+      postUrl: string;
+      handle: string;
+      index: number;
+    };
     uploadInfo?: {
       sessionId?: string;
       filename?: string;

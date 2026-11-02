@@ -20,6 +20,7 @@ import {
   attachments
 } from '@/db/schema'
 import { del } from '@vercel/blob'
+import { deleteTikTokPrivateBlob, isPrivateBlobUrl } from '@/lib/tiktok-private-blob'
 
 export const dynamic = 'force-dynamic'
 
@@ -82,7 +83,11 @@ export async function DELETE() {
     // Clean up blobs AFTER transaction commits (best-effort)
     if (blobUrls.length > 0) {
       try {
-        await del(blobUrls)
+        const uniqueUrls = [...new Set(blobUrls)]
+        const publicUrls = uniqueUrls.filter((url) => !isPrivateBlobUrl(url))
+        const privateUrls = uniqueUrls.filter(isPrivateBlobUrl)
+        if (publicUrls.length > 0) await del(publicUrls)
+        await Promise.all(privateUrls.map((url) => deleteTikTokPrivateBlob(url)))
       } catch (e) {
         console.warn(`[delete-all] Failed to delete ${blobUrls.length} blobs:`, e)
       }

@@ -26,10 +26,51 @@ export type LinkParseResult =
 
 export interface LinkDetails {
   caption?: string;
+  hashtags?: string[];
   author?: string;
+  authorHandle?: string;
   placeName?: string;
+  placeAddress?: string;
+  placeCategory?: string;
+  placeCity?: string;
+  placeSourceId?: string;
   title?: string;
   thumbnailReference?: string;
+  postedAt?: number;
+  contentKind?: 'photo' | 'video';
+  sourceUrl?: string;
+}
+
+export type LinkProviderReason =
+  | 'disabled'
+  | 'gone'
+  | 'unavailable'
+  | 'blocked'
+  | 'format_changed'
+  | 'transient'
+  | 'throttled'
+  | 'safety_unavailable';
+
+/** Signed TikTok CDN URLs are transient and must never enter persisted details. */
+export interface TikTokImageRef {
+  url: string;
+  width?: number;
+  height?: number;
+  expiresAt?: number;
+}
+
+export interface LinkProviderResult {
+  details?: LinkDetails;
+  cachedResponse?: Record<string, string | number | boolean | null>;
+  empty?: boolean;
+  reason?: LinkProviderReason;
+  /** In-memory only. `details` and provider history remain safe to persist. */
+  transient?: { imageRefs?: TikTokImageRef[] };
+}
+
+export interface LinkProviderContext {
+  userId?: string;
+  forceRefresh?: boolean;
 }
 
 export interface LinkProviderRecord {
@@ -37,6 +78,7 @@ export interface LinkProviderRecord {
   status: 'ok' | 'empty' | 'error';
   details?: LinkDetails;
   cachedResponse?: Record<string, string | number | boolean | null>;
+  reason?: LinkProviderReason;
   error?: string;
   fetchedAt: string;
 }
@@ -61,4 +103,10 @@ export interface LinkSourceMeta {
   captionText?: string;
   details?: LinkDetails;
   providers: LinkProviderRecord[];
+  tiktokPhotoImport?: {
+    status: 'importing' | 'imported' | 'failed';
+    requestedAt?: string;
+    sourceIds?: string[];
+    count?: number;
+  };
 }

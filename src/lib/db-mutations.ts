@@ -2009,6 +2009,13 @@ export async function createPlacesFromPipeline(
 
       const screenshotUri = source.type === 'screenshot' ? source.uri : null;
       const meta = source.meta;
+      const tiktokAttribution = meta?.tiktokPhotoImport
+        ? {
+            kind: 'tiktok' as const,
+            postUrl: meta.tiktokPhotoImport.postUrl,
+            handle: meta.tiktokPhotoImport.handle,
+          }
+        : undefined;
       const resolvedPlaces: Place[] = [];
       const createdIds = new Set(recordedCreatedPlaceIds(meta));
       const linkedByPlaceId = new Map<string, LinkReason>();
@@ -2128,8 +2135,9 @@ export async function createPlacesFromPipeline(
             filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
             mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
             fileSize: meta?.uploadInfo?.fileSize || null,
-            thumbnailUri: meta?.uploadInfo?.thumbnailPath || null,
+            thumbnailUri: meta?.uploadInfo?.thumbnailPath || meta?.massUpload?.thumbnailUrl || null,
             isPrimary: 1,
+            ...(tiktokAttribution ? { source: 'tiktok', attribution: tiktokAttribution } : {}),
           });
         }
       }

@@ -59,6 +59,11 @@ import path from 'path';
 jest.mock('@vercel/blob', () => ({
   del: jest.fn().mockResolvedValue(undefined),
   put: jest.fn().mockRejectedValue(new Error('blob writes are not available in the sweep')),
+  get: jest.fn().mockResolvedValue({
+    statusCode: 200,
+    stream: new ReadableStream(),
+    blob: { contentType: 'image/jpeg', size: 1, etag: 'sweep-etag' },
+  }),
 }));
 jest.mock('@/lib/auth-helpers', () => ({
   requireAuthForApi: jest.fn(),
@@ -104,6 +109,14 @@ jest.mock('@/lib/photo-sources', () => {
 jest.mock('@/lib/mass-upload/dispatch', () => ({
   dispatchProcessors: jest.fn().mockResolvedValue({ dispatched: 0 }),
 }));
+jest.mock('@/lib/link-import/providers/tiktok-page', () => ({
+  ...jest.requireActual('@/lib/link-import/providers/tiktok-page'),
+  tiktokPageProvider: {
+    name: 'tiktok-page',
+    supports: jest.fn(() => true),
+    getDetails: jest.fn().mockResolvedValue({ empty: true, reason: 'safety_unavailable' }),
+  },
+}));
 
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { del } from '@vercel/blob';
@@ -127,6 +140,7 @@ interface TenantIds {
   session: string;
   attachment: string;
   link: string;
+  tiktokLink: string;
   reservation: string;
   /** A saved Library view. */
   view: string;
@@ -143,6 +157,7 @@ const BOB_IDS: TenantIds = {
   session: FIXTURE.bobSession,
   attachment: 'att_bob_photo',
   link: 'lnk_bob',
+  tiktokLink: 'src_bob_tiktok_link',
   reservation: 'rsv_bob',
   view: 'svw_bob',
 };
@@ -155,6 +170,7 @@ const ALICE_IDS: TenantIds = {
   session: FIXTURE.aliceSession,
   attachment: 'att_alice_photo',
   link: 'lnk_alice',
+  tiktokLink: 'src_alice_tiktok_link',
   reservation: 'rsv_alice',
   view: 'svw_alice',
 };
@@ -194,8 +210,8 @@ async function seedSweepRows(): Promise<void> {
     await run(
       `INSERT INTO attachments (id,place_id,type,uri,filename,thumbnail_uri,is_primary,source,source_id,attribution,created_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      [ids.attachment, ids.place, 'photo', `https://store.public.blob.vercel-storage.com/${label}-photo.jpg`,
-       `${label}-photo.jpg`, `https://store.public.blob.vercel-storage.com/${label}-thumb.jpg`, 0,
+      [ids.attachment, ids.place, 'photo', `https://store.private.blob.vercel-storage.com/${label}-photo.jpg`,
+       `${label}-photo.jpg`, `https://store.private.blob.vercel-storage.com/${label}-thumb.jpg`, 0,
        'google_places', `places/${label}/photos/${label}-photo-name`,
        JSON.stringify({ kind: 'google_places', authorAttributions: [] }), now]
     );
@@ -231,6 +247,32 @@ async function seedSweepRows(): Promise<void> {
     await run(
       `INSERT INTO saved_views (id,user_id,name,query,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
       [ids.view, owner, `${label} saved view`, `search=${label}`, now, now]
+    );
+  }
+
+  for (const [owner, ids, handle, postId] of [
+    [ALICE.id, ALICE_IDS, 'alicecreator', '7694185850497666335'],
+    ['user_bob', BOB_IDS, 'bobcreator', '7634085795908881686'],
+  ] as const) {
+    const canonicalUrl = `https://www.tiktok.com/@${handle}/photo/${postId}`;
+    await run(
+      `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [ids.tiktokLink, owner, 'url', canonicalUrl, '', 'queued', JSON.stringify({
+        url: canonicalUrl,
+        platform: 'tiktok',
+        link: {
+          originalUrl: canonicalUrl,
+          canonicalUrl,
+          platform: 'tiktok',
+          kind: 'tiktok-photo',
+          handle,
+          postId,
+          needsResolution: false,
+          resolution: { status: 'not-needed' },
+          providers: [],
+        },
+      }), now, now]
     );
   }
 }
@@ -401,6 +443,8 @@ type Entry = Case | Case[] | { exempt: string };
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS';
 
 const API = 'http://localhost/api';
+const originalPrivateBlobToken = process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
+const originalTikTokFetchSwitch = process.env.TIKTOK_PAGE_FETCH_ENABLED;
 
 /**
  * Owning a container is not owning the rows it names. These cases put Bob's
@@ -429,6 +473,34 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   },
   'blob/upload': {
     POST: { exempt: 'Mints a Vercel Blob client token for a caller-proposed key; reads and writes no tenant row.' },
+  },
+  'inbox/links/[sourceId]/import-photos': {
+    POST: {
+      slots: ['tiktokLink'],
+      request: (t) => ({
+        url: `${API}/inbox/links/${t.tiktokLink}/import-photos`,
+        params: { sourceId: t.tiktokLink },
+      }),
+      owner: [502],
+      because: 'The page provider is mocked offline to fail safely; the owner control still claims and updates only Alice’s link row.',
+      setup: async () => {
+        process.env.TIKTOK_PAGE_FETCH_ENABLED = 'true';
+        return [];
+      },
+    },
+  },
+  'photos/private': {
+    GET: {
+      slots: ['attachment'],
+      request: (t) => {
+        const label = t.attachment === BOB_IDS.attachment ? 'bob' : 'alice';
+        const url = `https://store.private.blob.vercel-storage.com/${label}-photo.jpg`;
+        return { url: `${API}/photos/private?url=${encodeURIComponent(url)}` };
+      },
+    },
+  },
+  'tiktok/diagnostic': {
+    GET: { exempt: 'System measurement route authenticated by CRON_SECRET; it reads no tenant data and stores no result.' },
   },
 
   // --- library (hearts and saved views) -----------------------------------
@@ -1493,10 +1565,15 @@ describe('cross-tenant sweep — every route, real handlers, real database', () 
 
   afterAll(() => {
     for (const { fn, original } of quiet) console[fn] = original;
+    if (originalPrivateBlobToken === undefined) delete process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
+    else process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = originalPrivateBlobToken;
+    if (originalTikTokFetchSwitch === undefined) delete process.env.TIKTOK_PAGE_FETCH_ENABLED;
+    else process.env.TIKTOK_PAGE_FETCH_ENABLED = originalTikTokFetchSwitch;
   });
 
   beforeEach(async () => {
     (requireAuthForApi as jest.Mock).mockResolvedValue(ALICE);
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'cross-sweep-private-token';
     await resetWorld();
   });
 

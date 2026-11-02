@@ -12,6 +12,7 @@ import {
 import { InboxActions, ThumbStrip } from '@/components/inbox/inbox-actions'
 import { AddLookRight, CancelRemaining, InboxFirstDrop, InboxLiveRefresh, InboxSaveLinkButton, ReviewEnterKey } from '@/components/inbox/inbox-behaviors'
 import { InboxUploadDetail } from '@/components/inbox/inbox-upload-detail'
+import { PrivateImage } from '@/components/private-image'
 import { cn } from '@/lib/utils'
 import type {
   InboxHero,
@@ -22,6 +23,7 @@ import type {
   InboxUploadCard,
 } from '@/lib/inbox-page-model'
 import type { InboxLinkItem } from '@/lib/inbox-link-items'
+import { TikTokPhotoImportButton } from '@/components/inbox/tiktok-photo-import-button'
 
 const TONE_ICON: Record<InboxRowTone, LucideIcon> = {
   new: Sparkles,
@@ -310,8 +312,16 @@ function LinkItemsSection({ items }: { items: InboxLinkItem[] }) {
                 </a>
               </div>
               <p className="mt-3 text-sm text-muted-foreground">{statusLine}</p>
-              {!item.hasHelpfulContext && (
-                <p className="mt-1 text-sm text-muted-foreground">Add the caption or photos to help find places.</p>
+              {item.readerMessage && <p className="mt-1 text-sm text-muted-foreground">{item.readerMessage}</p>}
+              {(!item.hasHelpfulContext || item.readerMessage) && (
+                <p className="mt-1 text-sm text-muted-foreground">Paste the caption or add photos from your gallery to help find places.</p>
+              )}
+              {item.kind === 'tiktok-photo' && (
+                <TikTokPhotoImportButton
+                  sourceId={item.id}
+                  status={item.photoImportStatus ?? null}
+                  count={item.photoImportCount}
+                />
               )}
               {item.resolutionStatus === 'unresolved' && (
                 <p className="mt-1 text-xs text-muted-foreground">This short link could not be expanded, but it is saved.</p>
@@ -344,8 +354,7 @@ function HomeView({ model, linkItems }: { model: Extract<InboxScreenModel, { vie
               {model.reading.tiles.map((tile) => (
                 <div key={tile.id} className="relative overflow-hidden rounded-xl border border-border">
                   {tile.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <PrivateImage
                       src={tile.imageUrl}
                       alt={tile.alt}
                       className={cn('aspect-[9/14] w-full object-cover object-top', tile.waiting && 'opacity-50 grayscale')}

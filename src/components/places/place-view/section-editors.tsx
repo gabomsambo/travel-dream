@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import { ExternalLink, Pencil, Plus, Star, Ticket, Trash2, Upload, X } from "lucide-react"
 import { HoursEditor } from "@/components/ui-custom/hours-editor"
 import { FindImageButton } from "@/components/places/find-image-button"
+import { PrivateImage } from "@/components/private-image"
 
 const PhotoUploader = dynamic(() => import("@/components/upload/photo-uploader").then((mod) => mod.PhotoUploader), { ssr: false })
 import { cn } from "@/lib/utils"
@@ -403,8 +404,7 @@ function PhotosEditor({ api }: { api: SectionEditApi }) {
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
         {ordered.map((photo) => (
           <div key={photo.id} className="relative aspect-square overflow-hidden rounded-xl bg-muted">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photo.thumbnailUri || photo.uri} alt={photo.caption || ""} className="h-full w-full object-cover" />
+            <PrivateImage src={photo.thumbnailUri || photo.uri} alt={photo.caption || ""} className="h-full w-full object-cover" />
             <button
               type="button"
               aria-label={photo.isPrimary === 1 ? "Cover photo" : "Set as cover"}

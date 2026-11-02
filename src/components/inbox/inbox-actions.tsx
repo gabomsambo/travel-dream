@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/adapters/dialog'
 import { AddPlaceDialog, type AddPlaceSeed } from '@/components/places/add-place-dialog'
+import { PrivateImage } from '@/components/private-image'
 import { NOTIFY_DURATION, notify } from '@/lib/notify'
 import { cn } from '@/lib/utils'
 import type { InboxAction, InboxShotRef, InboxThumb } from '@/lib/inbox-page-model'
@@ -242,8 +243,7 @@ export function InboxActions({ actions }: { actions: InboxAction[] }) {
         >
           <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[120px_minmax(0,1fr)]">
             {one?.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <PrivateImage
                 src={one.imageUrl}
                 alt=""
                 className="h-[150px] w-full rounded-lg border border-border object-cover object-top md:h-[200px] md:w-[120px]"
@@ -360,9 +360,7 @@ export function ThumbStrip({
   return (
     <div className={cn('flex', variant === 'mini' && 'hidden md:flex')}>
       {thumbs.map((thumb, index) => (
-        // Screenshots are the user's own blob URLs, same as the review postcard.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <PrivateImage
           key={`${thumb.src}-${index}`}
           src={thumb.src}
           alt={thumb.alt}

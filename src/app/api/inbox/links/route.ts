@@ -104,6 +104,57 @@ function mergeAliasUrls(
   return merged.size > 0 ? [...merged] : undefined;
 }
 
+/** Fill gaps only — prior non-empty fields win, matching mergeLinkDetails. */
+function fillLinkDetails(prior: LinkDetails | undefined, next: LinkDetails): LinkDetails {
+  const merged: LinkDetails = {};
+  for (const source of [prior, next]) {
+    if (!source) continue;
+    for (const [key, value] of Object.entries(source) as Array<[keyof LinkDetails, string | undefined]>) {
+      if (value && !merged[key]) merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function providerHasDetails(record: LinkProviderRecord): boolean {
+  return record.status === 'ok' && Boolean(record.details && Object.keys(record.details).length > 0);
+}
+
+/** Keep richer successful provider history across duplicate refreshes. */
+function mergeProviderHistory(
+  prior: LinkProviderRecord[] | undefined,
+  next: LinkProviderRecord[],
+): LinkProviderRecord[] {
+  if (!prior?.length) return next;
+  if (!next.length) return prior;
+
+  const byName = new Map<string, LinkProviderRecord>();
+  for (const record of prior) byName.set(record.provider, record);
+  for (const record of next) {
+    const existing = byName.get(record.provider);
+    if (!existing) {
+      byName.set(record.provider, record);
+      continue;
+    }
+    if (providerHasDetails(existing) && !providerHasDetails(record)) continue;
+    if (providerHasDetails(existing) && providerHasDetails(record)) {
+      byName.set(record.provider, {
+        ...record,
+        details: fillLinkDetails(existing.details, record.details ?? {}),
+        status: 'ok',
+        ...(existing.cachedResponse && !record.cachedResponse
+          ? { cachedResponse: existing.cachedResponse }
+          : {}),
+      });
+      continue;
+    }
+    byName.set(record.provider, record);
+  }
+
+  const names = [...new Set([...prior.map((r) => r.provider), ...next.map((r) => r.provider)])];
+  return names.map((name) => byName.get(name)!);
+}
+
 function existingLinkMatch(candidateUrls: string[], postId: string | undefined) {
   const uriOrMetaMatch = and(
     eq(sourcesCurrentSchema.type, 'url'),
@@ -165,6 +216,7 @@ function buildLinkMeta(
     originalUrl,
     canonicalUrl,
   );
+  const mergedDetails = fillLinkDetails(prior?.details, details);
 
   return {
     originalUrl,
@@ -179,8 +231,8 @@ function buildLinkMeta(
     needsResolution,
     resolution: nextResolution,
     ...(captionText ? { captionText } : {}),
-    ...(Object.keys(details).length > 0 ? { details } : prior?.details ? { details: prior.details } : {}),
-    providers: providers.length > 0 ? providers : prior?.providers ?? [],
+    ...(Object.keys(mergedDetails).length > 0 ? { details: mergedDetails } : {}),
+    providers: mergeProviderHistory(prior?.providers, providers),
   };
 }
 
@@ -253,6 +305,7 @@ async function refreshExistingLink(
     enrichment.providers,
     priorLink,
   );
+  const mergedDetails = metaLink.details;
   const preserveResolvedIdentity =
     link.needsResolution &&
     priorLink != null &&
@@ -262,11 +315,11 @@ async function refreshExistingLink(
     ...priorMeta,
     url: preserveResolvedIdentity ? priorLink.canonicalUrl : link.canonicalUrl,
     platform: link.platform,
-    ...(details.title ? { title: details.title } : {}),
-    ...(details.author || link.handle || priorMeta.author
+    ...(mergedDetails?.title ? { title: mergedDetails.title } : {}),
+    ...(mergedDetails?.author || link.handle || priorMeta.author
       ? {
           author:
-            details.author ??
+            mergedDetails?.author ??
             (preserveResolvedIdentity && priorMeta.author
               ? priorMeta.author
               : link.handle
@@ -293,7 +346,7 @@ async function refreshExistingLink(
         ...(priorLink.placeName ? { placeName: priorLink.placeName } : {}),
       }
     : link;
-  const ocrText = extractionContext(contextLink, mergedCaption, details);
+  const ocrText = extractionContext(contextLink, mergedCaption, mergedDetails);
   const now = new Date().toISOString();
 
   const [updated] = await tdb.update(

@@ -305,6 +305,117 @@ describe('POST /api/inbox/links', () => {
     });
   });
 
+  it('keeps prior oEmbed title in ocrText when an unresolved duplicate requeues', async () => {
+    (enrichLinkDetails as jest.Mock).mockResolvedValueOnce({
+      details: {
+        title: 'Pastel de nata walk',
+        author: '@creator',
+        thumbnailReference: 'https://cdn.example/thumb.jpg',
+      },
+      providers: [
+        {
+          provider: 'tiktok-oembed',
+          status: 'ok',
+          details: {
+            title: 'Pastel de nata walk',
+            author: '@creator',
+            thumbnailReference: 'https://cdn.example/thumb.jpg',
+          },
+          fetchedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+    const first = await (await save(CANONICAL_VIDEO)).json() as { sourceId: string };
+    expect(String(await readCell('SELECT ocr_text FROM sources WHERE id = ?', [first.sourceId]))).toContain(
+      'Post title: Pastel de nata walk',
+    );
+
+    await databaseExec(
+      `UPDATE sources SET processing_status = ?, meta = ? WHERE id = ?`,
+      [
+        'completed',
+        JSON.stringify({
+          platform: 'tiktok',
+          title: 'Pastel de nata walk',
+          author: '@creator',
+          link: {
+            originalUrl: CANONICAL_VIDEO,
+            canonicalUrl: CANONICAL_VIDEO,
+            aliasUrls: [SHORT_URL],
+            platform: 'tiktok',
+            kind: 'tiktok-video',
+            postId: '7694185850497666335',
+            needsResolution: false,
+            resolution: { status: 'not-needed' },
+            details: {
+              title: 'Pastel de nata walk',
+              author: '@creator',
+              thumbnailReference: 'https://cdn.example/thumb.jpg',
+            },
+            providers: [
+              {
+                provider: 'tiktok-oembed',
+                status: 'ok',
+                details: {
+                  title: 'Pastel de nata walk',
+                  author: '@creator',
+                  thumbnailReference: 'https://cdn.example/thumb.jpg',
+                },
+                fetchedAt: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          },
+          massUpload: { extraction: { places: [] }, extractedAt: '2026-01-01T00:00:00.000Z' },
+        }),
+        first.sourceId,
+      ],
+    );
+
+    const unresolvedShort = parseSocialLink(SHORT_URL);
+    expect(unresolvedShort.supported).toBe(true);
+    if (!unresolvedShort.supported) return;
+    (resolveTikTokShortLink as jest.Mock).mockResolvedValueOnce({
+      link: unresolvedShort.link,
+      resolution: { status: 'unresolved', error: 'fetch-failed' },
+    });
+    (enrichLinkDetails as jest.Mock).mockResolvedValueOnce({
+      details: { placeName: 'Ajuda' },
+      providers: [
+        {
+          provider: 'url-derived',
+          status: 'ok',
+          details: { placeName: 'Ajuda' },
+          fetchedAt: '2026-01-02T00:00:00.000Z',
+        },
+        {
+          provider: 'tiktok-oembed',
+          status: 'error',
+          error: 'provider-unavailable',
+          fetchedAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    });
+
+    (dispatchProcessors as jest.Mock).mockClear();
+    const secondResponse = await save(SHORT_URL);
+    const second = await secondResponse.json() as { sourceId: string; duplicate: boolean };
+    expect(secondResponse.status).toBe(200);
+    expect(second).toMatchObject({ sourceId: first.sourceId, duplicate: true });
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [first.sourceId])).toBe('queued');
+    const ocrText = String(await readCell('SELECT ocr_text FROM sources WHERE id = ?', [first.sourceId]));
+    expect(ocrText).toContain('Post title: Pastel de nata walk');
+    expect(ocrText).toContain('Place mentioned in link: Ajuda');
+    const meta = await jsonMeta(first.sourceId);
+    expect(meta.link).toMatchObject({
+      postId: '7694185850497666335',
+      canonicalUrl: CANONICAL_VIDEO,
+      kind: 'tiktok-video',
+      resolution: { status: 'not-needed' },
+    });
+    expect(meta.massUpload?.extraction).toBeUndefined();
+    expect(dispatchProcessors).toHaveBeenCalled();
+  });
+
   it('requeues a completed source with no places on bare repaste', async () => {
     const first = await (await save(CANONICAL_VIDEO, 'No place named here')).json() as { sourceId: string };
     await databaseExec(

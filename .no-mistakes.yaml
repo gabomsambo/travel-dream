@@ -19,7 +19,12 @@
 # does not accept the review request's tool_choice.
 #
 # To revert to opencode-first, swap cursor and opencode in the list.
-agent: [cursor, opencode, codex, claude]
+#
+# TEMPORARY (2026-11-02): Cursor usage is exhausted until about 2026-11-15 and its
+# reviewer answers "Upgrade your plan", which fails the review step. Cursor is
+# skipped until it resets; restore it to the front then:
+# agent: [cursor, opencode, codex, claude]
+agent: [opencode, codex, claude]
 
 # no-mistakes gate configuration for travel-dream.
 #

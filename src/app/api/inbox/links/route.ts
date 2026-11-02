@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
+import { sourcesToPlaces } from '@/db/schema';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { forUser, type TenantDb } from '@/lib/tenant-db';
 import { parseSocialLink } from '@/lib/link-import/url';
@@ -74,18 +75,29 @@ function candidateUris(parsed: CanonicalSocialLink, link: CanonicalSocialLink): 
   return [...new Set([link.canonicalUrl, link.originalUrl, parsed.canonicalUrl, parsed.originalUrl])];
 }
 
+function metaUrlMatch(candidateUrls: string[]) {
+  const clauses = candidateUrls.flatMap((url) => [
+    sql`json_extract(${sourcesCurrentSchema.meta}, '$.link.originalUrl') = ${url}`,
+    sql`json_extract(${sourcesCurrentSchema.meta}, '$.link.canonicalUrl') = ${url}`,
+  ]);
+  return or(...clauses);
+}
+
 function existingLinkMatch(candidateUrls: string[], postId: string | undefined) {
-  const uriMatch = and(
+  const uriOrMetaMatch = and(
     eq(sourcesCurrentSchema.type, 'url'),
-    inArray(sourcesCurrentSchema.uri, candidateUrls),
+    or(
+      inArray(sourcesCurrentSchema.uri, candidateUrls),
+      metaUrlMatch(candidateUrls),
+    ),
   );
   // A short link that is still unresolved has no postId. Pasting the canonical
   // /@user/video/<id> (or /photo/<id>) URL in that window may create a second
   // source for the same post; we accept that rather than adding background
   // resolution machinery.
-  if (!postId) return uriMatch;
+  if (!postId) return uriOrMetaMatch;
   return or(
-    uriMatch,
+    uriOrMetaMatch,
     and(
       eq(sourcesCurrentSchema.type, 'url'),
       sql`json_extract(${sourcesCurrentSchema.meta}, '$.link.postId') = ${postId}`,
@@ -103,21 +115,40 @@ function buildLinkMeta(
   prior?: LinkSourceMeta,
 ): LinkSourceMeta {
   const captionText = caption || prior?.captionText;
-  const placeName = link.placeName ?? details.placeName ?? prior?.placeName;
-  const handle = link.handle ?? prior?.handle;
-  const postId = link.postId ?? prior?.postId;
-  const placeId = link.placeId ?? prior?.placeId;
+  const preserveResolvedIdentity =
+    link.needsResolution &&
+    prior != null &&
+    prior.needsResolution === false &&
+    prior.kind !== 'tiktok-short';
+
+  const canonicalUrl = preserveResolvedIdentity ? prior.canonicalUrl : link.canonicalUrl;
+  const kind = preserveResolvedIdentity ? prior.kind : link.kind;
+  const needsResolution = preserveResolvedIdentity ? prior.needsResolution : link.needsResolution;
+  const nextResolution = preserveResolvedIdentity ? prior.resolution : resolution;
+  const placeName = preserveResolvedIdentity
+    ? prior.placeName ?? link.placeName ?? details.placeName
+    : link.placeName ?? details.placeName ?? prior?.placeName;
+  const handle = preserveResolvedIdentity
+    ? prior.handle ?? link.handle
+    : link.handle ?? prior?.handle;
+  const postId = preserveResolvedIdentity
+    ? prior.postId ?? link.postId
+    : link.postId ?? prior?.postId;
+  const placeId = preserveResolvedIdentity
+    ? prior.placeId ?? link.placeId
+    : link.placeId ?? prior?.placeId;
+
   return {
     originalUrl: prior?.originalUrl ?? parsed.originalUrl,
-    canonicalUrl: link.canonicalUrl,
+    canonicalUrl,
     platform: link.platform,
-    kind: link.kind,
+    kind,
     ...(handle ? { handle } : {}),
     ...(postId ? { postId } : {}),
     ...(placeId ? { placeId } : {}),
     ...(placeName ? { placeName } : {}),
-    needsResolution: link.needsResolution,
-    resolution,
+    needsResolution,
+    resolution: nextResolution,
     ...(captionText ? { captionText } : {}),
     ...(Object.keys(details).length > 0 ? { details } : prior?.details ? { details: prior.details } : {}),
     providers: providers.length > 0 ? providers : prior?.providers ?? [],
@@ -138,10 +169,13 @@ function shouldRequeueExisting(
   status: string | null | undefined,
   priorCaption: string | undefined,
   caption: string | undefined,
+  hasPlaces: boolean,
 ): boolean {
   if (status === 'failed' || status === 'stalled') return true;
-  if (status !== 'completed') return false;
-  return Boolean(caption) && caption !== priorCaption;
+  if (status === 'completed' && !hasPlaces) return true;
+  const captionChanged = Boolean(caption) && caption !== priorCaption;
+  if (captionChanged) return true;
+  return false;
 }
 
 async function findExistingLink(
@@ -151,6 +185,13 @@ async function findExistingLink(
 ): Promise<SourceRow | undefined> {
   const [row] = await db.select(sourcesCurrentSchema, existingLinkMatch(candidateUrls, postId)).limit(1);
   return row;
+}
+
+async function sourceHasLinkedPlaces(db: ScopedDb, sourceId: string): Promise<boolean> {
+  const [row] = await db
+    .selectVia(sourcesToPlaces, eq(sourcesToPlaces.sourceId, sourceId))
+    .limit(1);
+  return Boolean(row);
 }
 
 async function refreshExistingLink(
@@ -167,7 +208,13 @@ async function refreshExistingLink(
   const priorLink = priorMeta.link;
   const priorCaption = priorLink?.captionText;
   const mergedCaption = caption || priorCaption;
-  const requeue = shouldRequeueExisting(existing.processingStatus, priorCaption, caption);
+  const hasPlaces = await sourceHasLinkedPlaces(tdb, existing.id);
+  const requeue = shouldRequeueExisting(
+    existing.processingStatus,
+    priorCaption,
+    caption,
+    hasPlaces,
+  );
   const metaLink = buildLinkMeta(
     parsed,
     link,
@@ -177,20 +224,47 @@ async function refreshExistingLink(
     enrichment.providers,
     priorLink,
   );
+  const preserveResolvedIdentity =
+    link.needsResolution &&
+    priorLink != null &&
+    priorLink.needsResolution === false &&
+    priorLink.kind !== 'tiktok-short';
   let nextMeta: SourceMeta = {
     ...priorMeta,
-    url: link.canonicalUrl,
+    url: preserveResolvedIdentity ? priorLink.canonicalUrl : link.canonicalUrl,
     platform: link.platform,
     ...(details.title ? { title: details.title } : {}),
     ...(details.author || link.handle || priorMeta.author
-      ? { author: details.author ?? (link.handle ? `@${link.handle}` : priorMeta.author) }
+      ? {
+          author:
+            details.author ??
+            (preserveResolvedIdentity && priorMeta.author
+              ? priorMeta.author
+              : link.handle
+                ? `@${link.handle}`
+                : priorMeta.author),
+        }
       : {}),
     link: metaLink,
   };
   if (requeue) nextMeta = metaWithoutCachedExtraction(nextMeta);
 
-  const nextUri = link.needsResolution ? existing.uri : link.canonicalUrl;
-  const ocrText = extractionContext(link, mergedCaption, details);
+  const nextUri = link.needsResolution
+    ? existing.uri
+    : link.canonicalUrl;
+  const contextLink: CanonicalSocialLink = preserveResolvedIdentity
+    ? {
+        ...link,
+        canonicalUrl: priorLink.canonicalUrl,
+        kind: priorLink.kind,
+        needsResolution: false,
+        ...(priorLink.handle ? { handle: priorLink.handle } : {}),
+        ...(priorLink.postId ? { postId: priorLink.postId } : {}),
+        ...(priorLink.placeId ? { placeId: priorLink.placeId } : {}),
+        ...(priorLink.placeName ? { placeName: priorLink.placeName } : {}),
+      }
+    : link;
+  const ocrText = extractionContext(contextLink, mergedCaption, details);
   const now = new Date().toISOString();
 
   const [updated] = await tdb.update(

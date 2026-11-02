@@ -26,7 +26,7 @@ describe('upload drop sheet', () => {
 
   it('opens the drop sheet and does not resume a processing or complete screen', async () => {
     render(<MassUploadSheet open onOpenChange={() => {}} />)
-    expect(await screen.findByRole('heading', { name: 'Upload screenshots' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Add to Inbox' })).toBeInTheDocument()
     expect(screen.queryByText('Processing Complete!')).not.toBeInTheDocument()
     expect(screen.queryByText(/needs retry/i)).not.toBeInTheDocument()
   })

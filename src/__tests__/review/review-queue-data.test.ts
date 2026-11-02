@@ -365,6 +365,51 @@ describe('loadReviewQueue with real SQLite data', () => {
     expect(JSON.stringify(queue.trips)).not.toContain('Bob')
   })
 
+  it('does not expose a URL source page link as screenshot evidence', async () => {
+    const execute = dbExec()
+    const run = (sql: string, args: unknown[] = []) => execute({ sql, args })
+    const socialUrl = 'https://www.tiktok.com/@creator/video/7123456789012345678'
+    const createdAt = '2026-10-21T09:00:00.000Z'
+
+    await run(
+      `INSERT INTO sources (id,user_id,type,uri,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      ['src_alice_link', ALICE.id, 'url', socialUrl, 'completed',
+       JSON.stringify({
+         link: { platform: 'tiktok', kind: 'video', originalUrl: socialUrl, postId: '7123456789012345678' },
+         uploadInfo: { originalName: 'tiktok-share' },
+       }), createdAt, createdAt],
+    )
+    await run(
+      `INSERT INTO places (id,user_id,name,kind,status,description,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      ['plc_alice_link', ALICE.id, 'Ajuda viewpoint', 'viewpoint', 'inbox',
+       'Sunset from Ajuda', createdAt, createdAt],
+    )
+    await run(`INSERT INTO sources_to_places (source_id,place_id) VALUES (?,?)`, ['src_alice_link', 'plc_alice_link'])
+
+    try {
+      const queue = await loadReviewQueue(ALICE.id, 'plc_alice_link')
+      const entry = queue.entries.find((row) => row.placeId === 'plc_alice_link')
+      expect(entry).toMatchObject({
+        placeId: 'plc_alice_link',
+        sourceId: 'src_alice_link',
+        screenshotUrl: null,
+        screenshotName: null,
+        screenshotCreatedAt: null,
+      })
+      expect(JSON.stringify(entry)).not.toContain(socialUrl)
+      expect(queue.postcard?.place.id).toBe('plc_alice_link')
+      expect(queue.postcard?.place.sources.map((source) => source.id)).toEqual(['src_alice_link'])
+      expect(queue.postcard?.place.sources[0]).toMatchObject({ type: 'url', uri: socialUrl })
+      expect(queue.postcard?.screenshot).toBeNull()
+    } finally {
+      await run(`DELETE FROM sources_to_places WHERE source_id = ?`, ['src_alice_link'])
+      await run(`DELETE FROM places WHERE id = ?`, ['plc_alice_link'])
+      await run(`DELETE FROM sources WHERE id = ?`, ['src_alice_link'])
+    }
+  })
+
   it('ranks a batch trip by how many places it already holds in the city', async () => {
     const execute = dbExec()
     const now = '2026-10-20T00:00:00.000Z'

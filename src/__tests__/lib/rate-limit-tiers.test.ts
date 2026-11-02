@@ -15,6 +15,7 @@ describe('getRouteTier', () => {
     expect(getRouteTier('/api/llm-process', 'usr_regular')).toBe('strict');
     expect(getRouteTier('/api/llm-process', 'usr_beta')).toBe('relaxed');
     expect(getRouteTier('/api/photos/search', 'usr_regular')).toBe('photo-search');
+    expect(getRouteTier('/api/inbox/links', 'usr_regular')).toBe('standard');
     expect(getRouteTier('/api/places', 'usr_regular')).toBe('relaxed');
     expect(getRouteTier('/api/auth/register')).toBe('auth');
   });

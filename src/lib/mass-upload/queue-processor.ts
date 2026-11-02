@@ -386,7 +386,7 @@ function isTransientUpstreamError(error: unknown): boolean {
   });
 }
 
-/** Full extraction → enrichment → persistence pipeline for one screenshot. */
+/** Full extraction → enrichment → persistence pipeline for one Inbox source. */
 async function runPipeline(
   source: Source,
   leaseId: string,
@@ -403,12 +403,20 @@ async function runPipeline(
   let extraction = cached.extraction as GeminiExtractionResult | undefined;
   let thumbnailUrl = cached.thumbnailUrl;
 
-  if (!extraction || !thumbnailUrl) {
+  if (source.type === 'url') {
+    if (!extraction) {
+      signal.throwIfAborted();
+      const pending = getGeminiExtractionService().extractFromText(source.ocrText ?? '', meta.platform ?? 'social link');
+      // Keep the same paid-work salvage and lease cache used by screenshot OCR.
+      inFlight.extraction = { promise: pending };
+      extraction = await withAbort(pending, signal);
+      inFlight.extraction = undefined;
+      await cacheSourceProcessingWork(source.id, leaseId, { extraction });
+    }
+  } else if (!extraction || !thumbnailUrl) {
     const buffer = await downloadScreenshot(source.uri, signal);
 
-    if (!thumbnailUrl) {
-      thumbnailUrl = await generateThumbnail(buffer, source, signal);
-    }
+    if (!thumbnailUrl) thumbnailUrl = await generateThumbnail(buffer, source, signal);
 
     if (!extraction) {
       signal.throwIfAborted();

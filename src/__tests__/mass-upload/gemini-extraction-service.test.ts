@@ -84,6 +84,19 @@ describe('GeminiExtractionService', () => {
     expect(result.places[0].kind).toBe('landmark');
   });
 
+  it('extracts only explicit place names from saved text context', async () => {
+    mockGenerateContent.mockResolvedValue(createGeminiResponse([validPlace]));
+    const result = await service.extractFromText(
+      'Social link: https://www.tiktok.com/@creator/video/7694185850497666335\nPasted caption: Visit this place in Lisbon',
+      'tiktok',
+    );
+
+    expect(result.places[0].name).toBe('Test Place');
+    const request = mockGenerateContent.mock.calls[0][0] as { contents: Array<{ parts: Array<{ text: string }> }> };
+    expect(request.contents[0].parts[0].text).toContain('Do not open or infer information from links');
+    expect(request.contents[0].parts[0].text).toContain('Pasted caption: Visit this place in Lisbon');
+  });
+
   it('clamps confidence outside 0-1 range', async () => {
     mockGenerateContent.mockResolvedValue(
       createGeminiResponse([

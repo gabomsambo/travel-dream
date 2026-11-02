@@ -576,7 +576,7 @@ describe('upload sheet dismiss', () => {
     rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} initialFiles={files} />)
     rerender(<MassUploadSheet open onOpenChange={onOpenChange} />)
     await waitFor(() => expect(callsTo('/api/upload/sessions', 'POST')).toHaveLength(2))
-    expect(await screen.findByRole('heading', { name: 'Upload screenshots' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Add to Inbox' })).toBeInTheDocument()
 
     await act(async () => {
       finishStart()
@@ -587,7 +587,7 @@ describe('upload sheet dismiss', () => {
     expect(mockPush).toHaveBeenCalledWith('/inbox')
     expect(mockRefresh).toHaveBeenCalled()
     expect(callsTo('/api/mass-upload/cancel', 'POST')).toHaveLength(0)
-    expect(screen.getByRole('heading', { name: 'Upload screenshots' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Add to Inbox' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Close' }))
     rerender(<MassUploadSheet open={false} onOpenChange={onOpenChange} />)

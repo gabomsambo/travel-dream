@@ -10,7 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { InboxActions, ThumbStrip } from '@/components/inbox/inbox-actions'
-import { AddLookRight, CancelRemaining, InboxFirstDrop, InboxLiveRefresh, ReviewEnterKey } from '@/components/inbox/inbox-behaviors'
+import { AddLookRight, CancelRemaining, InboxFirstDrop, InboxLiveRefresh, InboxSaveLinkButton, ReviewEnterKey } from '@/components/inbox/inbox-behaviors'
 import { InboxUploadDetail } from '@/components/inbox/inbox-upload-detail'
 import { cn } from '@/lib/utils'
 import type {
@@ -21,6 +21,7 @@ import type {
   InboxScreenModel,
   InboxUploadCard,
 } from '@/lib/inbox-page-model'
+import type { InboxLinkItem } from '@/lib/inbox-link-items'
 
 const TONE_ICON: Record<InboxRowTone, LucideIcon> = {
   new: Sparkles,
@@ -260,11 +261,81 @@ function HeroView({ hero }: { hero: InboxHero }) {
   )
 }
 
-function HomeView({ model }: { model: Extract<InboxScreenModel, { view: 'home' }> }) {
+const LINK_KIND_LABEL: Record<InboxLinkItem['kind'], string> = {
+  'tiktok-video': 'TikTok · video',
+  'tiktok-photo': 'TikTok · photo carousel',
+  'tiktok-place': 'TikTok · place',
+  'tiktok-short': 'TikTok · shared link',
+  'instagram-post': 'Instagram · post',
+  'instagram-reel': 'Instagram · reel',
+}
+
+function LinkItemsSection({ items }: { items: InboxLinkItem[] }) {
+  if (items.length === 0) return null
+  return (
+    <section className="mt-8">
+      <SectionLabel>Saved links</SectionLabel>
+      <div className="space-y-3">
+        {items.map((item) => {
+          const reviewPlaces = item.places.filter((place) => place.status === 'inbox')
+          const processing = ['queued', 'uploaded', 'extracting', 'enriching'].includes(item.processingStatus)
+          const statusLine = reviewPlaces.length > 0
+            ? `${reviewPlaces.length} ${reviewPlaces.length === 1 ? 'place' : 'places'} ready to review.`
+            : processing
+              ? 'Reading the link and its saved text.'
+              : item.processingStatus === 'stalled'
+                ? 'Still trying to read this link. It will retry automatically.'
+                : item.processingStatus === 'failed'
+                  ? 'We could not finish processing this link.'
+                  : item.places.length > 0
+                    ? `Found ${item.places.map((place) => place.name).join(', ')}.`
+                    : 'No places found yet.'
+          return (
+            <article key={item.id} className="rounded-2xl border border-border bg-card p-4 md:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                    {LINK_KIND_LABEL[item.kind]}
+                  </span>
+                  <h3 className="mt-2 truncate font-semibold">{item.title || item.placeName || item.author || 'Saved social link'}</h3>
+                  {item.author && item.title && <p className="mt-0.5 text-sm text-muted-foreground">{item.author}</p>}
+                </div>
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex min-h-10 shrink-0 items-center rounded-lg border border-border px-3 text-sm font-medium text-primary"
+                >
+                  Open link
+                </a>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">{statusLine}</p>
+              {!item.hasHelpfulContext && (
+                <p className="mt-1 text-sm text-muted-foreground">Add the caption or photos to help find places.</p>
+              )}
+              {item.resolutionStatus === 'unresolved' && (
+                <p className="mt-1 text-xs text-muted-foreground">This short link could not be expanded, but it is saved.</p>
+              )}
+              {reviewPlaces[0] && (
+                <Link href={`/review?placeId=${encodeURIComponent(reviewPlaces[0].id)}`} className="mt-3 inline-flex min-h-10 items-center text-sm font-semibold text-primary">
+                  Review {reviewPlaces[0].name}
+                </Link>
+              )}
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function HomeView({ model, linkItems }: { model: Extract<InboxScreenModel, { view: 'home' }>; linkItems: InboxLinkItem[] }) {
   return (
     <>
       <PageTitle title="Inbox" description={model.description} />
-      <HeroView hero={model.hero} />
+      <div className="mb-4 flex justify-end"><InboxSaveLinkButton /></div>
+      {!(model.hero.kind === 'first' && linkItems.length > 0) && <HeroView hero={model.hero} />}
+      <LinkItemsSection items={linkItems} />
       {model.reading && (
         <>
           <SectionLabel>{model.reading.heading}</SectionLabel>
@@ -367,14 +438,14 @@ function DetailView({ model }: { model: Extract<InboxScreenModel, { view: 'detai
   )
 }
 
-export function InboxScreen({ model }: { model: InboxScreenModel }) {
+export function InboxScreen({ model, linkItems = [] }: { model: InboxScreenModel; linkItems?: InboxLinkItem[] }) {
   const dock = model.dock
   const sub = model.view === 'home' && model.hero.kind === 'review' ? model.hero.sub : undefined
   return (
     <div className="mx-auto max-w-[1080px] pb-24 md:pb-8">
-      <InboxLiveRefresh active={model.live} />
+      <InboxLiveRefresh active={model.live || linkItems.some((item) => ['queued', 'uploaded', 'extracting', 'enriching'].includes(item.processingStatus))} />
       <ReviewEnterKey href={model.enterHref} />
-      {model.view === 'detail' ? <DetailView model={model} /> : <HomeView model={model} />}
+      {model.view === 'detail' ? <DetailView model={model} /> : <HomeView model={model} linkItems={linkItems} />}
       <Dock dock={dock} sub={sub} />
     </div>
   )

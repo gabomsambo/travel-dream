@@ -26,6 +26,8 @@ import {
   SheetTitle,
 } from '@/components/adapters/sheet'
 import { useActivityJobs } from '@/components/activity/activity-provider'
+import { SaveLinkForm } from '@/components/mass-upload/save-link-form'
+import type { UploadSheetMode } from '@/lib/upload-sheet'
 import {
   bindUnstartedUpload,
   cancelUploadSession,
@@ -56,6 +58,7 @@ interface MassUploadSheetProps {
   onOpenChange: (open: boolean) => void
   /** Files dropped on the Inbox before the sheet opened. */
   initialFiles?: File[]
+  initialMode?: UploadSheetMode
 }
 
 const MAX_FILES = 500
@@ -109,9 +112,10 @@ async function abandonUnstartedSession(
   }
 }
 
-export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUploadSheetProps) {
+export function MassUploadSheet({ open, onOpenChange, initialFiles, initialMode = 'screenshots' }: MassUploadSheetProps) {
   const router = useRouter()
   const [step, setStep] = useState<MassUploadStep>('upload')
+  const [activeMode, setActiveMode] = useState<UploadSheetMode>('screenshots')
   const [files, setFiles] = useState<Map<string, MassUploadFile>>(new Map())
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -134,6 +138,11 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [batchError, setBatchError] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (open) setActiveMode(initialFiles && initialFiles.length > 0 ? 'screenshots' : initialMode)
+    else setActiveMode('screenshots')
+  }, [open, initialFiles, initialMode])
 
   // A new batch each time the sheet opens. Progress lives on the Inbox card.
   useEffect(() => {
@@ -702,15 +711,41 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="h-[min(92vh,860px)] overflow-y-auto rounded-t-2xl px-4 pb-8 sm:px-8">
         <SheetHeader>
-          <SheetTitle>Upload screenshots</SheetTitle>
+          <SheetTitle>Add to Inbox</SheetTitle>
           <SheetDescription>
-            Drop travel screenshots. After Start, they report back in your Inbox.
+            {activeMode === 'link'
+              ? 'Save a TikTok or Instagram link, with its caption if you have it.'
+              : 'Drop travel screenshots. After Start, they report back in your Inbox.'}
           </SheetDescription>
         </SheetHeader>
+        <div className="mx-auto mt-4 grid max-w-2xl grid-cols-2 gap-2" role="group" aria-label="Add to Inbox">
+          <Button
+            type="button"
+            size="lg"
+            variant={activeMode === 'screenshots' ? 'default' : 'outline'}
+            aria-pressed={activeMode === 'screenshots'}
+            onClick={() => setActiveMode('screenshots')}
+          >
+            Screenshots
+          </Button>
+          <Button
+            type="button"
+            size="lg"
+            variant={activeMode === 'link' ? 'default' : 'outline'}
+            aria-pressed={activeMode === 'link'}
+            onClick={() => setActiveMode('link')}
+          >
+            Save a link
+          </Button>
+        </div>
         {content}
       </SheetContent>
     </Sheet>
   )
+
+  if (activeMode === 'link') {
+    return frame(<SaveLinkForm onSaved={() => { router.refresh(); onOpenChange(false) }} />)
+  }
 
   // Step 2: Review
   if (step === 'review') {

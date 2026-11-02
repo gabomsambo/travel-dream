@@ -175,9 +175,11 @@ anything is left (to review, no place found, couldn't be read, or still reading)
 to the Library only when none of that remains — see `uploadResultsHref` in
 `src/lib/upload-sheet.ts`.
 
-Upload is a header button (and Inbox docks / first-visit drop) that opens the mass-upload
-drop sheet via `UploadSheetProvider` in `(app)/layout.tsx`. Mass Upload is not in the
-sidebar; `/mass-upload` redirects to `/inbox?sheet=1`.
+The header Upload button (and Inbox docks / first-visit drop) opens the Add-to-Inbox sheet
+via `UploadSheetProvider` in `(app)/layout.tsx`: **Screenshots** (mass-upload drop) or
+**Save a link** (TikTok / Instagram → `POST /api/inbox/links`). Inbox's Save a link control
+opens the same sheet in link mode (`openUploadSheet([], 'link')` in `src/lib/upload-sheet.ts`).
+Mass Upload is not in the sidebar; `/mass-upload` redirects to `/inbox?sheet=1`.
 
 ## Multi-Tenancy (security-critical)
 
@@ -248,8 +250,11 @@ file. Import it **first** in a suite — `jest.setup.js` runs `dotenv.config()`,
 with the other tenant's ids. Its completeness guard fails on any handler without an entry, so **a new
 route (or new method on one) needs an entry there** — the file header says what each entry asserts.
 
-Client-supplied URLs the server will fetch or persist must pass `isAllowedBlobUrl()`
-(`src/lib/blob-url.ts`) first — `sources.uri` is re-fetched later by the privileged cron.
+Client-supplied **blob** URLs the server will fetch or persist must pass `isAllowedBlobUrl()`
+(`src/lib/blob-url.ts`) first — screenshot `sources.uri` values are re-fetched later by the
+privileged cron. Social links saved as `sources.type = 'url'` are a different surface: host and
+shape allow-listing live in `src/lib/link-import/` (parse + short-link resolve), not the blob
+allow-list; those URIs are page links, never image bytes.
 
 Client IP for rate limiting comes only from platform-set headers (see `getClientIdentifier` in
 `src/lib/rate-limit.ts`); this app is on Vercel, so `cf-connecting-ip`/`x-real-ip` are spoofable.
@@ -277,6 +282,9 @@ Screenshots and the place photos made from them share one blob URL, with no copy
 attachment cleanup goes through tenant-scoped `releaseBlobIfUnreferenced` in `src/lib/shared-blob.ts`,
 so a URL still stored on another of that user's sources or attachments is left in place
 (`src/__tests__/inbox/shared-blob-delete.test.ts`, `src/__tests__/inbox/shared-photo-route.test.ts`).
+Only `sources.type === 'screenshot'` URIs are image bytes — never treat a `url` source's `uri` as
+an attachment, Review screenshot, or cover (`createPlacesFromPipeline` in `src/lib/db-mutations.ts`,
+`screenshotUri` in `src/lib/review-queue.ts`).
 Cancel and closed-session register delete through `releaseBlobIfUnreferencedByAnyTenant` with the
 same exclusions: an unreferenced upload of the caller's own is still removed, and a URL still stored
 on any tenant's source, attachment, or collection cover is left in place.
@@ -299,9 +307,12 @@ never go through the optimizer, whose cache would keep Google image bytes.
 ## Mass-upload queue (reliability-critical)
 
 The owner's bar is "drop 500 images and walk away": a screenshot that uploaded successfully must
-not end up `failed` from a single clock-out, kill, or race.
+not end up `failed` from a single clock-out, kill, or race. The same queue also processes Inbox
+`type=url` link sources (`extractFromText` on `ocrText`); those insert already `queued` from
+`POST /api/inbox/links` and never use an upload session.
 
-`processingAttempts` counts **genuine verdicts about the image** and can end in `failed`.
+`processingAttempts` counts **genuine verdicts about the item** (vision extraction for
+screenshots, text extraction for links) and can end in `failed`.
 `processingInterruptions` counts **clock-outs, kills and upstream outages** and never shares that
 counter. Below the cap they requeue with backoff. At the cap the row is `stalled` ("Still trying",
 no Try again) with a backoff, and the processing cron puts it back on the queue once that wait has
@@ -322,8 +333,9 @@ The timing invariants (lease TTL > item budget, run budget > item budget) are as
 `src/lib/mass-upload/queue-config.ts`, not in scattered constants, and keep route `maxDuration` and
 `vercel.json` in sync with `MASS_UPLOAD_MAX_DURATION_SECONDS`.
 
-Processing is event-triggered from `/api/mass-upload/start`; the cron is only a safety net, and it
-is what puts a stalled row whose backoff has elapsed back on the queue. Start
+Screenshot batches are event-triggered from `/api/mass-upload/start`; link saves dispatch via
+`dispatchProcessors('link-save', …)` from `/api/inbox/links`. The cron is only a safety net, and
+it is what puts a stalled row whose backoff has elapsed back on the queue. Start
 sets `meta.processingStarted` (JSON boolean) and flips that session's `uploaded` sources to
 `queued`. Register before Start inserts `uploaded`; Inbox maps `uploaded` to still reading, so a
 batch that never started must not stay there — leave paths cancel the session (and hand orphan
@@ -332,7 +344,8 @@ endpoints authenticated with `CRON_SECRET` must be added to the bypass list in `
 or they get redirected to `/login` and silently never run.
 
 Gemini extraction is cached onto `sources.meta.massUpload` as soon as it is paid for, so a retry
-never re-charges the API. Anything that adds an upstream call to this pipeline should do the same.
+never re-charges the API (vision or text). Anything that adds an upstream call to this pipeline
+should do the same.
 
 Load/kill testing runs against a throwaway Docker libSQL DB and a local blob server — never against
 Turso or the production Blob store. See `scripts/mass-upload-loadtest/README.md`.

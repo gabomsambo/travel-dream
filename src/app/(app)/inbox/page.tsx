@@ -3,6 +3,7 @@ import { editorialFont } from '@/components/explore/fonts'
 import { auth } from '@/lib/auth'
 import { coveredUploadPlaceIds } from '@/lib/inbox-page-model'
 import { getInboxPlacesAddedAnotherWay, getInboxUploads } from '@/lib/inbox-uploads'
+import { getInboxLinkItems } from '@/lib/inbox-link-items'
 
 export const metadata = { title: 'Inbox' }
 
@@ -19,7 +20,10 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   if (!session?.user?.id) return null
 
   const params = await searchParams
-  const summary = await getInboxUploads(session.user.id)
+  const [summary, linkItems] = await Promise.all([
+    getInboxUploads(session.user.id),
+    getInboxLinkItems(session.user.id),
+  ])
   const addedAnotherWay = await getInboxPlacesAddedAnotherWay(
     session.user.id,
     coveredUploadPlaceIds(summary.uploads)
@@ -31,6 +35,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
           uploads={summary.uploads}
           toReviewPlaceIds={summary.toReviewPlaceIds}
           addedAnotherWay={addedAnotherWay}
+          linkItems={linkItems}
           uploadId={firstParam(params.upload)}
         />
       </div>

@@ -100,7 +100,8 @@ src/
 ## Development
 
 This project follows the Travel Dreams Collection domain model with support for:
-- OCR text extraction and LLM structuring
+- Capturing travel ideas from Inbox screenshots or saved TikTok/Instagram links
+- OCR / text extraction and LLM structuring into places
 - Deduplication and canonicalization
 - Flexible tagging and categorization
 - Performance-optimized queries with proper indexing

@@ -3,9 +3,11 @@ export const UPLOAD_SHEET_HREF = '/inbox?sheet=1';
 
 export const OPEN_UPLOAD_SHEET_EVENT = 'td:open-upload-sheet';
 
-export function openUploadSheet(files?: File[]): void {
+export type UploadSheetMode = 'screenshots' | 'link';
+
+export function openUploadSheet(files?: File[], mode: UploadSheetMode = 'screenshots'): void {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(OPEN_UPLOAD_SHEET_EVENT, { detail: { files: files ?? [] } }));
+  window.dispatchEvent(new CustomEvent(OPEN_UPLOAD_SHEET_EVENT, { detail: { files: files ?? [], mode } }));
 }
 
 /** Where a finished upload's toast and "View results" go. */

@@ -21,7 +21,10 @@ jest.mock('@/lib/db-queries', () => ({
   getQueueDepth: jest.fn(),
 }));
 jest.mock('@/lib/mass-upload/gemini-extraction-service', () => ({
-  getGeminiExtractionService: () => ({ extractFromImage: mockExtractFromImage }),
+  getGeminiExtractionService: () => ({
+    extractFromImage: mockExtractFromImage,
+    extractFromText: mockExtractFromText,
+  }),
 }));
 jest.mock('@/lib/mass-upload/google-places-enrichment', () => {
   class GooglePlacesUnavailableError extends Error {}
@@ -38,6 +41,7 @@ jest.mock('@vercel/blob', () => ({
 }));
 
 const mockExtractFromImage = jest.fn();
+const mockExtractFromText = jest.fn();
 const mockEnrichPlaces = jest.fn();
 
 import { processQueue } from '@/lib/mass-upload/queue-processor';
@@ -95,6 +99,7 @@ describe('processQueue', () => {
     mockInterruption.mockResolvedValue('queued');
     mockCreatePlaces.mockResolvedValue(Object.assign([{ id: 'plc_1' }], { createdCount: 1 }));
     mockExtractFromImage.mockResolvedValue(createMockExtractionResult());
+    mockExtractFromText.mockResolvedValue(createMockExtractionResult());
     mockEnrichPlaces.mockResolvedValue([createMockPipelinePlace()]);
     global.fetch = jest.fn().mockResolvedValue(okImageResponse()) as unknown as typeof fetch;
   });
@@ -149,6 +154,30 @@ describe('processQueue', () => {
     expect(mockFailure).toHaveBeenCalledTimes(1);
     expect(mockInterruption).not.toHaveBeenCalled();
     expect(result.failed).toBe(1);
+  });
+
+  it('processes URL sources from saved text without fetching or thumbnailing their social URL', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Social link and caption: Visit Manteigaria in Lisbon',
+      meta: { platform: 'tiktok', link: { kind: 'tiktok-video' } },
+    });
+    queueOf(source);
+
+    const result = await processQueue({ workerId: 'w_link_test' });
+
+    expect(result.completed).toBe(1);
+    expect(mockExtractFromText).toHaveBeenCalledWith(
+      'Social link and caption: Visit Manteigaria in Lisbon',
+      'tiktok',
+    );
+    expect(mockExtractFromImage).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockCache).toHaveBeenCalledWith(source.id, expect.any(String), {
+      extraction: expect.any(Object),
+    });
+    expect(mockEnrichPlaces).toHaveBeenCalledWith(expect.any(Array), expect.any(AbortSignal));
   });
 
   it('treats a 5xx from blob storage as an interruption, not a bad screenshot', async () => {

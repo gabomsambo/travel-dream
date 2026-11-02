@@ -115,6 +115,7 @@ describe('createPlacesFromPipeline batching', () => {
     generatedCount = 0;
     sourceRow = {
       id: 'src_1',
+      type: 'screenshot',
       uri: 'https://store.public.blob.vercel-storage.com/shot.jpg',
       userId: 'user_1',
       meta: { uploadInfo: { originalName: 'shot.jpg', mimeType: 'image/jpeg' } },
@@ -230,6 +231,23 @@ describe('createPlacesFromPipeline batching', () => {
 
     expect(insertedByTable['attachments']).toHaveLength(2);
     expect(insertedByTable['attachments']?.every((a) => (a as { isPrimary: number }).isPrimary === 1)).toBe(true);
+  });
+
+  it('does not attach a URL source uri as a place photo', async () => {
+    const socialUrl = 'https://www.tiktok.com/@creator/video/7694185850497666335';
+    sourceRow = {
+      id: 'src_url',
+      type: 'url',
+      uri: socialUrl,
+      userId: 'user_1',
+      meta: { platform: 'tiktok', link: { canonicalUrl: socialUrl } },
+    };
+
+    await createPlacesFromPipeline([pipelinePlace({ name: 'Manteigaria' })], 'src_url', 'user_1');
+
+    expect(insertedByTable['places']).toHaveLength(1);
+    expect(insertedByTable['sources_to_places']).toHaveLength(1);
+    expect(insertedByTable['attachments'] ?? []).toHaveLength(0);
   });
 
   it('refuses to write places for a source the user does not own', async () => {

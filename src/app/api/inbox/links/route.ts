@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
-import { forUser } from '@/lib/tenant-db';
+import { forUser, type TenantDb } from '@/lib/tenant-db';
 import { parseSocialLink } from '@/lib/link-import/url';
 import { resolveTikTokShortLink } from '@/lib/link-import/resolve-short-link';
 import { enrichLinkDetails } from '@/lib/link-import/details';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
-import type { CanonicalSocialLink, LinkResolution, LinkSourceMeta } from '@/types/link-import';
+import type {
+  CanonicalSocialLink,
+  LinkDetails,
+  LinkProviderRecord,
+  LinkResolution,
+  LinkSourceMeta,
+} from '@/types/link-import';
 
 export const runtime = 'nodejs';
 
@@ -19,10 +25,16 @@ const SaveLinkSchema = z.object({
 
 const MAX_EXTRACTION_CONTEXT = 10_000;
 
+type SourceRow = typeof sourcesCurrentSchema.$inferSelect;
+type SourceMeta = NonNullable<SourceRow['meta']>;
+type ScopedDb = Omit<TenantDb, 'findOwned' | 'transaction'> | Parameters<
+  Parameters<TenantDb['transaction']>[0]
+>[0];
+
 function extractionContext(
   link: CanonicalSocialLink,
   caption: string | undefined,
-  details: LinkSourceMeta['details'],
+  details: LinkDetails | undefined,
 ): string {
   const lines = [
     `Social link: ${link.canonicalUrl}`,
@@ -58,6 +70,154 @@ function scheduleProcessing(): void {
   }
 }
 
+function candidateUris(parsed: CanonicalSocialLink, link: CanonicalSocialLink): string[] {
+  return [...new Set([link.canonicalUrl, link.originalUrl, parsed.canonicalUrl, parsed.originalUrl])];
+}
+
+function existingLinkMatch(candidateUrls: string[], postId: string | undefined) {
+  const uriMatch = and(
+    eq(sourcesCurrentSchema.type, 'url'),
+    inArray(sourcesCurrentSchema.uri, candidateUrls),
+  );
+  // A short link that is still unresolved has no postId. Pasting the canonical
+  // /@user/video/<id> (or /photo/<id>) URL in that window may create a second
+  // source for the same post; we accept that rather than adding background
+  // resolution machinery.
+  if (!postId) return uriMatch;
+  return or(
+    uriMatch,
+    and(
+      eq(sourcesCurrentSchema.type, 'url'),
+      sql`json_extract(${sourcesCurrentSchema.meta}, '$.link.postId') = ${postId}`,
+    ),
+  );
+}
+
+function buildLinkMeta(
+  parsed: CanonicalSocialLink,
+  link: CanonicalSocialLink,
+  resolution: LinkResolution,
+  caption: string | undefined,
+  details: LinkDetails,
+  providers: LinkProviderRecord[],
+  prior?: LinkSourceMeta,
+): LinkSourceMeta {
+  const captionText = caption || prior?.captionText;
+  const placeName = link.placeName ?? details.placeName ?? prior?.placeName;
+  const handle = link.handle ?? prior?.handle;
+  const postId = link.postId ?? prior?.postId;
+  const placeId = link.placeId ?? prior?.placeId;
+  return {
+    originalUrl: prior?.originalUrl ?? parsed.originalUrl,
+    canonicalUrl: link.canonicalUrl,
+    platform: link.platform,
+    kind: link.kind,
+    ...(handle ? { handle } : {}),
+    ...(postId ? { postId } : {}),
+    ...(placeId ? { placeId } : {}),
+    ...(placeName ? { placeName } : {}),
+    needsResolution: link.needsResolution,
+    resolution,
+    ...(captionText ? { captionText } : {}),
+    ...(Object.keys(details).length > 0 ? { details } : prior?.details ? { details: prior.details } : {}),
+    providers: providers.length > 0 ? providers : prior?.providers ?? [],
+  };
+}
+
+function metaWithoutCachedExtraction(meta: SourceMeta): SourceMeta {
+  if (!meta.massUpload) return meta;
+  const { extraction: _extraction, extractedAt: _extractedAt, ...kept } = meta.massUpload;
+  if (Object.keys(kept).length === 0) {
+    const { massUpload: _massUpload, ...rest } = meta;
+    return rest;
+  }
+  return { ...meta, massUpload: kept };
+}
+
+function shouldRequeueExisting(
+  status: string | null | undefined,
+  priorCaption: string | undefined,
+  caption: string | undefined,
+): boolean {
+  if (status === 'failed' || status === 'stalled') return true;
+  if (status !== 'completed') return false;
+  return Boolean(caption) && caption !== priorCaption;
+}
+
+async function findExistingLink(
+  db: ScopedDb,
+  candidateUrls: string[],
+  postId: string | undefined,
+): Promise<SourceRow | undefined> {
+  const [row] = await db.select(sourcesCurrentSchema, existingLinkMatch(candidateUrls, postId)).limit(1);
+  return row;
+}
+
+async function refreshExistingLink(
+  tdb: TenantDb,
+  existing: SourceRow,
+  parsed: CanonicalSocialLink,
+  link: CanonicalSocialLink,
+  resolution: LinkResolution,
+  caption: string | undefined,
+): Promise<{ source: SourceRow; requeued: boolean }> {
+  const enrichment = await enrichLinkDetails(link);
+  const details = enrichment.details;
+  const priorMeta = (existing.meta ?? {}) as SourceMeta;
+  const priorLink = priorMeta.link;
+  const priorCaption = priorLink?.captionText;
+  const mergedCaption = caption || priorCaption;
+  const requeue = shouldRequeueExisting(existing.processingStatus, priorCaption, caption);
+  const metaLink = buildLinkMeta(
+    parsed,
+    link,
+    resolution,
+    mergedCaption,
+    details,
+    enrichment.providers,
+    priorLink,
+  );
+  let nextMeta: SourceMeta = {
+    ...priorMeta,
+    url: link.canonicalUrl,
+    platform: link.platform,
+    ...(details.title ? { title: details.title } : {}),
+    ...(details.author || link.handle || priorMeta.author
+      ? { author: details.author ?? (link.handle ? `@${link.handle}` : priorMeta.author) }
+      : {}),
+    link: metaLink,
+  };
+  if (requeue) nextMeta = metaWithoutCachedExtraction(nextMeta);
+
+  const nextUri = link.needsResolution ? existing.uri : link.canonicalUrl;
+  const ocrText = extractionContext(link, mergedCaption, details);
+  const now = new Date().toISOString();
+
+  const [updated] = await tdb.update(
+    sourcesCurrentSchema,
+    {
+      uri: nextUri,
+      ocrText,
+      meta: nextMeta,
+      updatedAt: now,
+      ...(requeue
+        ? {
+            processingStatus: 'queued' as const,
+            processingAttempts: 0,
+            processingInterruptions: 0,
+            processingError: null,
+            processingStartedAt: null,
+            processingLeaseId: null,
+            nextAttemptAt: null,
+          }
+        : {}),
+    },
+    eq(sourcesCurrentSchema.id, existing.id),
+  ).returning();
+
+  return { source: updated ?? { ...existing, uri: nextUri, ocrText, meta: nextMeta }, requeued: requeue };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const user = await requireAuthForApi();
@@ -88,32 +248,33 @@ export async function POST(request: NextRequest) {
     }
 
     const tdb = forUser(user.id);
-    const sameCanonicalLink = and(
-      eq(sourcesCurrentSchema.type, 'url'),
-      eq(sourcesCurrentSchema.uri, link.canonicalUrl),
-    );
-    const existing = await tdb.select(sourcesCurrentSchema, sameCanonicalLink).limit(1);
-    if (existing[0]) return sourceResponse(existing[0], true, 200);
+    const urls = candidateUris(parsedLink.link, link);
+    const existing = await findExistingLink(tdb, urls, link.postId);
+    if (existing) {
+      const refreshed = await refreshExistingLink(
+        tdb,
+        existing,
+        parsedLink.link,
+        link,
+        resolution,
+        parsedBody.data.caption?.trim() || undefined,
+      );
+      if (refreshed.requeued) scheduleProcessing();
+      return sourceResponse(refreshed.source, true, 200);
+    }
 
     const caption = parsedBody.data.caption?.trim() || undefined;
     const enrichment = await enrichLinkDetails(link);
     const details = enrichment.details;
-    const metaLink: LinkSourceMeta = {
-      originalUrl: parsedLink.link.originalUrl,
-      canonicalUrl: link.canonicalUrl,
-      platform: link.platform,
-      kind: link.kind,
-      ...(link.handle ? { handle: link.handle } : {}),
-      ...(link.postId ? { postId: link.postId } : {}),
-      ...(link.placeId ? { placeId: link.placeId } : {}),
-      ...(link.placeName || details.placeName ? { placeName: link.placeName ?? details.placeName } : {}),
-      needsResolution: link.needsResolution,
+    const metaLink = buildLinkMeta(
+      parsedLink.link,
+      link,
       resolution,
-      ...(caption ? { captionText: caption } : {}),
-      ...(Object.keys(details).length > 0 ? { details } : {}),
-      providers: enrichment.providers,
-    };
-    const meta = {
+      caption,
+      details,
+      enrichment.providers,
+    );
+    const meta: SourceMeta = {
       url: link.canonicalUrl,
       platform: link.platform,
       ...(details.title ? { title: details.title } : {}),
@@ -125,8 +286,8 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     const saved = await tdb.transaction(async (tx) => {
-      const concurrent = await tx.select(sourcesCurrentSchema, sameCanonicalLink).limit(1);
-      if (concurrent[0]) return { source: concurrent[0], duplicate: true };
+      const concurrent = await findExistingLink(tx, urls, link.postId);
+      if (concurrent) return { source: concurrent, duplicate: true as const };
       const [source] = await tx.insert(sourcesCurrentSchema, {
         id: sourceId,
         type: 'url',
@@ -145,11 +306,24 @@ export async function POST(request: NextRequest) {
         processingLeaseId: null,
         nextAttemptAt: null,
       }).returning();
-      return { source, duplicate: false };
+      return { source, duplicate: false as const };
     });
 
-    if (!saved.duplicate) scheduleProcessing();
-    return sourceResponse(saved.source, saved.duplicate, saved.duplicate ? 200 : 201);
+    if (saved.duplicate) {
+      const refreshed = await refreshExistingLink(
+        tdb,
+        saved.source,
+        parsedLink.link,
+        link,
+        resolution,
+        caption,
+      );
+      if (refreshed.requeued) scheduleProcessing();
+      return sourceResponse(refreshed.source, true, 200);
+    }
+
+    scheduleProcessing();
+    return sourceResponse(saved.source, false, 201);
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });

@@ -2007,7 +2007,7 @@ export async function createPlacesFromPipeline(
 
       if (!source) throw new NotFoundError(`Source ${sourceId} not found or unauthorized`);
 
-      const screenshotUri = source.uri;
+      const screenshotUri = source.type === 'screenshot' ? source.uri : null;
       const meta = source.meta;
       const resolvedPlaces: Place[] = [];
       const createdIds = new Set(recordedCreatedPlaceIds(meta));

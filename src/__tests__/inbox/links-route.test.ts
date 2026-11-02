@@ -33,8 +33,12 @@ jest.mock('@/lib/link-import/details', () => ({
 import { requireAuthForApi } from '@/lib/auth-helpers';
 import { enrichLinkDetails } from '@/lib/link-import/details';
 import { resolveTikTokShortLink } from '@/lib/link-import/resolve-short-link';
+import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
+import { parseSocialLink } from '@/lib/link-import/url';
 
 const CANONICAL_VIDEO = 'https://www.tiktok.com/@creator/video/7694185850497666335';
+const SHORT_URL = 'https://www.tiktok.com/t/ZPLaXhYUP/';
+const OTHER_SHORT_URL = 'https://www.tiktok.com/t/ZPotherShare/';
 
 function route() {
   return require('@/app/api/inbox/links/route') as {
@@ -54,6 +58,19 @@ const databaseExec = (sql: string, args: unknown[] = []) => {
   return client.execute({ sql, args });
 };
 
+async function jsonMeta(sourceId: string) {
+  return JSON.parse(String(await readCell('SELECT meta FROM sources WHERE id = ?', [sourceId]))) as {
+    link: {
+      postId?: string;
+      canonicalUrl: string;
+      captionText?: string;
+      kind: string;
+      resolution: { status: string };
+    };
+    massUpload?: { extraction?: unknown };
+  };
+}
+
 beforeAll(() => {
   assertLocalDatabase();
   useUniqueUuids();
@@ -70,6 +87,7 @@ beforeEach(async () => {
     link,
     resolution: { status: 'unresolved', error: 'fetch-failed' },
   }));
+  (dispatchProcessors as jest.Mock).mockClear();
 });
 
 describe('POST /api/inbox/links', () => {
@@ -108,13 +126,112 @@ describe('POST /api/inbox/links', () => {
     expect(await readCell("SELECT count(*) FROM sources WHERE user_id = ? AND type = 'url'", [ALICE.id])).toBe(1);
   });
 
+  it('merges a new caption onto a completed duplicate and requeues extraction', async () => {
+    const first = await (await save(CANONICAL_VIDEO)).json() as { sourceId: string };
+    await databaseExec(
+      `UPDATE sources SET processing_status = ?, meta = ? WHERE id = ?`,
+      [
+        'completed',
+        JSON.stringify({
+          platform: 'tiktok',
+          link: {
+            originalUrl: CANONICAL_VIDEO,
+            canonicalUrl: CANONICAL_VIDEO,
+            platform: 'tiktok',
+            kind: 'tiktok-video',
+            postId: '7694185850497666335',
+            needsResolution: false,
+            resolution: { status: 'not-needed' },
+            providers: [],
+          },
+          massUpload: { extraction: { places: [] }, extractedAt: '2026-01-01T00:00:00.000Z' },
+        }),
+        first.sourceId,
+      ],
+    );
+
+    const secondResponse = await save(CANONICAL_VIDEO, 'Try Manteigaria in Lisbon');
+    const second = await secondResponse.json() as { sourceId: string; duplicate: boolean };
+    expect(secondResponse.status).toBe(200);
+    expect(second).toMatchObject({ sourceId: first.sourceId, duplicate: true });
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [first.sourceId])).toBe('queued');
+    expect(String(await readCell('SELECT ocr_text FROM sources WHERE id = ?', [first.sourceId]))).toContain('Manteigaria in Lisbon');
+    const meta = await jsonMeta(first.sourceId);
+    expect(meta.link.captionText).toBe('Try Manteigaria in Lisbon');
+    expect(meta.massUpload?.extraction).toBeUndefined();
+    expect(dispatchProcessors).toHaveBeenCalled();
+  });
+
+  it('requeues a failed duplicate on repaste even without a new caption', async () => {
+    const first = await (await save(CANONICAL_VIDEO, 'old caption')).json() as { sourceId: string };
+    await databaseExec(
+      `UPDATE sources SET processing_status = ?, processing_error = ? WHERE id = ?`,
+      ['failed', 'gemini boom', first.sourceId],
+    );
+
+    const secondResponse = await save(CANONICAL_VIDEO);
+    const second = await secondResponse.json() as { sourceId: string; duplicate: boolean };
+    expect(second).toMatchObject({ sourceId: first.sourceId, duplicate: true });
+    expect(await readCell('SELECT processing_status FROM sources WHERE id = ?', [first.sourceId])).toBe('queued');
+    expect(await readCell('SELECT processing_error FROM sources WHERE id = ?', [first.sourceId])).toBeNull();
+    expect(String(await readCell('SELECT ocr_text FROM sources WHERE id = ?', [first.sourceId]))).toContain('old caption');
+  });
+
+  it('dedupes a resolved short share against an existing canonical postId', async () => {
+    const first = await (await save(CANONICAL_VIDEO)).json() as { sourceId: string };
+    const resolved = parseSocialLink(CANONICAL_VIDEO);
+    expect(resolved.supported).toBe(true);
+    if (!resolved.supported) return;
+
+    (resolveTikTokShortLink as jest.Mock).mockResolvedValueOnce({
+      link: { ...resolved.link, originalUrl: OTHER_SHORT_URL },
+      resolution: { status: 'resolved' },
+    });
+
+    const secondResponse = await save(OTHER_SHORT_URL, 'Same post via share short');
+    const second = await secondResponse.json() as { sourceId: string; duplicate: boolean };
+    expect(secondResponse.status).toBe(200);
+    expect(second).toMatchObject({ sourceId: first.sourceId, duplicate: true });
+    expect(await readCell("SELECT count(*) FROM sources WHERE user_id = ? AND type = 'url'", [ALICE.id])).toBe(1);
+    const meta = await jsonMeta(first.sourceId);
+    expect(meta.link.postId).toBe('7694185850497666335');
+    expect(meta.link.captionText).toBe('Same post via share short');
+  });
+
+  it('backfills postId and canonical URI when an unresolved short later resolves', async () => {
+    const firstResponse = await save(SHORT_URL);
+    const first = await firstResponse.json() as { sourceId: string; url: string };
+    expect(first.url).toBe(SHORT_URL);
+    expect((await jsonMeta(first.sourceId)).link.postId).toBeUndefined();
+
+    const resolved = parseSocialLink(CANONICAL_VIDEO);
+    expect(resolved.supported).toBe(true);
+    if (!resolved.supported) return;
+    (resolveTikTokShortLink as jest.Mock).mockResolvedValueOnce({
+      link: { ...resolved.link, originalUrl: SHORT_URL },
+      resolution: { status: 'resolved' },
+    });
+
+    const secondResponse = await save(SHORT_URL);
+    const second = await secondResponse.json() as { sourceId: string; duplicate: boolean; url: string };
+    expect(second).toMatchObject({ sourceId: first.sourceId, duplicate: true, url: CANONICAL_VIDEO });
+    expect(await readCell('SELECT uri FROM sources WHERE id = ?', [first.sourceId])).toBe(CANONICAL_VIDEO);
+    const meta = await jsonMeta(first.sourceId);
+    expect(meta.link).toMatchObject({
+      postId: '7694185850497666335',
+      canonicalUrl: CANONICAL_VIDEO,
+      kind: 'tiktok-video',
+      resolution: { status: 'resolved' },
+    });
+    expect(await readCell("SELECT count(*) FROM sources WHERE user_id = ? AND type = 'url'", [ALICE.id])).toBe(1);
+  });
+
   it('keeps a short link when its resolution fails', async () => {
-    const shortUrl = 'https://www.tiktok.com/t/ZPLaXhYUP/';
-    const response = await save(shortUrl);
+    const response = await save(SHORT_URL);
     const body = await response.json() as { sourceId: string; url: string; meta: { link: { resolution: { status: string }; kind: string } } };
     expect(resolveTikTokShortLink).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(201);
-    expect(body.url).toBe(shortUrl);
+    expect(body.url).toBe(SHORT_URL);
     expect(body.meta.link).toMatchObject({ kind: 'tiktok-short', resolution: { status: 'unresolved' } });
   });
 
@@ -131,5 +248,50 @@ describe('POST /api/inbox/links', () => {
     expect(body.duplicate).toBe(false);
     expect(JSON.stringify(body)).not.toContain('Bob private context');
     expect(await readCell("SELECT count(*) FROM sources WHERE uri = ?", [CANONICAL_VIDEO])).toBe(2);
+  });
+
+  it('does not match another tenant by postId alone', async () => {
+    await databaseExec(
+      `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [
+        'src_bob_post',
+        BOB.id,
+        'url',
+        CANONICAL_VIDEO,
+        'Bob private context',
+        'completed',
+        JSON.stringify({
+          platform: 'tiktok',
+          link: {
+            originalUrl: CANONICAL_VIDEO,
+            canonicalUrl: CANONICAL_VIDEO,
+            platform: 'tiktok',
+            kind: 'tiktok-video',
+            postId: '7694185850497666335',
+            needsResolution: false,
+            resolution: { status: 'not-needed' },
+            providers: [],
+          },
+        }),
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ],
+    );
+
+    const resolved = parseSocialLink(CANONICAL_VIDEO);
+    expect(resolved.supported).toBe(true);
+    if (!resolved.supported) return;
+    (resolveTikTokShortLink as jest.Mock).mockResolvedValueOnce({
+      link: { ...resolved.link, originalUrl: OTHER_SHORT_URL },
+      resolution: { status: 'resolved' },
+    });
+
+    const response = await save(OTHER_SHORT_URL);
+    const body = await response.json() as { sourceId: string; duplicate: boolean };
+    expect(response.status).toBe(201);
+    expect(body.sourceId).not.toBe('src_bob_post');
+    expect(body.duplicate).toBe(false);
+    expect(await readCell("SELECT count(*) FROM sources WHERE type = 'url'", [])).toBe(2);
   });
 });

@@ -90,8 +90,8 @@ export function FieldPicker({
           <div className="grid gap-3">
             {PRESET_OPTIONS.map((option) => (
               <Card key={option.value} className="relative cursor-pointer hover:border-primary/50 transition-colors">
-                <CardContent className="p-4">
-                  <label className="flex items-start gap-3 cursor-pointer">
+                <CardContent className="p-0">
+                  <label className="flex min-h-11 cursor-pointer items-start gap-3 p-4">
                     <RadioGroupItem value={option.value} className="mt-0.5" />
                     <div className="flex-1 space-y-1">
                       <div className="font-medium">{option.label}</div>

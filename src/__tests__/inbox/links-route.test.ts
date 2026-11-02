@@ -63,6 +63,8 @@ async function jsonMeta(sourceId: string) {
     link: {
       postId?: string;
       canonicalUrl: string;
+      originalUrl?: string;
+      aliasUrls?: string[];
       captionText?: string;
       kind: string;
       resolution: { status: string };
@@ -196,6 +198,45 @@ describe('POST /api/inbox/links', () => {
     const meta = await jsonMeta(first.sourceId);
     expect(meta.link.postId).toBe('7694185850497666335');
     expect(meta.link.captionText).toBe('Same post via share short');
+    expect(meta.link.aliasUrls).toEqual(expect.arrayContaining([OTHER_SHORT_URL]));
+  });
+
+  it('dedupes an unresolved short after a canonical-first save that later saw the same short', async () => {
+    const first = await (await save(CANONICAL_VIDEO)).json() as { sourceId: string };
+    const resolved = parseSocialLink(CANONICAL_VIDEO);
+    expect(resolved.supported).toBe(true);
+    if (!resolved.supported) return;
+
+    (resolveTikTokShortLink as jest.Mock).mockResolvedValueOnce({
+      link: { ...resolved.link, originalUrl: SHORT_URL },
+      resolution: { status: 'resolved' },
+    });
+    const secondResponse = await save(SHORT_URL);
+    expect(secondResponse.status).toBe(200);
+    expect((await secondResponse.json() as { sourceId: string }).sourceId).toBe(first.sourceId);
+    expect((await jsonMeta(first.sourceId)).link.aliasUrls).toEqual(expect.arrayContaining([SHORT_URL]));
+
+    const unresolvedShort = parseSocialLink(SHORT_URL);
+    expect(unresolvedShort.supported).toBe(true);
+    if (!unresolvedShort.supported) return;
+    (resolveTikTokShortLink as jest.Mock).mockResolvedValueOnce({
+      link: unresolvedShort.link,
+      resolution: { status: 'unresolved', error: 'fetch-failed' },
+    });
+    const thirdResponse = await save(SHORT_URL);
+    const third = await thirdResponse.json() as { sourceId: string; duplicate: boolean };
+    expect(thirdResponse.status).toBe(200);
+    expect(third).toMatchObject({ sourceId: first.sourceId, duplicate: true });
+    expect(await readCell("SELECT count(*) FROM sources WHERE user_id = ? AND type = 'url'", [ALICE.id])).toBe(1);
+    expect(await readCell('SELECT uri FROM sources WHERE id = ?', [first.sourceId])).toBe(CANONICAL_VIDEO);
+    const meta = await jsonMeta(first.sourceId);
+    expect(meta.link).toMatchObject({
+      postId: '7694185850497666335',
+      canonicalUrl: CANONICAL_VIDEO,
+      kind: 'tiktok-video',
+      resolution: { status: 'resolved' },
+    });
+    expect(meta.link.aliasUrls).toEqual(expect.arrayContaining([SHORT_URL]));
   });
 
   it('backfills postId and canonical URI when an unresolved short later resolves', async () => {

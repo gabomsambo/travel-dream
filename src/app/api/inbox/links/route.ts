@@ -79,8 +79,29 @@ function metaUrlMatch(candidateUrls: string[]) {
   const clauses = candidateUrls.flatMap((url) => [
     sql`json_extract(${sourcesCurrentSchema.meta}, '$.link.originalUrl') = ${url}`,
     sql`json_extract(${sourcesCurrentSchema.meta}, '$.link.canonicalUrl') = ${url}`,
+    sql`EXISTS (
+      SELECT 1 FROM json_each(json_extract(${sourcesCurrentSchema.meta}, '$.link.aliasUrls')) AS alias
+      WHERE alias.value = ${url}
+    )`,
   ]);
   return or(...clauses);
+}
+
+function mergeAliasUrls(
+  prior: LinkSourceMeta | undefined,
+  candidates: string[],
+  originalUrl: string,
+  canonicalUrl: string,
+): string[] | undefined {
+  const identityUrls = new Set([originalUrl, canonicalUrl]);
+  const merged = new Set<string>();
+  for (const url of prior?.aliasUrls ?? []) {
+    if (!identityUrls.has(url)) merged.add(url);
+  }
+  for (const url of candidates) {
+    if (!identityUrls.has(url)) merged.add(url);
+  }
+  return merged.size > 0 ? [...merged] : undefined;
 }
 
 function existingLinkMatch(candidateUrls: string[], postId: string | undefined) {
@@ -137,10 +158,18 @@ function buildLinkMeta(
   const placeId = preserveResolvedIdentity
     ? prior.placeId ?? link.placeId
     : link.placeId ?? prior?.placeId;
+  const originalUrl = prior?.originalUrl ?? parsed.originalUrl;
+  const aliasUrls = mergeAliasUrls(
+    prior,
+    [parsed.originalUrl, parsed.canonicalUrl, link.originalUrl, link.canonicalUrl],
+    originalUrl,
+    canonicalUrl,
+  );
 
   return {
-    originalUrl: prior?.originalUrl ?? parsed.originalUrl,
+    originalUrl,
     canonicalUrl,
+    ...(aliasUrls ? { aliasUrls } : {}),
     platform: link.platform,
     kind,
     ...(handle ? { handle } : {}),

@@ -49,6 +49,7 @@ export interface LinkResolution {
 export interface LinkSourceMeta {
   originalUrl: string;
   canonicalUrl: string;
+  aliasUrls?: string[];
   platform: LinkPlatform;
   kind: LinkKind;
   handle?: string;

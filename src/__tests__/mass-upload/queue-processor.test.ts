@@ -42,6 +42,12 @@ jest.mock('@vercel/blob', () => ({
 jest.mock('@/lib/link-import/providers/tiktok-page', () => ({
   tiktokPageProvider: { getDetails: jest.fn() },
 }));
+jest.mock('@/lib/tiktok-private-blob', () => ({
+  ...jest.requireActual('@/lib/tiktok-private-blob'),
+  getTikTokPrivateBlob: jest.fn(),
+  putTikTokPrivateBlob: jest.fn(),
+  deleteTikTokPrivateBlob: jest.fn(),
+}));
 
 const mockExtractFromImage = jest.fn();
 const mockExtractFromText = jest.fn();
@@ -51,6 +57,7 @@ import { processQueue } from '@/lib/mass-upload/queue-processor';
 import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
 import { QUEUE_CONFIG } from '@/lib/mass-upload/queue-config';
 import { GooglePlacesUnavailableError } from '@/lib/mass-upload/google-places-enrichment';
+import { getTikTokPrivateBlob } from '@/lib/tiktok-private-blob';
 import {
   claimNextQueuedSource,
   markSourceEnriching,
@@ -63,6 +70,8 @@ import {
 } from '@/lib/db-mutations';
 import { getQueueDepth } from '@/lib/db-queries';
 import { createMockSource, createMockExtractionResult, createMockPipelinePlace } from '../helpers/mass-upload-helpers';
+
+const mockGetPrivateBlob = getTikTokPrivateBlob as jest.Mock;
 
 const mockClaim = claimNextQueuedSource as jest.Mock;
 const mockEnriching = markSourceEnriching as jest.Mock;
@@ -355,6 +364,42 @@ describe('processQueue', () => {
     expect(mockInterruption).toHaveBeenCalledTimes(1);
     expect(mockFailure).not.toHaveBeenCalled();
     expect(result.interrupted).toBe(1);
+  });
+
+  it('cancels a hanging private Blob download when the item watchdog fires', async () => {
+    jest.useFakeTimers();
+    try {
+      const privateUri = 'https://travel-dream.private.blob.vercel-storage.com/tiktok-imports/u/photo.jpg';
+      queueOf(createMockSource({
+        uri: privateUri,
+        meta: { tiktokPhotoImport: true, uploadInfo: { originalName: 'photo.jpg' } },
+      }));
+
+      let sawAbortSignal = false;
+      mockGetPrivateBlob.mockImplementation((_url: string, _etag?: string | null, abortSignal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (!abortSignal) return;
+          sawAbortSignal = true;
+          const fail = () => reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+          if (abortSignal.aborted) fail();
+          else abortSignal.addEventListener('abort', fail, { once: true });
+        })
+      );
+
+      const run = processQueue({ workerId: 'w_private_abort' });
+      await jest.advanceTimersByTimeAsync(QUEUE_CONFIG.itemMaxBudgetMs + 1_000);
+      const result = await run;
+
+      expect(sawAbortSignal).toBe(true);
+      expect(mockGetPrivateBlob).toHaveBeenCalled();
+      expect(mockInterruption).toHaveBeenCalledTimes(1);
+      expect(mockFailure).not.toHaveBeenCalled();
+      expect(result.interrupted).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(global.fetch).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('treats a network drop wrapped by the Gemini SDK as an interruption', async () => {

@@ -208,6 +208,20 @@ describe('TikTok private photo routes', () => {
     expect(sources.rows).toHaveLength(1); // the fixture's own screenshot only
   });
 
+  it('rejects a public Blob URL that only mentions the private host in its query', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    (put as jest.Mock).mockResolvedValue({
+      url: 'https://travel-dream.public.blob.vercel-storage.com/exposed.jpg?.private.blob.vercel-storage.com/',
+    });
+    const response = await importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+    expect(response.status).toBe(502);
+    const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<{ rows: Record<string, unknown>[] }> } };
+    const sources = await client.execute({ sql: `SELECT id FROM sources WHERE type = 'screenshot' AND user_id = ?`, args: [ALICE.id] });
+    expect(sources.rows).toHaveLength(1);
+  });
+
   it('serves a private photo only when this user owns an attachment reference', async () => {
     await attachPrivatePhoto(FIXTURE.alicePlace, 'att_alice_private', ALICE_PRIVATE_PHOTO);
     await attachPrivatePhoto(FIXTURE.bobPlace, 'att_bob_private', BOB_PRIVATE_PHOTO);

@@ -578,12 +578,15 @@ async function salvageInFlightExtraction(
 
 async function downloadScreenshot(uri: string, signal: AbortSignal): Promise<Buffer> {
   let res: Response;
+  const fetchSignal = AbortSignal.any([signal, AbortSignal.timeout(QUEUE_CONFIG.blobFetchTimeoutMs)]);
   if (isPrivateBlobUrl(uri)) {
     if (!isAllowedBlobUrl(uri)) throw new Error('Private screenshot URL is not allowed');
     let blob: Awaited<ReturnType<typeof getTikTokPrivateBlob>>;
     try {
-      blob = await getTikTokPrivateBlob(uri);
-    } catch {
+      blob = await getTikTokPrivateBlob(uri, null, fetchSignal);
+    } catch (err) {
+      if (signal.aborted) throw err;
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) throw err;
       throw new ProcessingInterrupted('Private Blob fetch failed', 'upstream');
     }
     if (!blob || blob.statusCode !== 200) throw new Error('Private screenshot was not found');
@@ -596,7 +599,7 @@ async function downloadScreenshot(uri: string, signal: AbortSignal): Promise<Buf
     });
   } else {
     res = await fetch(uri, {
-      signal: AbortSignal.any([signal, AbortSignal.timeout(QUEUE_CONFIG.blobFetchTimeoutMs)]),
+      signal: fetchSignal,
     });
   }
   if (!res.ok) {

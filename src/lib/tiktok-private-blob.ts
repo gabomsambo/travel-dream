@@ -51,13 +51,18 @@ export async function putTikTokPrivateBlob(
   });
 }
 
-export async function getTikTokPrivateBlob(value: string, ifNoneMatch?: string | null) {
+export async function getTikTokPrivateBlob(
+  value: string,
+  ifNoneMatch?: string | null,
+  abortSignal?: AbortSignal,
+) {
   const pathname = privateBlobPathname(value);
   const options = tikTokPrivateBlobOptions();
   if (!pathname || !options) return null;
   return get(pathname, {
     ...options,
     ifNoneMatch: ifNoneMatch ?? undefined,
+    ...(abortSignal ? { abortSignal } : {}),
   });
 }
 

@@ -10,7 +10,12 @@ import { parseSocialLink } from '@/lib/link-import/url';
 import { tiktokPageProvider, isTikTokImageCdnUrl } from '@/lib/link-import/providers/tiktok-page';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { extensionForMimeType } from '@/lib/image-upload';
-import { deleteTikTokPrivateBlob, putTikTokPrivateBlob, tikTokPrivateBlobOptions } from '@/lib/tiktok-private-blob';
+import {
+  deleteTikTokPrivateBlob,
+  isPrivateBlobUrl,
+  putTikTokPrivateBlob,
+  tikTokPrivateBlobOptions,
+} from '@/lib/tiktok-private-blob';
 import type { LinkDetails, LinkProviderResult, LinkSourceMeta, TikTokImageRef } from '@/types/link-import';
 
 export const runtime = 'nodejs';
@@ -265,8 +270,8 @@ export async function POST(
         image.bytes,
         image.mimeType,
       );
-      if (!isAllowedBlobUrl(blob.url) || !blob.url.includes('.private.blob.vercel-storage.com/')) {
-        if (blob.url.includes('.private.blob.vercel-storage.com/')) {
+      if (!isAllowedBlobUrl(blob.url) || !isPrivateBlobUrl(blob.url)) {
+        if (isPrivateBlobUrl(blob.url)) {
           await deleteTikTokPrivateBlob(blob.url).catch(() => undefined);
         }
         throw new Error('Private Blob destination was not allowed');

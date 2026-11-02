@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload } from 'lucide-react'
+import { Link2, Upload } from 'lucide-react'
 import { notify } from '@/lib/notify'
 import { openUploadSheet } from '@/lib/upload-sheet'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,20 @@ export function InboxLiveRefresh({ active }: { active: boolean }) {
     return () => window.clearInterval(id)
   }, [active, router])
   return null
+}
+
+/** Opens the shared add sheet directly on its link-save form. */
+export function InboxSaveLinkButton() {
+  return (
+    <button
+      type="button"
+      onClick={() => openUploadSheet([], 'link')}
+      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground hover:bg-muted"
+    >
+      <Link2 className="h-4 w-4" aria-hidden />
+      Save a link
+    </button>
+  )
 }
 
 /** Enter starts Review when the user is not already in a control. */

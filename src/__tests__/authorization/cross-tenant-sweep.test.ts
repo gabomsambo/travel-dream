@@ -848,6 +848,15 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
   },
 
   // --- inbox ---------------------------------------------------------------
+  'inbox/links': {
+    POST: {
+      slots: [],
+      request: () => ({
+        url: `${API}/inbox/links`,
+        body: { url: 'https://www.instagram.com/p/C8abcDEFghi/' },
+      }),
+    },
+  },
   'inbox/dismiss': {
     POST: [
       {

@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
+import type { LinkSourceMeta } from '@/types/link-import';
 
 // Current database schema (without LLM columns that don't exist yet)
 export const sourcesCurrentSchema = sqliteTable('sources', {
@@ -38,6 +39,7 @@ export const sourcesCurrentSchema = sqliteTable('sources', {
     title?: string;
     author?: string;
     platform?: string;
+    link?: LinkSourceMeta;
     uploadInfo?: {
       sessionId?: string;
       filename?: string;

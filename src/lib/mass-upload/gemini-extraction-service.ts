@@ -188,6 +188,50 @@ export class GeminiExtractionService {
     throw lastError || new Error('Failed after all retries');
   }
 
+  /** Extract places from supplied text without opening the social landing page. */
+  async extractFromText(text: string, platform = 'social link'): Promise<GeminiExtractionResult> {
+    const startTime = Date.now();
+    const prompt = `You are extracting travel places from text the user saved from a ${platform}.\n\n` +
+      'Identify only specific places that are explicitly named in the text. The URL, creator handle, and platform by themselves are not place evidence. ' +
+      'Do not open or infer information from links. Do not invent a city, country, or description. ' +
+      'If the text does not name an identifiable destination or venue, return an empty places array.\n\n' +
+      'Return ONLY valid JSON in this structure: {"places":[{"name":"Place Name","kind":"landmark","city":null,"country":null,"admin":null,"description":null,"tags":[],"vibes":[],"confidence":0.5,"price_level":null,"best_time":null,"activities":[],"cuisine":[],"amenities":[],"practicalInfo":null,"recommendedBy":null}],"imageContext":null}\n\n' +
+      `Saved link context:\n${text}`;
+
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const result = await this.model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 8192,
+            responseMimeType: 'application/json',
+          },
+        });
+        const rawText = this.stripMarkdownFences(result.response.text().trim());
+        const parsed = JSON.parse(rawText);
+        return {
+          places: this.normalizePlaces(Array.isArray(parsed.places) ? parsed.places : []),
+          imageContext: parsed.imageContext || null,
+          rawResponse: rawText,
+          extractionTimeMs: Date.now() - startTime,
+        };
+      } catch (error: unknown) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const status = (error as { status?: number })?.status;
+        const isRetryable = RETRYABLE_STATUSES.includes(status ?? 0);
+        if (!isRetryable || attempt === MAX_RETRIES - 1) throw lastError;
+
+        const delay = 1000 * Math.pow(2, attempt);
+        console.warn(`[GeminiExtraction] Text retry ${attempt + 1}/${MAX_RETRIES} after ${delay}ms`);
+        await this.sleep(delay);
+      }
+    }
+
+    throw lastError || new Error('Failed after all retries');
+  }
+
   private detectMimeType(buffer: Buffer): string {
     if (buffer.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'image/png';
     if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'image/jpeg';

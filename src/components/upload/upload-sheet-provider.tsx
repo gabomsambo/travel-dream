@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { MassUploadSheet } from '@/components/mass-upload/mass-upload-page'
-import { OPEN_UPLOAD_SHEET_EVENT } from '@/lib/upload-sheet'
+import { OPEN_UPLOAD_SHEET_EVENT, type UploadSheetMode } from '@/lib/upload-sheet'
 
 function UploadSheetFromQuery({ onOpen }: { onOpen: () => void }) {
   const params = useSearchParams()
@@ -32,16 +32,18 @@ function UploadSheetFromQuery({ onOpen }: { onOpen: () => void }) {
 export function UploadSheetProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [files, setFiles] = useState<File[]>([])
+  const [mode, setMode] = useState<UploadSheetMode>('screenshots')
 
-  const openWithFiles = useCallback((next?: File[]) => {
+  const openWithFiles = useCallback((next?: File[], nextMode: UploadSheetMode = 'screenshots') => {
     setFiles(next && next.length > 0 ? next : [])
+    setMode(next && next.length > 0 ? 'screenshots' : nextMode)
     setOpen(true)
   }, [])
 
   useEffect(() => {
     const onEvent = (event: Event) => {
-      const detail = (event as CustomEvent<{ files?: File[] }>).detail
-      openWithFiles(detail?.files)
+      const detail = (event as CustomEvent<{ files?: File[]; mode?: UploadSheetMode }>).detail
+      openWithFiles(detail?.files, detail?.mode)
     }
     window.addEventListener(OPEN_UPLOAD_SHEET_EVENT, onEvent)
     return () => window.removeEventListener(OPEN_UPLOAD_SHEET_EVENT, onEvent)
@@ -56,6 +58,7 @@ export function UploadSheetProvider({ children }: { children: ReactNode }) {
       <MassUploadSheet
         open={open}
         initialFiles={files}
+        initialMode={mode}
         onOpenChange={(next) => {
           setOpen(next)
           if (!next) setFiles([])

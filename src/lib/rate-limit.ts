@@ -145,6 +145,23 @@ export async function checkRateLimit(
   }
 }
 
+/** Read the current allowance without consuming a request. */
+export async function getRateLimitRemaining(
+  identifier: string,
+  tier: RateLimitTier
+): Promise<number | null> {
+  const limiter = getLimiter(tier);
+  if (!limiter) return null;
+
+  try {
+    const result = await limiter.getRemaining(identifier);
+    return result.remaining;
+  } catch (error) {
+    console.error('[RateLimit] Read-only check failed:', error);
+    return null;
+  }
+}
+
 export function rateLimitResponse(result: RateLimitResult): NextResponse {
   const retryAfter = Math.max(1, Math.ceil((result.reset - Date.now()) / 1000));
 

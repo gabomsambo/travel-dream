@@ -5,7 +5,7 @@ import type {
   LinkProviderResult,
   TikTokImageRef,
 } from '@/types/link-import';
-import { checkRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit, getRateLimitRemaining } from '@/lib/rate-limit';
 import type { LinkDetailsProvider } from '../details';
 import { getTikTokGuardrails, TIKTOK_CACHE_TTLS, type TikTokGuardrails } from '../tiktok-guardrails';
 import { TikTokRehydrationSchema, type TikTokItem } from '../tiktok-schemas';
@@ -39,7 +39,8 @@ type FetchOutcome =
 interface ProviderDeps {
   enabled?: () => boolean;
   getGuardrails?: () => TikTokGuardrails | null;
-  allowDailyRequest?: (userId: string) => Promise<boolean>;
+  hasDailyAllowance?: (userId: string) => Promise<boolean>;
+  chargeDailyRequest?: (userId: string) => Promise<boolean>;
   fetcher?: Fetcher;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
@@ -53,7 +54,12 @@ function defaultEnabled(): boolean {
   return process.env.TIKTOK_PAGE_FETCH_ENABLED === 'true';
 }
 
-async function defaultAllowDailyRequest(userId: string): Promise<boolean> {
+async function defaultHasDailyAllowance(userId: string): Promise<boolean> {
+  const remaining = await getRateLimitRemaining(`user:${userId}`, 'tiktok-page');
+  return remaining !== null && remaining > 0;
+}
+
+async function defaultChargeDailyRequest(userId: string): Promise<boolean> {
   const result = await checkRateLimit(`user:${userId}`, 'tiktok-page');
   // The shared limiter reports limit=0 when Upstash is missing or unavailable.
   return result.limit > 0 && result.success;
@@ -109,14 +115,16 @@ async function waitForRequestSlot(
   guardrails: TikTokGuardrails,
   wait: boolean,
   sleep: (ms: number) => Promise<void>,
-): Promise<boolean> {
-  if (await guardrails.reserveRequestSlot()) return true;
-  if (!wait) return false;
+): Promise<string | null> {
+  const slot = await guardrails.reserveRequestSlot();
+  if (slot) return slot;
+  if (!wait) return null;
   for (let elapsed = 0; elapsed < TIKTOK_CACHE_TTLS.throttle; elapsed += 500) {
     await sleep(500);
-    if (await guardrails.reserveRequestSlot()) return true;
+    const retrySlot = await guardrails.reserveRequestSlot();
+    if (retrySlot) return retrySlot;
   }
-  return false;
+  return null;
 }
 
 async function requestTikTokHtml(
@@ -126,6 +134,8 @@ async function requestTikTokHtml(
     fetcher: Fetcher;
     sleep: (ms: number) => Promise<void>;
     waitForSlot: boolean;
+    /** A read-only allowance check before reserving the global slot. */
+    beforeSlotReserved?: () => Promise<boolean>;
     /** After a global slot is reserved, before HTTP. Return false to abort as throttled. */
     afterSlotReserved?: () => Promise<boolean>;
   },
@@ -134,8 +144,22 @@ async function requestTikTokHtml(
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const checkedUrl = allowedTikTokPageUrl(current);
     if (!checkedUrl) return { kind: 'redirect-error' };
-    if (!(await waitForRequestSlot(guardrails, options.waitForSlot || hop > 0, options.sleep))) return { kind: 'throttled' };
-    if (options.afterSlotReserved && !(await options.afterSlotReserved())) return { kind: 'throttled' };
+    if (options.beforeSlotReserved && !(await options.beforeSlotReserved())) return { kind: 'throttled' };
+    const slot = await waitForRequestSlot(guardrails, options.waitForSlot || hop > 0, options.sleep);
+    if (!slot) return { kind: 'throttled' };
+    if (options.afterSlotReserved) {
+      let allowed: boolean;
+      try {
+        allowed = await options.afterSlotReserved();
+      } catch (error) {
+        await guardrails.releaseRequestSlot(slot);
+        throw error;
+      }
+      if (!allowed) {
+        await guardrails.releaseRequestSlot(slot);
+        return { kind: 'throttled' };
+      }
+    }
     let response: Response;
     try {
       response = await options.fetcher(checkedUrl, {
@@ -302,7 +326,8 @@ function parseRehydration(body: string, link: CanonicalSocialLink):
 export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsProvider {
   const enabled = deps.enabled ?? defaultEnabled;
   const getGuardrails = deps.getGuardrails ?? getTikTokGuardrails;
-  const allowDailyRequest = deps.allowDailyRequest ?? defaultAllowDailyRequest;
+  const hasDailyAllowance = deps.hasDailyAllowance ?? defaultHasDailyAllowance;
+  const chargeDailyRequest = deps.chargeDailyRequest ?? defaultChargeDailyRequest;
   const fetcher = deps.fetcher ?? fetch;
   const sleep = deps.sleep ?? defaultSleep;
   const random = deps.random ?? Math.random;
@@ -331,9 +356,10 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
           fetcher,
           sleep,
           waitForSlot: attempt > 0,
+          beforeSlotReserved: async () => chargedDaily || hasDailyAllowance(userId),
           afterSlotReserved: async () => {
             if (chargedDaily) return true;
-            if (!(await allowDailyRequest(userId))) return false;
+            if (!(await chargeDailyRequest(userId))) return false;
             chargedDaily = true;
             return true;
           },

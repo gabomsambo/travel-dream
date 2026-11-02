@@ -10,6 +10,7 @@ import {
   completeSource,
   markSourceEnriching,
   recordSourceFailure,
+  recordSourceDeferral,
   recordSourceInterruption,
   reclaimExpiredSourceLeases,
   createPlacesFromPipeline,
@@ -39,6 +40,14 @@ export class ProcessingInterrupted extends Error {
   }
 }
 
+/** Work that should be retried after a short wait, without spending interruption budget. */
+class ProcessingDeferred extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProcessingDeferred';
+  }
+}
+
 function isLinkProviderResult(value: unknown): value is LinkProviderResult {
   return !!value && typeof value === 'object' &&
     ('details' in value || 'reason' in value || 'transient' in value || 'empty' in value);
@@ -54,6 +63,7 @@ export interface ProcessQueueResult {
   claimed: number;
   completed: number;
   failed: number;
+  deferred: number;
   interrupted: number;
   stalled: number;
   leaseLost: number;
@@ -111,6 +121,7 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
     claimed: 0,
     completed: 0,
     failed: 0,
+    deferred: 0,
     interrupted: 0,
     stalled: 0,
     leaseLost: 0,
@@ -229,7 +240,7 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
   result.elapsedMs = now() - startedAt;
 
   console.log(
-    `[MassUpload ${workerId}] ${result.completed} completed, ${result.failed} failed, ` +
+    `[MassUpload ${workerId}] ${result.completed} completed, ${result.failed} failed, ${result.deferred} deferred, ` +
       `${result.interrupted} interrupted, ${result.stalled} stalled, ${result.placesCreated} places, ` +
       `${result.claimErrors} claim error(s), ${result.outcomeErrors} outcome write error(s), ` +
       `${result.remaining} remaining (${result.stoppedBecause}, ${result.elapsedMs}ms)`
@@ -281,6 +292,14 @@ async function processOne(
     result.completed++;
     result.placesCreated += placesCreated;
   } catch (error) {
+    if (error instanceof ProcessingDeferred && !watchdog.signal.aborted) {
+      const outcome = await recordSourceDeferral(source.id, leaseId, error.message);
+      if (outcome === 'lease-lost') result.leaseLost++;
+      else result.deferred++;
+      console.info(`[MassUpload] ${source.id} deferred: ${error.message}`);
+      return;
+    }
+
     const interruption = asInterruption(error, watchdog.signal);
     if (interruption) {
       // Write anything already paid for while the lease is still ours: the
@@ -500,7 +519,31 @@ async function linkTextForExtraction(
   const result = isLinkProviderResult(output) ? output : undefined;
   const details = isLinkDetails(output) ? output : result?.details;
   const reason = result?.reason;
-  if (reason === 'blocked' || reason === 'transient' || reason === 'throttled' || reason === 'safety_unavailable') {
+  if (reason === 'throttled') {
+    throw new ProcessingDeferred(`TikTok page read deferred: ${reason}`);
+  }
+  if (reason === 'blocked') {
+    const pageRecord: LinkProviderRecord = {
+      provider: 'tiktok-page',
+      status: 'empty',
+      reason,
+      fetchedAt: new Date().toISOString(),
+    };
+    const providers = link.providers.some((record) => record.provider === 'tiktok-page')
+      ? link.providers.map((record) => (record.provider === 'tiktok-page' ? pageRecord : record))
+      : [...link.providers, pageRecord];
+    await cacheSourceProcessingWork(source.id, leaseId, {
+      deferredLinkRead: {
+        ocrText: fallback,
+        providers,
+        details: link.details ?? {},
+        ...(link.details?.title ? { title: link.details.title } : {}),
+        ...(link.details?.author ? { author: link.details.author } : {}),
+      },
+    });
+    return fallback;
+  }
+  if (reason === 'transient' || reason === 'safety_unavailable') {
     throw new ProcessingInterrupted(`TikTok page read deferred: ${reason}`, 'upstream');
   }
   if (!details) return fallback;

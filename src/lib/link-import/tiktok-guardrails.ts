@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Redis } from '@upstash/redis';
 import type { LinkDetails, LinkProviderReason } from '@/types/link-import';
 
@@ -17,6 +18,7 @@ export interface TikTokRedisClient {
   get<TData = unknown>(key: string): Promise<TData | null>;
   set(key: string, value: unknown, options?: { ex?: number; px?: number; nx?: boolean }): Promise<unknown>;
   del(...keys: string[]): Promise<number>;
+  eval(script: string, keys: string[], args: string[]): Promise<unknown>;
 }
 
 export interface TikTokGuardrails {
@@ -25,7 +27,8 @@ export interface TikTokGuardrails {
   isBreakerOpen(): Promise<boolean>;
   openBreaker(): Promise<number>;
   clearBreaker(): Promise<void>;
-  reserveRequestSlot(): Promise<boolean>;
+  reserveRequestSlot(): Promise<string | null>;
+  releaseRequestSlot(token: string): Promise<void>;
 }
 
 /** Small, testable wrapper for the shared Upstash safety state. */
@@ -58,8 +61,16 @@ export function createTikTokGuardrails(
       await redis.del('tiktok:page:breaker:until', 'tiktok:page:breaker:level');
     },
     async reserveRequestSlot() {
-      const acquired = await redis.set('tiktok:page:global-slot', now(), { nx: true, px: THROTTLE_MS });
-      return acquired === 'OK';
+      const token = `${now()}:${randomUUID()}`;
+      const acquired = await redis.set('tiktok:page:global-slot', token, { nx: true, px: THROTTLE_MS });
+      return acquired === 'OK' ? token : null;
+    },
+    async releaseRequestSlot(token) {
+      await redis.eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+        ['tiktok:page:global-slot'],
+        [token],
+      );
     },
   };
 }

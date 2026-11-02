@@ -22,6 +22,12 @@ function redisStub(now: () => number = Date.now) {
       return 'OK';
     }),
     del: jest.fn(async (...keys: string[]) => keys.reduce((count, key) => count + Number(values.delete(key)), 0)),
+    eval: jest.fn(async (_script: string, keys: string[], args: string[]) => {
+      const key = keys[0];
+      if (values.get(key)?.value !== args[0]) return 0;
+      values.delete(key);
+      return 1;
+    }),
   };
   return { redis, values };
 }
@@ -32,12 +38,27 @@ describe('TikTok Upstash guardrails', () => {
     const { redis } = redisStub(() => now);
     const guardrails = createTikTokGuardrails(redis, () => now);
 
-    await expect(guardrails.reserveRequestSlot()).resolves.toBe(true);
-    await expect(guardrails.reserveRequestSlot()).resolves.toBe(false);
-    expect(redis.set).toHaveBeenCalledWith('tiktok:page:global-slot', now, { nx: true, px: 10_000 });
+    const slot = await guardrails.reserveRequestSlot();
+    expect(slot).toEqual(expect.any(String));
+    await expect(guardrails.reserveRequestSlot()).resolves.toBeNull();
+    expect(redis.set).toHaveBeenCalledWith('tiktok:page:global-slot', slot, { nx: true, px: 10_000 });
 
     now += 10_001;
-    await expect(guardrails.reserveRequestSlot()).resolves.toBe(true);
+    await expect(guardrails.reserveRequestSlot()).resolves.toEqual(expect.any(String));
+  });
+
+  it('releases only the global slot reserved by the denied daily charge', async () => {
+    const { redis, values } = redisStub();
+    const guardrails = createTikTokGuardrails(redis, () => 1_000_000);
+    const slot = await guardrails.reserveRequestSlot();
+    expect(slot).toEqual(expect.any(String));
+
+    await guardrails.releaseRequestSlot('another-request');
+    expect(await guardrails.reserveRequestSlot()).toBeNull();
+
+    await guardrails.releaseRequestSlot(slot!);
+    expect(values.has('tiktok:page:global-slot')).toBe(false);
+    await expect(guardrails.reserveRequestSlot()).resolves.toEqual(expect.any(String));
   });
 
   it('doubles breaker duration from 15 minutes up to six hours', async () => {

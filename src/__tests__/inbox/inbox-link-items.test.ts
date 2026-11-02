@@ -77,3 +77,26 @@ it('keeps fallback guidance visible when the TikTok reader is switched off', asy
   const item = rows.find((row) => row.id === 'src_alice_tiktok_off');
   expect(item).toMatchObject({ hasHelpfulContext: true, readerMessage: "Couldn't read TikTok." });
 });
+
+it('shows paste-caption and add-photos guidance after a blocked TikTok read', async () => {
+  const url = 'https://www.tiktok.com/@alicecreator/video/7694185850497666335';
+  await execute(
+    `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+     VALUES (?,?, 'url', ?, 'Social link', 'completed', ?, ?, ?)`,
+    ['src_alice_tiktok_blocked', ALICE.id, url, JSON.stringify({ link: {
+      originalUrl: url,
+      canonicalUrl: url,
+      platform: 'tiktok',
+      kind: 'tiktok-video',
+      handle: 'alicecreator',
+      postId: '7694185850497666335',
+      needsResolution: false,
+      resolution: { status: 'not-needed' },
+      providers: [{ provider: 'tiktok-page', status: 'empty', reason: 'blocked', fetchedAt: new Date().toISOString() }],
+    } }), new Date().toISOString(), new Date().toISOString()],
+  );
+
+  const rows = await getInboxLinkItems(ALICE.id);
+  const item = rows.find((row) => row.id === 'src_alice_tiktok_blocked');
+  expect(item).toMatchObject({ readerMessage: "Couldn't read TikTok right now." });
+});

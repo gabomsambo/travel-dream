@@ -26,6 +26,7 @@ import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
 import type { SQL } from 'drizzle-orm';
 import {
   claimNextQueuedSource,
+  recordSourceDeferral,
   recordSourceInterruption,
   recordSourceFailure,
 } from '@/lib/db-mutations';
@@ -97,6 +98,20 @@ describe('retry backoff', () => {
     expect(new Date(nextAttemptAt).getTime()).toBeLessThanOrEqual(
       before + QUEUE_CONFIG.retryBackoffMaxMs + 1_000
     );
+  });
+
+  it('reschedules a deferral without changing either processing counter', async () => {
+    updateRows = [{ id: 'src_1' }];
+    const before = Date.now();
+
+    const outcome = await recordSourceDeferral('src_1', 'w:lease', 'TikTok page read throttled');
+
+    expect(outcome).toBe('queued');
+    expect(updateSets[0].processingStatus).toBe('queued');
+    expect(updateSets[0].processingAttempts).toBeUndefined();
+    expect(updateSets[0].processingInterruptions).toBeUndefined();
+    expect(updateSets[0].processingLeaseId).toBeNull();
+    expect(new Date(updateSets[0].nextAttemptAt as string).getTime()).toBeGreaterThan(before);
   });
 
   it('waits longer after each interruption', async () => {

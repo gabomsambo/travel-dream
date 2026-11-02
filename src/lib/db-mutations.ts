@@ -2334,6 +2334,31 @@ export async function markSourceEnriching(sourceId: string, leaseId: string): Pr
   }, 'markSourceEnriching');
 }
 
+/** Requeue work deferred by an expected wait without changing either counter. */
+export async function recordSourceDeferral(
+  sourceId: string,
+  leaseId: string,
+  message: string
+): Promise<'queued' | 'lease-lost'> {
+  return withErrorHandling(async () => {
+    const updated = await db.update(sourcesCurrentSchema)
+      .set({
+        processingStatus: 'queued',
+        processingError: message.slice(0, 1000),
+        processingLeaseId: null,
+        nextAttemptAt: retryBackoffUntilIso(1),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+
+    return updated.length > 0 ? 'queued' : 'lease-lost';
+  }, 'recordSourceDeferral');
+}
+
 export type DeferredLinkPageRead = {
   ocrText: string;
   providers: LinkProviderRecord[];

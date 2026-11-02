@@ -21,6 +21,7 @@ function guardrailStub(): TikTokGuardrails & {
   openBreaker: jest.Mock;
   clearBreaker: jest.Mock;
   reserveRequestSlot: jest.Mock;
+  releaseRequestSlot: jest.Mock;
 } {
   const cache = new Map<string, { details?: object; reason?: string }>();
   return {
@@ -31,13 +32,15 @@ function guardrailStub(): TikTokGuardrails & {
     isBreakerOpen: jest.fn(async () => false),
     openBreaker: jest.fn(async () => 15 * 60_000),
     clearBreaker: jest.fn(async () => undefined),
-    reserveRequestSlot: jest.fn(async () => true),
+    reserveRequestSlot: jest.fn(async () => 'slot-1'),
+    releaseRequestSlot: jest.fn(async () => undefined),
   } as unknown as TikTokGuardrails & {
     cache: Map<string, { details?: object; reason?: string }>;
     cacheWrites: jest.Mock;
     openBreaker: jest.Mock;
     clearBreaker: jest.Mock;
     reserveRequestSlot: jest.Mock;
+    releaseRequestSlot: jest.Mock;
   };
 }
 
@@ -69,15 +72,18 @@ function response(body: string, status = 200, extraHeaders: Record<string, strin
 function setup(fetcher: typeof fetch, options: { enabled?: boolean; daily?: boolean } = {}) {
   const guardrails = guardrailStub();
   const sleep = jest.fn(async () => undefined);
+  const hasDailyAllowance = jest.fn(async () => options.daily ?? true);
+  const chargeDailyRequest = jest.fn(async () => options.daily ?? true);
   const provider = createTikTokPageProvider({
     enabled: () => options.enabled ?? true,
     getGuardrails: () => guardrails,
-    allowDailyRequest: jest.fn(async () => options.daily ?? true),
+    hasDailyAllowance,
+    chargeDailyRequest,
     fetcher,
     sleep,
     random: () => 0,
   });
-  return { provider, guardrails, sleep };
+  return { provider, guardrails, sleep, hasDailyAllowance, chargeDailyRequest };
 }
 
 describe('TikTok page provider', () => {
@@ -192,7 +198,8 @@ describe('TikTok page provider', () => {
   });
 
   it('charges the daily allowance once across a network or 5xx retry', async () => {
-    const allowDailyRequest = jest.fn(async () => true);
+    const hasDailyAllowance = jest.fn(async () => true);
+    const chargeDailyRequest = jest.fn(async () => true);
     const guardrails = guardrailStub();
     const sleep = jest.fn(async () => undefined);
     const fetcher = jest.fn()
@@ -201,26 +208,36 @@ describe('TikTok page provider', () => {
     const provider = createTikTokPageProvider({
       enabled: () => true,
       getGuardrails: () => guardrails,
-      allowDailyRequest,
+      hasDailyAllowance,
+      chargeDailyRequest,
       fetcher,
       sleep,
       random: () => 0,
     });
     await provider.getDetails(link(), { userId: 'alice' });
-    expect(allowDailyRequest).toHaveBeenCalledTimes(1);
+    expect(hasDailyAllowance).toHaveBeenCalledTimes(1);
+    expect(chargeDailyRequest).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(guardrails.reserveRequestSlot).toHaveBeenCalledTimes(2);
+    expect(hasDailyAllowance.mock.invocationCallOrder[0]).toBeLessThan(
+      guardrails.reserveRequestSlot.mock.invocationCallOrder[0],
+    );
+    expect(guardrails.reserveRequestSlot.mock.invocationCallOrder[0]).toBeLessThan(
+      chargeDailyRequest.mock.invocationCallOrder[0],
+    );
   });
 
   it('does not charge the daily allowance when the global slot is unavailable', async () => {
-    const allowDailyRequest = jest.fn(async () => true);
+    const hasDailyAllowance = jest.fn(async () => true);
+    const chargeDailyRequest = jest.fn(async () => true);
     const guardrails = guardrailStub();
-    guardrails.reserveRequestSlot.mockResolvedValue(false);
+    guardrails.reserveRequestSlot.mockResolvedValue(null);
     const fetcher = jest.fn(async () => response(html('video-post.html')));
     const provider = createTikTokPageProvider({
       enabled: () => true,
       getGuardrails: () => guardrails,
-      allowDailyRequest,
+      hasDailyAllowance,
+      chargeDailyRequest,
       fetcher,
       sleep: jest.fn(async () => undefined),
       random: () => 0,
@@ -230,7 +247,43 @@ describe('TikTok page provider', () => {
       reason: 'throttled',
     });
     expect(guardrails.reserveRequestSlot).toHaveBeenCalled();
-    expect(allowDailyRequest).not.toHaveBeenCalled();
+    expect(hasDailyAllowance).toHaveBeenCalledTimes(1);
+    expect(chargeDailyRequest).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not reserve the global slot when the read-only daily check is exhausted', async () => {
+    const fetcher = jest.fn(async () => response(html('video-post.html')));
+    const { provider, guardrails, hasDailyAllowance, chargeDailyRequest } = setup(fetcher, { daily: false });
+
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({
+      empty: true,
+      reason: 'throttled',
+    });
+    expect(hasDailyAllowance).toHaveBeenCalledTimes(1);
+    expect(guardrails.reserveRequestSlot).not.toHaveBeenCalled();
+    expect(chargeDailyRequest).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('releases the reserved global slot if the daily charge loses a concurrent race', async () => {
+    const fetcher = jest.fn(async () => response(html('video-post.html')));
+    const guardrails = guardrailStub();
+    const provider = createTikTokPageProvider({
+      enabled: () => true,
+      getGuardrails: () => guardrails,
+      hasDailyAllowance: jest.fn(async () => true),
+      chargeDailyRequest: jest.fn(async () => false),
+      fetcher,
+      sleep: jest.fn(async () => undefined),
+    });
+
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({
+      empty: true,
+      reason: 'throttled',
+    });
+    expect(guardrails.reserveRequestSlot).toHaveBeenCalledTimes(1);
+    expect(guardrails.releaseRequestSlot).toHaveBeenCalledWith('slot-1');
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -258,7 +311,7 @@ describe('TikTok page provider', () => {
     const dailyFetcher = jest.fn(async () => response(html('video-post.html')));
     const daily = setup(dailyFetcher, { daily: false });
     await expect(daily.provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'throttled' });
-    expect(daily.guardrails.reserveRequestSlot).toHaveBeenCalled();
+    expect(daily.guardrails.reserveRequestSlot).not.toHaveBeenCalled();
     expect(dailyFetcher).not.toHaveBeenCalled();
   });
 

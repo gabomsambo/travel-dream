@@ -51,6 +51,12 @@ export function ScopeSelector({
     onScopeChange({ type: "collection", collectionId })
   }
 
+  const handleRowClick = (type: "collection" | "library" | "selected") =>
+    (event: React.MouseEvent<HTMLLabelElement>) => {
+      if ((event.target as HTMLElement).closest('[role="radio"]')) return
+      handleTypeChange(type)
+    }
+
   const handleFilterChange = (key: "city" | "country" | "kind", value: string) => {
     onScopeChange({
       type: "library",
@@ -71,24 +77,30 @@ export function ScopeSelector({
       </CardHeader>
       <CardContent className="space-y-6">
         <RadioGroup value={scope.type} onValueChange={handleTypeChange}>
-          <div className="flex items-center space-x-3">
+          <Label
+            htmlFor="scope-collection"
+            onClick={handleRowClick("collection")}
+            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-2 font-normal hover:bg-accent/50"
+          >
             <RadioGroupItem value="collection" id="scope-collection" />
-            <Label htmlFor="scope-collection" className="font-normal cursor-pointer">
-              Collection
-            </Label>
-          </div>
-          <div className="flex items-center space-x-3">
+            Collection
+          </Label>
+          <Label
+            htmlFor="scope-library"
+            onClick={handleRowClick("library")}
+            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-2 font-normal hover:bg-accent/50"
+          >
             <RadioGroupItem value="library" id="scope-library" />
-            <Label htmlFor="scope-library" className="font-normal cursor-pointer">
-              Library
-            </Label>
-          </div>
-          <div className="flex items-center space-x-3">
+            Library
+          </Label>
+          <Label
+            htmlFor="scope-selected"
+            onClick={handleRowClick("selected")}
+            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-2 font-normal hover:bg-accent/50"
+          >
             <RadioGroupItem value="selected" id="scope-selected" />
-            <Label htmlFor="scope-selected" className="font-normal cursor-pointer">
-              Smart Selection
-            </Label>
-          </div>
+            Smart Selection
+          </Label>
         </RadioGroup>
 
         {scope.type === "collection" && (

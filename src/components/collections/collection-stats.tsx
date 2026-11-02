@@ -64,8 +64,8 @@ function StatCard({
           {icon}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-muted-foreground truncate">{label}</p>
-          <p className="text-lg font-semibold truncate">{value}</p>
+          <p className="text-sm leading-tight text-muted-foreground">{label}</p>
+          <p className="text-base leading-tight font-semibold sm:text-lg">{value}</p>
         </div>
       </div>
     </Card>

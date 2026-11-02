@@ -65,6 +65,46 @@ describe('upload sheet dismiss', () => {
     })
   })
 
+  it('accepts a TikTok WebP photo and shows the download hint', async () => {
+    const webp = new File(['pixels'], 'tiktok-photo.webp', { type: 'image/webp' })
+    const registerBodies: Array<{ originalName?: string; mimeType?: string }> = []
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/api/upload/sessions' && method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', session: { id: 'ses_webp' } }),
+        })
+      }
+      if (url === '/api/mass-upload/register' && method === 'POST') {
+        registerBodies.push(JSON.parse(String(init?.body)))
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success', sourceId: 'src_webp' }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'success' }) })
+    })
+    uploadMock.mockResolvedValue({
+      url: 'https://teststore.public.blob.vercel-storage.com/tiktok-photo.webp',
+    })
+
+    render(<MassUploadSheet open onOpenChange={jest.fn()} initialFiles={[webp]} />)
+
+    expect(screen.getByText(/long-press a photo post/i)).toBeInTheDocument()
+    await waitFor(() => expect(registerBodies).toHaveLength(1))
+    expect(uploadMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^screenshots\/ses_webp\/.*\.webp$/),
+      webp,
+      expect.anything(),
+    )
+    expect(registerBodies[0]).toMatchObject({
+      originalName: 'tiktok-photo.webp',
+      mimeType: 'image/webp',
+    })
+    expect(registerBodies).toHaveLength(1)
+  })
+
   it('aborts registration and cancels uploaded screenshots when closed before Start', async () => {
     const order: string[] = []
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {

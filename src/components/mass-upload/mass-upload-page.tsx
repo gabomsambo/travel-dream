@@ -857,6 +857,10 @@ export function MassUploadSheet({ open, onOpenChange, initialFiles }: MassUpload
         </div>
       </div>
 
+      <p className="text-center text-xs text-muted-foreground">
+        On TikTok, long-press a photo post → Download → Select all, then upload those photos here.
+      </p>
+
       {/* Upload progress summary */}
       {filesArray.length > 0 && (
         <div className="flex items-center justify-between">

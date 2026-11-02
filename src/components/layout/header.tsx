@@ -3,7 +3,7 @@
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import { useSession, signOut } from "next-auth/react"
-import { Upload, Plus, LogOut } from "lucide-react"
+import { Upload, Plus, LogOut, Search } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { openUploadSheet } from "@/lib/upload-sheet"
@@ -22,6 +22,11 @@ import {
 
 const AddPlaceDialog = dynamic(
   () => import("@/components/places/add-place-dialog").then(mod => ({ default: mod.AddPlaceDialog })),
+  { ssr: false }
+)
+
+const CommandPalette = dynamic(
+  () => import("@/components/search/command-palette").then(mod => ({ default: mod.CommandPalette })),
   { ssr: false }
 )
 
@@ -89,6 +94,7 @@ function UserMenu() {
 
 export function Header() {
   const [addPlaceDialogOpen, setAddPlaceDialogOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const handleSearch = (filters: any) => {
     console.log('Search filters:', filters)
@@ -100,11 +106,23 @@ export function Header() {
       <MobileNav />
 
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
-        <SearchBar
-          onSearch={handleSearch}
-          showFilters={false}
-          placeholder="Search places, cities, tags... (⌘K for advanced)"
-        />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0 min-[480px]:hidden"
+          aria-label="Search"
+          onClick={() => setSearchOpen(true)}
+        >
+          <Search className="h-4 w-4" />
+        </Button>
+
+        <div className="hidden min-w-0 flex-1 min-[480px]:block">
+          <SearchBar
+            onSearch={handleSearch}
+            showFilters={false}
+            placeholder="Search places, cities, tags... (⌘K for advanced)"
+          />
+        </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <Button
@@ -138,6 +156,10 @@ export function Header() {
           open={addPlaceDialogOpen}
           onOpenChange={setAddPlaceDialogOpen}
         />
+      )}
+
+      {searchOpen && (
+        <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
       )}
 
     </header>

@@ -154,7 +154,7 @@ export function MapFilterBar() {
               <button
                 key={kind}
                 onClick={() => toggleKind(kind)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors cursor-pointer border"
+                className="inline-flex min-h-11 items-center gap-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors cursor-pointer sm:min-h-0 sm:px-2 sm:py-0.5"
                 style={
                   isSelected
                     ? { backgroundColor: color, borderColor: color, color: 'white' }

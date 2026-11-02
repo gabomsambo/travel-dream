@@ -276,6 +276,39 @@ describe('POST /api/mass-upload/register', () => {
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
+  it('accepts a WebP photo downloaded from a TikTok carousel', async () => {
+    const session = createMockSession();
+    const tx = createTx();
+    (withTransaction as jest.Mock).mockImplementationOnce(async (fn: (t: unknown) => Promise<unknown>) =>
+      fn(tx),
+    );
+
+    mockSessionSelect(session);
+    mockBlobFetchSuccess();
+    mockDedupSelectNoMatch();
+
+    const body = {
+      ...validBody,
+      blobUrl: 'https://teststore.public.blob.vercel-storage.com/tiktok-photo.webp',
+      originalName: 'tiktok-photo.webp',
+      mimeType: 'image/webp',
+    };
+    const res = await POST(createRegisterRequest(body) as never);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.status).toBe('success');
+    const inserted = (tx.insert as jest.Mock).mock.results[0].value.values.mock.calls[0][0] as {
+      uri: string;
+      meta: { uploadInfo: { originalName: string; mimeType: string } };
+    };
+    expect(inserted.uri).toBe(body.blobUrl);
+    expect(inserted.meta.uploadInfo).toMatchObject({
+      originalName: 'tiktok-photo.webp',
+      mimeType: 'image/webp',
+    });
+  });
+
   it('inserts as queued and dispatches when the session was already started', async () => {
     const session = createMockSession({
       meta: {

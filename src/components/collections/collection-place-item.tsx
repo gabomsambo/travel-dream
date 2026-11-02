@@ -75,7 +75,7 @@ export function CollectionPlaceItem({
       onMouseEnter={() => onHover?.(true)}
       onMouseLeave={() => onHover?.(false)}
     >
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4 max-sm:gap-y-2">
         {/* Drag Handle - disabled if pinned */}
         {sortable && (
           <div
@@ -105,9 +105,9 @@ export function CollectionPlaceItem({
         {/* Thumbnail */}
 
         {/* Place Info */}
-        <div className="flex-1 min-w-0">
-          <h4 className="flex items-center gap-2 font-medium truncate">
-            <span className="truncate">{place.name}</span>
+        <div className="min-w-0 flex-1 max-sm:min-w-[8rem]">
+          <h4 className="flex items-center gap-2 font-medium">
+            <span className="line-clamp-2 break-words">{place.name}</span>
             {place.status === 'archived' && (
               <Badge variant="secondary" className="shrink-0 text-xs">Archived</Badge>
             )}
@@ -130,7 +130,7 @@ export function CollectionPlaceItem({
         </div>
 
         {/* Actions (show on hover) */}
-        <div className="flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1">
           {onNoteChange && (
             <Button
               variant="ghost"

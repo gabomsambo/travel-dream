@@ -221,6 +221,116 @@ describe('processQueue', () => {
     expect(result.interrupted).toBe(1);
   });
 
+  it('retries a deferred TikTok page read after a save-time disabled result', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335',
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'disabled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      details: {
+        caption: 'Visit Manteigaria in Lisbon',
+        placeName: 'Manteigaria',
+        author: 'Creator',
+        contentKind: 'video',
+      },
+    });
+
+    const result = await processQueue({ workerId: 'w_tiktok_disabled_retry' });
+
+    expect(tiktokPageProvider.getDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: '7694185850497666335', platform: 'tiktok' }),
+      { userId: source.userId },
+    );
+    expect(mockCache).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.objectContaining({
+        deferredLinkRead: expect.objectContaining({
+          ocrText: expect.stringContaining('Visit Manteigaria in Lisbon'),
+          providers: [expect.objectContaining({ provider: 'tiktok-page', status: 'ok' })],
+          details: expect.objectContaining({ caption: 'Visit Manteigaria in Lisbon' }),
+        }),
+      }),
+    );
+    expect(mockExtractFromText).toHaveBeenCalledWith(
+      expect.stringContaining('Visit Manteigaria in Lisbon'),
+      'tiktok',
+    );
+    expect(result.completed).toBe(1);
+  });
+
+  it('persists a successful deferred TikTok page read before extraction', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335',
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'throttled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      details: {
+        caption: 'Paste-free caption from the page',
+        author: 'Creator',
+        title: 'Lisbon walk',
+        contentKind: 'video',
+      },
+    });
+
+    await processQueue({ workerId: 'w_tiktok_persist' });
+
+    const deferredCall = mockCache.mock.calls.find(
+      (call) => call[2] && typeof call[2] === 'object' && 'deferredLinkRead' in call[2],
+    );
+    expect(deferredCall).toBeDefined();
+    expect(deferredCall?.[2]).toMatchObject({
+      deferredLinkRead: {
+        ocrText: expect.stringContaining('Paste-free caption from the page'),
+        providers: [{
+          provider: 'tiktok-page',
+          status: 'ok',
+          details: expect.objectContaining({ caption: 'Paste-free caption from the page' }),
+        }],
+        details: expect.objectContaining({ caption: 'Paste-free caption from the page' }),
+        title: 'Lisbon walk',
+        author: 'Creator',
+      },
+    });
+    expect(mockExtractFromText).toHaveBeenCalled();
+  });
+
   it('treats a 5xx from blob storage as an interruption, not a bad screenshot', async () => {
     queueOf(createMockSource());
     (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 502, headers: { get: () => null } });

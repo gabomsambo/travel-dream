@@ -14,6 +14,7 @@ import { usablePin } from './place-coords';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
 import type { ExtractedPlace, ExtractionResult, ExtractionMetadata } from '@/types/llm-extraction';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
+import type { LinkDetails, LinkProviderRecord } from '@/types/link-import';
 
 // Place mutations
 export async function createPlace(
@@ -2333,8 +2334,20 @@ export async function markSourceEnriching(sourceId: string, leaseId: string): Pr
   }, 'markSourceEnriching');
 }
 
+export type DeferredLinkPageRead = {
+  ocrText: string;
+  providers: LinkProviderRecord[];
+  details: LinkDetails;
+  title?: string;
+  author?: string;
+};
+
 function metaCachingProcessingWork(
-  work: { extraction?: unknown; thumbnailUrl?: string },
+  work: {
+    extraction?: unknown;
+    thumbnailUrl?: string;
+    deferredLinkRead?: DeferredLinkPageRead;
+  },
   extractedAt: string
 ): SQL | null {
   const meta = sourcesCurrentSchema.meta;
@@ -2347,6 +2360,16 @@ function metaCachingProcessingWork(
     pairs.push(sql`'$.massUpload.thumbnailUrl', ${work.thumbnailUrl}`);
     pairs.push(sql`'$.uploadInfo.thumbnailPath', ${work.thumbnailUrl}`);
   }
+  if (work.deferredLinkRead) {
+    pairs.push(sql`'$.link.providers', json(${JSON.stringify(work.deferredLinkRead.providers)})`);
+    pairs.push(sql`'$.link.details', json(${JSON.stringify(work.deferredLinkRead.details)})`);
+    if (work.deferredLinkRead.title) {
+      pairs.push(sql`'$.title', ${work.deferredLinkRead.title}`);
+    }
+    if (work.deferredLinkRead.author) {
+      pairs.push(sql`'$.author', ${work.deferredLinkRead.author}`);
+    }
+  }
   if (pairs.length === 0) return null;
   return sql`json_set(COALESCE(${meta}, '{}'), ${sql.join(pairs, sql`, `)})`;
 }
@@ -2354,17 +2377,29 @@ function metaCachingProcessingWork(
 /**
  * Persist work already paid for (Gemini extraction, thumbnail) onto the source
  * so a later retry reuses it instead of calling the API again.
+ * Also stores a deferred TikTok page read so Inbox UI and retries share one truth.
  */
 export async function cacheSourceProcessingWork(
   sourceId: string,
   leaseId: string,
-  work: { extraction?: unknown; thumbnailUrl?: string }
+  work: {
+    extraction?: unknown;
+    thumbnailUrl?: string;
+    deferredLinkRead?: DeferredLinkPageRead;
+  }
 ): Promise<boolean> {
   return withErrorHandling(async () => {
     const now = new Date().toISOString();
     const meta = metaCachingProcessingWork(work, now);
+    const patch: {
+      meta?: SQL;
+      ocrText?: string;
+      updatedAt: string;
+    } = { updatedAt: now };
+    if (meta) patch.meta = meta;
+    if (work.deferredLinkRead) patch.ocrText = work.deferredLinkRead.ocrText;
     const updated = await db.update(sourcesCurrentSchema)
-      .set(meta ? { meta, updatedAt: now } : { updatedAt: now })
+      .set(patch)
       .where(and(
         eq(sourcesCurrentSchema.id, sourceId),
         eq(sourcesCurrentSchema.processingLeaseId, leaseId)

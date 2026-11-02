@@ -115,13 +115,20 @@ async function waitForRequestSlot(
 async function requestTikTokHtml(
   initialUrl: string,
   guardrails: TikTokGuardrails,
-  options: { fetcher: Fetcher; sleep: (ms: number) => Promise<void>; waitForSlot: boolean },
+  options: {
+    fetcher: Fetcher;
+    sleep: (ms: number) => Promise<void>;
+    waitForSlot: boolean;
+    /** After a global slot is reserved, before HTTP. Return false to abort as throttled. */
+    afterSlotReserved?: () => Promise<boolean>;
+  },
 ): Promise<FetchOutcome> {
   let current = initialUrl;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const checkedUrl = allowedTikTokPageUrl(current);
     if (!checkedUrl) return { kind: 'redirect-error' };
     if (!(await waitForRequestSlot(guardrails, options.waitForSlot || hop > 0, options.sleep))) return { kind: 'throttled' };
+    if (options.afterSlotReserved && !(await options.afterSlotReserved())) return { kind: 'throttled' };
     let response: Response;
     try {
       response = await options.fetcher(checkedUrl, {
@@ -284,7 +291,8 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
     const url = postFetchUrl(link);
     if (!url) return { empty: true, reason: 'unavailable' };
     const guardrails = getGuardrails();
-    if (!guardrails || !context.userId) return { empty: true, reason: 'safety_unavailable' };
+    const userId = context.userId;
+    if (!guardrails || !userId) return { empty: true, reason: 'safety_unavailable' };
 
     try {
       if (!context.forceRefresh) {
@@ -294,15 +302,19 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
       if (await guardrails.isBreakerOpen()) return { empty: true, reason: 'blocked' };
 
       let attempt = 0;
+      let chargedDaily = false;
       while (attempt < 2) {
         if (attempt > 0) await sleep(2_000 + Math.round(random() * 500));
-        if (!(await allowDailyRequest(context.userId))) {
-          return { empty: true, reason: 'throttled' };
-        }
         const outcome = await requestTikTokHtml(url, guardrails, {
           fetcher,
           sleep,
           waitForSlot: attempt > 0,
+          afterSlotReserved: async () => {
+            if (chargedDaily) return true;
+            if (!(await allowDailyRequest(userId))) return false;
+            chargedDaily = true;
+            return true;
+          },
         });
         if (outcome.kind === 'http' && (outcome.status === 403 || outcome.status === 429)) {
           await guardrails.openBreaker();

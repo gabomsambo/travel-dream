@@ -191,6 +191,49 @@ describe('TikTok page provider', () => {
     expect(sleep).toHaveBeenCalledWith(2_000);
   });
 
+  it('charges the daily allowance once across a network or 5xx retry', async () => {
+    const allowDailyRequest = jest.fn(async () => true);
+    const guardrails = guardrailStub();
+    const sleep = jest.fn(async () => undefined);
+    const fetcher = jest.fn()
+      .mockRejectedValueOnce(new Error('socket reset'))
+      .mockResolvedValueOnce(response(html('video-post.html')));
+    const provider = createTikTokPageProvider({
+      enabled: () => true,
+      getGuardrails: () => guardrails,
+      allowDailyRequest,
+      fetcher,
+      sleep,
+      random: () => 0,
+    });
+    await provider.getDetails(link(), { userId: 'alice' });
+    expect(allowDailyRequest).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(guardrails.reserveRequestSlot).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not charge the daily allowance when the global slot is unavailable', async () => {
+    const allowDailyRequest = jest.fn(async () => true);
+    const guardrails = guardrailStub();
+    guardrails.reserveRequestSlot.mockResolvedValue(false);
+    const fetcher = jest.fn(async () => response(html('video-post.html')));
+    const provider = createTikTokPageProvider({
+      enabled: () => true,
+      getGuardrails: () => guardrails,
+      allowDailyRequest,
+      fetcher,
+      sleep: jest.fn(async () => undefined),
+      random: () => 0,
+    });
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({
+      empty: true,
+      reason: 'throttled',
+    });
+    expect(guardrails.reserveRequestSlot).toHaveBeenCalled();
+    expect(allowDailyRequest).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('retries one 5xx and refuses redirects outside TikTok hosts', async () => {
     const retrying = setup(jest.fn()
       .mockResolvedValueOnce(response('', 503))
@@ -212,9 +255,11 @@ describe('TikTok page provider', () => {
     const large = setup(jest.fn(async () => response('x'.repeat(2 * 1024 * 1024 + 1))));
     await expect(large.provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'format_changed' });
 
-    const daily = setup(jest.fn(async () => response(html('video-post.html'))), { daily: false });
+    const dailyFetcher = jest.fn(async () => response(html('video-post.html')));
+    const daily = setup(dailyFetcher, { daily: false });
     await expect(daily.provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'throttled' });
-    expect(daily.guardrails.reserveRequestSlot).not.toHaveBeenCalled();
+    expect(daily.guardrails.reserveRequestSlot).toHaveBeenCalled();
+    expect(dailyFetcher).not.toHaveBeenCalled();
   });
 
   it('keeps the diagnostic list fixed and bounded', () => {

@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import { put } from '@vercel/blob';
 import type { Source } from '@/types/database';
 import type { GeminiExtractionResult } from '@/types/extraction-pipeline';
-import type { LinkDetails, LinkProviderResult } from '@/types/link-import';
+import type { LinkDetails, LinkProviderRecord, LinkProviderResult } from '@/types/link-import';
 import {
   cacheSourceProcessingWork,
   claimNextQueuedSource,
@@ -426,7 +426,7 @@ async function runPipeline(
   if (source.type === 'url') {
     if (!extraction) {
       signal.throwIfAborted();
-      const text = await linkTextForExtraction(source, meta, signal);
+      const text = await linkTextForExtraction(source, meta, leaseId, signal);
       const pending = getGeminiExtractionService().extractFromText(text, meta.platform ?? 'social link');
       // Keep the same paid-work salvage and lease cache used by screenshot OCR.
       inFlight.extraction = { promise: pending };
@@ -476,6 +476,7 @@ async function runPipeline(
 async function linkTextForExtraction(
   source: Source,
   meta: NonNullable<Source['meta']>,
+  leaseId: string,
   signal: AbortSignal,
 ): Promise<string> {
   const link = meta.link;
@@ -487,7 +488,6 @@ async function linkTextForExtraction(
 
   const previous = link.providers.find((record) => record.provider === 'tiktok-page');
   if (previous?.status === 'ok') return fallback;
-  if (previous?.reason === 'disabled') return fallback;
 
   signal.throwIfAborted();
   let output: Awaited<ReturnType<typeof tiktokPageProvider.getDetails>>;
@@ -507,7 +507,27 @@ async function linkTextForExtraction(
 
   const merged = { ...details, ...link.details };
   const caption = link.captionText ?? details.caption ?? link.details?.caption;
-  return extractionContext(link, caption, merged);
+  const text = extractionContext(link, caption, merged);
+  const fetchedAt = new Date().toISOString();
+  const pageRecord: LinkProviderRecord = {
+    provider: 'tiktok-page',
+    status: 'ok',
+    details,
+    fetchedAt,
+  };
+  const providers = link.providers.some((record) => record.provider === 'tiktok-page')
+    ? link.providers.map((record) => (record.provider === 'tiktok-page' ? pageRecord : record))
+    : [...link.providers, pageRecord];
+  await cacheSourceProcessingWork(source.id, leaseId, {
+    deferredLinkRead: {
+      ocrText: text,
+      providers,
+      details: merged,
+      ...(merged.title ? { title: merged.title } : {}),
+      ...(merged.author ? { author: merged.author } : {}),
+    },
+  });
+  return text;
 }
 
 /**

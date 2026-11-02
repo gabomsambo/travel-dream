@@ -97,6 +97,12 @@ function sourceName(source: QueueSource | null): string | null {
   return source.originalName ?? source.uploadFilename ?? source.filename ?? null
 }
 
+/** Only screenshot sources hold image bytes; URL sources are page links. */
+function screenshotUri(source: { type: string; uri: string } | null | undefined): string | null {
+  if (!source || source.type !== 'screenshot') return null
+  return source.uri || null
+}
+
 function nameFromSourceMeta(meta: { uploadInfo?: { originalName?: string; filename?: string }; filename?: string } | null): string | null {
   if (!meta) return null
   return meta.uploadInfo?.originalName ?? meta.uploadInfo?.filename ?? meta.filename ?? null
@@ -207,6 +213,7 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
     if (uploadSessionId && !placeSources.some((source) => source.sessionId === uploadSessionId)) return []
     const source = rankingSource(placeSources, uploadSessionId)
     const name = sourceName(source)
+    const shotUri = screenshotUri(source)
     return [{
       placeId: row.id,
       name: row.name,
@@ -215,9 +222,9 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
       sourceCreatedAt: source?.createdAt ?? '',
       sourceId: source?.id ?? '',
       extractionIndex: source ? orderBySource.get(source.id)?.get(row.id) ?? null : null,
-      screenshotUrl: source?.uri ?? null,
-      screenshotName: name,
-      screenshotCreatedAt: source?.createdAt ?? null,
+      screenshotUrl: shotUri,
+      screenshotName: shotUri ? name : null,
+      screenshotCreatedAt: shotUri ? (source?.createdAt ?? null) : null,
       uploadLabel: name ?? 'your upload',
       kind: row.kind,
       city: row.city,
@@ -247,7 +254,8 @@ async function loadReviewEntries(userId: string, uploadSessionId?: string): Prom
  */
 async function loadScreenshot(userId: string, place: PlaceWithRelations): Promise<ReviewScreenshot | null> {
   const source = rankingSource(place.sources)
-  if (!source?.uri) return null
+  const url = screenshotUri(source)
+  if (!source || !url) return null
   const scoped = forUser(userId)
   const links = await scoped.selectFieldsVia(
     sourcesToPlaces,
@@ -284,11 +292,11 @@ async function loadScreenshot(userId: string, place: PlaceWithRelations): Promis
   siblings.sort((a, b) => compareExtractionOrder(a, b, extractionOrder))
   return {
     sourceId: source.id,
-    url: source.uri,
+    url,
     name: nameFromSourceMeta(source.meta),
     createdAt: source.createdAt,
     siblings,
-    softCover: isSharedScreenshotCover(place.attachments, source.uri, siblings.length),
+    softCover: isSharedScreenshotCover(place.attachments, url, siblings.length),
   }
 }
 

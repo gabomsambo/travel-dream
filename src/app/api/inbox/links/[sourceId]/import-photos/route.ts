@@ -11,6 +11,7 @@ import { tiktokPageProvider, isTikTokImageCdnUrl } from '@/lib/link-import/provi
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { extensionForMimeType } from '@/lib/image-upload';
 import {
+  deleteTikTokBlob,
   deleteTikTokPrivateBlob,
   isPrivateBlobUrl,
   putTikTokPrivateBlob,
@@ -271,9 +272,11 @@ export async function POST(
         image.mimeType,
       );
       if (!isAllowedBlobUrl(blob.url) || !isPrivateBlobUrl(blob.url)) {
-        if (isPrivateBlobUrl(blob.url)) {
-          await deleteTikTokPrivateBlob(blob.url).catch(() => undefined);
-        }
+        // A misconfigured store can answer with a public URL: remove the upload
+        // so the user's photos are not left behind in a bucket they cannot see.
+        await deleteTikTokBlob(blob.url).catch((cleanupError) => {
+          console.warn('[TikTok Photo Import] Failed to remove an image from a non-private store:', cleanupError);
+        });
         throw new Error('Private Blob destination was not allowed');
       }
       uploadedUrls.push(blob.url);

@@ -72,3 +72,17 @@ export async function deleteTikTokPrivateBlob(value: string): Promise<void> {
   if (!pathname || !options) throw new Error('TikTok private Blob storage is not configured');
   await del(value, options);
 }
+
+/**
+ * Removes a blob this app just uploaded, whatever access the store gave it.
+ * A misconfigured store can answer a private upload with a public URL, and
+ * that upload must not be left behind in a bucket the user never sees.
+ */
+export async function deleteTikTokBlob(value: string): Promise<void> {
+  const options = tikTokPrivateBlobOptions();
+  if (!options) {
+    await del(value);
+    return;
+  }
+  await del(value, options);
+}

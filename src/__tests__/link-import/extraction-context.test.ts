@@ -24,3 +24,27 @@ it('feeds captions and structured TikTok place tags to the existing text extract
     'Pasted caption:\nTry the custard tarts here #lisbon',
   ]) expect(context).toContain(line);
 });
+
+it('keeps the page caption and the pasted caption apart', () => {
+  const parsed = parseSocialLink('https://www.tiktok.com/@creator/video/7694185850497666335');
+  if (!parsed.supported) throw new Error('Invalid fixture link');
+
+  const context = extractionContext(parsed.link, 'best tarts', {
+    caption: 'The custard tarts at Manteigaria in Lisbon #lisbon',
+  });
+
+  expect(context).toContain('Post caption:\nThe custard tarts at Manteigaria in Lisbon #lisbon');
+  expect(context).toContain('Pasted caption:\nbest tarts');
+});
+
+it('does not repeat a caption that is both the page caption and the pasted one', () => {
+  const parsed = parseSocialLink('https://www.tiktok.com/@creator/video/7694185850497666335');
+  if (!parsed.supported) throw new Error('Invalid fixture link');
+
+  const context = extractionContext(parsed.link, 'The custard tarts at Manteigaria', {
+    caption: 'The custard tarts at Manteigaria',
+  });
+
+  expect(context).not.toContain('Post caption:');
+  expect(context.match(/The custard tarts at Manteigaria/g)).toHaveLength(1);
+});

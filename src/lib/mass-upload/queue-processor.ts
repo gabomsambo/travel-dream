@@ -22,7 +22,7 @@ import { extractionContext } from '@/lib/link-import/extraction-context';
 import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
 import { isAllowedBlobUrl } from '@/lib/blob-url';
 import {
-  deleteTikTokPrivateBlob,
+  deleteTikTokBlob,
   getTikTokPrivateBlob,
   isPrivateBlobUrl,
   putTikTokPrivateBlob,
@@ -505,8 +505,12 @@ async function linkTextForExtraction(
   }
   if (!details) return fallback;
 
-  const merged = { ...details, ...link.details };
-  const caption = link.captionText ?? details.caption ?? link.details?.caption;
+  const merged: LinkDetails = {
+    ...details,
+    ...link.details,
+    ...(details.caption ? { caption: details.caption } : {}),
+  };
+  const caption = link.captionText ?? link.details?.caption;
   const text = extractionContext(link, caption, merged);
   const fetchedAt = new Date().toISOString();
   const pageRecord: LinkProviderRecord = {
@@ -643,7 +647,7 @@ async function generateThumbnail(
           allowOverwrite: true,
         });
     if (!isAllowedBlobUrl(thumbBlob.url)) {
-      if (isPrivateBlobUrl(thumbBlob.url)) await deleteTikTokPrivateBlob(thumbBlob.url).catch(() => undefined);
+      await deleteTikTokBlob(thumbBlob.url).catch(() => undefined);
       return undefined;
     }
     return thumbBlob.url;

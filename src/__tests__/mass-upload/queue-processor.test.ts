@@ -340,6 +340,54 @@ describe('processQueue', () => {
     expect(mockExtractFromText).toHaveBeenCalled();
   });
 
+  it('feeds the deferred page caption to the extractor even when a caption was pasted at save time', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335',
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          captionText: 'best tarts',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'throttled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      details: {
+        caption: 'The custard tarts at Manteigaria in Lisbon #lisbon',
+        placeName: 'Manteigaria',
+        contentKind: 'video',
+      },
+    });
+
+    await processQueue({ workerId: 'w_tiktok_caption' });
+
+    expect(mockExtractFromText).toHaveBeenCalledWith(
+      expect.stringContaining('The custard tarts at Manteigaria in Lisbon #lisbon'),
+      'tiktok',
+    );
+    const deferredCall = mockCache.mock.calls.find(
+      (call) => call[2] && typeof call[2] === 'object' && 'deferredLinkRead' in call[2],
+    );
+    expect(deferredCall?.[2]).toMatchObject({
+      deferredLinkRead: {
+        details: expect.objectContaining({ caption: 'The custard tarts at Manteigaria in Lisbon #lisbon' }),
+      },
+    });
+  });
+
   it('treats a 5xx from blob storage as an interruption, not a bad screenshot', async () => {
     queueOf(createMockSource());
     (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 502, headers: { get: () => null } });

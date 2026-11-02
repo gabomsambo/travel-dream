@@ -8,6 +8,8 @@ export function extractionContext(
   caption: string | undefined,
   details: LinkDetails | undefined,
 ): string {
+  const pastedCaption = caption?.trim();
+  const postCaption = details?.caption?.trim();
   const lines = [
     `Social link: ${link.canonicalUrl}`,
     `Platform: ${link.platform}; content type: ${link.kind}`,
@@ -21,7 +23,8 @@ export function extractionContext(
     details?.author && details.author !== `@${link.handle}` ? `Creator: ${details.author}` : '',
     details?.title ? `Post title: ${details.title}` : '',
     details?.hashtags?.length ? `Hashtags: ${details.hashtags.map((tag) => `#${tag}`).join(' ')}` : '',
-    caption ? `Pasted caption:\n${caption}` : '',
+    postCaption && postCaption !== pastedCaption ? `Post caption:\n${postCaption}` : '',
+    pastedCaption ? `Pasted caption:\n${pastedCaption}` : '',
   ].filter(Boolean);
   return lines.join('\n').slice(0, MAX_EXTRACTION_CONTEXT);
 }

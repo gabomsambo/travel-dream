@@ -40,6 +40,8 @@ export function createTikTokOEmbedProvider(
     async getDetails(link: CanonicalSocialLink): Promise<LinkProviderResult> {
       const endpoint = new URL('https://www.tiktok.com/oembed');
       endpoint.searchParams.set('url', link.canonicalUrl);
+      // TikTok oEmbed is an official endpoint and stays outside the page
+      // reader's app-wide throttle on purpose.
       const response = await fetcher(endpoint, { signal: AbortSignal.timeout(4_000) });
       if (response.status === 400) return { empty: true };
       if (!response.ok) throw new Error(`TikTok oEmbed returned HTTP ${response.status}`);

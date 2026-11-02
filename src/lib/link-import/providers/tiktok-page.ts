@@ -15,6 +15,13 @@ const MAX_PAGE_BYTES = 2 * 1024 * 1024;
 const PAGE_TIMEOUT_MS = 8_000;
 const MAX_REDIRECTS = 3;
 const MAX_IMAGES = 20;
+const REHYDRATION_PAYLOAD = /<script[^>]*id=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i;
+/**
+ * Block walls are matched against the page's visible text, never against the
+ * post payload: a caption that happens to say "access denied" is content, and
+ * content must never open the app-wide breaker.
+ */
+const BLOCK_MARKER = /captcha|verify\s+to\s+continue|request\s+blocked|access\s+denied/i;
 const DEFAULT_TEST_POSTS = [
   'https://www.tiktok.com/@cherrypiego/video/7694185850497666335',
   'https://www.tiktok.com/@yourlisbongirl/video/7634085795908881686',
@@ -200,7 +207,7 @@ export function isTikTokImageCdnUrl(raw: string): boolean {
   }
 }
 
-function mapImages(item: TikTokItem): TikTokImageRef[] {
+function mapImages(item: TikTokItem, contentKind: 'photo' | 'video'): TikTokImageRef[] {
   const refs: TikTokImageRef[] = [];
   for (const image of item?.imagePost?.images ?? []) {
     const url = image.imageURL?.urlList?.find(isTikTokImageCdnUrl);
@@ -213,7 +220,10 @@ function mapImages(item: TikTokItem): TikTokImageRef[] {
     });
     if (refs.length >= MAX_IMAGES) break;
   }
-  if (refs.length === 0) {
+  if (refs.length === 0 && contentKind === 'video') {
+    // A video post has no carousel, so its cover is the post image. Photo posts
+    // never fall back to the cover: that would save a video thumbnail as if it
+    // were one of the carousel photos the user tapped.
     const cover = [item?.video?.cover, item?.video?.originCover, item?.video?.dynamicCover]
       .find((value): value is string => Boolean(value && isTikTokImageCdnUrl(value)));
     if (cover) refs.push({ url: cover, ...(parseExpiry(cover) ? { expiresAt: parseExpiry(cover) } : {}) });
@@ -221,7 +231,7 @@ function mapImages(item: TikTokItem): TikTokImageRef[] {
   return refs;
 }
 
-function mapItemDetails(item: TikTokItem, link: CanonicalSocialLink): LinkDetails {
+function mapPost(item: TikTokItem, link: CanonicalSocialLink): { details: LinkDetails; imageRefs: TikTokImageRef[] } {
   const caption = nonEmpty(item?.desc) ?? nonEmpty(item?.contents?.[0]?.desc);
   const hashtags = [...new Set([
     ...(item?.challenges ?? []).map((challenge) => nonEmpty(challenge.title)),
@@ -231,8 +241,8 @@ function mapItemDetails(item: TikTokItem, link: CanonicalSocialLink): LinkDetail
   const handle = nonEmpty(item?.author?.uniqueId) ?? link.handle;
   const title = nonEmpty(item?.imagePost?.title) ?? nonEmpty(caption?.split(/\r?\n/, 1)[0]);
   const postedAt = Number(item?.createTime);
-  const photo = Boolean(item?.imagePost);
-  return {
+  const contentKind: 'photo' | 'video' = item?.imagePost || link.kind === 'tiktok-photo' ? 'photo' : 'video';
+  const details: LinkDetails = {
     ...(caption ? { caption } : {}),
     ...(hashtags.length > 0 ? { hashtags } : {}),
     ...(nonEmpty(item?.author?.nickname) ? { author: nonEmpty(item?.author?.nickname) } : {}),
@@ -246,18 +256,26 @@ function mapItemDetails(item: TikTokItem, link: CanonicalSocialLink): LinkDetail
     ...(scalar(place?.id) ? { placeSourceId: scalar(place?.id) } : {}),
     ...(title ? { title } : {}),
     ...(Number.isFinite(postedAt) && postedAt > 0 ? { postedAt } : {}),
-    contentKind: photo || link.kind === 'tiktok-photo' ? 'photo' : 'video',
+    contentKind,
     sourceUrl: link.canonicalUrl,
   };
+  return { details, imageRefs: mapImages(item, contentKind) };
+}
+
+/** What the page shows a reader: no scripts, no styles, no meta tags, no title. */
+function visiblePageText(body: string): string {
+  return body
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<meta\b[^>]*>/gi, ' ')
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ');
 }
 
 function parseRehydration(body: string, link: CanonicalSocialLink):
   | { ok: true; details: LinkDetails; imageRefs: TikTokImageRef[] }
   | { ok: false; reason: 'blocked' | 'format_changed' | 'gone' | 'unavailable'; breaker: boolean } {
-  if (/captcha|verify\s+to\s+continue|request\s+blocked|access\s+denied/i.test(body)) {
-    return { ok: false, reason: 'blocked', breaker: true };
-  }
-  const match = /<script[^>]*id=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i.exec(body);
+  const match = REHYDRATION_PAYLOAD.exec(body);
   if (!match) return { ok: false, reason: 'blocked', breaker: true };
   let raw: unknown;
   try {
@@ -266,7 +284,11 @@ function parseRehydration(body: string, link: CanonicalSocialLink):
     return { ok: false, reason: 'blocked', breaker: true };
   }
   const parsed = TikTokRehydrationSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, reason: 'format_changed', breaker: false };
+  if (!parsed.success) {
+    return BLOCK_MARKER.test(visiblePageText(body))
+      ? { ok: false, reason: 'blocked', breaker: true }
+      : { ok: false, reason: 'format_changed', breaker: false };
+  }
   const videoDetail = parsed.data.__DEFAULT_SCOPE__?.['webapp.video-detail'];
   if (!videoDetail) return { ok: false, reason: 'blocked', breaker: true };
   const statusCode = Number(videoDetail.statusCode ?? 0);
@@ -274,7 +296,7 @@ function parseRehydration(body: string, link: CanonicalSocialLink):
   if (statusCode !== 0) return { ok: false, reason: 'unavailable', breaker: false };
   const item = videoDetail.itemInfo?.itemStruct;
   if (!item) return { ok: false, reason: 'format_changed', breaker: false };
-  return { ok: true, details: mapItemDetails(item, link), imageRefs: mapImages(item) };
+  return { ok: true, ...mapPost(item, link) };
 }
 
 export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsProvider {

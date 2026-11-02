@@ -23,7 +23,7 @@ jest.mock('@/lib/link-import/providers/tiktok-page', () => ({
 
 import { NextRequest } from 'next/server';
 import { requireAuthForApi } from '@/lib/auth-helpers';
-import { put, get } from '@vercel/blob';
+import { put, get, del } from '@vercel/blob';
 import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
 import { POST as importPhotos } from '@/app/api/inbox/links/[sourceId]/import-photos/route';
 import { GET as privatePhoto } from '@/app/api/photos/private/route';
@@ -203,6 +203,10 @@ describe('TikTok private photo routes', () => {
       params: Promise.resolve({ sourceId: 'src_alice_link' }),
     });
     expect(response.status).toBe(502);
+    expect(del).toHaveBeenCalledWith(
+      'https://travel-dream.public.blob.vercel-storage.com/exposed.jpg',
+      expect.anything(),
+    );
     const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<{ rows: Record<string, unknown>[] }> } };
     const sources = await client.execute({ sql: `SELECT id FROM sources WHERE type = 'screenshot' AND user_id = ?`, args: [ALICE.id] });
     expect(sources.rows).toHaveLength(1); // the fixture's own screenshot only

@@ -266,4 +266,54 @@ describe('TikTok page provider', () => {
     expect(TIKTOK_DIAGNOSTIC_POSTS.length).toBeLessThanOrEqual(10);
     expect(TIKTOK_DIAGNOSTIC_POSTS.every((post) => post.startsWith('https://www.tiktok.com/@'))).toBe(true);
   });
+
+  it('reads a post whose caption mentions a block instead of opening the breaker', async () => {
+    const body = html('video-post.html').replace(
+      'A quiet cafe in Lisbon #travel',
+      'Access denied: the custard tarts are gone',
+    );
+    const fetcher = jest.fn(async () => response(body));
+    const { provider, guardrails } = setup(fetcher);
+
+    const result = await provider.getDetails(link(), { userId: 'alice' });
+
+    expect(result).toMatchObject({ details: { caption: 'Access denied: the custard tarts are gone' } });
+    expect(guardrails.openBreaker).not.toHaveBeenCalled();
+    expect(guardrails.setCache).toHaveBeenCalledWith(
+      '7694185850497666335',
+      { details: expect.objectContaining({ caption: 'Access denied: the custard tarts are gone' }) },
+      TIKTOK_CACHE_TTLS.positive,
+    );
+  });
+
+  it('never offers a video cover as a photo carousel image', async () => {
+    const photoLink = link('https://www.tiktok.com/@yourlisbongirl/photo/7634085795908881686');
+    const fetcher = jest.fn(async () => response(html('photo-without-carousel.html')));
+    const { provider } = setup(fetcher);
+
+    const result = await provider.getDetails(photoLink, { userId: 'alice' });
+
+    expect(result).toMatchObject({ details: { contentKind: 'photo' } });
+    expect((result as LinkProviderResult).transient?.imageRefs).toEqual([]);
+  });
+
+  it('opens the breaker for a captcha wall that shows an unusable payload', async () => {
+    const body = '<html><body><h1>Verify to continue</h1>'
+      + '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{"__DEFAULT_SCOPE__":"broken"}</script>'
+      + '</body></html>';
+    const { provider, guardrails } = setup(jest.fn(async () => response(body)));
+
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'blocked' });
+    expect(guardrails.openBreaker).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an unusable payload without a wall as a format change', async () => {
+    const body = '<html><body><h1>A quiet cafe in Lisbon</h1>'
+      + '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{"__DEFAULT_SCOPE__":"broken"}</script>'
+      + '</body></html>';
+    const { provider, guardrails } = setup(jest.fn(async () => response(body)));
+
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'format_changed' });
+    expect(guardrails.openBreaker).not.toHaveBeenCalled();
+  });
 });

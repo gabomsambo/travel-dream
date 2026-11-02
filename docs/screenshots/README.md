@@ -1,6 +1,20 @@
 # Screenshots
 
-Live captures at **1440×900** from headless Chrome (CDP `:9222`) against the app on **`:3001`** (`AUTH_URL=http://localhost:3001`). Theme proof is `data-theme` on `<html>` plus the Upload button’s computed colour — classic Upload is blue, tropical is teal.
+Desktop ship captures below are **1440×900** from headless Chrome (CDP `:9222`) against the app on **`:3001`** (`AUTH_URL=http://localhost:3001`). Theme proof is `data-theme` on `<html>` plus the Upload button’s computed colour — classic Upload is blue, tropical is teal. Phone-width sets name the CSS viewport in the filename and in their section.
+
+## Mobile polish — phone-width layout
+
+Phone CSS viewports **360×800** and **390×844** under [`td-mobile-polish/`](td-mobile-polish/). Covers the itinerary name/stat wrap, header search icon (opens the command palette under 480px), map filter chip touch targets, export radio row tap targets, and the Inbox upload-sheet TikTok WebP download hint.
+
+| File stem | What it shows |
+|-----------|---------------|
+| `{viewport}-itinerary.png` | Collection itinerary: place names wrap; stat labels stay readable |
+| `{viewport}-header.png` | Signed-in header: search is an icon (not a squeezed “Search p…” field) |
+| `{viewport}-map-chips.png` | Map filter chips at a ~44px touch height on small screens |
+| `{viewport}-export-row-tap.png` | Export scope radios: the whole row is the tap target |
+| `{viewport}-inbox-webp-hint.png` | Upload sheet hint: TikTok long-press → Download → Select all |
+
+**Unit-tested, not screenshoted:** WebP register acceptance and sheet hint + WebP upload (`src/__tests__/mass-upload/`); itinerary wrap, header search icon, export row tap, and map chip height (`itinerary-place-name-wrap`, `header-mobile-search`, `scope-selector-mobile`, `map-filter-chips-touch`).
 
 ## Activity bell — ship 2
 

@@ -34,6 +34,7 @@ export function ScopeSelector({
   filterOptions,
 }: ScopeSelectorProps) {
   const handleTypeChange = (value: string) => {
+    if (value === scope.type) return
     if (value === "collection") {
       const firstCollectionId = collections[0]?.id || "__placeholder__"
       onScopeChange({
@@ -50,12 +51,6 @@ export function ScopeSelector({
   const handleCollectionChange = (collectionId: string) => {
     onScopeChange({ type: "collection", collectionId })
   }
-
-  const handleRowClick = (type: "collection" | "library" | "selected") =>
-    (event: React.MouseEvent<HTMLLabelElement>) => {
-      if ((event.target as HTMLElement).closest('[role="radio"]')) return
-      handleTypeChange(type)
-    }
 
   const handleFilterChange = (key: "city" | "country" | "kind", value: string) => {
     onScopeChange({
@@ -79,7 +74,6 @@ export function ScopeSelector({
         <RadioGroup value={scope.type} onValueChange={handleTypeChange}>
           <Label
             htmlFor="scope-collection"
-            onClick={handleRowClick("collection")}
             className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-2 font-normal hover:bg-accent/50"
           >
             <RadioGroupItem value="collection" id="scope-collection" />
@@ -87,7 +81,6 @@ export function ScopeSelector({
           </Label>
           <Label
             htmlFor="scope-library"
-            onClick={handleRowClick("library")}
             className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-2 font-normal hover:bg-accent/50"
           >
             <RadioGroupItem value="library" id="scope-library" />
@@ -95,7 +88,6 @@ export function ScopeSelector({
           </Label>
           <Label
             htmlFor="scope-selected"
-            onClick={handleRowClick("selected")}
             className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-2 font-normal hover:bg-accent/50"
           >
             <RadioGroupItem value="selected" id="scope-selected" />

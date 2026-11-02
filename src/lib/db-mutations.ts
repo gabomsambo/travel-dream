@@ -1999,7 +1999,7 @@ export async function createPlacesFromPipeline(
 ): Promise<CreatePlacesFromPipelineResult> {
   return withErrorHandling(async () => {
     return await withTransaction(async (tx) => {
-      // Get source to verify ownership and get screenshot URL
+      // Ownership check; only screenshot URIs are image bytes (url sources are page links).
       const [source] = await tx.select()
         .from(sourcesCurrentSchema)
         .where(and(eq(sourcesCurrentSchema.id, sourceId), eq(sourcesCurrentSchema.userId, userId)))

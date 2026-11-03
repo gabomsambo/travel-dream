@@ -25,6 +25,7 @@ import { isAllowedBlobUrl } from '@/lib/blob-url';
 import {
   deleteTikTokBlob,
   getTikTokPrivateBlob,
+  isAllowedPrivateBlobUrl,
   isPrivateBlobUrl,
   putTikTokPrivateBlob,
 } from '@/lib/tiktok-private-blob';
@@ -522,7 +523,13 @@ async function linkTextForExtraction(
   if (reason === 'throttled') {
     throw new ProcessingDeferred(`TikTok page read deferred: ${reason}`);
   }
-  if (reason === 'blocked') {
+  // A read the reader could not complete right now (breaker open, a cached
+  // negative or exhausted retry, or the guardrails unavailable) is not a
+  // verdict about the link and not a clock-out either: the text already saved
+  // with the link is enough to extract from, so the item completes through
+  // that fallback and spends no interruption budget. The provider record keeps
+  // the reason so the Inbox can say "Couldn't read TikTok right now".
+  if (reason === 'blocked' || reason === 'transient' || reason === 'safety_unavailable') {
     const pageRecord: LinkProviderRecord = {
       provider: 'tiktok-page',
       status: 'empty',
@@ -542,9 +549,6 @@ async function linkTextForExtraction(
       },
     });
     return fallback;
-  }
-  if (reason === 'transient' || reason === 'safety_unavailable') {
-    throw new ProcessingInterrupted(`TikTok page read deferred: ${reason}`, 'upstream');
   }
   if (!details) return fallback;
 
@@ -627,7 +631,9 @@ async function downloadScreenshot(uri: string, signal: AbortSignal): Promise<Buf
   let res: Response;
   const fetchSignal = AbortSignal.any([signal, AbortSignal.timeout(QUEUE_CONFIG.blobFetchTimeoutMs)]);
   if (isPrivateBlobUrl(uri)) {
-    if (!isAllowedBlobUrl(uri)) throw new Error('Private screenshot URL is not allowed');
+    // TikTok photo imports are the only private-store sources; the public
+    // allow-list never admits their host.
+    if (!isAllowedPrivateBlobUrl(uri)) throw new Error('Private screenshot URL is not allowed');
     let blob: Awaited<ReturnType<typeof getTikTokPrivateBlob>>;
     try {
       blob = await getTikTokPrivateBlob(uri, null, fetchSignal);
@@ -682,14 +688,19 @@ async function generateThumbnail(
       .jpeg({ quality: 80 })
       .toBuffer();
     const thumbKey = `thumbnails/${source.userId}/${source.id}_thumb.jpg`;
-    const thumbBlob = source.meta?.tiktokPhotoImport
+    const privateImport = Boolean(source.meta?.tiktokPhotoImport);
+    const thumbBlob = privateImport
       ? await putTikTokPrivateBlob(thumbKey, thumbnailBuffer, 'image/jpeg')
       : await put(thumbKey, thumbnailBuffer, {
           access: 'public',
           contentType: 'image/jpeg',
           allowOverwrite: true,
         });
-    if (!isAllowedBlobUrl(thumbBlob.url)) {
+    // A private import's thumbnail must land in the private store, and a public
+    // screenshot's in the public one; a store answering with the other kind of
+    // URL is misconfigured, and the upload is removed rather than referenced.
+    const allowed = privateImport ? isAllowedPrivateBlobUrl(thumbBlob.url) : isAllowedBlobUrl(thumbBlob.url);
+    if (!allowed) {
       await deleteTikTokBlob(thumbBlob.url).catch(() => undefined);
       return undefined;
     }

@@ -264,7 +264,10 @@ function mapPost(item: TikTokItem, link: CanonicalSocialLink): { details: LinkDe
   const place = item?.poi;
   const handle = nonEmpty(item?.author?.uniqueId) ?? link.handle;
   const title = nonEmpty(item?.imagePost?.title) ?? nonEmpty(caption?.split(/\r?\n/, 1)[0]);
-  const postedAt = Number(item?.createTime);
+  // TikTok reports `createTime` in epoch seconds; details carry epoch
+  // milliseconds so `postedAt` and an image ref's `expiresAt` share a unit.
+  const createTime = Number(item?.createTime);
+  const postedAt = Number.isFinite(createTime) && createTime > 0 ? createTime * 1000 : undefined;
   const contentKind: 'photo' | 'video' = item?.imagePost || link.kind === 'tiktok-photo' ? 'photo' : 'video';
   const details: LinkDetails = {
     ...(caption ? { caption } : {}),
@@ -279,7 +282,7 @@ function mapPost(item: TikTokItem, link: CanonicalSocialLink): { details: LinkDe
     ...(nonEmpty(place?.city) ? { placeCity: nonEmpty(place?.city) } : {}),
     ...(scalar(place?.id) ? { placeSourceId: scalar(place?.id) } : {}),
     ...(title ? { title } : {}),
-    ...(Number.isFinite(postedAt) && postedAt > 0 ? { postedAt } : {}),
+    ...(postedAt ? { postedAt } : {}),
     contentKind,
     sourceUrl: link.canonicalUrl,
   };

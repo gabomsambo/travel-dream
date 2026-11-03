@@ -36,6 +36,7 @@ export interface LinkDetails {
   placeSourceId?: string;
   title?: string;
   thumbnailReference?: string;
+  /** Epoch milliseconds, the same unit as `TikTokImageRef.expiresAt`. */
   postedAt?: number;
   contentKind?: 'photo' | 'video';
   sourceUrl?: string;
@@ -56,6 +57,7 @@ export interface TikTokImageRef {
   url: string;
   width?: number;
   height?: number;
+  /** Epoch milliseconds, the same unit as `LinkDetails.postedAt`. */
   expiresAt?: number;
 }
 

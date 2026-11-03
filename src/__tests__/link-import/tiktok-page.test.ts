@@ -103,6 +103,9 @@ describe('TikTok page provider', () => {
         placeCategory: 'Cafe',
         placeCity: 'Lisbon',
         placeSourceId: 'poi-711',
+        // `createTime` is 1790000000 seconds on the page; details carry epoch
+        // milliseconds so postedAt and expiresAt share a unit.
+        postedAt: 1_790_000_000_000,
         contentKind: 'video',
       },
       transient: { imageRefs: [{ expiresAt: 1_900_000_000_000 }] },

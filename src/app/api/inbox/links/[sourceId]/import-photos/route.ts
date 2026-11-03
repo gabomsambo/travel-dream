@@ -5,7 +5,6 @@ import { eq } from 'drizzle-orm';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { forUser } from '@/lib/tenant-db';
-import { isAllowedBlobUrl } from '@/lib/blob-url';
 import { parseSocialLink } from '@/lib/link-import/url';
 import { tiktokPageProvider, isTikTokImageCdnUrl } from '@/lib/link-import/providers/tiktok-page';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
@@ -13,7 +12,7 @@ import { extensionForMimeType } from '@/lib/image-upload';
 import {
   deleteTikTokBlob,
   deleteTikTokPrivateBlob,
-  isPrivateBlobUrl,
+  isAllowedPrivateBlobUrl,
   putTikTokPrivateBlob,
   tikTokPrivateBlobOptions,
 } from '@/lib/tiktok-private-blob';
@@ -271,9 +270,11 @@ export async function POST(
         image.bytes,
         image.mimeType,
       );
-      if (!isAllowedBlobUrl(blob.url) || !isPrivateBlobUrl(blob.url)) {
+      if (!isAllowedPrivateBlobUrl(blob.url)) {
         // A misconfigured store can answer with a public URL: remove the upload
         // so the user's photos are not left behind in a bucket they cannot see.
+        // This is one of the two places private-store URLs are accepted; the
+        // public allow-list in `src/lib/blob-url.ts` never admits them.
         await deleteTikTokBlob(blob.url).catch((cleanupError) => {
           console.warn('[TikTok Photo Import] Failed to remove an image from a non-private store:', cleanupError);
         });

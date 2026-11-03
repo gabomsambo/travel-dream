@@ -287,6 +287,65 @@ describe('processQueue', () => {
     expect(result.failed).toBe(0);
   });
 
+  // 'transient' is also what a cached negative answers with; 'safety_unavailable'
+  // is the guardrails (Upstash) being unreachable.
+  it.each(['transient', 'safety_unavailable'] as const)(
+    'completes %s TikTok reads through the saved-link fallback without spending an interruption',
+    async (reason) => {
+    const fallback = 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335';
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: fallback,
+      processingInterruptions: 2,
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'disabled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason });
+
+    const result = await processQueue({ workerId: `w_tiktok_${reason}` });
+
+    expect(mockExtractFromText).toHaveBeenCalledWith(fallback, 'tiktok');
+    expect(mockCache).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.objectContaining({
+        deferredLinkRead: expect.objectContaining({
+          ocrText: fallback,
+          providers: [expect.objectContaining({
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason,
+          })],
+        }),
+      }),
+    );
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(mockInterruption).not.toHaveBeenCalled();
+    expect(mockDeferral).not.toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(result.completed).toBe(1);
+    expect(result.interrupted).toBe(0);
+    expect(result.deferred).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(source.processingInterruptions).toBe(2);
+  });
+
   it('retries a deferred TikTok page read after a save-time disabled result', async () => {
     const source = createMockSource({
       type: 'url',

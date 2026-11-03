@@ -24,7 +24,7 @@ it('shows a TikTok label and explains that adding a caption or photos can help',
   render(<InboxScreen model={model} linkItems={[noContextLink]} />);
 
   expect(screen.getByText('TikTok · shared link')).toBeInTheDocument();
-  expect(screen.getByText('Add the caption or photos to help find places.')).toBeInTheDocument();
+  expect(screen.getByText('Paste the caption or add photos from your gallery to help find places.')).toBeInTheDocument();
   expect(screen.getByText('This short link could not be expanded, but it is saved.')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Open link' })).toHaveAttribute('href', noContextLink.url);
   expect(screen.getByRole('button', { name: 'Save a link' })).toBeInTheDocument();

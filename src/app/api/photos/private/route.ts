@@ -4,8 +4,7 @@ import { attachments, collections } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { forUser } from '@/lib/tenant-db';
-import { isAllowedBlobUrl } from '@/lib/blob-url';
-import { getTikTokPrivateBlob, isPrivateBlobUrl, tikTokPrivateBlobOptions } from '@/lib/tiktok-private-blob';
+import { getTikTokPrivateBlob, isAllowedPrivateBlobUrl, tikTokPrivateBlobOptions } from '@/lib/tiktok-private-blob';
 
 export const runtime = 'nodejs';
 
@@ -14,7 +13,9 @@ export async function GET(request: NextRequest) {
   try {
     const user = await requireAuthForApi();
     const blobUrl = request.nextUrl.searchParams.get('url')?.trim();
-    if (!blobUrl || blobUrl.length > 2048 || !isAllowedBlobUrl(blobUrl) || !isPrivateBlobUrl(blobUrl)) {
+    // Private-store URLs are accepted here and in the TikTok photo import only;
+    // the public allow-list in `src/lib/blob-url.ts` never admits them.
+    if (!blobUrl || blobUrl.length > 2048 || !isAllowedPrivateBlobUrl(blobUrl)) {
       return NextResponse.json({ error: 'Invalid private Blob URL' }, { status: 400 });
     }
 

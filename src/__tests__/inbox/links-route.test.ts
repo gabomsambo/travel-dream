@@ -34,6 +34,7 @@ import { requireAuthForApi } from '@/lib/auth-helpers';
 import { enrichLinkDetails } from '@/lib/link-import/details';
 import { resolveTikTokShortLink } from '@/lib/link-import/resolve-short-link';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
+import { getInboxLinkItems } from '@/lib/inbox-link-items';
 import { parseSocialLink } from '@/lib/link-import/url';
 
 const CANONICAL_VIDEO = 'https://www.tiktok.com/@creator/video/7694185850497666335';
@@ -68,6 +69,12 @@ async function jsonMeta(sourceId: string) {
       captionText?: string;
       kind: string;
       resolution: { status: string };
+      tiktokPhotoImport?: {
+        status: string;
+        requestedAt?: string;
+        sourceIds?: string[];
+        count?: number;
+      };
     };
     massUpload?: { extraction?: unknown };
   };
@@ -162,6 +169,53 @@ describe('POST /api/inbox/links', () => {
     expect(meta.link.captionText).toBe('Try Manteigaria in Lisbon');
     expect(meta.massUpload?.extraction).toBeUndefined();
     expect(dispatchProcessors).toHaveBeenCalled();
+  });
+
+  it('keeps the TikTok photo import state when the same link is saved again', async () => {
+    const first = await (await save(CANONICAL_VIDEO)).json() as { sourceId: string };
+    await databaseExec(
+      `UPDATE sources SET processing_status = ?, meta = ? WHERE id = ?`,
+      [
+        'completed',
+        JSON.stringify({
+          platform: 'tiktok',
+          link: {
+            originalUrl: CANONICAL_VIDEO,
+            canonicalUrl: CANONICAL_VIDEO,
+            platform: 'tiktok',
+            kind: 'tiktok-video',
+            postId: '7694185850497666335',
+            needsResolution: false,
+            resolution: { status: 'not-needed' },
+            providers: [],
+            tiktokPhotoImport: {
+              status: 'imported',
+              requestedAt: '2026-01-01T00:00:00.000Z',
+              sourceIds: ['src_imported_one', 'src_imported_two'],
+              count: 2,
+            },
+          },
+        }),
+        first.sourceId,
+      ],
+    );
+
+    const secondResponse = await save(CANONICAL_VIDEO, 'Try Manteigaria in Lisbon');
+    expect(secondResponse.status).toBe(200);
+
+    const meta = await jsonMeta(first.sourceId);
+    expect(meta.link.tiktokPhotoImport).toEqual({
+      status: 'imported',
+      requestedAt: '2026-01-01T00:00:00.000Z',
+      sourceIds: ['src_imported_one', 'src_imported_two'],
+      count: 2,
+    });
+
+    const items = await getInboxLinkItems(ALICE.id);
+    expect(items.find((item) => item.id === first.sourceId)).toMatchObject({
+      photoImportStatus: 'imported',
+      photoImportCount: 2,
+    });
   });
 
   it('requeues a failed duplicate on repaste even without a new caption', async () => {

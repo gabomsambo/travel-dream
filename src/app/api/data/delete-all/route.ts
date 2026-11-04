@@ -20,6 +20,7 @@ import {
   attachments
 } from '@/db/schema'
 import { del } from '@vercel/blob'
+import { isAllowedBlobUrl } from '@/lib/blob-url'
 import { deleteTikTokPrivateBlob, isPrivateBlobUrl } from '@/lib/tiktok-private-blob'
 
 export const dynamic = 'force-dynamic'
@@ -80,17 +81,23 @@ export async function DELETE() {
       await tx.delete(collections).where(eq(collections.userId, user.id))
     })
 
-    // Clean up blobs AFTER transaction commits (best-effort)
-    if (blobUrls.length > 0) {
-      try {
-        const uniqueUrls = [...new Set(blobUrls)]
-        const publicUrls = uniqueUrls.filter((url) => !isPrivateBlobUrl(url))
-        const privateUrls = uniqueUrls.filter(isPrivateBlobUrl)
-        if (publicUrls.length > 0) await del(publicUrls)
-        await Promise.all(privateUrls.map((url) => deleteTikTokPrivateBlob(url)))
-      } catch (e) {
-        console.warn(`[delete-all] Failed to delete ${blobUrls.length} blobs:`, e)
-      }
+    // Clean up blobs AFTER transaction commits (best-effort, one URL at a time)
+    const uniqueUrls = [...new Set(blobUrls)]
+    const publicUrls = uniqueUrls.filter((url) => isAllowedBlobUrl(url))
+    const privateUrls = uniqueUrls.filter((url) => isPrivateBlobUrl(url))
+    const outcomes = await Promise.allSettled([
+      ...publicUrls.map((url) => del(url)),
+      ...privateUrls.map((url) => deleteTikTokPrivateBlob(url)),
+    ])
+    const failures: unknown[] = []
+    for (const outcome of outcomes) {
+      if (outcome.status === 'rejected') failures.push(outcome.reason)
+    }
+    if (failures.length > 0) {
+      console.warn(
+        `[delete-all] Failed to delete ${failures.length} of ${publicUrls.length + privateUrls.length} blobs`,
+        failures[0]
+      )
     }
 
     return NextResponse.json({

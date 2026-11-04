@@ -218,6 +218,7 @@ function buildLinkMeta(
     ...(captionText ? { captionText } : {}),
     ...(Object.keys(mergedDetails).length > 0 ? { details: mergedDetails } : {}),
     providers: mergeProviderHistory(prior?.providers, providers),
+    ...(prior?.tiktokPhotoImport ? { tiktokPhotoImport: prior.tiktokPhotoImport } : {}),
   };
 }
 

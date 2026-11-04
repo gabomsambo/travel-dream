@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { enrichLinkDetails, mergeLinkDetails, type LinkDetailsProvider } from '@/lib/link-import/details';
+import { enrichLinkDetails, isLinkDetails, isLinkProviderResult, mergeLinkDetails, type LinkDetailsProvider } from '@/lib/link-import/details';
 import { createTikTokOEmbedProvider } from '@/lib/link-import/providers/tiktok-oembed';
 import { parseSocialLink } from '@/lib/link-import/url';
 
@@ -67,5 +67,28 @@ describe('link detail providers', () => {
     ]);
     expect(result.details).toEqual({});
     expect(result.providers).toMatchObject([{ provider: 'offline', status: 'error', error: 'provider-unavailable' }]);
+  });
+});
+
+describe('provider result guards', () => {
+  it.each([
+    ['details', { details: { caption: 'Lisbon' } }],
+    ['a cached response', { cachedResponse: { type: 'video' } }],
+    ['empty', { empty: true }],
+    ['a reason', { reason: 'gone' }],
+    ['a transient payload', { transient: { imageRefs: [] } }],
+  ])('reads a result carrying %s as a result, not as details', (_label, value) => {
+    expect(isLinkProviderResult(value)).toBe(true);
+    expect(isLinkDetails(value)).toBe(false);
+  });
+
+  it('reads bare details as details', () => {
+    expect(isLinkDetails({ caption: 'Lisbon', author: '@creator' })).toBe(true);
+    expect(isLinkProviderResult({ caption: 'Lisbon', author: '@creator' })).toBe(false);
+  });
+
+  it('reads nothing as neither shape', () => {
+    expect(isLinkProviderResult(undefined)).toBe(false);
+    expect(isLinkDetails(undefined)).toBe(false);
   });
 });

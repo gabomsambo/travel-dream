@@ -6,6 +6,7 @@ import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { forUser } from '@/lib/tenant-db';
 import { parseSocialLink } from '@/lib/link-import/url';
+import { isLinkDetails, isLinkProviderResult } from '@/lib/link-import/details';
 import { tiktokPageProvider, isTikTokImageCdnUrl } from '@/lib/link-import/providers/tiktok-page';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { extensionForMimeType } from '@/lib/image-upload';
@@ -16,7 +17,7 @@ import {
   putTikTokPrivateBlob,
   tikTokPrivateBlobOptions,
 } from '@/lib/tiktok-private-blob';
-import type { LinkDetails, LinkProviderResult, LinkSourceMeta, TikTokImageRef } from '@/types/link-import';
+import type { LinkSourceMeta, TikTokImageRef } from '@/types/link-import';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -41,16 +42,6 @@ type Claim =
   | { status: 'claimed'; source: typeof sourcesCurrentSchema.$inferSelect }
   | { status: 'missing' | 'not-photo' | 'busy' }
   | { status: 'imported'; sourceIds: string[]; count: number };
-
-function isProviderResult(value: unknown): value is LinkProviderResult {
-  return !!value && typeof value === 'object' &&
-    ('details' in value || 'reason' in value || 'transient' in value || 'empty' in value);
-}
-
-function isLinkDetails(value: unknown): value is LinkDetails {
-  return !!value && typeof value === 'object' &&
-    !('details' in value) && !('reason' in value) && !('transient' in value) && !('empty' in value);
-}
 
 function safeCdnUrl(value: string): URL | null {
   if (!isTikTokImageCdnUrl(value)) return null;
@@ -234,7 +225,7 @@ export async function POST(
       throw new Error('Saved TikTok photo link is invalid');
     }
     const output = await tiktokPageProvider.getDetails(parsed.link, { userId: user.id, forceRefresh: true });
-    const providerResult = isProviderResult(output) ? output : undefined;
+    const providerResult = isLinkProviderResult(output) ? output : undefined;
     const details = isLinkDetails(output) ? output : providerResult?.details;
     const refs = providerResult?.transient?.imageRefs ?? [];
     if (!details || providerResult?.reason) {

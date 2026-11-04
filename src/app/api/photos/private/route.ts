@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq, or, sql } from 'drizzle-orm';
-import { attachments, collections } from '@/db/schema';
+import { attachments } from '@/db/schema';
 import { sourcesCurrentSchema } from '@/db/schema/sources-current';
 import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { forUser } from '@/lib/tenant-db';
@@ -8,7 +8,15 @@ import { getTikTokPrivateBlob, isAllowedPrivateBlobUrl, tikTokPrivateBlobOptions
 
 export const runtime = 'nodejs';
 
-/** Stream a private TikTok import only when the current user owns a reference to it. */
+/**
+ * Stream a private TikTok import only when the current user owns a row that
+ * stores the blob URL.
+ *
+ * A collection cover is a caller-named string (`coverImageUrl` is not validated
+ * on write), so it is not an ownership record: a cover that points at a private
+ * photo is served because the source or attachment holding that photo belongs
+ * to the caller, never because the cover names it.
+ */
 export async function GET(request: NextRequest) {
   try {
     const user = await requireAuthForApi();
@@ -35,12 +43,8 @@ export async function GET(request: NextRequest) {
       attachments,
       or(eq(attachments.uri, blobUrl), eq(attachments.thumbnailUri, blobUrl)),
     ).limit(1);
-    const [collection] = await tdb.select(
-      collections,
-      eq(collections.coverImageUrl, blobUrl),
-    ).limit(1);
 
-    if (!source && !attachment && !collection) {
+    if (!source && !attachment) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     if (!tikTokPrivateBlobOptions()) {

@@ -13,12 +13,13 @@ jest.mock('@vercel/blob', () => ({
   del: jest.fn(),
 }));
 
-import { del, get } from '@vercel/blob';
+import { del, get, put } from '@vercel/blob';
 import {
   deleteTikTokPrivateBlob,
   getTikTokPrivateBlob,
   isAllowedPrivateBlobUrl,
   privateBlobPathname,
+  putTikTokPrivateBlob,
   tikTokPrivateBlobOptions,
 } from '@/lib/tiktok-private-blob';
 
@@ -145,5 +146,43 @@ describe('deleteTikTokPrivateBlob', () => {
     process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
     await expect(deleteTikTokPrivateBlob(`${STORE}/tiktok-imports/%2e%2e/other/1.jpg`)).rejects.toThrow();
     expect(del).not.toHaveBeenCalled();
+  });
+});
+
+describe('putTikTokPrivateBlob', () => {
+  beforeEach(() => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    (put as jest.Mock).mockResolvedValue({ url: `${STORE}/tiktok-imports/u/1.jpg` });
+  });
+
+  it('gives every import its own object', async () => {
+    await putTikTokPrivateBlob('tiktok-imports/u/1.jpg', Buffer.from('bytes'), 'image/jpeg');
+
+    expect(put).toHaveBeenCalledWith('tiktok-imports/u/1.jpg', expect.any(Buffer), {
+      access: 'private',
+      token: 'vercel_blob_rw_private_token',
+      contentType: 'image/jpeg',
+      addRandomSuffix: true,
+    });
+  });
+
+  it('replaces the object on the same key when asked to overwrite', async () => {
+    await putTikTokPrivateBlob('thumbnails/u/1_thumb.jpg', Buffer.from('bytes'), 'image/jpeg', {
+      overwrite: true,
+    });
+
+    expect(put).toHaveBeenCalledWith('thumbnails/u/1_thumb.jpg', expect.any(Buffer), {
+      access: 'private',
+      token: 'vercel_blob_rw_private_token',
+      contentType: 'image/jpeg',
+      addRandomSuffix: false,
+      allowOverwrite: true,
+    });
+  });
+
+  it('writes nothing when the store is not configured', async () => {
+    delete process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
+    await expect(putTikTokPrivateBlob('tiktok-imports/u/1.jpg', Buffer.from('bytes'), 'image/jpeg')).rejects.toThrow();
+    expect(put).not.toHaveBeenCalled();
   });
 });

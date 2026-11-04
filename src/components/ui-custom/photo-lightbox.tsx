@@ -7,6 +7,7 @@ import "yet-another-react-lightbox/plugins/captions.css"
 import type { Attachment } from "@/types/database"
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
+import { privateBlobDisplayUrl } from "@/lib/photo-url"
 
 interface PhotoLightboxProps {
   photos: Attachment[]
@@ -38,7 +39,7 @@ export function PhotoLightbox({ photos, open, index, onClose }: PhotoLightboxPro
         : undefined
 
     return {
-      src: photo.uri,
+      src: privateBlobDisplayUrl(photo.uri),
       title: photo.caption || photo.filename,
       description,
     }

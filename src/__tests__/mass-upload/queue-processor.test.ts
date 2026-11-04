@@ -58,7 +58,7 @@ import { processQueue } from '@/lib/mass-upload/queue-processor';
 import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
 import { QUEUE_CONFIG } from '@/lib/mass-upload/queue-config';
 import { GooglePlacesUnavailableError } from '@/lib/mass-upload/google-places-enrichment';
-import { getTikTokPrivateBlob } from '@/lib/tiktok-private-blob';
+import { getTikTokPrivateBlob, putTikTokPrivateBlob } from '@/lib/tiktok-private-blob';
 import {
   claimNextQueuedSource,
   markSourceEnriching,
@@ -74,6 +74,45 @@ import { getQueueDepth } from '@/lib/db-queries';
 import { createMockSource, createMockExtractionResult, createMockPipelinePlace } from '../helpers/mass-upload-helpers';
 
 const mockGetPrivateBlob = getTikTokPrivateBlob as jest.Mock;
+const mockPutPrivateBlob = putTikTokPrivateBlob as jest.Mock;
+
+/**
+ * The private download path builds a real `Response` around the blob stream;
+ * the `Response` in this repo's test setup cannot read one, so the private
+ * tests swap in one that can.
+ */
+class StreamResponse {
+  status: number;
+  ok: boolean;
+  headers: { get: (name: string) => string | null };
+
+  constructor(
+    private readonly body: ReadableStream<Uint8Array>,
+    init: { status: number; headers: Record<string, string> },
+  ) {
+    this.status = init.status;
+    this.ok = init.status >= 200 && init.status < 300;
+    this.headers = { get: (name) => init.headers[name.toLowerCase()] ?? null };
+  }
+
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    const reader = this.body.getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+    const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes.buffer;
+  }
+}
 
 const mockClaim = claimNextQueuedSource as jest.Mock;
 const mockEnriching = markSourceEnriching as jest.Mock;
@@ -564,6 +603,83 @@ describe('processQueue', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('writes a private import thumbnail to one fixed key, so a regeneration cannot orphan it', async () => {
+    const originalResponse = (global as unknown as { Response: unknown }).Response;
+    (global as unknown as { Response: unknown }).Response = StreamResponse;
+    try {
+      const privateUri = 'https://travel-dream.private.blob.vercel-storage.com/tiktok-imports/u/photo.jpg';
+      queueOf(createMockSource({
+        uri: privateUri,
+        meta: {
+          tiktokPhotoImport: { postId: '7694185850497666335', postUrl: 'https://www.tiktok.com/@creator/photo/7694185850497666335', handle: 'creator', index: 0 },
+          uploadInfo: { originalName: 'photo.jpg' },
+        },
+      }));
+      mockGetPrivateBlob.mockResolvedValue({
+        statusCode: 200,
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(8));
+            controller.close();
+          },
+        }),
+        blob: { contentType: 'image/jpeg', size: 8, etag: '"private-etag"' },
+      });
+      mockPutPrivateBlob.mockResolvedValue({
+        url: 'https://travel-dream.private.blob.vercel-storage.com/thumbnails/user_test-1/src_test-1_thumb.jpg',
+      });
+
+      await processQueue({ workerId: 'w_private_thumb' });
+
+      expect(mockPutPrivateBlob).toHaveBeenCalledTimes(1);
+      expect(mockPutPrivateBlob).toHaveBeenCalledWith(
+        'thumbnails/user_test-1/src_test-1_thumb.jpg',
+        expect.any(Buffer),
+        'image/jpeg',
+        { overwrite: true },
+      );
+      expect(mockCache).toHaveBeenCalledWith(
+        'src_test-1',
+        expect.any(String),
+        expect.objectContaining({
+          thumbnailUrl: 'https://travel-dream.private.blob.vercel-storage.com/thumbnails/user_test-1/src_test-1_thumb.jpg',
+        }),
+      );
+    } finally {
+      (global as unknown as { Response: unknown }).Response = originalResponse;
+    }
+  });
+
+  it('does not read a provider result that carries only a cached response as link details', async () => {
+    const fallback = 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335';
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: fallback,
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          providers: [],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      cachedResponse: { version: '1.0', type: 'video' },
+    });
+
+    await processQueue({ workerId: 'w_cached_only' });
+
+    // The provider's cached payload is not link details, so the item extracts
+    // from the text that was saved with the link.
+    expect(mockExtractFromText).toHaveBeenCalledWith(fallback, 'tiktok');
+    expect(JSON.stringify(mockCache.mock.calls)).not.toContain('cachedResponse');
   });
 
   it('treats a network drop wrapped by the Gemini SDK as an interruption', async () => {

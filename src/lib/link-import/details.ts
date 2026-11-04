@@ -27,14 +27,26 @@ export interface EnrichedLinkDetails {
 
 const DEFAULT_PROVIDERS: LinkDetailsProvider[] = [urlDerivedDetailsProvider, tiktokOEmbedProvider, tiktokPageProvider];
 
-function isProviderResult(value: LinkDetails | LinkProviderResult | undefined): value is LinkProviderResult {
-  return !!value && typeof value === 'object' &&
-    ('details' in value || 'cachedResponse' in value || 'empty' in value || 'reason' in value || 'transient' in value);
+/**
+ * The fields that make a provider result a result rather than bare details.
+ * One list decides the shape everywhere, so a result field added later cannot
+ * be read as a detail by one call site and as a result by another.
+ */
+const PROVIDER_RESULT_FIELDS = ['details', 'cachedResponse', 'empty', 'reason', 'transient'] as const;
+
+export function isLinkProviderResult(value: unknown): value is LinkProviderResult {
+  return !!value && typeof value === 'object' && !Array.isArray(value) &&
+    PROVIDER_RESULT_FIELDS.some((field) => field in value);
+}
+
+export function isLinkDetails(value: unknown): value is LinkDetails {
+  return !!value && typeof value === 'object' && !Array.isArray(value) &&
+    !PROVIDER_RESULT_FIELDS.some((field) => field in value);
 }
 
 function asDetails(value: LinkDetails | LinkProviderResult | undefined): LinkDetails | undefined {
   if (!value) return undefined;
-  return isProviderResult(value) ? value.details : value;
+  return isLinkProviderResult(value) ? value.details : value;
 }
 
 /** Adds providers in order; later sources fill gaps without erasing known details. */
@@ -64,7 +76,7 @@ export async function enrichLinkDetails(
     try {
       const output = await provider.getDetails(link, context);
       const details = asDetails(output);
-      const providerResult = isProviderResult(output) ? output : undefined;
+      const providerResult = isLinkProviderResult(output) ? output : undefined;
       if (providerResult?.transient?.imageRefs) transient = providerResult.transient;
       records.push({
         provider: provider.name,

@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import { put } from '@vercel/blob';
 import type { Source } from '@/types/database';
 import type { GeminiExtractionResult } from '@/types/extraction-pipeline';
-import type { LinkDetails, LinkProviderRecord, LinkProviderResult } from '@/types/link-import';
+import type { LinkDetails, LinkProviderRecord } from '@/types/link-import';
 import {
   cacheSourceProcessingWork,
   claimNextQueuedSource,
@@ -20,6 +20,7 @@ import { getGeminiExtractionService } from './gemini-extraction-service';
 import { getGooglePlacesEnrichmentService, GooglePlacesUnavailableError } from './google-places-enrichment';
 import { QUEUE_CONFIG } from './queue-config';
 import { extractionContext } from '@/lib/link-import/extraction-context';
+import { isLinkDetails, isLinkProviderResult } from '@/lib/link-import/details';
 import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
 import { isAllowedBlobUrl } from '@/lib/blob-url';
 import {
@@ -47,16 +48,6 @@ class ProcessingDeferred extends Error {
     super(message);
     this.name = 'ProcessingDeferred';
   }
-}
-
-function isLinkProviderResult(value: unknown): value is LinkProviderResult {
-  return !!value && typeof value === 'object' &&
-    ('details' in value || 'reason' in value || 'transient' in value || 'empty' in value);
-}
-
-function isLinkDetails(value: unknown): value is LinkDetails {
-  return !!value && typeof value === 'object' &&
-    !('details' in value) && !('reason' in value) && !('transient' in value) && !('empty' in value);
 }
 
 export interface ProcessQueueResult {
@@ -690,7 +681,7 @@ async function generateThumbnail(
     const thumbKey = `thumbnails/${source.userId}/${source.id}_thumb.jpg`;
     const privateImport = Boolean(source.meta?.tiktokPhotoImport);
     const thumbBlob = privateImport
-      ? await putTikTokPrivateBlob(thumbKey, thumbnailBuffer, 'image/jpeg')
+      ? await putTikTokPrivateBlob(thumbKey, thumbnailBuffer, 'image/jpeg', { overwrite: true })
       : await put(thumbKey, thumbnailBuffer, {
           access: 'public',
           contentType: 'image/jpeg',

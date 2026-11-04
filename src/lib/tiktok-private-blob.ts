@@ -90,17 +90,28 @@ export function privateBlobPathname(value: string): string | null {
   return path;
 }
 
+export interface TikTokPrivateBlobWriteOptions {
+  /**
+   * Write to the exact pathname, replacing whatever is already there.
+   * A regenerated thumbnail must land on the same key, or every attempt would
+   * leave its predecessor behind unreferenced.
+   */
+  overwrite?: boolean;
+}
+
 export async function putTikTokPrivateBlob(
   pathname: string,
   body: Buffer,
   contentType: string,
+  options: TikTokPrivateBlobWriteOptions = {},
 ) {
-  const options = tikTokPrivateBlobOptions();
-  if (!options) throw new Error('TikTok private Blob storage is not configured');
+  const storeOptions = tikTokPrivateBlobOptions();
+  if (!storeOptions) throw new Error('TikTok private Blob storage is not configured');
   return put(pathname, body, {
-    ...options,
+    ...storeOptions,
     contentType,
-    addRandomSuffix: true,
+    addRandomSuffix: !options.overwrite,
+    ...(options.overwrite ? { allowOverwrite: true } : {}),
   });
 }
 

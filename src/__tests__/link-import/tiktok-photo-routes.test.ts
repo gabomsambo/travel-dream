@@ -238,4 +238,29 @@ describe('TikTok private photo routes', () => {
     expect(get).toHaveBeenCalledWith(expect.stringContaining('tiktok-imports/alice/photo.jpg'), expect.anything());
     expect(own.headers.get('Cache-Control')).toBe('private, no-cache');
   });
+
+  it('does not serve a private photo that only a collection cover names', async () => {
+    const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<unknown> } };
+    await client.execute({
+      sql: 'UPDATE collections SET cover_image_url = ? WHERE id = ?',
+      args: [ALICE_PRIVATE_PHOTO, FIXTURE.aliceCollection],
+    });
+
+    const response = await privatePhoto(new NextRequest(`https://tabidreams.com/api/photos/private?url=${encodeURIComponent(ALICE_PRIVATE_PHOTO)}`) as never);
+    expect(response.status).toBe(404);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('still serves a private photo the caller owns when it is also a collection cover', async () => {
+    const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<unknown> } };
+    await attachPrivatePhoto(FIXTURE.alicePlace, 'att_alice_private', ALICE_PRIVATE_PHOTO);
+    await client.execute({
+      sql: 'UPDATE collections SET cover_image_url = ? WHERE id = ?',
+      args: [ALICE_PRIVATE_PHOTO, FIXTURE.aliceCollection],
+    });
+
+    const response = await privatePhoto(new NextRequest(`https://tabidreams.com/api/photos/private?url=${encodeURIComponent(ALICE_PRIVATE_PHOTO)}`) as never);
+    expect(response.status).toBe(200);
+    expect(get).toHaveBeenCalledWith(expect.stringContaining('tiktok-imports/alice/photo.jpg'), expect.anything());
+  });
 });

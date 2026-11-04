@@ -299,6 +299,18 @@ function visiblePageText(body: string): string {
     .replace(/<[^>]+>/g, ' ');
 }
 
+/**
+ * A payload we cannot read is a shape change, not a wall. Only the page's
+ * visible text decides between the two, so a renamed scope never takes the
+ * app-wide reader offline for every tenant.
+ */
+function classifyUnusablePayload(body: string):
+  { ok: false; reason: 'blocked' | 'format_changed'; breaker: boolean } {
+  return BLOCK_MARKER.test(visiblePageText(body))
+    ? { ok: false, reason: 'blocked', breaker: true }
+    : { ok: false, reason: 'format_changed', breaker: false };
+}
+
 function parseRehydration(body: string, link: CanonicalSocialLink):
   | { ok: true; details: LinkDetails; imageRefs: TikTokImageRef[] }
   | { ok: false; reason: 'blocked' | 'format_changed' | 'gone' | 'unavailable'; breaker: boolean } {
@@ -308,16 +320,12 @@ function parseRehydration(body: string, link: CanonicalSocialLink):
   try {
     raw = JSON.parse(match[1]);
   } catch {
-    return { ok: false, reason: 'blocked', breaker: true };
+    return classifyUnusablePayload(body);
   }
   const parsed = TikTokRehydrationSchema.safeParse(raw);
-  if (!parsed.success) {
-    return BLOCK_MARKER.test(visiblePageText(body))
-      ? { ok: false, reason: 'blocked', breaker: true }
-      : { ok: false, reason: 'format_changed', breaker: false };
-  }
+  if (!parsed.success) return classifyUnusablePayload(body);
   const videoDetail = parsed.data.__DEFAULT_SCOPE__?.['webapp.video-detail'];
-  if (!videoDetail) return { ok: false, reason: 'blocked', breaker: true };
+  if (!videoDetail) return classifyUnusablePayload(body);
   const statusCode = Number(videoDetail.statusCode ?? 0);
   if (statusCode === 10204) return { ok: false, reason: 'gone', breaker: false };
   if (statusCode !== 0) return { ok: false, reason: 'unavailable', breaker: false };

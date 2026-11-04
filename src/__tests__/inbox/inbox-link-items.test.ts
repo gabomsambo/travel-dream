@@ -78,6 +78,30 @@ it('keeps fallback guidance visible when the TikTok reader is switched off', asy
   expect(item).toMatchObject({ hasHelpfulContext: true, readerMessage: "Couldn't read TikTok." });
 });
 
+it('surfaces the content kind the page reader detected for a carousel post', async () => {
+  const url = 'https://www.tiktok.com/@alicecreator/video/7694185850497666335';
+  await execute(
+    `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+     VALUES (?,?, 'url', ?, '', 'queued', ?, ?, ?)`,
+    ['src_alice_tiktok_photo', ALICE.id, url, JSON.stringify({ link: {
+      originalUrl: url,
+      canonicalUrl: url,
+      platform: 'tiktok',
+      kind: 'tiktok-video',
+      handle: 'alicecreator',
+      postId: '7694185850497666335',
+      needsResolution: false,
+      resolution: { status: 'not-needed' },
+      details: { contentKind: 'photo', title: 'A photo walk' },
+      providers: [{ provider: 'tiktok-page', status: 'ok', details: { contentKind: 'photo' }, fetchedAt: new Date().toISOString() }],
+    } }), new Date().toISOString(), new Date().toISOString()],
+  );
+
+  const rows = await getInboxLinkItems(ALICE.id);
+  const item = rows.find((row) => row.id === 'src_alice_tiktok_photo');
+  expect(item).toMatchObject({ kind: 'tiktok-video', contentKind: 'photo' });
+});
+
 it('shows paste-caption and add-photos guidance after a blocked TikTok read', async () => {
   const url = 'https://www.tiktok.com/@alicecreator/video/7694185850497666335';
   await execute(

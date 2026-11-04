@@ -28,6 +28,7 @@ const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 100_000_000;
 const USER_AGENT = 'TravelDreamLinkPreview/1.0 (+https://tabidreams.com)';
 const CONTENT_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+const NO_CAROUSEL_MESSAGE = 'This link has no TikTok photo carousel.';
 
 interface ImportedImage {
   url: string;
@@ -42,6 +43,11 @@ type Claim =
   | { status: 'claimed'; source: typeof sourcesCurrentSchema.$inferSelect }
   | { status: 'missing' | 'not-photo' | 'busy' }
   | { status: 'imported'; sourceIds: string[]; count: number };
+
+/** Both post forms can carry a carousel: TikTok serves photo posts under /video/. */
+function isTikTokPostKind(kind: string | undefined): boolean {
+  return kind === 'tiktok-photo' || kind === 'tiktok-video';
+}
 
 function safeCdnUrl(value: string): URL | null {
   if (!isTikTokImageCdnUrl(value)) return null;
@@ -157,7 +163,9 @@ async function claimImport(userId: string, sourceId: string): Promise<Claim> {
     const [source] = await tx.select(sourcesCurrentSchema, eq(sourcesCurrentSchema.id, sourceId)).limit(1);
     if (!source) return { status: 'missing' };
     const link = source.meta?.link;
-    if (source.type !== 'url' || link?.platform !== 'tiktok' || link.kind !== 'tiktok-photo') {
+    // TikTok serves a photo post under its /video/ id, so the saved URL alone
+    // cannot tell a carousel from a video: the fresh page read decides.
+    if (source.type !== 'url' || link?.platform !== 'tiktok' || !isTikTokPostKind(link.kind)) {
       return { status: 'not-photo' };
     }
     const prior = link.tiktokPhotoImport;
@@ -212,7 +220,7 @@ export async function POST(
 
     claim = await claimImport(user.id, requestedSourceId);
     if (claim.status === 'missing') return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (claim.status === 'not-photo') return NextResponse.json({ error: 'This link has no TikTok photo carousel.' }, { status: 400 });
+    if (claim.status === 'not-photo') return NextResponse.json({ error: NO_CAROUSEL_MESSAGE }, { status: 400 });
     if (claim.status === 'busy') return NextResponse.json({ error: 'Photo import is already running.' }, { status: 409 });
     if (claim.status === 'imported') {
       return NextResponse.json({ imported: claim.count, sourceIds: claim.sourceIds, alreadyImported: true });
@@ -221,8 +229,8 @@ export async function POST(
 
     const storedLink = claim.source.meta?.link;
     const parsed = storedLink?.canonicalUrl ? parseSocialLink(storedLink.canonicalUrl) : null;
-    if (!parsed?.supported || parsed.link.platform !== 'tiktok' || parsed.link.kind !== 'tiktok-photo') {
-      throw new Error('Saved TikTok photo link is invalid');
+    if (!parsed?.supported || parsed.link.platform !== 'tiktok' || !isTikTokPostKind(parsed.link.kind)) {
+      throw new Error(NO_CAROUSEL_MESSAGE);
     }
     const output = await tiktokPageProvider.getDetails(parsed.link, { userId: user.id, forceRefresh: true });
     const providerResult = isLinkProviderResult(output) ? output : undefined;
@@ -232,7 +240,7 @@ export async function POST(
       const reason = providerResult?.reason;
       throw new Error(reason && reason !== 'disabled' ? `TikTok page read failed: ${reason}` : "Couldn't read TikTok.");
     }
-    if (details.contentKind !== 'photo' || refs.length === 0) throw new Error('No TikTok carousel images were found');
+    if (details.contentKind !== 'photo' || refs.length === 0) throw new Error(NO_CAROUSEL_MESSAGE);
     if (refs.length > MAX_IMAGES) throw new Error('TikTok carousel has too many images to import at once');
 
     const now = Date.now();
@@ -348,7 +356,11 @@ export async function POST(
     if (isAuthError(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     const message = error instanceof Error ? error.message : "Couldn't read TikTok.";
     console.warn('[TikTok Photo Import] Failed:', message);
-    const status = /too large|too many images|type is not allowed|host is not allowed|redirect was not allowed/i.test(message) ? 422 : 502;
+    const status = /too large|too many images|type is not allowed|host is not allowed|redirect was not allowed/i.test(message)
+      ? 422
+      : message === NO_CAROUSEL_MESSAGE
+        ? 400
+        : 502;
     return NextResponse.json({ error: message }, { status });
   }
 }

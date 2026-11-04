@@ -316,7 +316,7 @@ function LinkItemsSection({ items }: { items: InboxLinkItem[] }) {
               {(!item.hasHelpfulContext || item.readerMessage) && (
                 <p className="mt-1 text-sm text-muted-foreground">Paste the caption or add photos from your gallery to help find places.</p>
               )}
-              {item.kind === 'tiktok-photo' && (
+              {item.contentKind === 'photo' && (
                 <TikTokPhotoImportButton
                   sourceId={item.id}
                   status={item.photoImportStatus ?? null}

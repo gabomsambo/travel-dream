@@ -20,6 +20,8 @@ export interface InboxLinkItem {
   hasHelpfulContext: boolean;
   resolutionStatus: string;
   readerMessage?: string | null;
+  /** What the page reader detected: a carousel post or a video post. */
+  contentKind?: 'photo' | 'video' | null;
   photoImportStatus?: 'importing' | 'imported' | 'failed' | null;
   photoImportCount?: number;
   places: Array<{ id: string; name: string; status: string }>;
@@ -95,6 +97,7 @@ export async function getInboxLinkItems(userId: string): Promise<InboxLinkItem[]
       readerMessage: link.platform === 'tiktok'
         ? tiktokReaderMessage(pageProvider?.reason, pageProvider?.status === 'error')
         : null,
+      contentKind: details?.contentKind ?? null,
       photoImportStatus: importState?.status ?? null,
       photoImportCount: importState?.count ?? 0,
       places: sourcePlaces.get(source.id) ?? [],

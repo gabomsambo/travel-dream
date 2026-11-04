@@ -372,4 +372,26 @@ describe('TikTok page provider', () => {
     await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'format_changed' });
     expect(guardrails.openBreaker).not.toHaveBeenCalled();
   });
+
+  it('treats a payload without the video-detail scope as a format change', async () => {
+    const body = '<html><body><h1>A quiet cafe in Lisbon</h1>'
+      + '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
+      + '{"__DEFAULT_SCOPE__":{"webapp.video-detail-renamed":{"statusCode":0}}}</script>'
+      + '</body></html>';
+    const { provider, guardrails } = setup(jest.fn(async () => response(body)));
+
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'format_changed' });
+    expect(guardrails.openBreaker).not.toHaveBeenCalled();
+  });
+
+  it('opens the breaker for a payload without the video-detail scope behind a wall', async () => {
+    const body = '<html><body><h1>Verify to continue</h1>'
+      + '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
+      + '{"__DEFAULT_SCOPE__":{"webapp.video-detail-renamed":{"statusCode":0}}}</script>'
+      + '</body></html>';
+    const { provider, guardrails } = setup(jest.fn(async () => response(body)));
+
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'blocked' });
+    expect(guardrails.openBreaker).toHaveBeenCalledTimes(1);
+  });
 });

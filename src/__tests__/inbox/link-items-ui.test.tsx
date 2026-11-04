@@ -29,3 +29,31 @@ it('shows a TikTok label and explains that adding a caption or photos can help',
   expect(screen.getByRole('link', { name: 'Open link' })).toHaveAttribute('href', noContextLink.url);
   expect(screen.getByRole('button', { name: 'Save a link' })).toBeInTheDocument();
 });
+
+it('offers the photo import for a post the reader detected as a carousel', () => {
+  const model = buildInboxScreen({ uploads: [], toReviewPlaceIds: [], addedAnotherWay: [], now: null });
+  const carousel: InboxLinkItem = {
+    ...noContextLink,
+    id: 'src_link_2',
+    kind: 'tiktok-video',
+    contentKind: 'photo',
+    resolutionStatus: 'not-needed',
+  };
+  render(<InboxScreen model={model} linkItems={[carousel]} />);
+
+  expect(screen.getByRole('button', { name: 'Import these photos' })).toBeInTheDocument();
+});
+
+it('hides the photo import for a post that is not a carousel', () => {
+  const model = buildInboxScreen({ uploads: [], toReviewPlaceIds: [], addedAnotherWay: [], now: null });
+  const video: InboxLinkItem = {
+    ...noContextLink,
+    id: 'src_link_3',
+    kind: 'tiktok-video',
+    contentKind: 'video',
+    resolutionStatus: 'not-needed',
+  };
+  render(<InboxScreen model={model} linkItems={[video]} />);
+
+  expect(screen.queryByRole('button', { name: 'Import these photos' })).not.toBeInTheDocument();
+});

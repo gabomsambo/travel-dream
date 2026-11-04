@@ -21,7 +21,7 @@ import {
 } from '@/db/schema'
 import { del } from '@vercel/blob'
 import { isAllowedBlobUrl } from '@/lib/blob-url'
-import { deleteTikTokPrivateBlob, isPrivateBlobUrl } from '@/lib/tiktok-private-blob'
+import { deleteTikTokPrivateBlobs, isPrivateBlobUrl } from '@/lib/tiktok-private-blob'
 
 export const dynamic = 'force-dynamic'
 
@@ -81,23 +81,28 @@ export async function DELETE() {
       await tx.delete(collections).where(eq(collections.userId, user.id))
     })
 
-    // Clean up blobs AFTER transaction commits (best-effort, one URL at a time)
+    // Clean up blobs AFTER transaction commits (best-effort, one request per store)
     const uniqueUrls = [...new Set(blobUrls)]
-    const publicUrls = uniqueUrls.filter((url) => isAllowedBlobUrl(url))
     const privateUrls = uniqueUrls.filter((url) => isPrivateBlobUrl(url))
-    const outcomes = await Promise.allSettled([
-      ...publicUrls.map((url) => del(url)),
-      ...privateUrls.map((url) => deleteTikTokPrivateBlob(url)),
-    ])
-    const failures: unknown[] = []
-    for (const outcome of outcomes) {
-      if (outcome.status === 'rejected') failures.push(outcome.reason)
+    const publicUrls = uniqueUrls.filter((url) => !isPrivateBlobUrl(url) && isAllowedBlobUrl(url))
+
+    if (publicUrls.length > 0) {
+      try {
+        await del(publicUrls)
+      } catch (error) {
+        console.warn(`[delete-all] Public blob cleanup failed (${publicUrls.length} URLs)`, error)
+      }
     }
-    if (failures.length > 0) {
-      console.warn(
-        `[delete-all] Failed to delete ${failures.length} of ${publicUrls.length + privateUrls.length} blobs`,
-        failures[0]
-      )
+
+    if (privateUrls.length > 0) {
+      try {
+        const outcome = await deleteTikTokPrivateBlobs(privateUrls)
+        if (outcome.status === 'skipped') {
+          console.warn(`[delete-all] Skipped private TikTok blob cleanup (${outcome.count} URLs): ${outcome.reason}`)
+        }
+      } catch (error) {
+        console.warn(`[delete-all] Private TikTok blob cleanup failed (${privateUrls.length} URLs)`, error)
+      }
     }
 
     return NextResponse.json({

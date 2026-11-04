@@ -16,6 +16,7 @@ jest.mock('@vercel/blob', () => ({
 import { del, get, put } from '@vercel/blob';
 import {
   deleteTikTokPrivateBlob,
+  deleteTikTokPrivateBlobs,
   getTikTokPrivateBlob,
   isAllowedPrivateBlobUrl,
   privateBlobPathname,
@@ -190,6 +191,44 @@ describe('deleteTikTokPrivateBlob', () => {
     process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
     await expect(deleteTikTokPrivateBlob(`${STORE}/tiktok-imports/%2e%2e/other/1.jpg`)).rejects.toThrow();
     expect(del).not.toHaveBeenCalled();
+  });
+});
+
+describe('deleteTikTokPrivateBlobs', () => {
+  it('deletes every private object in one store request', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    const urls = [`${STORE}/tiktok-imports/u/1.jpg`, `${STORE}/tiktok-imports/u/2.jpg`];
+
+    await expect(deleteTikTokPrivateBlobs(urls)).resolves.toEqual({ status: 'deleted', count: 2 });
+
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(urls, { access: 'private', token: 'vercel_blob_rw_private_token' });
+  });
+
+  it('skips the batch when the private store is not configured', async () => {
+    await expect(deleteTikTokPrivateBlobs([`${STORE}/tiktok-imports/u/1.jpg`])).resolves.toEqual({
+      status: 'skipped',
+      reason: 'not_configured',
+      count: 1,
+    });
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('never hands a URL that is not a private store object to the SDK', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    const privateUrl = `${STORE}/tiktok-imports/u/1.jpg`;
+
+    await expect(deleteTikTokPrivateBlobs([privateUrl, `${PUBLIC_STORE}/a.jpg`])).resolves.toEqual({
+      status: 'deleted',
+      count: 1,
+    });
+    expect(del).toHaveBeenCalledWith([privateUrl], { access: 'private', token: 'vercel_blob_rw_private_token' });
+
+    await expect(deleteTikTokPrivateBlobs([`${PUBLIC_STORE}/a.jpg`])).resolves.toEqual({
+      status: 'skipped',
+      reason: 'no_private_urls',
+      count: 1,
+    });
   });
 });
 

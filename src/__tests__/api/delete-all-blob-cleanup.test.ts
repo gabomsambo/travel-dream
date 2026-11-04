@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { ALICE, BOB, assertLocalDatabase, readCell, resetTenantFixture } from '../helpers/tenant-fixture';
+import { ALICE, BOB, FIXTURE, assertLocalDatabase, readCell, resetTenantFixture } from '../helpers/tenant-fixture';
 
 jest.mock('@vercel/blob', () => ({
   del: jest.fn(),
@@ -12,11 +12,11 @@ jest.mock('@/lib/auth-helpers', () => ({
 }));
 jest.mock('@/lib/tiktok-private-blob', () => ({
   ...jest.requireActual('@/lib/tiktok-private-blob'),
-  deleteTikTokPrivateBlob: jest.fn(),
+  deleteTikTokPrivateBlobs: jest.fn(),
 }));
 
 import { del } from '@vercel/blob';
-import { deleteTikTokPrivateBlob } from '@/lib/tiktok-private-blob';
+import { deleteTikTokPrivateBlobs } from '@/lib/tiktok-private-blob';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 
 const PUBLIC_BLOB = 'https://store.public.blob.vercel-storage.com/alice-photo.jpg';
@@ -52,12 +52,22 @@ async function insertAttachment(id: string, placeId: string, uri: string) {
   });
 }
 
-function deletedPublicUrls(): string[] {
-  return (del as jest.Mock).mock.calls.map((call: unknown[]) => String(call[0]));
+function publicDeleteBatches(): string[][] {
+  return (del as jest.Mock).mock.calls.map((call: unknown[]) =>
+    (Array.isArray(call[0]) ? call[0] : [call[0]]).map((url) => String(url)),
+  );
 }
 
-function deletedPrivateUrls(): string[] {
-  return (deleteTikTokPrivateBlob as jest.Mock).mock.calls.map((call: unknown[]) => String(call[0]));
+function privateDeleteBatches(): string[][] {
+  return (deleteTikTokPrivateBlobs as jest.Mock).mock.calls.map((call: unknown[]) =>
+    (Array.isArray(call[0]) ? call[0] : [call[0]]).map((url) => String(url)),
+  );
+}
+
+function warnings(): string {
+  return (console.warn as unknown as jest.Mock).mock.calls
+    .map((call: unknown[]) => call.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(' '))
+    .join('\n');
 }
 
 beforeAll(() => assertLocalDatabase());
@@ -66,7 +76,7 @@ beforeEach(async () => {
   await resetTenantFixture();
   (requireAuthForApi as jest.Mock).mockResolvedValue(ALICE);
   (del as jest.Mock).mockResolvedValue(undefined);
-  (deleteTikTokPrivateBlob as jest.Mock).mockResolvedValue(undefined);
+  (deleteTikTokPrivateBlobs as jest.Mock).mockResolvedValue({ status: 'deleted', count: 1 });
   await insertSource('src_alice_public', 'screenshot', PUBLIC_BLOB);
   await insertSource('src_alice_public_two', 'screenshot', SECOND_PUBLIC_BLOB);
   await insertSource('src_alice_private', 'screenshot', PRIVATE_BLOB);
@@ -75,40 +85,52 @@ beforeEach(async () => {
 });
 
 describe('DELETE /api/data/delete-all', () => {
-  it('deletes the stored blobs and leaves URLs that are not blobs alone', async () => {
+  it('deletes each store in a single request and leaves URLs that are not blobs alone', async () => {
     const response = await route().DELETE();
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ success: true });
 
-    const publicUrls = deletedPublicUrls();
-    expect(publicUrls).toContain(PUBLIC_BLOB);
-    expect(publicUrls).toContain(SECOND_PUBLIC_BLOB);
-    expect(publicUrls).not.toContain(SAVED_POST);
-    expect(publicUrls).not.toContain(EXTERNAL_PHOTO);
-    expect(deletedPrivateUrls()).toEqual([PRIVATE_BLOB]);
+    const publicBatches = publicDeleteBatches();
+    expect(publicBatches).toHaveLength(1);
+    expect(publicBatches[0]).toHaveLength(3);
+    expect(publicBatches[0]).toEqual(
+      expect.arrayContaining([FIXTURE.aliceSourceBlob, PUBLIC_BLOB, SECOND_PUBLIC_BLOB]),
+    );
+    expect(publicBatches[0]).not.toContain(SAVED_POST);
+    expect(publicBatches[0]).not.toContain(EXTERNAL_PHOTO);
+    expect(publicBatches[0]).not.toContain(FIXTURE.bobSourceBlob);
+
+    const privateBatches = privateDeleteBatches();
+    expect(privateBatches).toEqual([[PRIVATE_BLOB]]);
 
     expect(await readCell('SELECT count(*) FROM sources WHERE user_id = ?', [ALICE.id])).toBe(0);
     expect(await readCell('SELECT count(*) FROM sources WHERE user_id = ?', [BOB.id])).toBe(1);
   });
 
-  it('keeps deleting the other blobs when one deletion fails', async () => {
-    (del as jest.Mock).mockImplementation(async (url: string) => {
-      if (url === PUBLIC_BLOB) throw new Error('blob store unavailable');
-    });
-    (deleteTikTokPrivateBlob as jest.Mock).mockRejectedValue(new Error('TikTok private Blob storage is not configured'));
+  it('keeps deleting the other store when one deletion fails', async () => {
+    (del as jest.Mock).mockRejectedValue(new Error('blob store unavailable'));
+    (deleteTikTokPrivateBlobs as jest.Mock).mockRejectedValue(new Error('TikTok private Blob storage is not configured'));
 
     const response = await route().DELETE();
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ success: true });
-    expect(deletedPublicUrls()).toContain(SECOND_PUBLIC_BLOB);
-    expect(deletedPrivateUrls()).toEqual([PRIVATE_BLOB]);
+    expect(privateDeleteBatches()).toEqual([[PRIVATE_BLOB]]);
     expect(await readCell('SELECT count(*) FROM sources WHERE user_id = ?', [ALICE.id])).toBe(0);
 
-    const warnings = (console.warn as unknown as jest.Mock).mock.calls
-      .map((call: unknown[]) => call.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(' '))
-      .join('\n');
-    expect(warnings).toContain('Failed to delete 2 of');
+    const logged = warnings();
+    expect(logged).toContain('Public blob cleanup failed (3 URLs)');
+    expect(logged).toContain('Private TikTok blob cleanup failed (1 URLs)');
+  });
+
+  it('skips the private batch with a log line when the private store is not configured', async () => {
+    (deleteTikTokPrivateBlobs as jest.Mock).mockResolvedValue({ status: 'skipped', reason: 'not_configured', count: 1 });
+
+    const response = await route().DELETE();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ success: true });
+    expect(warnings()).toContain('Skipped private TikTok blob cleanup (1 URLs): not_configured');
   });
 });

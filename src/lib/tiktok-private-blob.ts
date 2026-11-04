@@ -165,6 +165,30 @@ export async function deleteTikTokPrivateBlob(value: string): Promise<void> {
   await del(value, options);
 }
 
+export type TikTokPrivateBlobBatchDeleteOutcome =
+  | { status: 'deleted'; count: number }
+  | { status: 'skipped'; reason: 'not_configured' | 'no_private_urls'; count: number };
+
+/**
+ * Deletes private-store objects in a single Blob API request.
+ *
+ * `del()` sends one `POST /delete` per call, so a per-object loop turns a
+ * user's whole private collection into a request each. The private store is
+ * optional here, so an unconfigured store is reported as skipped (the caller
+ * logs it) instead of failing the cleanup, and URLs that are not private-store
+ * objects never reach the SDK.
+ */
+export async function deleteTikTokPrivateBlobs(
+  values: string[],
+): Promise<TikTokPrivateBlobBatchDeleteOutcome> {
+  const options = tikTokPrivateBlobOptions();
+  if (!options) return { status: 'skipped', reason: 'not_configured', count: values.length };
+  const urls = values.filter((value) => privateBlobPathname(value) !== null);
+  if (urls.length === 0) return { status: 'skipped', reason: 'no_private_urls', count: values.length };
+  await del(urls, options);
+  return { status: 'deleted', count: urls.length };
+}
+
 /**
  * Removes a blob this app just uploaded, whatever access the store gave it.
  * A misconfigured store can answer a private upload with a public URL, and

@@ -92,29 +92,36 @@ function htmlResponse(body: string): Response {
   } as unknown as Response;
 }
 
-function guardrailStub(): TikTokGuardrails {
+function guardrailStub(options: { busySlotOnce?: boolean } = {}): TikTokGuardrails {
   const cache = new Map<string, TikTokCacheEntry>();
+  let reservations = 0;
   return {
     getCache: async (postId) => cache.get(postId),
     setCache: async (postId, entry) => { cache.set(postId, entry); },
     isBreakerOpen: async () => false,
     openBreaker: async () => 15 * 60_000,
     clearBreaker: async () => undefined,
-    reserveRequestSlot: async () => 'slot-1',
+    reserveRequestSlot: async () => {
+      reservations += 1;
+      if (options.busySlotOnce && reservations === 1) return null;
+      return 'slot-1';
+    },
     releaseRequestSlot: async () => undefined,
   };
 }
 
 /** The real page reader, reading one fixed fixture page. */
-function fixturePageProvider() {
-  return createTikTokPageProvider({
+function fixturePageProvider(options: { busySlotOnce?: boolean } = {}) {
+  const fetcher = jest.fn(async () => htmlResponse(PHOTO_AS_VIDEO_FIXTURE));
+  const provider = createTikTokPageProvider({
     enabled: () => true,
-    getGuardrails: () => guardrailStub(),
+    getGuardrails: () => guardrailStub(options),
     hasDailyAllowance: async () => true,
     chargeDailyRequest: async () => true,
-    fetcher: async () => htmlResponse(PHOTO_AS_VIDEO_FIXTURE),
+    fetcher,
     sleep: async () => undefined,
   });
+  return { provider, fetcher };
 }
 
 async function insertLinkSource(
@@ -231,6 +238,7 @@ describe('TikTok private photo routes', () => {
     expect(tiktokPageProvider.getDetails).toHaveBeenCalledWith(expect.objectContaining({ kind: 'tiktok-photo' }), {
       userId: ALICE.id,
       forceRefresh: true,
+      waitForSlot: true,
     });
     expect(put).toHaveBeenCalledTimes(1);
     expect(String((global.fetch as jest.Mock).mock.calls[0][0])).toContain('p16-sign.tiktokcdn.com');
@@ -261,7 +269,7 @@ describe('TikTok private photo routes', () => {
       'tiktok-video',
       { contentKind: 'photo' },
     );
-    const provider = fixturePageProvider();
+    const { provider } = fixturePageProvider();
     (tiktokPageProvider.getDetails as jest.Mock).mockImplementation(
       (link: unknown, context: unknown) => provider.getDetails(link as never, context as never),
     );
@@ -275,6 +283,7 @@ describe('TikTok private photo routes', () => {
     expect(tiktokPageProvider.getDetails).toHaveBeenCalledWith(expect.objectContaining({ kind: 'tiktok-video' }), {
       userId: ALICE.id,
       forceRefresh: true,
+      waitForSlot: true,
     });
 
     const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<{ rows: Record<string, unknown>[] }> } };
@@ -284,6 +293,41 @@ describe('TikTok private photo routes', () => {
     });
     expect(rows.rows.filter((row) => String(row.uri).includes('.private.blob.vercel-storage.com/'))).toHaveLength(2);
     expect(JSON.stringify(rows.rows)).toContain(ALICE_TIKTOK_VIDEO_LINK);
+  });
+
+  it('waits for the app-wide request slot instead of failing the import', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    const { provider } = fixturePageProvider({ busySlotOnce: true });
+    (tiktokPageProvider.getDetails as jest.Mock).mockImplementation(
+      (link: unknown, context: unknown) => provider.getDetails(link as never, context as never),
+    );
+
+    const response = await importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ imported: 2 });
+  });
+
+  it('identifies the same way to TikTok when reading the page and downloading the photos', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    const { provider, fetcher } = fixturePageProvider();
+    (tiktokPageProvider.getDetails as jest.Mock).mockImplementation(
+      (link: unknown, context: unknown) => provider.getDetails(link as never, context as never),
+    );
+
+    const response = await importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+
+    expect(response.status).toBe(200);
+    const pageInit = (fetcher.mock.calls[0] as unknown as [unknown, RequestInit])[1];
+    const imageInit = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
+    const pageAgent = (pageInit.headers as Record<string, string>)['user-agent'];
+    const imageAgent = (imageInit.headers as Record<string, string>)['user-agent'];
+    expect(imageAgent).toBe(pageAgent);
+    expect(imageAgent).toBe('TravelDreamLinkPreview/1.0 (+https://tabidreams.com)');
   });
 
   it('refuses a video post that has no carousel', async () => {

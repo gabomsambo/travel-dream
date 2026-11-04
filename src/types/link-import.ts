@@ -73,6 +73,12 @@ export interface LinkProviderResult {
 export interface LinkProviderContext {
   userId?: string;
   forceRefresh?: boolean;
+  /**
+   * Wait for the app-wide request slot instead of reporting `throttled` when
+   * another read holds it. Only for callers that can afford to wait: the
+   * queue keeps deferring instead of blocking a worker.
+   */
+  waitForSlot?: boolean;
 }
 
 export interface LinkProviderRecord {

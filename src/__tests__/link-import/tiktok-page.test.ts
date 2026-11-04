@@ -255,6 +255,53 @@ describe('TikTok page provider', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it('waits for the app-wide slot when the caller can afford to wait', async () => {
+    const guardrails = guardrailStub();
+    guardrails.reserveRequestSlot.mockResolvedValueOnce(null).mockResolvedValue('slot-2');
+    const fetcher = jest.fn(async () => response(html('video-post.html')));
+    const sleep = jest.fn(async () => undefined);
+    const provider = createTikTokPageProvider({
+      enabled: () => true,
+      getGuardrails: () => guardrails,
+      hasDailyAllowance: async () => true,
+      chargeDailyRequest: async () => true,
+      fetcher,
+      sleep,
+      random: () => 0,
+    });
+
+    const result = await provider.getDetails(link(), { userId: 'alice', waitForSlot: true });
+
+    expect(result).toMatchObject({ details: { placeName: 'Cafe Example' } });
+    expect(guardrails.reserveRequestSlot).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(500);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not wait for the app-wide slot unless the caller asks to wait', async () => {
+    const guardrails = guardrailStub();
+    guardrails.reserveRequestSlot.mockResolvedValue(null);
+    const fetcher = jest.fn(async () => response(html('video-post.html')));
+    const sleep = jest.fn(async () => undefined);
+    const provider = createTikTokPageProvider({
+      enabled: () => true,
+      getGuardrails: () => guardrails,
+      hasDailyAllowance: async () => true,
+      chargeDailyRequest: async () => true,
+      fetcher,
+      sleep,
+      random: () => 0,
+    });
+
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({
+      empty: true,
+      reason: 'throttled',
+    });
+    expect(guardrails.reserveRequestSlot).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('does not reserve the global slot when the read-only daily check is exhausted', async () => {
     const fetcher = jest.fn(async () => response(html('video-post.html')));
     const { provider, guardrails, hasDailyAllowance, chargeDailyRequest } = setup(fetcher, { daily: false });

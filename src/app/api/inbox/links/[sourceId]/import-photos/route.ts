@@ -9,6 +9,7 @@ import { parseSocialLink } from '@/lib/link-import/url';
 import { isLinkDetails, isLinkProviderResult } from '@/lib/link-import/details';
 import { tiktokReaderMessage } from '@/lib/inbox-link-items';
 import { tiktokPageProvider, isTikTokImageCdnUrl } from '@/lib/link-import/providers/tiktok-page';
+import { TIKTOK_REQUEST_TIMEOUT_MS, TIKTOK_USER_AGENT } from '@/lib/link-import/tiktok-http';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { extensionForMimeType } from '@/lib/image-upload';
 import {
@@ -27,7 +28,6 @@ const MAX_IMAGES = 20;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 100_000_000;
-const USER_AGENT = 'TravelDreamLinkPreview/1.0 (+https://tabidreams.com)';
 const CONTENT_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const NO_CAROUSEL_MESSAGE = 'This link has no TikTok photo carousel.';
 
@@ -88,9 +88,9 @@ async function downloadImage(ref: TikTokImageRef, fetcher: typeof fetch = fetch)
     const response = await fetcher(checked, {
       method: 'GET',
       redirect: 'manual',
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(TIKTOK_REQUEST_TIMEOUT_MS),
       headers: {
-        'user-agent': USER_AGENT,
+        'user-agent': TIKTOK_USER_AGENT,
         accept: 'image/jpeg,image/png,image/webp',
       },
     });
@@ -233,7 +233,11 @@ export async function POST(
     if (!parsed?.supported || parsed.link.platform !== 'tiktok' || !isTikTokPostKind(parsed.link.kind)) {
       throw new Error(NO_CAROUSEL_MESSAGE);
     }
-    const output = await tiktokPageProvider.getDetails(parsed.link, { userId: user.id, forceRefresh: true });
+    const output = await tiktokPageProvider.getDetails(parsed.link, {
+      userId: user.id,
+      forceRefresh: true,
+      waitForSlot: true,
+    });
     const providerResult = isLinkProviderResult(output) ? output : undefined;
     const details = isLinkDetails(output) ? output : providerResult?.details;
     const refs = providerResult?.transient?.imageRefs ?? [];

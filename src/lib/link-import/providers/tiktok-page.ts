@@ -8,11 +8,10 @@ import type {
 import { checkRateLimit, getRateLimitRemaining } from '@/lib/rate-limit';
 import type { LinkDetailsProvider } from '../details';
 import { getTikTokGuardrails, TIKTOK_CACHE_TTLS, type TikTokGuardrails } from '../tiktok-guardrails';
+import { TIKTOK_REQUEST_TIMEOUT_MS, TIKTOK_USER_AGENT } from '../tiktok-http';
 import { TikTokRehydrationSchema, type TikTokItem } from '../tiktok-schemas';
 
-const USER_AGENT = 'TravelDreamLinkPreview/1.0 (+https://tabidreams.com)';
 const MAX_PAGE_BYTES = 2 * 1024 * 1024;
-const PAGE_TIMEOUT_MS = 8_000;
 const MAX_REDIRECTS = 3;
 const MAX_IMAGES = 20;
 const REHYDRATION_PAYLOAD = /<script[^>]*id=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i;
@@ -165,9 +164,9 @@ async function requestTikTokHtml(
       response = await options.fetcher(checkedUrl, {
         method: 'GET',
         redirect: 'manual',
-        signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+        signal: AbortSignal.timeout(TIKTOK_REQUEST_TIMEOUT_MS),
         headers: {
-          'user-agent': USER_AGENT,
+          'user-agent': TIKTOK_USER_AGENT,
           accept: 'text/html,application/xhtml+xml',
           'accept-language': 'en',
           'accept-encoding': 'gzip, br',
@@ -366,7 +365,7 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
         const outcome = await requestTikTokHtml(url, guardrails, {
           fetcher,
           sleep,
-          waitForSlot: attempt > 0,
+          waitForSlot: attempt > 0 || context.waitForSlot === true,
           beforeSlotReserved: async () => chargedDaily || hasDailyAllowance(userId),
           afterSlotReserved: async () => {
             if (chargedDaily) return true;
@@ -437,9 +436,9 @@ export async function inspectTikTokPage(
     const response = await fetcher(checked, {
       method: 'GET',
       redirect: 'manual',
-      signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(TIKTOK_REQUEST_TIMEOUT_MS),
       headers: {
-        'user-agent': USER_AGENT,
+        'user-agent': TIKTOK_USER_AGENT,
         accept: 'text/html,application/xhtml+xml',
         'accept-language': 'en',
         'accept-encoding': 'gzip, br',

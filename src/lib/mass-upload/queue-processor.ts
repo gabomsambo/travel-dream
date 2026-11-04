@@ -518,9 +518,11 @@ async function linkTextForExtraction(
   // negative or exhausted retry, or the guardrails unavailable) is not a
   // verdict about the link and not a clock-out either: the text already saved
   // with the link is enough to extract from, so the item completes through
-  // that fallback and spends no interruption budget. The provider record keeps
-  // the reason so the Inbox can say "Couldn't read TikTok right now".
-  if (reason === 'blocked' || reason === 'transient' || reason === 'safety_unavailable') {
+  // that fallback and spends no interruption budget. Every such outcome is
+  // recorded, so the Inbox explains itself with the reason that applies now
+  // instead of the one an earlier read left behind.
+  if (!details) {
+    if (!reason) return fallback;
     const pageRecord: LinkProviderRecord = {
       provider: 'tiktok-page',
       status: 'empty',
@@ -541,7 +543,6 @@ async function linkTextForExtraction(
     });
     return fallback;
   }
-  if (!details) return fallback;
 
   const merged: LinkDetails = {
     ...details,

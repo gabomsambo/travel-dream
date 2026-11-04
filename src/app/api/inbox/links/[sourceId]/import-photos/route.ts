@@ -7,6 +7,7 @@ import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers';
 import { forUser } from '@/lib/tenant-db';
 import { parseSocialLink } from '@/lib/link-import/url';
 import { isLinkDetails, isLinkProviderResult } from '@/lib/link-import/details';
+import { tiktokReaderMessage } from '@/lib/inbox-link-items';
 import { tiktokPageProvider, isTikTokImageCdnUrl } from '@/lib/link-import/providers/tiktok-page';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { extensionForMimeType } from '@/lib/image-upload';
@@ -238,7 +239,8 @@ export async function POST(
     const refs = providerResult?.transient?.imageRefs ?? [];
     if (!details || providerResult?.reason) {
       const reason = providerResult?.reason;
-      throw new Error(reason && reason !== 'disabled' ? `TikTok page read failed: ${reason}` : "Couldn't read TikTok.");
+      if (reason) console.warn('[TikTok Photo Import] Page read failed:', reason);
+      throw new Error(tiktokReaderMessage(reason, false) ?? "Couldn't read TikTok.");
     }
     if (details.contentKind !== 'photo' || refs.length === 0) throw new Error(NO_CAROUSEL_MESSAGE);
     if (refs.length > MAX_IMAGES) throw new Error('TikTok carousel has too many images to import at once');

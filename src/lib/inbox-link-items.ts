@@ -27,7 +27,8 @@ export interface InboxLinkItem {
   places: Array<{ id: string; name: string; status: string }>;
 }
 
-function tiktokReaderMessage(reason: string | undefined, errored: boolean): string | null {
+/** The single place that turns a page-reader reason into user-facing copy. */
+export function tiktokReaderMessage(reason: string | undefined, errored: boolean): string | null {
   if (reason === 'disabled') return "Couldn't read TikTok.";
   if (reason === 'gone') return "Couldn't read TikTok because the post is gone.";
   if (reason === 'unavailable') return "Couldn't read TikTok because the post is unavailable.";

@@ -309,6 +309,25 @@ describe('TikTok private photo routes', () => {
     expect(put).not.toHaveBeenCalled();
   });
 
+  it('keeps the internal read reason out of the message the user sees', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason: 'throttled' });
+
+    const response = await importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+
+    expect(response.status).toBe(502);
+    const payload = await response.json() as { error?: string };
+    expect(payload.error).toBe("Couldn't read TikTok right now.");
+    expect(payload.error).not.toContain('throttled');
+    expect(put).not.toHaveBeenCalled();
+    const logged = (console.warn as unknown as jest.Mock).mock.calls
+      .map((call: unknown[]) => call.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(' '))
+      .join('\n');
+    expect(logged).toContain('throttled');
+  });
+
   it('rejects an untrusted image host before downloading or storing bytes', async () => {
     await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
     (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({

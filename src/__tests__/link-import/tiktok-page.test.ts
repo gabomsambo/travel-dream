@@ -394,4 +394,32 @@ describe('TikTok page provider', () => {
     await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'blocked' });
     expect(guardrails.openBreaker).toHaveBeenCalledTimes(1);
   });
+
+  it('logs an unexpected failure instead of reporting it as a plain outage', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const guardrails = guardrailStub();
+      (guardrails.getCache as jest.Mock).mockRejectedValue(new Error('redis unavailable'));
+      const provider = createTikTokPageProvider({
+        enabled: () => true,
+        getGuardrails: () => guardrails,
+        hasDailyAllowance: async () => true,
+        chargeDailyRequest: async () => true,
+        fetcher: jest.fn(async () => response(html('video-post.html'))),
+        sleep: async () => undefined,
+      });
+
+      await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({
+        empty: true,
+        reason: 'safety_unavailable',
+      });
+
+      const logged = warn.mock.calls
+        .map((call) => call.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(' '))
+        .join('\n');
+      expect(logged).toContain('redis unavailable');
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

@@ -413,7 +413,8 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
       }
       await guardrails.setCache(link.postId, { reason: 'transient' }, TIKTOK_CACHE_TTLS.transient);
       return { empty: true, reason: 'transient' };
-    } catch {
+    } catch (error) {
+      console.warn(`[TikTok Page Provider] unexpected read failure for post ${link.postId}:`, error);
       return { empty: true, reason: 'safety_unavailable' };
     }
   }

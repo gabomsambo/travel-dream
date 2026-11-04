@@ -190,6 +190,7 @@ async function main(): Promise<void> {
     const { getAdapter } = await import('@/lib/photo-sources');
     const { loadUserPlaces, withRetry, throttle } = await import('@/lib/photo-backfill/backfill');
     const { runBackfill } = await import('@/lib/photo-backfill/runner');
+    const { privateBlobPresence } = await import('@/lib/tiktok-private-blob');
     type PlaceReport = import('@/lib/photo-backfill/runner').PlaceReport;
     type Liveness = import('@/lib/photo-backfill/backfill').Liveness;
     type Decision = import('@/lib/photo-backfill/backfill').Decision;
@@ -247,6 +248,16 @@ async function main(): Promise<void> {
         let pending = liveness.get(target);
         if (!pending) {
           pending = headCheck(target);
+          liveness.set(target, pending);
+        }
+        return pending;
+      },
+      // A private-store photo is unreadable without the store's token, so it
+      // is probed through the store instead of an unauthenticated HEAD.
+      checkPrivateUrl: (target: string): Promise<Liveness> => {
+        let pending = liveness.get(target);
+        if (!pending) {
+          pending = privateBlobPresence(target);
           liveness.set(target, pending);
         }
         return pending;

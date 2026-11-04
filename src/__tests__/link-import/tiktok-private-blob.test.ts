@@ -19,6 +19,7 @@ import {
   getTikTokPrivateBlob,
   isAllowedPrivateBlobUrl,
   privateBlobPathname,
+  privateBlobPresence,
   putTikTokPrivateBlob,
   tikTokPrivateBlobOptions,
 } from '@/lib/tiktok-private-blob';
@@ -137,6 +138,49 @@ describe('getTikTokPrivateBlob', () => {
 
     delete process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
     await expect(getTikTokPrivateBlob(`${STORE}/tiktok-imports/u/1.jpg`)).resolves.toBeNull();
+    expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe('privateBlobPresence', () => {
+  const url = `${STORE}/tiktok-imports/u/1.jpg`;
+
+  it('reports a private photo as live through the store, without downloading it', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    const cancel = jest.fn().mockResolvedValue(undefined);
+    (get as jest.Mock).mockResolvedValue({
+      statusCode: 200,
+      stream: { cancel },
+      headers: new Headers(),
+      blob: {},
+    });
+
+    await expect(privateBlobPresence(url)).resolves.toBe('live');
+
+    expect(get).toHaveBeenCalledWith('tiktok-imports/u/1.jpg', {
+      access: 'private',
+      token: 'vercel_blob_rw_private_token',
+      ifNoneMatch: undefined,
+    });
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('reports a private photo as dead when the store says it is gone', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    (get as jest.Mock).mockResolvedValue(null);
+
+    await expect(privateBlobPresence(url)).resolves.toBe('dead');
+  });
+
+  it('never reports a private photo as dead when the store cannot be read', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    (get as jest.Mock).mockRejectedValue(new Error('Failed to fetch blob: 403'));
+
+    await expect(privateBlobPresence(url)).resolves.toBe('unknown');
+  });
+
+  it('never reports a private photo as dead when the store is not configured', async () => {
+    await expect(privateBlobPresence(url)).resolves.toBe('unknown');
     expect(get).not.toHaveBeenCalled();
   });
 });

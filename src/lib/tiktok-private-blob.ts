@@ -130,6 +130,34 @@ export async function getTikTokPrivateBlob(
   });
 }
 
+/**
+ * Whether a private-store object still exists, probed with the store's own
+ * token.
+ *
+ * A private object is unreadable without that token, so an unauthenticated HEAD
+ * would report every private photo as missing. `dead` is only ever returned for
+ * a store that answered with a definite "not found"; an unconfigured store or
+ * any other failure is `unknown`, because a photo must never be judged missing
+ * just because it could not be read.
+ */
+export async function privateBlobPresence(
+  value: string,
+): Promise<'live' | 'dead' | 'unknown'> {
+  if (!tikTokPrivateBlobOptions() || !privateBlobPathname(value)) return 'unknown';
+
+  let blob: Awaited<ReturnType<typeof getTikTokPrivateBlob>>;
+  try {
+    blob = await getTikTokPrivateBlob(value);
+  } catch {
+    return 'unknown';
+  }
+  // `get` answers a definite miss with null.
+  if (!blob) return 'dead';
+  // The object exists; drop the body instead of downloading it.
+  if (blob.statusCode === 200) void blob.stream.cancel().catch(() => undefined);
+  return 'live';
+}
+
 export async function deleteTikTokPrivateBlob(value: string): Promise<void> {
   const pathname = privateBlobPathname(value);
   const options = tikTokPrivateBlobOptions();

@@ -58,6 +58,7 @@ import path from 'path';
 
 jest.mock('@vercel/blob', () => ({
   del: jest.fn().mockResolvedValue(undefined),
+  list: jest.fn().mockResolvedValue({ blobs: [], hasMore: false }),
   put: jest.fn().mockRejectedValue(new Error('blob writes are not available in the sweep')),
   get: jest.fn().mockResolvedValue({
     statusCode: 200,

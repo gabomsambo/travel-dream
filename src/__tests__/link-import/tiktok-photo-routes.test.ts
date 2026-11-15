@@ -416,6 +416,35 @@ describe('TikTok private photo routes', () => {
     logSpy.mockRestore();
   });
 
+  it('removes every orphaned upload in one store request when the import fails', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      details: { title: 'A carousel', authorHandle: 'alicecreator', contentKind: 'photo' },
+      transient: {
+        imageRefs: [
+          { url: 'https://p16-sign.tiktokcdn.com/one.jpg?x-expires=1900000000', expiresAt: 1_900_000_000_000 },
+          { url: 'https://p16-sign.tiktokcdn.com/two.jpg?x-expires=1900000000', expiresAt: 1_900_000_000_000 },
+        ],
+      },
+    });
+    const uploaded = 'https://travel-dream.private.blob.vercel-storage.com/tiktok-imports/alice/one.jpg';
+    (put as jest.Mock)
+      .mockImplementationOnce(async () => ({ url: uploaded }))
+      .mockImplementationOnce(async () => {
+        throw new Error('Vercel Blob: Failed to fetch blob: 403');
+      });
+    const logSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith([uploaded], expect.objectContaining({ access: 'private' }));
+    logSpy.mockRestore();
+  });
+
   it('tells the user when an image is not what its type claims', async () => {
     await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
     global.fetch = jest.fn(async () => streamResponse(new TextEncoder().encode('not an image at all'))) as unknown as typeof fetch;

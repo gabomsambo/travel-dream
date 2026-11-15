@@ -15,7 +15,7 @@ import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { extensionForMimeType } from '@/lib/image-upload';
 import {
   deleteTikTokBlob,
-  deleteTikTokPrivateBlob,
+  deleteTikTokPrivateBlobs,
   isAllowedPrivateBlobUrl,
   putTikTokPrivateBlob,
   tikTokPrivateBlobOptions,
@@ -372,9 +372,14 @@ export async function POST(
     return NextResponse.json({ imported: ids.length, sourceIds: ids });
   } catch (error) {
     if (uploadedUrls.length > 0) {
-      await Promise.all(uploadedUrls.map((url) => deleteTikTokPrivateBlob(url).catch((cleanupError) => {
+      try {
+        const outcome = await deleteTikTokPrivateBlobs(uploadedUrls);
+        if (outcome.status === 'skipped') {
+          console.warn('[TikTok Photo Import] Skipped private image cleanup:', outcome.reason);
+        }
+      } catch (cleanupError) {
         console.warn('[TikTok Photo Import] Failed to remove unregistered private image:', cleanupError);
-      })));
+      }
     }
     if (claim?.status === 'claimed' && userId && sourceId) {
       await setImportState(userId, sourceId, { status: 'failed', requestedAt: new Date().toISOString() }).catch(() => undefined);

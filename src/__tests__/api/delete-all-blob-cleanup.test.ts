@@ -22,6 +22,7 @@ import { requireAuthForApi } from '@/lib/auth-helpers';
 const PUBLIC_BLOB = 'https://store.public.blob.vercel-storage.com/alice-photo.jpg';
 const SECOND_PUBLIC_BLOB = 'https://store.public.blob.vercel-storage.com/alice-second.jpg';
 const PRIVATE_BLOB = 'https://travel-dream.private.blob.vercel-storage.com/tiktok-imports/alice/photo.jpg';
+const PRIVATE_THUMB = 'https://travel-dream.private.blob.vercel-storage.com/thumbnails/alice/photo_thumb.jpg';
 const SAVED_POST = 'https://www.tiktok.com/@alicecreator/video/7694185850497666335';
 const EXTERNAL_PHOTO = 'https://images.pexels.com/photos/1/pexels-photo.jpeg';
 
@@ -39,6 +40,13 @@ async function insertSource(id: string, type: string, uri: string, userId = ALIC
           VALUES (?,?,?,?,NULL,'completed','{}',?,?)`,
     args: [id, userId, type, uri, now, now],
   });
+}
+
+async function setSourceMeta(id: string, meta: Record<string, unknown>) {
+  const { client } = require('@/db') as {
+    client: { execute: (query: { sql: string; args: unknown[] }) => Promise<unknown> };
+  };
+  await client.execute({ sql: `UPDATE sources SET meta = ? WHERE id = ?`, args: [JSON.stringify(meta), id] });
 }
 
 async function insertAttachment(id: string, placeId: string, uri: string) {
@@ -106,6 +114,24 @@ describe('DELETE /api/data/delete-all', () => {
 
     expect(await readCell('SELECT count(*) FROM sources WHERE user_id = ?', [ALICE.id])).toBe(0);
     expect(await readCell('SELECT count(*) FROM sources WHERE user_id = ?', [BOB.id])).toBe(1);
+  });
+
+  it('deletes the private thumbnail a source meta names even when no attachment carries it', async () => {
+    await setSourceMeta('src_alice_private', {
+      massUpload: { thumbnailUrl: PRIVATE_THUMB },
+      uploadInfo: { thumbnailPath: PRIVATE_THUMB },
+    });
+
+    const response = await route().DELETE();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ success: true });
+
+    const privateBatches = privateDeleteBatches();
+    expect(privateBatches).toHaveLength(1);
+    expect(privateBatches[0]).toContain(PRIVATE_THUMB);
+    expect(publicDeleteBatches()[0]).not.toContain(PRIVATE_THUMB);
+    expect(await readCell('SELECT count(*) FROM sources WHERE user_id = ?', [ALICE.id])).toBe(0);
   });
 
   it('keeps deleting the other store when one deletion fails', async () => {

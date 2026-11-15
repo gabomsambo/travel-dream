@@ -142,7 +142,11 @@ export async function updateSource(
 export async function deleteSource(id: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
     // Capture URI before transaction deletes the record
-    const [source] = await db.select({ uri: sources.uri }).from(sources)
+    const [source] = await db.select({
+      uri: sources.uri,
+      massUploadThumbnail: sql<string | null>`json_extract(${sources.meta}, '$.massUpload.thumbnailUrl')`,
+      uploadInfoThumbnail: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.thumbnailPath')`,
+    }).from(sources)
       .where(and(eq(sources.id, id), eq(sources.userId, userId)))
       .limit(1);
 
@@ -158,9 +162,13 @@ export async function deleteSource(id: string, userId: string): Promise<void> {
       await tx.delete(sources).where(eq(sources.id, id));
     });
 
-    await releaseBlobIfUnreferenced(
+    // The source row is the only record of its thumbnail when the photo was
+    // linked to an existing place, so the thumbnail is released with it.
+    await releaseBlobsIfUnreferenced(
       userId,
-      source.uri,
+      [source.uri, source.massUploadThumbnail, source.uploadInfoThumbnail].filter(
+        (url): url is string => !!url
+      ),
       { excludeSourceIds: [id] },
       '[deleteSource]'
     );

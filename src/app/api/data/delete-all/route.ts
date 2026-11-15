@@ -7,7 +7,7 @@ import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers'
 // See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
 // eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db'
-import { eq, inArray, or } from 'drizzle-orm'
+import { eq, inArray, or, sql } from 'drizzle-orm'
 import {
   places,
   sources,
@@ -40,12 +40,24 @@ export async function DELETE() {
         .where(eq(places.userId, user.id))
       const placeIds = userPlaces.map(p => p.id)
 
-      // Get all source URIs for this user
+      // Get all source URIs for this user, plus the thumbnails their meta names
       const userSources = await tx
-        .select({ id: sources.id, uri: sources.uri })
+        .select({
+          id: sources.id,
+          uri: sources.uri,
+          massUploadThumbnail: sql<string | null>`json_extract(${sources.meta}, '$.massUpload.thumbnailUrl')`,
+          uploadInfoThumbnail: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.thumbnailPath')`,
+        })
         .from(sources)
         .where(eq(sources.userId, user.id))
-      blobUrls.push(...userSources.map(s => s.uri).filter(u => u?.startsWith('https://')))
+      // A thumbnail is recorded in the source meta, and the attachment carries
+      // it only when the source created a new place: a photo linked to an
+      // existing place is named by the source row alone.
+      blobUrls.push(
+        ...userSources
+          .flatMap((s) => [s.uri, s.massUploadThumbnail, s.uploadInfoThumbnail])
+          .filter((u): u is string => !!u && u.startsWith('https://'))
+      )
 
       // Get all attachment URIs for this user's places
       if (placeIds.length > 0) {

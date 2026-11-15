@@ -43,7 +43,12 @@ export function TikTokPhotoImportButton({
   const importing = pending || (status === 'importing' && !isTikTokPhotoImportStale(requestedAt, Date.now()))
 
   if (imported !== null) {
-    return <p className="mt-3 text-sm text-muted-foreground">{imported} photos imported and queued to read.</p>
+    return (
+      <div className="mt-3 space-y-1 text-sm text-muted-foreground">
+        <p>{`${imported} ${imported === 1 ? 'photo' : 'photos'} imported and queued to read.`}</p>
+        <p>Each photo is read to find places, but a place keeps only one of them.</p>
+      </div>
+    )
   }
 
   return (
@@ -54,7 +59,7 @@ export function TikTokPhotoImportButton({
         disabled={importing}
         className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm font-semibold text-primary disabled:cursor-wait disabled:opacity-60"
       >
-        {importing ? 'Importing photos…' : 'Import these photos'}
+        {importing ? 'Importing photos…' : 'Import photos to find places'}
       </button>
       {error && <p role="status" className="mt-2 text-sm text-destructive">{error}</p>}
     </div>

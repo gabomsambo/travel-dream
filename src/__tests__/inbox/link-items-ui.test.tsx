@@ -41,7 +41,7 @@ it('offers the photo import for a post the reader detected as a carousel', () =>
   };
   render(<InboxScreen model={model} linkItems={[carousel]} />);
 
-  expect(screen.getByRole('button', { name: 'Import these photos' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Import photos to find places' })).toBeInTheDocument();
 });
 
 it('hides the photo import for a post that is not a carousel', () => {
@@ -55,7 +55,7 @@ it('hides the photo import for a post that is not a carousel', () => {
   };
   render(<InboxScreen model={model} linkItems={[video]} />);
 
-  expect(screen.queryByRole('button', { name: 'Import these photos' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Import photos to find places' })).not.toBeInTheDocument();
 });
 
 it('keeps the photo import disabled only while an import is recent enough to still be running', () => {
@@ -79,5 +79,28 @@ it('keeps the photo import disabled only while an import is recent enough to sti
   );
 
   expect(screen.getByRole('button', { name: 'Importing photos…' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Import these photos' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Import photos to find places' })).toBeEnabled();
+});
+
+it('says the imported photos are read to find places and that a place keeps only one of them', () => {
+  const model = buildInboxScreen({ uploads: [], toReviewPlaceIds: [], addedAnotherWay: [], now: null });
+  const carousel: InboxLinkItem = {
+    ...noContextLink,
+    kind: 'tiktok-video',
+    contentKind: 'photo',
+    resolutionStatus: 'not-needed',
+  };
+  render(
+    <InboxScreen
+      model={model}
+      linkItems={[
+        { ...carousel, id: 'src_link_offered' },
+        { ...carousel, id: 'src_link_done', photoImportStatus: 'imported', photoImportCount: 3 },
+      ]}
+    />,
+  );
+
+  expect(screen.getByRole('button', { name: 'Import photos to find places' })).toBeInTheDocument();
+  expect(screen.getByText('3 photos imported and queued to read.')).toBeInTheDocument();
+  expect(screen.getByText('Each photo is read to find places, but a place keeps only one of them.')).toBeInTheDocument();
 });

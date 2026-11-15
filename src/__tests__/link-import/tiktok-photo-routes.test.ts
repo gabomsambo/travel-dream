@@ -372,6 +372,64 @@ describe('TikTok private photo routes', () => {
     expect(logged).toContain('throttled');
   });
 
+  it('says the daily reading limit is used up instead of inviting a retry', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason: 'daily_limit' });
+
+    const response = await importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+
+    expect(response.status).toBe(429);
+    const payload = await response.json() as { error?: string };
+    expect(payload.error).toBe("Today's TikTok reading limit is used up. Try again tomorrow.");
+    expect(put).not.toHaveBeenCalled();
+
+    // The link stays saved and can be tapped again later: nothing was queued or lost.
+    const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<{ rows: Record<string, unknown>[] }> } };
+    const parent = await client.execute({ sql: `SELECT meta FROM sources WHERE id = ?`, args: ['src_alice_link'] });
+    expect(JSON.parse(String(parent.rows[0].meta)).link.tiktokPhotoImport.status).toBe('failed');
+    const imported = await client.execute({
+      sql: `SELECT id FROM sources WHERE user_id = ? AND uri LIKE '%.private.blob.vercel-storage.com/%'`,
+      args: [ALICE.id],
+    });
+    expect(imported.rows).toHaveLength(0);
+  });
+
+  it('answers an unexpected failure with a generic message and logs the detail', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    (put as jest.Mock).mockRejectedValue(new Error('Vercel Blob: Failed to fetch blob: 403 store_abc123'));
+    const logSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+
+    expect(response.status).toBe(502);
+    const payload = await response.json() as { error?: string };
+    expect(payload.error).toBe("Couldn't import these photos. Try again.");
+    expect(JSON.stringify(payload)).not.toContain('store_abc123');
+    const logged = logSpy.mock.calls
+      .map((call: unknown[]) => call.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(' '))
+      .join('\n');
+    expect(logged).toContain('store_abc123');
+    logSpy.mockRestore();
+  });
+
+  it('tells the user when an image is not what its type claims', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    global.fetch = jest.fn(async () => streamResponse(new TextEncoder().encode('not an image at all'))) as unknown as typeof fetch;
+
+    const response = await importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+
+    expect(response.status).toBe(502);
+    const payload = await response.json() as { error?: string };
+    expect(payload.error).toBe('TikTok image contents did not match its type');
+    expect(put).not.toHaveBeenCalled();
+  });
+
   it('rejects an untrusted image host before downloading or storing bytes', async () => {
     await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
     (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({

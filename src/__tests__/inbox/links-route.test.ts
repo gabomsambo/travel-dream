@@ -364,7 +364,6 @@ describe('POST /api/inbox/links', () => {
       details: {
         title: 'Pastel de nata walk',
         author: '@creator',
-        thumbnailReference: 'https://cdn.example/thumb.jpg',
       },
       providers: [
         {
@@ -373,7 +372,6 @@ describe('POST /api/inbox/links', () => {
           details: {
             title: 'Pastel de nata walk',
             author: '@creator',
-            thumbnailReference: 'https://cdn.example/thumb.jpg',
           },
           fetchedAt: '2026-01-01T00:00:00.000Z',
         },
@@ -404,7 +402,6 @@ describe('POST /api/inbox/links', () => {
             details: {
               title: 'Pastel de nata walk',
               author: '@creator',
-              thumbnailReference: 'https://cdn.example/thumb.jpg',
             },
             providers: [
               {
@@ -413,7 +410,6 @@ describe('POST /api/inbox/links', () => {
                 details: {
                   title: 'Pastel de nata walk',
                   author: '@creator',
-                  thumbnailReference: 'https://cdn.example/thumb.jpg',
                 },
                 fetchedAt: '2026-01-01T00:00:00.000Z',
               },

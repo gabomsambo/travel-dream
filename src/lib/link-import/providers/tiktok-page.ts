@@ -2,6 +2,7 @@ import type {
   CanonicalSocialLink,
   LinkDetails,
   LinkProviderContext,
+  LinkProviderReason,
   LinkProviderResult,
   TikTokImageRef,
 } from '@/types/link-import';
@@ -31,6 +32,7 @@ type FetchOutcome =
   | { kind: 'body'; body: string; status: number; headers: Headers }
   | { kind: 'http'; status: number; body?: string }
   | { kind: 'throttled' }
+  | { kind: 'daily-limit' }
   | { kind: 'redirect-error' }
   | { kind: 'too-large' }
   | { kind: 'network-error' };
@@ -133,9 +135,9 @@ async function requestTikTokHtml(
     fetcher: Fetcher;
     sleep: (ms: number) => Promise<void>;
     waitForSlot: boolean;
-    /** A read-only allowance check before reserving the global slot. */
+    /** A read-only allowance check before reserving the global slot. Return false to abort as daily-limit. */
     beforeSlotReserved?: () => Promise<boolean>;
-    /** After a global slot is reserved, before HTTP. Return false to abort as throttled. */
+    /** After a global slot is reserved, before HTTP. Return false to abort as daily-limit. */
     afterSlotReserved?: () => Promise<boolean>;
   },
 ): Promise<FetchOutcome> {
@@ -143,7 +145,7 @@ async function requestTikTokHtml(
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const checkedUrl = allowedTikTokPageUrl(current);
     if (!checkedUrl) return { kind: 'redirect-error' };
-    if (options.beforeSlotReserved && !(await options.beforeSlotReserved())) return { kind: 'throttled' };
+    if (options.beforeSlotReserved && !(await options.beforeSlotReserved())) return { kind: 'daily-limit' };
     const slot = await waitForRequestSlot(guardrails, options.waitForSlot || hop > 0, options.sleep);
     if (!slot) return { kind: 'throttled' };
     if (options.afterSlotReserved) {
@@ -156,7 +158,7 @@ async function requestTikTokHtml(
       }
       if (!allowed) {
         await guardrails.releaseRequestSlot(slot);
-        return { kind: 'throttled' };
+        return { kind: 'daily-limit' };
       }
     }
     let response: Response;
@@ -333,6 +335,22 @@ function parseRehydration(body: string, link: CanonicalSocialLink):
   return { ok: true, ...mapPost(item, link) };
 }
 
+/**
+ * A failed read reports its own failure but never shadows a post that read
+ * fine before: positives and negatives share one cache key, and a forced
+ * re-read skips the cache on the way in, so the write is what must hold back.
+ */
+async function cacheNegative(
+  guardrails: TikTokGuardrails,
+  postId: string,
+  reason: LinkProviderReason,
+  ttlMs: number,
+): Promise<void> {
+  const existing = await guardrails.getCache(postId);
+  if (existing?.details) return;
+  await guardrails.setCache(postId, { reason }, ttlMs);
+}
+
 export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsProvider {
   const enabled = deps.enabled ?? defaultEnabled;
   const getGuardrails = deps.getGuardrails ?? getTikTokGuardrails;
@@ -383,7 +401,7 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
           if (!parsed.ok) {
             if (parsed.breaker) await guardrails.openBreaker();
             const ttl = parsed.reason === 'gone' ? TIKTOK_CACHE_TTLS.gone : TIKTOK_CACHE_TTLS.transient;
-            await guardrails.setCache(link.postId, { reason: parsed.reason }, ttl);
+            await cacheNegative(guardrails, link.postId, parsed.reason, ttl);
             return { empty: true, reason: parsed.reason };
           }
           await guardrails.clearBreaker();
@@ -403,14 +421,15 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
           continue;
         }
         if (outcome.kind === 'throttled') return { empty: true, reason: 'throttled' };
+        if (outcome.kind === 'daily-limit') return { empty: true, reason: 'daily_limit' };
         if (outcome.kind === 'too-large') {
-          await guardrails.setCache(link.postId, { reason: 'format_changed' }, TIKTOK_CACHE_TTLS.transient);
+          await cacheNegative(guardrails, link.postId, 'format_changed', TIKTOK_CACHE_TTLS.transient);
           return { empty: true, reason: 'format_changed' };
         }
-        await guardrails.setCache(link.postId, { reason: 'unavailable' }, TIKTOK_CACHE_TTLS.transient);
+        await cacheNegative(guardrails, link.postId, 'unavailable', TIKTOK_CACHE_TTLS.transient);
         return { empty: true, reason: 'unavailable' };
       }
-      await guardrails.setCache(link.postId, { reason: 'transient' }, TIKTOK_CACHE_TTLS.transient);
+      await cacheNegative(guardrails, link.postId, 'transient', TIKTOK_CACHE_TTLS.transient);
       return { empty: true, reason: 'transient' };
     } catch (error) {
       console.warn(`[TikTok Page Provider] unexpected read failure for post ${link.postId}:`, error);

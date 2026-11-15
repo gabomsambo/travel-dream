@@ -276,6 +276,46 @@ describe('processQueue', () => {
     expect(source.processingInterruptions).toBe(2);
   });
 
+  it('keeps deferring TikTok links while the daily reading allowance is spent', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Caption supplied by the user',
+      processingInterruptions: 2,
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          providers: [],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason: 'daily_limit' });
+
+    const result = await processQueue({ workerId: 'w_tiktok_daily' });
+
+    expect(tiktokPageProvider.getDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: '7694185850497666335', platform: 'tiktok' }),
+      { userId: source.userId },
+    );
+    expect(mockDeferral).toHaveBeenCalledTimes(1);
+    expect(mockDeferral).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.stringContaining('daily_limit'),
+    );
+    expect(mockInterruption).not.toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(mockExtractFromText).not.toHaveBeenCalled();
+    expect(result.deferred).toBe(1);
+    expect(result.interrupted).toBe(0);
+    expect(source.processingInterruptions).toBe(2);
+  });
+
   it('completes blocked TikTok reads through the saved-link fallback and records guidance', async () => {
     const fallback = 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335';
     const source = createMockSource({

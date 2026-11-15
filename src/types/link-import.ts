@@ -35,7 +35,6 @@ export interface LinkDetails {
   placeCity?: string;
   placeSourceId?: string;
   title?: string;
-  thumbnailReference?: string;
   /** Epoch milliseconds, the same unit as `TikTokImageRef.expiresAt`. */
   postedAt?: number;
   contentKind?: 'photo' | 'video';
@@ -50,6 +49,8 @@ export type LinkProviderReason =
   | 'format_changed'
   | 'transient'
   | 'throttled'
+  /** The user's per-day page-read allowance is spent; distinct from the app-wide slot being busy. */
+  | 'daily_limit'
   | 'safety_unavailable';
 
 /** Signed TikTok CDN URLs are transient and must never enter persisted details. */

@@ -30,6 +30,19 @@ const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 100_000_000;
 const CONTENT_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const NO_CAROUSEL_MESSAGE = 'This link has no TikTok photo carousel.';
+const GENERIC_FAILURE_MESSAGE = "Couldn't import these photos. Try again.";
+
+/**
+ * A failure this route raises on purpose, with copy written for the user. Any
+ * other error (database, image decoder, Blob store) is logged and answered
+ * with the generic message, so driver internals never reach the browser.
+ */
+class PhotoImportError extends Error {
+  constructor(message: string, readonly status: 400 | 422 | 429 | 502) {
+    super(message);
+    this.name = 'PhotoImportError';
+  }
+}
 
 interface ImportedImage {
   url: string;
@@ -61,7 +74,7 @@ function safeCdnUrl(value: string): URL | null {
 
 async function readImageBytes(response: Response): Promise<Buffer> {
   const contentLength = Number(response.headers.get('content-length') ?? 0);
-  if (contentLength > MAX_IMAGE_BYTES) throw new Error('TikTok image is too large');
+  if (contentLength > MAX_IMAGE_BYTES) throw new PhotoImportError('TikTok image is too large', 422);
   if (!response.body) return Buffer.alloc(0);
 
   const reader = response.body.getReader();
@@ -73,7 +86,7 @@ async function readImageBytes(response: Response): Promise<Buffer> {
     total += part.value.byteLength;
     if (total > MAX_IMAGE_BYTES) {
       await reader.cancel().catch(() => undefined);
-      throw new Error('TikTok image is too large');
+      throw new PhotoImportError('TikTok image is too large', 422);
     }
     chunks.push(part.value);
   }
@@ -84,7 +97,7 @@ async function downloadImage(ref: TikTokImageRef, fetcher: typeof fetch = fetch)
   let current = ref.url;
   for (let hop = 0; hop <= 2; hop += 1) {
     const checked = safeCdnUrl(current);
-    if (!checked) throw new Error('TikTok image host is not allowed');
+    if (!checked) throw new PhotoImportError('TikTok image host is not allowed', 422);
     const response = await fetcher(checked, {
       method: 'GET',
       redirect: 'manual',
@@ -97,20 +110,21 @@ async function downloadImage(ref: TikTokImageRef, fetcher: typeof fetch = fetch)
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       const next = location ? safeCdnUrl(new URL(location, checked).toString()) : null;
-      if (!next || hop === 2) throw new Error('TikTok image redirect was not allowed');
+      if (!next || hop === 2) throw new PhotoImportError('TikTok image redirect was not allowed', 422);
       current = next.toString();
       continue;
     }
-    if (!response.ok) throw new Error(`TikTok image returned HTTP ${response.status}`);
+    if (!response.ok) throw new PhotoImportError(`TikTok image returned HTTP ${response.status}`, 502);
     const mimeType = (response.headers.get('content-type') ?? '').split(';', 1)[0].trim().toLowerCase();
-    if (!CONTENT_TYPES.has(mimeType)) throw new Error('TikTok image type is not allowed');
+    if (!CONTENT_TYPES.has(mimeType)) throw new PhotoImportError('TikTok image type is not allowed', 422);
     const extension = extensionForMimeType(mimeType);
-    if (!extension || !['jpg', 'png', 'webp'].includes(extension)) throw new Error('TikTok image type is not allowed');
+    if (!extension || !['jpg', 'png', 'webp'].includes(extension)) throw new PhotoImportError('TikTok image type is not allowed', 422);
     const bytes = await readImageBytes(response);
-    if (bytes.byteLength === 0) throw new Error('TikTok image was empty');
-    const metadata = await sharp(bytes, { limitInputPixels: MAX_IMAGE_PIXELS }).metadata();
+    if (bytes.byteLength === 0) throw new PhotoImportError('TikTok image was empty', 502);
+    // Bytes the decoder cannot read are a mismatch too, not an internal error.
+    const metadata = await sharp(bytes, { limitInputPixels: MAX_IMAGE_PIXELS }).metadata().catch(() => null);
     const expectedFormat = extension === 'jpg' ? 'jpeg' : extension;
-    if (metadata.format !== expectedFormat) throw new Error('TikTok image contents did not match its type');
+    if (!metadata || metadata.format !== expectedFormat) throw new PhotoImportError('TikTok image contents did not match its type', 502);
     return {
       url: current,
       bytes,
@@ -120,7 +134,7 @@ async function downloadImage(ref: TikTokImageRef, fetcher: typeof fetch = fetch)
       ...(metadata.height ? { height: metadata.height } : {}),
     };
   }
-  throw new Error('TikTok image redirect limit reached');
+  throw new PhotoImportError('TikTok image redirect limit reached', 502);
 }
 
 function scheduleQueue(): void {
@@ -231,7 +245,7 @@ export async function POST(
     const storedLink = claim.source.meta?.link;
     const parsed = storedLink?.canonicalUrl ? parseSocialLink(storedLink.canonicalUrl) : null;
     if (!parsed?.supported || parsed.link.platform !== 'tiktok' || !isTikTokPostKind(parsed.link.kind)) {
-      throw new Error(NO_CAROUSEL_MESSAGE);
+      throw new PhotoImportError(NO_CAROUSEL_MESSAGE, 400);
     }
     const output = await tiktokPageProvider.getDetails(parsed.link, {
       userId: user.id,
@@ -244,26 +258,32 @@ export async function POST(
     if (!details || providerResult?.reason) {
       const reason = providerResult?.reason;
       if (reason) console.warn('[TikTok Photo Import] Page read failed:', reason);
-      throw new Error(tiktokReaderMessage(reason, false) ?? "Couldn't read TikTok.");
+      // A spent daily allowance is not a transient failure: say so plainly and
+      // answer 429 so the tap is not retried until the window rolls. The link
+      // itself stays saved, so nothing is lost by not queueing the import.
+      throw new PhotoImportError(
+        tiktokReaderMessage(reason, false) ?? "Couldn't read TikTok.",
+        reason === 'daily_limit' ? 429 : 502,
+      );
     }
-    if (details.contentKind !== 'photo' || refs.length === 0) throw new Error(NO_CAROUSEL_MESSAGE);
-    if (refs.length > MAX_IMAGES) throw new Error('TikTok carousel has too many images to import at once');
+    if (details.contentKind !== 'photo' || refs.length === 0) throw new PhotoImportError(NO_CAROUSEL_MESSAGE, 400);
+    if (refs.length > MAX_IMAGES) throw new PhotoImportError('TikTok carousel has too many images to import at once', 422);
 
     const now = Date.now();
     const freshRefs = refs.filter((ref) => !ref.expiresAt || ref.expiresAt > now);
-    if (freshRefs.length === 0) throw new Error('TikTok image links have expired; try again');
+    if (freshRefs.length === 0) throw new PhotoImportError('TikTok image links have expired; try again', 502);
 
     const images: ImportedImage[] = [];
     let totalBytes = 0;
     for (const ref of freshRefs) {
       const image = await downloadImage(ref);
       totalBytes += image.bytes.byteLength;
-      if (totalBytes > MAX_TOTAL_BYTES) throw new Error('TikTok carousel is too large to import');
+      if (totalBytes > MAX_TOTAL_BYTES) throw new PhotoImportError('TikTok carousel is too large to import', 422);
       images.push(image);
     }
 
     const handle = (details.authorHandle ?? parsed.link.handle ?? storedLink?.handle ?? '').replace(/^@/, '');
-    if (!handle) throw new Error('TikTok creator handle is missing');
+    if (!handle) throw new PhotoImportError('TikTok creator handle is missing', 502);
     const postUrl = storedLink?.canonicalUrl ?? parsed.link.canonicalUrl;
     const ids = images.map(() => `src_${randomUUID()}`);
     const rows: Array<Omit<typeof sourcesCurrentSchema.$inferInsert, 'userId'>> = [];
@@ -333,7 +353,7 @@ export async function POST(
     const tdb = forUser(user.id);
     await tdb.transaction(async (tx) => {
       const [currentParent] = await tx.select(sourcesCurrentSchema, eq(sourcesCurrentSchema.id, requestedSourceId)).limit(1);
-      if (!currentParent?.meta?.link) throw new Error('Inbox link was removed during photo import');
+      if (!currentParent?.meta?.link) throw new PhotoImportError('Inbox link was removed during photo import', 502);
       await tx.insertMany(sourcesCurrentSchema, rows);
       await tx.update(sourcesCurrentSchema, {
         meta: {
@@ -360,13 +380,11 @@ export async function POST(
       await setImportState(userId, sourceId, { status: 'failed', requestedAt: new Date().toISOString() }).catch(() => undefined);
     }
     if (isAuthError(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    const message = error instanceof Error ? error.message : "Couldn't read TikTok.";
-    console.warn('[TikTok Photo Import] Failed:', message);
-    const status = /too large|too many images|type is not allowed|host is not allowed|redirect was not allowed/i.test(message)
-      ? 422
-      : message === NO_CAROUSEL_MESSAGE
-        ? 400
-        : 502;
-    return NextResponse.json({ error: message }, { status });
+    if (error instanceof PhotoImportError) {
+      console.warn('[TikTok Photo Import] Failed:', error.message);
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error('[TikTok Photo Import] Unexpected failure:', error);
+    return NextResponse.json({ error: GENERIC_FAILURE_MESSAGE }, { status: 502 });
   }
 }

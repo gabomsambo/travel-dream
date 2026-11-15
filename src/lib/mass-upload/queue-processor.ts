@@ -511,7 +511,9 @@ async function linkTextForExtraction(
   const result = isLinkProviderResult(output) ? output : undefined;
   const details = isLinkDetails(output) ? output : result?.details;
   const reason = result?.reason;
-  if (reason === 'throttled') {
+  // Both the busy app-wide slot and a spent daily allowance are waits, not
+  // verdicts: excess reads queue until there is room rather than being dropped.
+  if (reason === 'throttled' || reason === 'daily_limit') {
     throw new ProcessingDeferred(`TikTok page read deferred: ${reason}`);
   }
   // A read the reader could not complete right now (breaker open, a cached

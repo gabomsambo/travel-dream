@@ -308,7 +308,7 @@ describe('TikTok page provider', () => {
 
     await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({
       empty: true,
-      reason: 'throttled',
+      reason: 'daily_limit',
     });
     expect(hasDailyAllowance).toHaveBeenCalledTimes(1);
     expect(guardrails.reserveRequestSlot).not.toHaveBeenCalled();
@@ -330,7 +330,7 @@ describe('TikTok page provider', () => {
 
     await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({
       empty: true,
-      reason: 'throttled',
+      reason: 'daily_limit',
     });
     expect(guardrails.reserveRequestSlot).toHaveBeenCalledTimes(1);
     expect(guardrails.releaseRequestSlot).toHaveBeenCalledWith('slot-1');
@@ -360,9 +360,56 @@ describe('TikTok page provider', () => {
 
     const dailyFetcher = jest.fn(async () => response(html('video-post.html')));
     const daily = setup(dailyFetcher, { daily: false });
-    await expect(daily.provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'throttled' });
+    await expect(daily.provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({ reason: 'daily_limit' });
     expect(daily.guardrails.reserveRequestSlot).not.toHaveBeenCalled();
     expect(dailyFetcher).not.toHaveBeenCalled();
+  });
+
+  it('keeps a cached post when a forced re-read fails', async () => {
+    const postId = '7694185850497666335';
+    const fetcher = jest.fn()
+      .mockResolvedValueOnce(response(html('video-post.html')))
+      .mockResolvedValueOnce(response('', 503))
+      .mockResolvedValueOnce(response('', 503))
+      .mockResolvedValueOnce(response(html('gone.html')))
+      .mockResolvedValueOnce(response(html('unavailable.html')))
+      .mockResolvedValueOnce(response('x'.repeat(2 * 1024 * 1024 + 1)));
+    const { provider, guardrails } = setup(fetcher);
+
+    await provider.getDetails(link(), { userId: 'alice' });
+    expect(guardrails.cache.get(postId)).toMatchObject({ details: { placeName: 'Cafe Example' } });
+
+    // Each failed re-read reports its own failure to the caller that forced it...
+    const forced = { userId: 'alice', forceRefresh: true };
+    await expect(provider.getDetails(link(), forced)).resolves.toMatchObject({ empty: true, reason: 'transient' });
+    await expect(provider.getDetails(link(), forced)).resolves.toMatchObject({ empty: true, reason: 'gone' });
+    await expect(provider.getDetails(link(), forced)).resolves.toMatchObject({ empty: true, reason: 'unavailable' });
+    await expect(provider.getDetails(link(), forced)).resolves.toMatchObject({ empty: true, reason: 'format_changed' });
+    expect(fetcher).toHaveBeenCalledTimes(6);
+
+    // ...and none of them replaces what the post read as before.
+    expect(guardrails.cache.get(postId)).toMatchObject({ details: { placeName: 'Cafe Example' } });
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toMatchObject({
+      details: { placeName: 'Cafe Example' },
+    });
+    expect(fetcher).toHaveBeenCalledTimes(6);
+  });
+
+  it('reports a spent daily allowance apart from a busy app-wide slot', async () => {
+    const fetcher = jest.fn(async () => response(html('video-post.html')));
+    const spent = setup(fetcher, { daily: false });
+    await expect(spent.provider.getDetails(link(), { userId: 'alice', waitForSlot: true })).resolves.toEqual({
+      empty: true,
+      reason: 'daily_limit',
+    });
+
+    const busy = setup(fetcher);
+    busy.guardrails.reserveRequestSlot.mockResolvedValue(null);
+    await expect(busy.provider.getDetails(link(), { userId: 'alice' })).resolves.toEqual({
+      empty: true,
+      reason: 'throttled',
+    });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('keeps the diagnostic list fixed and bounded', () => {

@@ -33,6 +33,7 @@ export function tiktokReaderMessage(reason: string | undefined, errored: boolean
   if (reason === 'gone') return "Couldn't read TikTok because the post is gone.";
   if (reason === 'unavailable') return "Couldn't read TikTok because the post is unavailable.";
   if (reason === 'format_changed') return "Couldn't read TikTok's page format.";
+  if (reason === 'daily_limit') return "Today's TikTok reading limit is used up. Try again tomorrow.";
   if (reason === 'blocked' || reason === 'transient' || reason === 'throttled' || reason === 'safety_unavailable' || errored) {
     return "Couldn't read TikTok right now.";
   }

@@ -4,6 +4,7 @@ import { ALICE, BOB, FIXTURE, assertLocalDatabase, readCell, resetTenantFixture 
 jest.mock('@vercel/blob', () => ({
   del: jest.fn(),
   get: jest.fn(),
+  list: jest.fn(),
   put: jest.fn(),
 }));
 jest.mock('@/lib/auth-helpers', () => ({
@@ -15,8 +16,8 @@ jest.mock('@/lib/tiktok-private-blob', () => ({
   deleteTikTokPrivateBlobs: jest.fn(),
 }));
 
-import { del } from '@vercel/blob';
-import { deleteTikTokPrivateBlobs } from '@/lib/tiktok-private-blob';
+import { del, list } from '@vercel/blob';
+import { deleteTikTokPrivateBlobs, tikTokImportPrefix } from '@/lib/tiktok-private-blob';
 import { requireAuthForApi } from '@/lib/auth-helpers';
 
 const PUBLIC_BLOB = 'https://store.public.blob.vercel-storage.com/alice-photo.jpg';
@@ -78,13 +79,22 @@ function warnings(): string {
     .join('\n');
 }
 
+const priorPrivateToken = process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
+
 beforeAll(() => assertLocalDatabase());
+
+afterEach(() => {
+  if (priorPrivateToken === undefined) delete process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
+  else process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = priorPrivateToken;
+});
 
 beforeEach(async () => {
   await resetTenantFixture();
   (requireAuthForApi as jest.Mock).mockResolvedValue(ALICE);
-  (del as jest.Mock).mockResolvedValue(undefined);
-  (deleteTikTokPrivateBlobs as jest.Mock).mockResolvedValue({ status: 'deleted', count: 1 });
+  delete process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
+  (del as jest.Mock).mockReset().mockResolvedValue(undefined);
+  (list as jest.Mock).mockReset().mockResolvedValue({ blobs: [], hasMore: false });
+  (deleteTikTokPrivateBlobs as jest.Mock).mockReset().mockResolvedValue({ status: 'deleted', count: 1 });
   await insertSource('src_alice_public', 'screenshot', PUBLIC_BLOB);
   await insertSource('src_alice_public_two', 'screenshot', SECOND_PUBLIC_BLOB);
   await insertSource('src_alice_private', 'screenshot', PRIVATE_BLOB);
@@ -131,6 +141,36 @@ describe('DELETE /api/data/delete-all', () => {
     expect(privateBatches).toHaveLength(1);
     expect(privateBatches[0]).toContain(PRIVATE_THUMB);
     expect(publicDeleteBatches()[0]).not.toContain(PRIVATE_THUMB);
+    expect(await readCell('SELECT count(*) FROM sources WHERE user_id = ?', [ALICE.id])).toBe(0);
+  });
+
+  it('sweeps the caller\'s own import prefix so photos no row names are deleted too', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    const alicePrefix = tikTokImportPrefix(ALICE.id);
+    // Uploaded by an import that was cut off before it inserted its rows.
+    const orphan = `https://travel-dream.private.blob.vercel-storage.com/${alicePrefix}7694185850497666335/1-a1b2c3.jpg`;
+    (list as jest.Mock).mockResolvedValue({ blobs: [{ url: orphan }], hasMore: false });
+
+    const response = await route().DELETE();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ success: true });
+
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ prefix: alicePrefix, token: 'vercel_blob_rw_private_token' }));
+    expect((list as jest.Mock).mock.calls[0][0].prefix).not.toBe(tikTokImportPrefix(BOB.id));
+    expect(del).toHaveBeenCalledWith([orphan], { access: 'private', token: 'vercel_blob_rw_private_token' });
+  });
+
+  it('still reports success when the import sweep cannot reach the store', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    (list as jest.Mock).mockRejectedValue(new Error('blob store unavailable'));
+
+    const response = await route().DELETE();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ success: true });
+    expect(warnings()).toContain('TikTok import sweep failed');
     expect(await readCell('SELECT count(*) FROM sources WHERE user_id = ?', [ALICE.id])).toBe(0);
   });
 

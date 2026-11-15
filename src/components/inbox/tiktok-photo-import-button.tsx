@@ -46,7 +46,7 @@ export function TikTokPhotoImportButton({
     return (
       <div className="mt-3 space-y-1 text-sm text-muted-foreground">
         <p>{`${imported} ${imported === 1 ? 'photo' : 'photos'} imported and queued to read.`}</p>
-        <p>Each photo is read to find places, but a place keeps only one of them.</p>
+        <p>Each photo is read to find places. A photo is kept only on a place this import creates; a place you already had keeps its own photos.</p>
       </div>
     )
   }

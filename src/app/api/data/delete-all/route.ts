@@ -21,7 +21,7 @@ import {
 } from '@/db/schema'
 import { del } from '@vercel/blob'
 import { isAllowedBlobUrl } from '@/lib/blob-url'
-import { deleteTikTokPrivateBlobs, isPrivateBlobUrl } from '@/lib/tiktok-private-blob'
+import { deleteTikTokImportsForUser, deleteTikTokPrivateBlobs, isPrivateBlobUrl } from '@/lib/tiktok-private-blob'
 
 export const dynamic = 'force-dynamic'
 
@@ -115,6 +115,18 @@ export async function DELETE() {
       } catch (error) {
         console.warn(`[delete-all] Private TikTok blob cleanup failed (${privateUrls.length} URLs)`, error)
       }
+    }
+
+    // Imported TikTok photos are uploaded before the rows that name them, so an
+    // import cut off in between leaves objects no row above could list. Sweep
+    // the user's own import prefix so those go too.
+    try {
+      const swept = await deleteTikTokImportsForUser(user.id)
+      if (swept.status === 'skipped') {
+        console.warn(`[delete-all] Skipped the TikTok import sweep: ${swept.reason}`)
+      }
+    } catch (error) {
+      console.warn('[delete-all] TikTok import sweep failed', error)
     }
 
     return NextResponse.json({

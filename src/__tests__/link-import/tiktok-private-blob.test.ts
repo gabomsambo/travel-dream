@@ -11,10 +11,12 @@ jest.mock('@vercel/blob', () => ({
   get: jest.fn(),
   put: jest.fn(),
   del: jest.fn(),
+  list: jest.fn(),
 }));
 
-import { del, get, put } from '@vercel/blob';
+import { del, get, list, put } from '@vercel/blob';
 import {
+  deleteTikTokImportsForUser,
   deleteTikTokPrivateBlob,
   deleteTikTokPrivateBlobs,
   getTikTokPrivateBlob,
@@ -22,6 +24,7 @@ import {
   privateBlobPathname,
   privateBlobPresence,
   putTikTokPrivateBlob,
+  tikTokImportPrefix,
   tikTokPrivateBlobOptions,
 } from '@/lib/tiktok-private-blob';
 
@@ -190,6 +193,60 @@ describe('deleteTikTokPrivateBlob', () => {
   it('refuses a traversal path before touching the store', async () => {
     process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
     await expect(deleteTikTokPrivateBlob(`${STORE}/tiktok-imports/%2e%2e/other/1.jpg`)).rejects.toThrow();
+    expect(del).not.toHaveBeenCalled();
+  });
+});
+
+describe('deleteTikTokImportsForUser', () => {
+  const options = { access: 'private', token: 'vercel_blob_rw_private_token' };
+
+  it('gives every user their own import prefix', () => {
+    expect(tikTokImportPrefix('user-alice')).toMatch(/^tiktok-imports\/[0-9a-f]{24}\/$/);
+    expect(tikTokImportPrefix('user-alice')).toBe(tikTokImportPrefix('user-alice'));
+    expect(tikTokImportPrefix('user-alice')).not.toBe(tikTokImportPrefix('user-bob'));
+  });
+
+  it('lists only the user\'s own prefix and deletes what it finds in one request', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    const prefix = tikTokImportPrefix('user-alice');
+    const mine = [`${STORE}/${prefix}7694/1-abc.jpg`, `${STORE}/${prefix}7694/2-def.jpg`];
+    (list as jest.Mock).mockResolvedValue({
+      // A store that answered with something outside the prefix must not get it deleted.
+      blobs: [...mine, `${STORE}/${tikTokImportPrefix('user-bob')}7694/1-xyz.jpg`, `${STORE}/thumbnails/other.jpg`]
+        .map((url) => ({ url })),
+      hasMore: false,
+    });
+
+    await expect(deleteTikTokImportsForUser('user-alice')).resolves.toEqual({ status: 'deleted', count: 2 });
+
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith({ prefix, limit: 1000, token: 'vercel_blob_rw_private_token' });
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(mine, options);
+  });
+
+  it('follows the listing cursor until the prefix is exhausted', async () => {
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    const prefix = tikTokImportPrefix('user-alice');
+    const first = `${STORE}/${prefix}1/1.jpg`;
+    const second = `${STORE}/${prefix}2/1.jpg`;
+    (list as jest.Mock)
+      .mockResolvedValueOnce({ blobs: [{ url: first }], hasMore: true, cursor: 'next-page' })
+      .mockResolvedValueOnce({ blobs: [{ url: second }], hasMore: false });
+
+    await expect(deleteTikTokImportsForUser('user-alice')).resolves.toEqual({ status: 'deleted', count: 2 });
+
+    expect(list).toHaveBeenNthCalledWith(2, { prefix, limit: 1000, token: 'vercel_blob_rw_private_token', cursor: 'next-page' });
+    expect(del).toHaveBeenCalledWith([first, second], options);
+  });
+
+  it('sends nothing to the store when the prefix is empty or the store is not configured', async () => {
+    await expect(deleteTikTokImportsForUser('user-alice')).resolves.toEqual({ status: 'skipped', reason: 'not_configured' });
+    expect(list).not.toHaveBeenCalled();
+
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_private_token';
+    (list as jest.Mock).mockResolvedValue({ blobs: [], hasMore: false });
+    await expect(deleteTikTokImportsForUser('user-alice')).resolves.toEqual({ status: 'deleted', count: 0 });
     expect(del).not.toHaveBeenCalled();
   });
 });

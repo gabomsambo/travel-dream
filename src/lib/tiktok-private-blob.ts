@@ -1,4 +1,5 @@
-import { del, get, put } from '@vercel/blob';
+import { createHash } from 'crypto';
+import { del, get, list, put } from '@vercel/blob';
 
 const VERCEL_PRIVATE_BLOB_HOST_SUFFIX = '.private.blob.vercel-storage.com';
 
@@ -16,6 +17,16 @@ export function tikTokPrivateBlobOptions(): TikTokPrivateBlobOptions | null {
   const token = process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN?.trim();
   if (!token) return null;
   return { access: 'private', token };
+}
+
+/**
+ * Where one user's imported TikTok photos live in the private store. The key
+ * is derived from the user id alone, so the import that writes under it and
+ * the delete-all sweep that lists it can only ever name that user's objects.
+ */
+export function tikTokImportPrefix(userId: string): string {
+  const userKey = createHash('sha256').update(userId).digest('hex').slice(0, 24);
+  return `tiktok-imports/${userKey}/`;
 }
 
 export function isPrivateBlobUrl(value: string): boolean {
@@ -186,6 +197,45 @@ export async function deleteTikTokPrivateBlobs(
   const urls = values.filter((value) => privateBlobPathname(value) !== null);
   if (urls.length === 0) return { status: 'skipped', reason: 'no_private_urls', count: values.length };
   await del(urls, options);
+  return { status: 'deleted', count: urls.length };
+}
+
+const SWEEP_PAGE_SIZE = 1000;
+const SWEEP_MAX_PAGES = 20;
+
+export type TikTokImportSweepOutcome =
+  | { status: 'deleted'; count: number }
+  | { status: 'skipped'; reason: 'not_configured' };
+
+/**
+ * Deletes every private object under one user's import prefix, whether or not
+ * a row still names it.
+ *
+ * An import uploads its photos before it inserts the rows that reference
+ * them, so a request killed in between leaves objects no row points at; the
+ * URL lists collected from rows cannot see those. Listing the prefix can. The
+ * store is asked only for this user's prefix, and anything it returns outside
+ * that prefix is ignored rather than deleted.
+ */
+export async function deleteTikTokImportsForUser(userId: string): Promise<TikTokImportSweepOutcome> {
+  const options = tikTokPrivateBlobOptions();
+  if (!options) return { status: 'skipped', reason: 'not_configured' };
+  const prefix = tikTokImportPrefix(userId);
+
+  const urls: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < SWEEP_MAX_PAGES; page += 1) {
+    const result = await list({ prefix, limit: SWEEP_PAGE_SIZE, token: options.token, ...(cursor ? { cursor } : {}) });
+    for (const blob of result.blobs) {
+      if (privateBlobPathname(blob.url)?.startsWith(prefix)) urls.push(blob.url);
+    }
+    if (!result.hasMore || !result.cursor) break;
+    cursor = result.cursor;
+  }
+
+  for (let start = 0; start < urls.length; start += SWEEP_PAGE_SIZE) {
+    await del(urls.slice(start, start + SWEEP_PAGE_SIZE), options);
+  }
   return { status: 'deleted', count: urls.length };
 }
 

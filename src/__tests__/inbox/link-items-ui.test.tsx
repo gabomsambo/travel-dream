@@ -82,7 +82,7 @@ it('keeps the photo import disabled only while an import is recent enough to sti
   expect(screen.getByRole('button', { name: 'Import photos to find places' })).toBeEnabled();
 });
 
-it('says the imported photos are read to find places and that a place keeps only one of them', () => {
+it('says the imported photos are read to find places and that a photo is kept only on a place the import creates', () => {
   const model = buildInboxScreen({ uploads: [], toReviewPlaceIds: [], addedAnotherWay: [], now: null });
   const carousel: InboxLinkItem = {
     ...noContextLink,
@@ -102,5 +102,9 @@ it('says the imported photos are read to find places and that a place keeps only
 
   expect(screen.getByRole('button', { name: 'Import photos to find places' })).toBeInTheDocument();
   expect(screen.getByText('3 photos imported and queued to read.')).toBeInTheDocument();
-  expect(screen.getByText('Each photo is read to find places, but a place keeps only one of them.')).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      'Each photo is read to find places. A photo is kept only on a place this import creates; a place you already had keeps its own photos.',
+    ),
+  ).toBeInTheDocument();
 });

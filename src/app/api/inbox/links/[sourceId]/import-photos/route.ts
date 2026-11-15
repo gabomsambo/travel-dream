@@ -18,6 +18,7 @@ import {
   deleteTikTokPrivateBlobs,
   isAllowedPrivateBlobUrl,
   putTikTokPrivateBlob,
+  tikTokImportPrefix,
   tikTokPrivateBlobOptions,
 } from '@/lib/tiktok-private-blob';
 import type { LinkSourceMeta, TikTokImageRef } from '@/types/link-import';
@@ -206,10 +207,6 @@ async function claimImport(userId: string, sourceId: string): Promise<Claim> {
   });
 }
 
-function userKey(userId: string): string {
-  return createHash('sha256').update(userId).digest('hex').slice(0, 24);
-}
-
 export async function POST(
   _request: NextRequest,
   context: { params: Promise<{ sourceId: string }> },
@@ -291,7 +288,7 @@ export async function POST(
       const image = images[index];
       const filename = `@${handle}-${parsed.link.postId}-${index + 1}.${image.extension}`;
       const blob = await putTikTokPrivateBlob(
-        `tiktok-imports/${userKey(user.id)}/${parsed.link.postId}/${index + 1}.${image.extension}`,
+        `${tikTokImportPrefix(user.id)}${parsed.link.postId}/${index + 1}.${image.extension}`,
         image.bytes,
         image.mimeType,
       );

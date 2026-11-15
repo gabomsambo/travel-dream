@@ -23,6 +23,8 @@ export interface InboxLinkItem {
   /** What the page reader detected: a carousel post or a video post. */
   contentKind?: 'photo' | 'video' | null;
   photoImportStatus?: 'importing' | 'imported' | 'failed' | null;
+  /** When the current import was requested; lets the Inbox offer a retry once an `importing` one has gone stale. */
+  photoImportRequestedAt?: string | null;
   photoImportCount?: number;
   places: Array<{ id: string; name: string; status: string }>;
 }
@@ -101,6 +103,7 @@ export async function getInboxLinkItems(userId: string): Promise<InboxLinkItem[]
         : null,
       contentKind: details?.contentKind ?? null,
       photoImportStatus: importState?.status ?? null,
+      photoImportRequestedAt: importState?.requestedAt ?? null,
       photoImportCount: importState?.count ?? 0,
       places: sourcePlaces.get(source.id) ?? [],
     }];

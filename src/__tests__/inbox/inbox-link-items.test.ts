@@ -124,3 +124,31 @@ it('shows paste-caption and add-photos guidance after a blocked TikTok read', as
   const item = rows.find((row) => row.id === 'src_alice_tiktok_blocked');
   expect(item).toMatchObject({ readerMessage: "Couldn't read TikTok right now." });
 });
+
+it('carries when a photo import was requested so the Inbox can offer a stale one again', async () => {
+  const requestedAt = '2026-10-20T12:00:00.000Z';
+  const url = 'https://www.tiktok.com/@creator/video/7694185850497666335';
+  const now = new Date().toISOString();
+  await execute(
+    `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+     VALUES (?,?, 'url', ?, 'Caption', 'completed', ?, ?, ?)`,
+    ['src_alice_carousel', ALICE.id, url, JSON.stringify({ platform: 'tiktok', link: {
+      originalUrl: url,
+      canonicalUrl: url,
+      platform: 'tiktok',
+      kind: 'tiktok-video',
+      needsResolution: false,
+      resolution: { status: 'not-needed' },
+      details: { contentKind: 'photo' },
+      providers: [],
+      tiktokPhotoImport: { status: 'importing', requestedAt },
+    } }), now, now],
+  );
+
+  const rows = await getInboxLinkItems(ALICE.id);
+  expect(rows.find((row) => row.id === 'src_alice_carousel')).toMatchObject({
+    contentKind: 'photo',
+    photoImportStatus: 'importing',
+    photoImportRequestedAt: requestedAt,
+  });
+});

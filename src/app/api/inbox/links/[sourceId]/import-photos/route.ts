@@ -10,6 +10,7 @@ import { isLinkDetails, isLinkProviderResult } from '@/lib/link-import/details';
 import { tiktokReaderMessage } from '@/lib/inbox-link-items';
 import { tiktokPageProvider, isTikTokImageCdnUrl } from '@/lib/link-import/providers/tiktok-page';
 import { TIKTOK_REQUEST_TIMEOUT_MS, TIKTOK_USER_AGENT } from '@/lib/link-import/tiktok-http';
+import { isTikTokPhotoImportStale } from '@/lib/link-import/tiktok-photo-import';
 import { dispatchProcessors } from '@/lib/mass-upload/dispatch';
 import { extensionForMimeType } from '@/lib/image-upload';
 import {
@@ -187,8 +188,7 @@ async function claimImport(userId: string, sourceId: string): Promise<Claim> {
     if (prior?.status === 'imported') {
       return { status: 'imported', sourceIds: prior.sourceIds ?? [], count: prior.count ?? 0 };
     }
-    const requestedAt = prior?.requestedAt ? Date.parse(prior.requestedAt) : 0;
-    if (prior?.status === 'importing' && Number.isFinite(requestedAt) && Date.now() - requestedAt < 10 * 60 * 1000) {
+    if (prior?.status === 'importing' && !isTikTokPhotoImportStale(prior.requestedAt, Date.now())) {
       return { status: 'busy' };
     }
 

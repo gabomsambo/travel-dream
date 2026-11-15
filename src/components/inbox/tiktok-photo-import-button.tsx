@@ -2,14 +2,17 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { isTikTokPhotoImportStale } from '@/lib/link-import/tiktok-photo-import'
 
 export function TikTokPhotoImportButton({
   sourceId,
   status,
+  requestedAt = null,
   count = 0,
 }: {
   sourceId: string
   status: 'importing' | 'imported' | 'failed' | null
+  requestedAt?: string | null
   count?: number
 }) {
   const router = useRouter()
@@ -35,6 +38,10 @@ export function TikTokPhotoImportButton({
     }
   }
 
+  // An import that never recorded an outcome would otherwise disable this
+  // button for good; past the route's own staleness window it can be retried.
+  const importing = pending || (status === 'importing' && !isTikTokPhotoImportStale(requestedAt, Date.now()))
+
   if (imported !== null) {
     return <p className="mt-3 text-sm text-muted-foreground">{imported} photos imported and queued to read.</p>
   }
@@ -44,10 +51,10 @@ export function TikTokPhotoImportButton({
       <button
         type="button"
         onClick={importPhotos}
-        disabled={pending || status === 'importing'}
+        disabled={importing}
         className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm font-semibold text-primary disabled:cursor-wait disabled:opacity-60"
       >
-        {pending || status === 'importing' ? 'Importing photos…' : 'Import these photos'}
+        {importing ? 'Importing photos…' : 'Import these photos'}
       </button>
       {error && <p role="status" className="mt-2 text-sm text-destructive">{error}</p>}
     </div>

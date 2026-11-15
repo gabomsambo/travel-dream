@@ -430,6 +430,30 @@ describe('TikTok private photo routes', () => {
     expect(put).not.toHaveBeenCalled();
   });
 
+  it('refuses a second import while one is running and accepts a retry once it has gone stale', async () => {
+    await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
+    const { client } = require('@/db') as { client: { execute: (q: { sql: string; args: unknown[] }) => Promise<{ rows: Record<string, unknown>[] }> } };
+    const markImporting = async (requestedAt: string) => {
+      const row = await client.execute({ sql: `SELECT meta FROM sources WHERE id = ?`, args: ['src_alice_link'] });
+      const meta = JSON.parse(String(row.rows[0].meta));
+      meta.link.tiktokPhotoImport = { status: 'importing', requestedAt };
+      await client.execute({ sql: `UPDATE sources SET meta = ? WHERE id = ?`, args: [JSON.stringify(meta), 'src_alice_link'] });
+    };
+    const tap = () => importPhotos(new NextRequest('https://tabidreams.com/api/inbox/links/src_alice_link/import-photos', { method: 'POST' }) as never, {
+      params: Promise.resolve({ sourceId: 'src_alice_link' }),
+    });
+
+    await markImporting(new Date(Date.now() - 60_000).toISOString());
+    expect((await tap()).status).toBe(409);
+    expect(put).not.toHaveBeenCalled();
+
+    // A request killed mid-import never records an outcome; past the window the tap works again.
+    await markImporting(new Date(Date.now() - 11 * 60_000).toISOString());
+    const retried = await tap();
+    expect(retried.status).toBe(200);
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects an untrusted image host before downloading or storing bytes', async () => {
     await insertLinkSource('src_alice_link', ALICE.id, ALICE_TIKTOK_LINK, 'alicecreator', '7694185850497666335');
     (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({

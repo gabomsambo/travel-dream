@@ -38,7 +38,6 @@ export interface LinkDetails {
   /** Epoch milliseconds, the same unit as `TikTokImageRef.expiresAt`. */
   postedAt?: number;
   contentKind?: 'photo' | 'video';
-  sourceUrl?: string;
 }
 
 export type LinkProviderReason =

@@ -57,3 +57,27 @@ it('hides the photo import for a post that is not a carousel', () => {
 
   expect(screen.queryByRole('button', { name: 'Import these photos' })).not.toBeInTheDocument();
 });
+
+it('keeps the photo import disabled only while an import is recent enough to still be running', () => {
+  const model = buildInboxScreen({ uploads: [], toReviewPlaceIds: [], addedAnotherWay: [], now: null });
+  const importing: InboxLinkItem = {
+    ...noContextLink,
+    kind: 'tiktok-video',
+    contentKind: 'photo',
+    resolutionStatus: 'not-needed',
+    photoImportStatus: 'importing',
+  };
+  render(
+    <InboxScreen
+      model={model}
+      linkItems={[
+        { ...importing, id: 'src_link_running', photoImportRequestedAt: new Date(Date.now() - 60_000).toISOString() },
+        // Its request was killed before it could record an outcome.
+        { ...importing, id: 'src_link_stale', photoImportRequestedAt: new Date(Date.now() - 11 * 60_000).toISOString() },
+      ]}
+    />,
+  );
+
+  expect(screen.getByRole('button', { name: 'Importing photos…' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Import these photos' })).toBeEnabled();
+});

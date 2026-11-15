@@ -15,6 +15,13 @@ import { TikTokRehydrationSchema, type TikTokItem } from '../tiktok-schemas';
 const MAX_PAGE_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const MAX_IMAGES = 20;
+/**
+ * One read's whole budget: slot waits, redirect hops, the retry and its
+ * backoff. A caller's route is killed at its own limit with no chance to fall
+ * back, so the read has to give up first and report a reason. `waiting` is for
+ * the explicit photo import, which may sit out the app-wide slot.
+ */
+export const TIKTOK_PAGE_READ_BUDGET_MS = { default: 25_000, waiting: 45_000 } as const;
 const REHYDRATION_PAYLOAD = /<script[^>]*id=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i;
 /**
  * Block walls are matched against the page's visible text, never against the
@@ -33,6 +40,8 @@ type FetchOutcome =
   | { kind: 'http'; status: number; body?: string }
   | { kind: 'throttled' }
   | { kind: 'daily-limit' }
+  | { kind: 'allowance-unreadable' }
+  | { kind: 'deadline' }
   | { kind: 'redirect-error' }
   | { kind: 'too-large' }
   | { kind: 'network-error' };
@@ -40,12 +49,20 @@ type FetchOutcome =
 interface ProviderDeps {
   enabled?: () => boolean;
   getGuardrails?: () => TikTokGuardrails | null;
-  hasDailyAllowance?: (userId: string) => Promise<boolean>;
-  chargeDailyRequest?: (userId: string) => Promise<boolean>;
+  hasDailyAllowance?: (userId: string) => Promise<AllowanceCheck>;
+  chargeDailyRequest?: (userId: string) => Promise<AllowanceCheck>;
   fetcher?: Fetcher;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
+  now?: () => number;
 }
+
+/**
+ * `true` there is room, `false` the day's allowance was read and is spent,
+ * `'unreadable'` the limiter could not answer. The last is not a spent
+ * allowance: telling the user to come back tomorrow would be wrong.
+ */
+type AllowanceCheck = boolean | 'unreadable';
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,15 +72,22 @@ function defaultEnabled(): boolean {
   return process.env.TIKTOK_PAGE_FETCH_ENABLED === 'true';
 }
 
-async function defaultHasDailyAllowance(userId: string): Promise<boolean> {
+async function defaultHasDailyAllowance(userId: string): Promise<AllowanceCheck> {
   const remaining = await getRateLimitRemaining(`user:${userId}`, 'tiktok-page');
-  return remaining !== null && remaining > 0;
+  if (remaining === null) return 'unreadable';
+  return remaining > 0;
 }
 
-async function defaultChargeDailyRequest(userId: string): Promise<boolean> {
+async function defaultChargeDailyRequest(userId: string): Promise<AllowanceCheck> {
   const result = await checkRateLimit(`user:${userId}`, 'tiktok-page');
   // The shared limiter reports limit=0 when Upstash is missing or unavailable.
-  return result.limit > 0 && result.success;
+  if (result.limit <= 0) return 'unreadable';
+  return result.success;
+}
+
+function allowanceDenial(check: AllowanceCheck): FetchOutcome | null {
+  if (check === true) return null;
+  return check === false ? { kind: 'daily-limit' } : { kind: 'allowance-unreadable' };
 }
 
 function allowedTikTokPageUrl(rawUrl: string): URL | null {
@@ -116,11 +140,13 @@ async function waitForRequestSlot(
   guardrails: TikTokGuardrails,
   wait: boolean,
   sleep: (ms: number) => Promise<void>,
+  remainingMs: () => number,
 ): Promise<string | null> {
   const slot = await guardrails.reserveRequestSlot();
   if (slot) return slot;
   if (!wait) return null;
   for (let elapsed = 0; elapsed < TIKTOK_CACHE_TTLS.throttle; elapsed += 500) {
+    if (remainingMs() <= 500) return null;
     await sleep(500);
     const retrySlot = await guardrails.reserveRequestSlot();
     if (retrySlot) return retrySlot;
@@ -135,30 +161,43 @@ async function requestTikTokHtml(
     fetcher: Fetcher;
     sleep: (ms: number) => Promise<void>;
     waitForSlot: boolean;
-    /** A read-only allowance check before reserving the global slot. Return false to abort as daily-limit. */
-    beforeSlotReserved?: () => Promise<boolean>;
-    /** After a global slot is reserved, before HTTP. Return false to abort as daily-limit. */
-    afterSlotReserved?: () => Promise<boolean>;
+    /** Milliseconds left of the read's whole budget; nothing starts once it is spent. */
+    remainingMs: () => number;
+    /** A read-only allowance check before reserving the global slot. */
+    beforeSlotReserved?: () => Promise<AllowanceCheck>;
+    /** After a global slot is reserved, before HTTP. Anything but `true` aborts the read. */
+    afterSlotReserved?: () => Promise<AllowanceCheck>;
   },
 ): Promise<FetchOutcome> {
   let current = initialUrl;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const checkedUrl = allowedTikTokPageUrl(current);
     if (!checkedUrl) return { kind: 'redirect-error' };
-    if (options.beforeSlotReserved && !(await options.beforeSlotReserved())) return { kind: 'daily-limit' };
-    const slot = await waitForRequestSlot(guardrails, options.waitForSlot || hop > 0, options.sleep);
+    if (options.remainingMs() <= 0) return { kind: 'deadline' };
+    if (options.beforeSlotReserved) {
+      const denied = allowanceDenial(await options.beforeSlotReserved());
+      if (denied) return denied;
+    }
+    const slot = await waitForRequestSlot(guardrails, options.waitForSlot || hop > 0, options.sleep, options.remainingMs);
     if (!slot) return { kind: 'throttled' };
+    // Checked before the daily charge: a read with no time left spends nothing.
+    const timeLeft = options.remainingMs();
+    if (timeLeft <= 0) {
+      await guardrails.releaseRequestSlot(slot);
+      return { kind: 'deadline' };
+    }
     if (options.afterSlotReserved) {
-      let allowed: boolean;
+      let allowed: AllowanceCheck;
       try {
         allowed = await options.afterSlotReserved();
       } catch (error) {
         await guardrails.releaseRequestSlot(slot);
         throw error;
       }
-      if (!allowed) {
+      const denied = allowanceDenial(allowed);
+      if (denied) {
         await guardrails.releaseRequestSlot(slot);
-        return { kind: 'daily-limit' };
+        return denied;
       }
     }
     let response: Response;
@@ -166,7 +205,7 @@ async function requestTikTokHtml(
       response = await options.fetcher(checkedUrl, {
         method: 'GET',
         redirect: 'manual',
-        signal: AbortSignal.timeout(TIKTOK_REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(Math.min(TIKTOK_REQUEST_TIMEOUT_MS, timeLeft)),
         headers: {
           'user-agent': TIKTOK_USER_AGENT,
           accept: 'text/html,application/xhtml+xml',
@@ -285,7 +324,6 @@ function mapPost(item: TikTokItem, link: CanonicalSocialLink): { details: LinkDe
     ...(title ? { title } : {}),
     ...(postedAt ? { postedAt } : {}),
     contentKind,
-    sourceUrl: link.canonicalUrl,
   };
   return { details, imageRefs: mapImages(item, contentKind) };
 }
@@ -359,6 +397,7 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
   const fetcher = deps.fetcher ?? fetch;
   const sleep = deps.sleep ?? defaultSleep;
   const random = deps.random ?? Math.random;
+  const now = deps.now ?? Date.now;
 
   async function read(link: CanonicalSocialLink, context: LinkProviderContext = {}): Promise<LinkProviderResult> {
     if (!enabled()) return { empty: true, reason: 'disabled' };
@@ -376,20 +415,33 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
       }
       if (await guardrails.isBreakerOpen()) return { empty: true, reason: 'blocked' };
 
+      const deadline = now() + (context.waitForSlot === true
+        ? TIKTOK_PAGE_READ_BUDGET_MS.waiting
+        : TIKTOK_PAGE_READ_BUDGET_MS.default);
+      const remainingMs = () => deadline - now();
+      // Out of time is a wait, not a verdict about the post: it is reported
+      // as transient and never cached, so the next read starts fresh.
+      const outOfTime: LinkProviderResult = { empty: true, reason: 'transient' };
+
       let attempt = 0;
       let chargedDaily = false;
       while (attempt < 2) {
-        if (attempt > 0) await sleep(2_000 + Math.round(random() * 500));
+        if (attempt > 0) {
+          const backoff = 2_000 + Math.round(random() * 500);
+          if (remainingMs() <= backoff) return outOfTime;
+          await sleep(backoff);
+        }
         const outcome = await requestTikTokHtml(url, guardrails, {
           fetcher,
           sleep,
           waitForSlot: attempt > 0 || context.waitForSlot === true,
+          remainingMs,
           beforeSlotReserved: async () => chargedDaily || hasDailyAllowance(userId),
           afterSlotReserved: async () => {
             if (chargedDaily) return true;
-            if (!(await chargeDailyRequest(userId))) return false;
-            chargedDaily = true;
-            return true;
+            const charged = await chargeDailyRequest(userId);
+            if (charged === true) chargedDaily = true;
+            return charged;
           },
         });
         if (outcome.kind === 'http' && (outcome.status === 403 || outcome.status === 429)) {
@@ -422,6 +474,8 @@ export function createTikTokPageProvider(deps: ProviderDeps = {}): LinkDetailsPr
         }
         if (outcome.kind === 'throttled') return { empty: true, reason: 'throttled' };
         if (outcome.kind === 'daily-limit') return { empty: true, reason: 'daily_limit' };
+        if (outcome.kind === 'allowance-unreadable') return { empty: true, reason: 'safety_unavailable' };
+        if (outcome.kind === 'deadline') return outOfTime;
         if (outcome.kind === 'too-large') {
           await cacheNegative(guardrails, link.postId, 'format_changed', TIKTOK_CACHE_TTLS.transient);
           return { empty: true, reason: 'format_changed' };

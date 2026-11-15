@@ -1,10 +1,22 @@
 /** @jest-environment node */
 import fs from 'node:fs';
 import path from 'node:path';
-import { createTikTokPageProvider, TIKTOK_DIAGNOSTIC_POSTS } from '@/lib/link-import/providers/tiktok-page';
+import {
+  createTikTokPageProvider,
+  TIKTOK_DIAGNOSTIC_POSTS,
+  TIKTOK_PAGE_READ_BUDGET_MS,
+} from '@/lib/link-import/providers/tiktok-page';
+import { checkRateLimit, getRateLimitRemaining } from '@/lib/rate-limit';
 import { TIKTOK_CACHE_TTLS, type TikTokGuardrails } from '@/lib/link-import/tiktok-guardrails';
 import { parseSocialLink } from '@/lib/link-import/url';
 import type { LinkProviderResult } from '@/types/link-import';
+
+// Every other test injects its own allowance checks; the limiter is replaced
+// only so the provider's default checks can be driven without Upstash.
+jest.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: jest.fn(),
+  getRateLimitRemaining: jest.fn(),
+}));
 
 const fixtures = path.join(process.cwd(), 'src/__tests__/fixtures/tiktok');
 const html = (name: string) => fs.readFileSync(path.join(fixtures, name), 'utf8');
@@ -410,6 +422,123 @@ describe('TikTok page provider', () => {
       reason: 'throttled',
     });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('reports an allowance it could not read as unavailable, never as a spent day', async () => {
+    const fetcher = jest.fn(async () => response(html('video-post.html')));
+    const withDefaults = () => {
+      const guardrails = guardrailStub();
+      const provider = createTikTokPageProvider({
+        enabled: () => true,
+        getGuardrails: () => guardrails,
+        fetcher,
+        sleep: jest.fn(async () => undefined),
+        random: () => 0,
+      });
+      return { provider, guardrails };
+    };
+    const limited = { success: false, limit: 30, remaining: 0, reset: 0 };
+    const limiterDown = { success: true, limit: 0, remaining: 0, reset: 0 };
+
+    // The read-only peek could not reach the limiter.
+    (getRateLimitRemaining as jest.Mock).mockResolvedValue(null);
+    const peekDown = withDefaults();
+    await expect(peekDown.provider.getDetails(link(), { userId: 'alice' })).resolves.toEqual({
+      empty: true,
+      reason: 'safety_unavailable',
+    });
+    expect(peekDown.guardrails.reserveRequestSlot).not.toHaveBeenCalled();
+
+    // The peek answered, then the charge could not reach the limiter.
+    (getRateLimitRemaining as jest.Mock).mockResolvedValue(5);
+    (checkRateLimit as jest.Mock).mockResolvedValue(limiterDown);
+    const chargeDown = withDefaults();
+    await expect(chargeDown.provider.getDetails(link(), { userId: 'alice' })).resolves.toEqual({
+      empty: true,
+      reason: 'safety_unavailable',
+    });
+    expect(chargeDown.guardrails.releaseRequestSlot).toHaveBeenCalledWith('slot-1');
+
+    // An allowance that was read and is spent stays its own reason.
+    (getRateLimitRemaining as jest.Mock).mockResolvedValue(0);
+    await expect(withDefaults().provider.getDetails(link(), { userId: 'alice' })).resolves.toEqual({
+      empty: true,
+      reason: 'daily_limit',
+    });
+    (getRateLimitRemaining as jest.Mock).mockResolvedValue(1);
+    (checkRateLimit as jest.Mock).mockResolvedValue(limited);
+    await expect(withDefaults().provider.getDetails(link(), { userId: 'alice' })).resolves.toEqual({
+      empty: true,
+      reason: 'daily_limit',
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('gives up inside its budget when redirects keep waiting for the app-wide slot', async () => {
+    let clock = 1_000_000;
+    const guardrails = guardrailStub();
+    // The first hop gets the slot at once; every later reservation is busy for
+    // 9.5 s before it succeeds, which is the wait each redirect hop sits out.
+    let reservations = 0;
+    guardrails.reserveRequestSlot.mockImplementation(async () => {
+      reservations += 1;
+      if (reservations === 1) return 'slot-1';
+      return (reservations - 1) % 20 === 0 ? `slot-${reservations}` : null;
+    });
+    const fetcher = jest.fn(async () => {
+      clock += 6_000;
+      return response('', 302, { location: 'https://www.tiktok.com/@creator/video/7694185850497666335?again=1' });
+    });
+    const provider = createTikTokPageProvider({
+      enabled: () => true,
+      getGuardrails: () => guardrails,
+      hasDailyAllowance: async () => true,
+      chargeDailyRequest: async () => true,
+      fetcher,
+      sleep: jest.fn(async (ms: number) => { clock += ms; }),
+      random: () => 0,
+      now: () => clock,
+    });
+
+    const started = clock;
+    const result = await provider.getDetails(link(), { userId: 'alice' }) as LinkProviderResult;
+
+    // Unbounded, this read runs four hops and about 52 s; the save route is
+    // killed at 60 s with short-link resolution and oEmbed on top of it.
+    expect(clock - started).toBeLessThanOrEqual(TIKTOK_PAGE_READ_BUDGET_MS.default);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ empty: true, reason: 'throttled' });
+    expect(guardrails.cache.size).toBe(0);
+  });
+
+  it('does not start a retry it has no time left for', async () => {
+    let clock = 1_000_000;
+    const guardrails = guardrailStub();
+    const fetcher = jest.fn(async () => {
+      clock += TIKTOK_PAGE_READ_BUDGET_MS.default - 1_500;
+      return response('', 503);
+    });
+    const sleep = jest.fn(async (ms: number) => { clock += ms; });
+    const provider = createTikTokPageProvider({
+      enabled: () => true,
+      getGuardrails: () => guardrails,
+      hasDailyAllowance: async () => true,
+      chargeDailyRequest: async () => true,
+      fetcher,
+      sleep,
+      random: () => 0,
+      now: () => clock,
+    });
+
+    await expect(provider.getDetails(link(), { userId: 'alice' })).resolves.toEqual({
+      empty: true,
+      reason: 'transient',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+    // Running out of time says nothing about the post, so nothing is cached.
+    expect(guardrails.cache.size).toBe(0);
   });
 
   it('keeps the diagnostic list fixed and bounded', () => {

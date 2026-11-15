@@ -320,6 +320,7 @@ function LinkItemsSection({ items }: { items: InboxLinkItem[] }) {
                 <TikTokPhotoImportButton
                   sourceId={item.id}
                   status={item.photoImportStatus ?? null}
+                  requestedAt={item.photoImportRequestedAt ?? null}
                   count={item.photoImportCount}
                 />
               )}

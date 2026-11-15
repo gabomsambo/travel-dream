@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
       uploadedRequeued: recoveredUploads.requeued,
       stalledRequeued: resumedStalled.requeued,
       // Reliability detail: interruptions are NOT failures.
+      deferred: result.deferred,
       interrupted: result.interrupted,
       stalled: result.stalled,
       reclaimed: result.reclaimed,

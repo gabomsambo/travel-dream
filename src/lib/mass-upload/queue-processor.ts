@@ -3,12 +3,14 @@ import sharp from 'sharp';
 import { put } from '@vercel/blob';
 import type { Source } from '@/types/database';
 import type { GeminiExtractionResult } from '@/types/extraction-pipeline';
+import type { LinkDetails, LinkProviderRecord } from '@/types/link-import';
 import {
   cacheSourceProcessingWork,
   claimNextQueuedSource,
   completeSource,
   markSourceEnriching,
   recordSourceFailure,
+  recordSourceDeferral,
   recordSourceInterruption,
   reclaimExpiredSourceLeases,
   createPlacesFromPipeline,
@@ -17,6 +19,17 @@ import { getQueueDepth } from '@/lib/db-queries';
 import { getGeminiExtractionService } from './gemini-extraction-service';
 import { getGooglePlacesEnrichmentService, GooglePlacesUnavailableError } from './google-places-enrichment';
 import { QUEUE_CONFIG } from './queue-config';
+import { extractionContext } from '@/lib/link-import/extraction-context';
+import { isLinkDetails, isLinkProviderResult } from '@/lib/link-import/details';
+import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
+import { isAllowedBlobUrl } from '@/lib/blob-url';
+import {
+  deleteTikTokBlob,
+  getTikTokPrivateBlob,
+  isAllowedPrivateBlobUrl,
+  isPrivateBlobUrl,
+  putTikTokPrivateBlob,
+} from '@/lib/tiktok-private-blob';
 
 /**
  * A run was cut short. NOT a verdict about the screenshot: the item is requeued
@@ -29,11 +42,20 @@ export class ProcessingInterrupted extends Error {
   }
 }
 
+/** Work that should be retried after a short wait, without spending interruption budget. */
+class ProcessingDeferred extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProcessingDeferred';
+  }
+}
+
 export interface ProcessQueueResult {
   workerId: string;
   claimed: number;
   completed: number;
   failed: number;
+  deferred: number;
   interrupted: number;
   stalled: number;
   leaseLost: number;
@@ -91,6 +113,7 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
     claimed: 0,
     completed: 0,
     failed: 0,
+    deferred: 0,
     interrupted: 0,
     stalled: 0,
     leaseLost: 0,
@@ -209,7 +232,7 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<P
   result.elapsedMs = now() - startedAt;
 
   console.log(
-    `[MassUpload ${workerId}] ${result.completed} completed, ${result.failed} failed, ` +
+    `[MassUpload ${workerId}] ${result.completed} completed, ${result.failed} failed, ${result.deferred} deferred, ` +
       `${result.interrupted} interrupted, ${result.stalled} stalled, ${result.placesCreated} places, ` +
       `${result.claimErrors} claim error(s), ${result.outcomeErrors} outcome write error(s), ` +
       `${result.remaining} remaining (${result.stoppedBecause}, ${result.elapsedMs}ms)`
@@ -261,6 +284,14 @@ async function processOne(
     result.completed++;
     result.placesCreated += placesCreated;
   } catch (error) {
+    if (error instanceof ProcessingDeferred && !watchdog.signal.aborted) {
+      const outcome = await recordSourceDeferral(source.id, leaseId, error.message);
+      if (outcome === 'lease-lost') result.leaseLost++;
+      else result.deferred++;
+      console.info(`[MassUpload] ${source.id} deferred: ${error.message}`);
+      return;
+    }
+
     const interruption = asInterruption(error, watchdog.signal);
     if (interruption) {
       // Write anything already paid for while the lease is still ours: the
@@ -406,7 +437,8 @@ async function runPipeline(
   if (source.type === 'url') {
     if (!extraction) {
       signal.throwIfAborted();
-      const pending = getGeminiExtractionService().extractFromText(source.ocrText ?? '', meta.platform ?? 'social link');
+      const text = await linkTextForExtraction(source, meta, leaseId, signal);
+      const pending = getGeminiExtractionService().extractFromText(text, meta.platform ?? 'social link');
       // Keep the same paid-work salvage and lease cache used by screenshot OCR.
       inFlight.extraction = { promise: pending };
       extraction = await withAbort(pending, signal);
@@ -450,6 +482,97 @@ async function runPipeline(
   signal.throwIfAborted();
   const created = await createPlacesFromPipeline(enrichedPlaces, source.id, source.userId);
   return created.createdCount;
+}
+
+async function linkTextForExtraction(
+  source: Source,
+  meta: NonNullable<Source['meta']>,
+  leaseId: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const link = meta.link;
+  const fallback = source.ocrText ?? '';
+  if (!link || link.platform !== 'tiktok' || !link.postId || !link.handle ||
+      (link.kind !== 'tiktok-photo' && link.kind !== 'tiktok-video')) {
+    return fallback;
+  }
+
+  const previous = link.providers.find((record) => record.provider === 'tiktok-page');
+  if (previous?.status === 'ok') return fallback;
+
+  signal.throwIfAborted();
+  let output: Awaited<ReturnType<typeof tiktokPageProvider.getDetails>>;
+  try {
+    output = await tiktokPageProvider.getDetails(link, { userId: source.userId });
+  } catch {
+    throw new ProcessingInterrupted('TikTok page read was interrupted', 'upstream');
+  }
+
+  const result = isLinkProviderResult(output) ? output : undefined;
+  const details = isLinkDetails(output) ? output : result?.details;
+  const reason = result?.reason;
+  // Both the busy app-wide slot and a spent daily allowance are waits, not
+  // verdicts: excess reads queue until there is room rather than being dropped.
+  if (reason === 'throttled' || reason === 'daily_limit') {
+    throw new ProcessingDeferred(`TikTok page read deferred: ${reason}`);
+  }
+  // A read the reader could not complete right now (breaker open, a cached
+  // negative or exhausted retry, or the guardrails unavailable) is not a
+  // verdict about the link and not a clock-out either: the text already saved
+  // with the link is enough to extract from, so the item completes through
+  // that fallback and spends no interruption budget. Every such outcome is
+  // recorded, so the Inbox explains itself with the reason that applies now
+  // instead of the one an earlier read left behind.
+  if (!details) {
+    if (!reason) return fallback;
+    const pageRecord: LinkProviderRecord = {
+      provider: 'tiktok-page',
+      status: 'empty',
+      reason,
+      fetchedAt: new Date().toISOString(),
+    };
+    const providers = link.providers.some((record) => record.provider === 'tiktok-page')
+      ? link.providers.map((record) => (record.provider === 'tiktok-page' ? pageRecord : record))
+      : [...link.providers, pageRecord];
+    await cacheSourceProcessingWork(source.id, leaseId, {
+      deferredLinkRead: {
+        ocrText: fallback,
+        providers,
+        details: link.details ?? {},
+        ...(link.details?.title ? { title: link.details.title } : {}),
+        ...(link.details?.author ? { author: link.details.author } : {}),
+      },
+    });
+    return fallback;
+  }
+
+  const merged: LinkDetails = {
+    ...details,
+    ...link.details,
+    ...(details.caption ? { caption: details.caption } : {}),
+  };
+  const caption = link.captionText ?? link.details?.caption;
+  const text = extractionContext(link, caption, merged);
+  const fetchedAt = new Date().toISOString();
+  const pageRecord: LinkProviderRecord = {
+    provider: 'tiktok-page',
+    status: 'ok',
+    details,
+    fetchedAt,
+  };
+  const providers = link.providers.some((record) => record.provider === 'tiktok-page')
+    ? link.providers.map((record) => (record.provider === 'tiktok-page' ? pageRecord : record))
+    : [...link.providers, pageRecord];
+  await cacheSourceProcessingWork(source.id, leaseId, {
+    deferredLinkRead: {
+      ocrText: text,
+      providers,
+      details: merged,
+      ...(merged.title ? { title: merged.title } : {}),
+      ...(merged.author ? { author: merged.author } : {}),
+    },
+  });
+  return text;
 }
 
 /**
@@ -499,9 +622,33 @@ async function salvageInFlightExtraction(
 }
 
 async function downloadScreenshot(uri: string, signal: AbortSignal): Promise<Buffer> {
-  const res = await fetch(uri, {
-    signal: AbortSignal.any([signal, AbortSignal.timeout(QUEUE_CONFIG.blobFetchTimeoutMs)]),
-  });
+  let res: Response;
+  const fetchSignal = AbortSignal.any([signal, AbortSignal.timeout(QUEUE_CONFIG.blobFetchTimeoutMs)]);
+  if (isPrivateBlobUrl(uri)) {
+    // TikTok photo imports are the only private-store sources; the public
+    // allow-list never admits their host.
+    if (!isAllowedPrivateBlobUrl(uri)) throw new Error('Private screenshot URL is not allowed');
+    let blob: Awaited<ReturnType<typeof getTikTokPrivateBlob>>;
+    try {
+      blob = await getTikTokPrivateBlob(uri, null, fetchSignal);
+    } catch (err) {
+      if (signal.aborted) throw err;
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) throw err;
+      throw new ProcessingInterrupted('Private Blob fetch failed', 'upstream');
+    }
+    if (!blob || blob.statusCode !== 200) throw new Error('Private screenshot was not found');
+    res = new Response(blob.stream, {
+      status: blob.statusCode,
+      headers: {
+        'content-length': String(blob.blob.size),
+        'content-type': blob.blob.contentType,
+      },
+    });
+  } else {
+    res = await fetch(uri, {
+      signal: fetchSignal,
+    });
+  }
   if (!res.ok) {
     // 5xx from blob storage is transient; 404 means the file is genuinely gone.
     if (res.status >= 500 || res.status === 429) {
@@ -535,11 +682,22 @@ async function generateThumbnail(
       .jpeg({ quality: 80 })
       .toBuffer();
     const thumbKey = `thumbnails/${source.userId}/${source.id}_thumb.jpg`;
-    const thumbBlob = await put(thumbKey, thumbnailBuffer, {
-      access: 'public',
-      contentType: 'image/jpeg',
-      allowOverwrite: true,
-    });
+    const privateImport = Boolean(source.meta?.tiktokPhotoImport);
+    const thumbBlob = privateImport
+      ? await putTikTokPrivateBlob(thumbKey, thumbnailBuffer, 'image/jpeg', { overwrite: true })
+      : await put(thumbKey, thumbnailBuffer, {
+          access: 'public',
+          contentType: 'image/jpeg',
+          allowOverwrite: true,
+        });
+    // A private import's thumbnail must land in the private store, and a public
+    // screenshot's in the public one; a store answering with the other kind of
+    // URL is misconfigured, and the upload is removed rather than referenced.
+    const allowed = privateImport ? isAllowedPrivateBlobUrl(thumbBlob.url) : isAllowedBlobUrl(thumbBlob.url);
+    if (!allowed) {
+      await deleteTikTokBlob(thumbBlob.url).catch(() => undefined);
+      return undefined;
+    }
     return thumbBlob.url;
   } catch (err) {
     if (signal.aborted) throw err;

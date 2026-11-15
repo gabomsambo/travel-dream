@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Image as ImageIcon, ZoomIn } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { PrivateImage } from '@/components/private-image'
 import { formatDateTime } from '@/lib/place-view/format'
 import { cn } from '@/lib/utils'
 import type { ReviewScreenshotSibling } from '@/lib/review-queue'
@@ -39,9 +40,7 @@ function siblingLabel(
 
 function ShotImage({ url, alt, className }: { url: string; alt: string; className?: string }) {
   return (
-    // Persisted source URLs, already ownership-filtered. Same pattern as the place hero.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={url} alt={alt} className={className} />
+    <PrivateImage src={url} alt={alt} className={className} />
   )
 }
 

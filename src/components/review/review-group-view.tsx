@@ -4,6 +4,7 @@ import { Check, Image as ImageIcon, MapPin, ZoomIn } from 'lucide-react'
 import { Button } from '@/components/adapters/button'
 import { BatchTripChip } from '@/components/review/batch-trip-menu'
 import { kindLabel } from '@/components/explore/kind-icon'
+import { PrivateImage } from '@/components/private-image'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { formatDateTime } from '@/lib/place-view/format'
 import { groupCountLabel, screenshotTitle } from '@/lib/review-group'
@@ -62,7 +63,7 @@ export function ReviewGroupView({
           >
             {/* Persisted source URL, already ownership-filtered. Same pattern as the place hero. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt="" className="h-[640px] w-full object-cover object-top" />
+            <PrivateImage src={url} alt="" className="h-[640px] w-full object-cover object-top" />
             <span className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-md">
               <ZoomIn className="h-3.5 w-3.5" aria-hidden /> Zoom
             </span>
@@ -116,7 +117,7 @@ export function ReviewGroupView({
                 <span className="relative h-[60px] w-[60px] overflow-hidden rounded-xl border bg-muted xl:h-[84px] xl:w-[84px]">
                   {available ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={url} alt="" className="h-full w-full object-cover object-top" />
+                    <PrivateImage src={url} alt="" className="h-full w-full object-cover object-top" />
                   ) : (
                     <span className="grid h-full w-full place-items-center text-lg font-semibold text-muted-foreground">{initial}</span>
                   )}
@@ -169,7 +170,7 @@ export function ReviewGroupView({
           <DialogContent data-screenshot-zoom="" className="max-w-5xl border-0 bg-black p-2 text-white sm:rounded-2xl">
             <DialogTitle className="sr-only">{title}</DialogTitle>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt={`Screenshot ${title}`} className="max-h-[85vh] w-full rounded-xl object-contain" />
+            <PrivateImage src={url} alt={`Screenshot ${title}`} className="max-h-[85vh] w-full rounded-xl object-contain" />
           </DialogContent>
         </Dialog>
       )}

@@ -11,6 +11,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
+import { PrivateImage } from '@/components/private-image'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMapContext } from './map-context'
@@ -247,7 +248,7 @@ export function MapPlaceDrawer() {
                           className="aspect-square rounded-md overflow-hidden bg-muted cursor-pointer hover:opacity-90 transition-opacity"
                           onClick={() => handleAttachmentClick(attachment)}
                         >
-                          <img
+                          <PrivateImage
                             src={attachment.thumbnailUri || attachment.uri}
                             alt={attachment.caption || attachment.filename || 'Attachment'}
                             className="w-full h-full object-cover"

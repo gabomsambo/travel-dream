@@ -7,7 +7,7 @@ import { requireAuthForApi, isAuthError } from '@/lib/auth-helpers'
 // See AGENTS.md § Multi-Tenancy for the rule this exemption suspends.
 // eslint-disable-next-line no-restricted-imports -- unmigrated; see the TODO above
 import { db } from '@/db'
-import { eq, inArray, or } from 'drizzle-orm'
+import { eq, inArray, or, sql } from 'drizzle-orm'
 import {
   places,
   sources,
@@ -20,6 +20,8 @@ import {
   attachments
 } from '@/db/schema'
 import { del } from '@vercel/blob'
+import { isAllowedBlobUrl } from '@/lib/blob-url'
+import { deleteTikTokImportsForUser, deleteTikTokPrivateBlobs, isPrivateBlobUrl } from '@/lib/tiktok-private-blob'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,12 +40,24 @@ export async function DELETE() {
         .where(eq(places.userId, user.id))
       const placeIds = userPlaces.map(p => p.id)
 
-      // Get all source URIs for this user
+      // Get all source URIs for this user, plus the thumbnails their meta names
       const userSources = await tx
-        .select({ id: sources.id, uri: sources.uri })
+        .select({
+          id: sources.id,
+          uri: sources.uri,
+          massUploadThumbnail: sql<string | null>`json_extract(${sources.meta}, '$.massUpload.thumbnailUrl')`,
+          uploadInfoThumbnail: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.thumbnailPath')`,
+        })
         .from(sources)
         .where(eq(sources.userId, user.id))
-      blobUrls.push(...userSources.map(s => s.uri).filter(u => u?.startsWith('https://')))
+      // A thumbnail is recorded in the source meta, and the attachment carries
+      // it only when the source created a new place: a photo linked to an
+      // existing place is named by the source row alone.
+      blobUrls.push(
+        ...userSources
+          .flatMap((s) => [s.uri, s.massUploadThumbnail, s.uploadInfoThumbnail])
+          .filter((u): u is string => !!u && u.startsWith('https://'))
+      )
 
       // Get all attachment URIs for this user's places
       if (placeIds.length > 0) {
@@ -79,13 +93,40 @@ export async function DELETE() {
       await tx.delete(collections).where(eq(collections.userId, user.id))
     })
 
-    // Clean up blobs AFTER transaction commits (best-effort)
-    if (blobUrls.length > 0) {
+    // Clean up blobs AFTER transaction commits (best-effort, one request per store)
+    const uniqueUrls = [...new Set(blobUrls)]
+    const privateUrls = uniqueUrls.filter((url) => isPrivateBlobUrl(url))
+    const publicUrls = uniqueUrls.filter((url) => !isPrivateBlobUrl(url) && isAllowedBlobUrl(url))
+
+    if (publicUrls.length > 0) {
       try {
-        await del(blobUrls)
-      } catch (e) {
-        console.warn(`[delete-all] Failed to delete ${blobUrls.length} blobs:`, e)
+        await del(publicUrls)
+      } catch (error) {
+        console.warn(`[delete-all] Public blob cleanup failed (${publicUrls.length} URLs)`, error)
       }
+    }
+
+    if (privateUrls.length > 0) {
+      try {
+        const outcome = await deleteTikTokPrivateBlobs(privateUrls)
+        if (outcome.status === 'skipped') {
+          console.warn(`[delete-all] Skipped private TikTok blob cleanup (${outcome.count} URLs): ${outcome.reason}`)
+        }
+      } catch (error) {
+        console.warn(`[delete-all] Private TikTok blob cleanup failed (${privateUrls.length} URLs)`, error)
+      }
+    }
+
+    // Imported TikTok photos are uploaded before the rows that name them, so an
+    // import cut off in between leaves objects no row above could list. Sweep
+    // the user's own import prefix so those go too.
+    try {
+      const swept = await deleteTikTokImportsForUser(user.id)
+      if (swept.status === 'skipped') {
+        console.warn(`[delete-all] Skipped the TikTok import sweep: ${swept.reason}`)
+      }
+    } catch (error) {
+      console.warn('[delete-all] TikTok import sweep failed', error)
     }
 
     return NextResponse.json({

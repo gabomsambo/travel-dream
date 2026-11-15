@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import type { Collection } from '@/types/database';
 import { useRouter } from 'next/navigation';
 import { CoverPhotoCredit } from '@/components/attribution/cover-photo-credit';
+import { PrivateImage } from '@/components/private-image';
 import type { AttributionMeta } from '@/db/schema/attachments';
 import { CoverImagePickerDialog } from './cover-image-picker-dialog';
 
@@ -75,7 +76,7 @@ export function CollectionCard({
       {/* Cover Image Section */}
       <div className="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-primary/30 via-accent/20 to-secondary/40">
         {coverUrl ? (
-          <img
+          <PrivateImage
             src={coverUrl}
             alt={collection.name}
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"

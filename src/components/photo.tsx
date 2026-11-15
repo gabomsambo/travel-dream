@@ -1,6 +1,6 @@
 import Image from "next/image"
 import { cn } from "@/lib/utils"
-import { photoRoute, photoTint, resolverSrc, resolverSrcSet } from "@/lib/photo-url"
+import { photoRoute, photoTint, privateBlobSrc, resolverSrc, resolverSrcSet } from "@/lib/photo-url"
 
 const FULL_WIDTHS = [320, 640, 960, 1280] as const
 const THUMB_WIDTHS = [160, 320] as const
@@ -12,7 +12,9 @@ const THUMB_WIDTHS = [160, 320] as const
  * - `use="thumb"` for boxes up to ~160px wide: the 400px thumbnail is plenty.
  *   Everything bigger starts from the full image, because the thumbnail is a
  *   400px square and goes soft in a 3:4 poster on a 2x screen.
- * - Blob, Pexels and Wikimedia photos are resized by the Next optimizer.
+ * - Public Blob, Pexels and Wikimedia photos are resized by the Next optimizer.
+ * - Private-store Blob photos are served by the authenticated `/api/photos/private`
+ *   route; the optimizer cannot carry the store token.
  * - Google photos (the resolver URL) are sized with `?w=`; they never go through
  *   the optimizer, whose cache would keep Google image bytes.
  * - `priority` is for the image that is the page's LCP: it is preloaded.
@@ -60,10 +62,10 @@ export function Photo({
 
   const widths = small ? THUMB_WIDTHS : FULL_WIDTHS
   return (
-    // Resolver and unknown hosts stay out of the optimizer (see above).
+    // Resolver, private and unknown hosts stay out of the optimizer (see above).
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={route === "resolver" ? resolverSrc(url, widths[1]) : url}
+      src={route === "resolver" ? resolverSrc(url, widths[1]) : route === "private" ? privateBlobSrc(url) : url}
       srcSet={route === "resolver" ? resolverSrcSet(url, widths) : undefined}
       sizes={route === "resolver" ? sizes : undefined}
       alt={alt}

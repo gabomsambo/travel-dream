@@ -14,6 +14,7 @@ import { usablePin } from './place-coords';
 import type { NewSource, NewPlace, NewCollection, Source, Place, Collection } from '@/types/database';
 import type { ExtractedPlace, ExtractionResult, ExtractionMetadata } from '@/types/llm-extraction';
 import type { PipelinePlace } from '@/types/extraction-pipeline';
+import type { LinkDetails, LinkProviderRecord } from '@/types/link-import';
 
 // Place mutations
 export async function createPlace(
@@ -141,7 +142,11 @@ export async function updateSource(
 export async function deleteSource(id: string, userId: string): Promise<void> {
   return withErrorHandling(async () => {
     // Capture URI before transaction deletes the record
-    const [source] = await db.select({ uri: sources.uri }).from(sources)
+    const [source] = await db.select({
+      uri: sources.uri,
+      massUploadThumbnail: sql<string | null>`json_extract(${sources.meta}, '$.massUpload.thumbnailUrl')`,
+      uploadInfoThumbnail: sql<string | null>`json_extract(${sources.meta}, '$.uploadInfo.thumbnailPath')`,
+    }).from(sources)
       .where(and(eq(sources.id, id), eq(sources.userId, userId)))
       .limit(1);
 
@@ -157,9 +162,13 @@ export async function deleteSource(id: string, userId: string): Promise<void> {
       await tx.delete(sources).where(eq(sources.id, id));
     });
 
-    await releaseBlobIfUnreferenced(
+    // The source row is the only record of its thumbnail when the photo was
+    // linked to an existing place, so the thumbnail is released with it.
+    await releaseBlobsIfUnreferenced(
       userId,
-      source.uri,
+      [source.uri, source.massUploadThumbnail, source.uploadInfoThumbnail].filter(
+        (url): url is string => !!url
+      ),
       { excludeSourceIds: [id] },
       '[deleteSource]'
     );
@@ -2009,6 +2018,13 @@ export async function createPlacesFromPipeline(
 
       const screenshotUri = source.type === 'screenshot' ? source.uri : null;
       const meta = source.meta;
+      const tiktokAttribution = meta?.tiktokPhotoImport
+        ? {
+            kind: 'tiktok' as const,
+            postUrl: meta.tiktokPhotoImport.postUrl,
+            handle: meta.tiktokPhotoImport.handle,
+          }
+        : undefined;
       const resolvedPlaces: Place[] = [];
       const createdIds = new Set(recordedCreatedPlaceIds(meta));
       const linkedByPlaceId = new Map<string, LinkReason>();
@@ -2128,8 +2144,9 @@ export async function createPlacesFromPipeline(
             filename: meta?.uploadInfo?.originalName || 'screenshot.jpg',
             mimeType: meta?.uploadInfo?.mimeType || 'image/jpeg',
             fileSize: meta?.uploadInfo?.fileSize || null,
-            thumbnailUri: meta?.uploadInfo?.thumbnailPath || null,
+            thumbnailUri: meta?.uploadInfo?.thumbnailPath || meta?.massUpload?.thumbnailUrl || null,
             isPrimary: 1,
+            ...(tiktokAttribution ? { source: 'tiktok', attribution: tiktokAttribution } : {}),
           });
         }
       }
@@ -2325,8 +2342,45 @@ export async function markSourceEnriching(sourceId: string, leaseId: string): Pr
   }, 'markSourceEnriching');
 }
 
+/** Requeue work deferred by an expected wait without changing either counter. */
+export async function recordSourceDeferral(
+  sourceId: string,
+  leaseId: string,
+  message: string
+): Promise<'queued' | 'lease-lost'> {
+  return withErrorHandling(async () => {
+    const updated = await db.update(sourcesCurrentSchema)
+      .set({
+        processingStatus: 'queued',
+        processingError: message.slice(0, 1000),
+        processingLeaseId: null,
+        nextAttemptAt: retryBackoffUntilIso(1),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(and(
+        eq(sourcesCurrentSchema.id, sourceId),
+        eq(sourcesCurrentSchema.processingLeaseId, leaseId)
+      ))
+      .returning({ id: sourcesCurrentSchema.id });
+
+    return updated.length > 0 ? 'queued' : 'lease-lost';
+  }, 'recordSourceDeferral');
+}
+
+export type DeferredLinkPageRead = {
+  ocrText: string;
+  providers: LinkProviderRecord[];
+  details: LinkDetails;
+  title?: string;
+  author?: string;
+};
+
 function metaCachingProcessingWork(
-  work: { extraction?: unknown; thumbnailUrl?: string },
+  work: {
+    extraction?: unknown;
+    thumbnailUrl?: string;
+    deferredLinkRead?: DeferredLinkPageRead;
+  },
   extractedAt: string
 ): SQL | null {
   const meta = sourcesCurrentSchema.meta;
@@ -2339,6 +2393,16 @@ function metaCachingProcessingWork(
     pairs.push(sql`'$.massUpload.thumbnailUrl', ${work.thumbnailUrl}`);
     pairs.push(sql`'$.uploadInfo.thumbnailPath', ${work.thumbnailUrl}`);
   }
+  if (work.deferredLinkRead) {
+    pairs.push(sql`'$.link.providers', json(${JSON.stringify(work.deferredLinkRead.providers)})`);
+    pairs.push(sql`'$.link.details', json(${JSON.stringify(work.deferredLinkRead.details)})`);
+    if (work.deferredLinkRead.title) {
+      pairs.push(sql`'$.title', ${work.deferredLinkRead.title}`);
+    }
+    if (work.deferredLinkRead.author) {
+      pairs.push(sql`'$.author', ${work.deferredLinkRead.author}`);
+    }
+  }
   if (pairs.length === 0) return null;
   return sql`json_set(COALESCE(${meta}, '{}'), ${sql.join(pairs, sql`, `)})`;
 }
@@ -2346,17 +2410,29 @@ function metaCachingProcessingWork(
 /**
  * Persist work already paid for (Gemini extraction, thumbnail) onto the source
  * so a later retry reuses it instead of calling the API again.
+ * Also stores a deferred TikTok page read so Inbox UI and retries share one truth.
  */
 export async function cacheSourceProcessingWork(
   sourceId: string,
   leaseId: string,
-  work: { extraction?: unknown; thumbnailUrl?: string }
+  work: {
+    extraction?: unknown;
+    thumbnailUrl?: string;
+    deferredLinkRead?: DeferredLinkPageRead;
+  }
 ): Promise<boolean> {
   return withErrorHandling(async () => {
     const now = new Date().toISOString();
     const meta = metaCachingProcessingWork(work, now);
+    const patch: {
+      meta?: SQL;
+      ocrText?: string;
+      updatedAt: string;
+    } = { updatedAt: now };
+    if (meta) patch.meta = meta;
+    if (work.deferredLinkRead) patch.ocrText = work.deferredLinkRead.ocrText;
     const updated = await db.update(sourcesCurrentSchema)
-      .set(meta ? { meta, updatedAt: now } : { updatedAt: now })
+      .set(patch)
       .where(and(
         eq(sourcesCurrentSchema.id, sourceId),
         eq(sourcesCurrentSchema.processingLeaseId, leaseId)

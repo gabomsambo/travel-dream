@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { InboxActions } from '@/components/inbox/inbox-actions'
+import { PrivateImage } from '@/components/private-image'
 import type { InboxChip, InboxShotRow } from '@/lib/inbox-page-model'
 
 function emptyDetailCopy(filter: string, rowCount: number, dismissedCount: number): string {
@@ -54,8 +55,7 @@ export function InboxUploadDetail({
             className="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-3 border-t border-border px-3.5 py-3 first:border-t-0 md:grid-cols-[64px_minmax(0,1fr)_auto] md:gap-4 md:px-5"
           >
             {row.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <PrivateImage
                 src={row.imageUrl}
                 alt={row.alt}
                 className="h-[86px] w-[52px] rounded-lg border border-border object-cover object-top md:h-[104px] md:w-16"

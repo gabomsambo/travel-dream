@@ -44,6 +44,7 @@ const P = {
   flaky: 'plc_alice_flaky',
   noMatch: 'plc_alice_no_match',
   bobDead: 'plc_bob_dead',
+  private: 'plc_alice_private',
 };
 
 async function seedPlace(id: string, userId: string, name: string, extra: { gpid?: string } = {}) {
@@ -105,6 +106,7 @@ function makeDeps(over: Partial<BackfillDeps> = {}): BackfillDeps & { [K in keyo
     searchPlacesWithPhotos: jest.fn(async () => [googlePlace('Somewhere Else', 'gp_other')]),
     searchWikimedia: jest.fn(async () => []),
     checkUrl: jest.fn(async (url: string) => liveness[url] ?? 'unknown'),
+    checkPrivateUrl: jest.fn(async () => 'unknown'),
     ...over,
   } as never;
 }
@@ -427,6 +429,56 @@ describe('place photo backfill from a reviewed plan', () => {
       plan: new Map(),
     });
     expect(summary.processed).toBe(0);
+  });
+});
+
+describe('private-store photos', () => {
+  const PRIVATE = 'https://store.private.blob.vercel-storage.com/tiktok-imports/u/1.jpg';
+
+  beforeAll(() => {
+    assertLocalDatabase();
+    useUniqueUuids();
+  });
+
+  beforeEach(async () => {
+    await resetTenantFixture();
+    await seedPlace(P.private, ALICE.id, 'Plaza Mayor');
+    await seedPhoto('att_private', P.private, 'upload', PRIVATE, 1);
+  });
+
+  it('probes a private photo through the store, never with an unauthenticated HEAD', async () => {
+    const deps = makeDeps({ checkPrivateUrl: jest.fn(async () => 'live') });
+    const reports: Record<string, string> = {};
+    await runBackfill(await loadUserPlaces(ALICE.id), {
+      userId: ALICE.id,
+      mode: 'dry-run',
+      deps,
+      onPlace: (r) => {
+        reports[r.place.id] = r.decision!.action;
+      },
+    });
+
+    expect(reports[P.private]).toBe('keep');
+    expect(deps.checkPrivateUrl).toHaveBeenCalledWith(PRIVATE);
+    expect(deps.checkUrl).not.toHaveBeenCalledWith(PRIVATE);
+    expect(deps.searchPlacesWithPhotos).not.toHaveBeenCalled();
+  });
+
+  it('never replaces a private photo it could not read', async () => {
+    const deps = makeDeps({ checkPrivateUrl: jest.fn(async () => 'unknown') });
+    const reports: Record<string, string> = {};
+    await runBackfill(await loadUserPlaces(ALICE.id), {
+      userId: ALICE.id,
+      mode: 'dry-run',
+      deps,
+      onPlace: (r) => {
+        reports[r.place.id] = r.decision!.action;
+      },
+    });
+
+    expect(reports[P.private]).toBe('retry-later');
+    expect(deps.fetchPlacePhotos).not.toHaveBeenCalled();
+    expect(await photosOf(P.private)).toHaveLength(1);
   });
 });
 

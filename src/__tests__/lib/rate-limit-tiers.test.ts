@@ -11,6 +11,11 @@ describe('getRouteTier', () => {
     expect(getRouteTier('/api/photos/resolve/att_1', 'usr_beta')).toBe('photo-resolve');
   });
 
+  it('gives the private photo route the same per-image tier', () => {
+    expect(getRouteTier('/api/photos/private', 'usr_regular')).toBe('photo-resolve');
+    expect(getRouteTier('/api/photos/private', 'usr_beta')).toBe('photo-resolve');
+  });
+
   it('leaves every other route as it was', () => {
     expect(getRouteTier('/api/llm-process', 'usr_regular')).toBe('strict');
     expect(getRouteTier('/api/llm-process', 'usr_beta')).toBe('relaxed');

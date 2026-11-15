@@ -33,7 +33,8 @@ export default auth(async (req) => {
   // this it is redirected to /login and no processing ever starts.
   if (
     pathname.startsWith('/api/mass-upload/cron') ||
-    pathname.startsWith('/api/mass-upload/process')
+    pathname.startsWith('/api/mass-upload/process') ||
+    pathname === '/api/tiktok/diagnostic'
   ) {
     return NextResponse.next();
   }

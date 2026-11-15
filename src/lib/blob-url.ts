@@ -7,6 +7,12 @@
  * every such URL must be pinned to the Vercel Blob store before it is fetched
  * or persisted. Mirrors the allowlist pattern used for external photo sources
  * in `src/app/api/places/[id]/attachments/from-source/route.ts`.
+ *
+ * Public store only. Private Blob hosts are deliberately not accepted here:
+ * the only private blobs this app reads are TikTok photo imports, and the two
+ * routes that serve them check `isAllowedPrivateBlobUrl()` from
+ * `src/lib/tiktok-private-blob.ts` instead, so no existing public-upload route
+ * can be handed a private-store URL.
  */
 
 const VERCEL_BLOB_HOST_SUFFIX = '.public.blob.vercel-storage.com';

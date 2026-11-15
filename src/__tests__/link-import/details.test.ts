@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { enrichLinkDetails, mergeLinkDetails, type LinkDetailsProvider } from '@/lib/link-import/details';
+import { enrichLinkDetails, isLinkDetails, isLinkProviderResult, mergeLinkDetails, type LinkDetailsProvider } from '@/lib/link-import/details';
 import { createTikTokOEmbedProvider } from '@/lib/link-import/providers/tiktok-oembed';
 import { parseSocialLink } from '@/lib/link-import/url';
 
@@ -30,7 +30,7 @@ describe('link detail providers', () => {
     expect(result.providers.map((provider) => provider.provider)).toEqual(['first', 'second']);
   });
 
-  it('calls TikTok oEmbed only for video links and caches its safe response fields', async () => {
+  it('calls TikTok oEmbed only for video links and never persists its thumbnail URL', async () => {
     const fetcher = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       version: '1.0',
       type: 'video',
@@ -45,10 +45,11 @@ describe('link detail providers', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(String(fetcher.mock.calls[0][0])).toContain('/oembed?url=');
     expect(result).toMatchObject({
-      details: { author: 'Creator', title: 'Lisbon hidden spots', thumbnailReference: 'https://p16-sign.tiktokcdn.com/thumb.jpg' },
+      details: { author: 'Creator', title: 'Lisbon hidden spots' },
       cachedResponse: { version: '1.0', type: 'video', author_name: 'Creator' },
     });
     expect(JSON.stringify(result)).not.toContain('<iframe>');
+    expect(JSON.stringify(result)).not.toContain('tiktokcdn');
 
     expect(provider.supports(linkFor('https://www.tiktok.com/@creator/photo/7634085795908881686'))).toBe(false);
     expect(provider.supports(linkFor('https://www.instagram.com/p/C8abcDEFghi/'))).toBe(false);
@@ -66,5 +67,28 @@ describe('link detail providers', () => {
     ]);
     expect(result.details).toEqual({});
     expect(result.providers).toMatchObject([{ provider: 'offline', status: 'error', error: 'provider-unavailable' }]);
+  });
+});
+
+describe('provider result guards', () => {
+  it.each([
+    ['details', { details: { caption: 'Lisbon' } }],
+    ['a cached response', { cachedResponse: { type: 'video' } }],
+    ['empty', { empty: true }],
+    ['a reason', { reason: 'gone' }],
+    ['a transient payload', { transient: { imageRefs: [] } }],
+  ])('reads a result carrying %s as a result, not as details', (_label, value) => {
+    expect(isLinkProviderResult(value)).toBe(true);
+    expect(isLinkDetails(value)).toBe(false);
+  });
+
+  it('reads bare details as details', () => {
+    expect(isLinkDetails({ caption: 'Lisbon', author: '@creator' })).toBe(true);
+    expect(isLinkProviderResult({ caption: 'Lisbon', author: '@creator' })).toBe(false);
+  });
+
+  it('reads nothing as neither shape', () => {
+    expect(isLinkProviderResult(undefined)).toBe(false);
+    expect(isLinkDetails(undefined)).toBe(false);
   });
 });

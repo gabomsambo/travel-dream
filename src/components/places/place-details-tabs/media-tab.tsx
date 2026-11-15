@@ -6,6 +6,7 @@ import { X, Image as ImageIcon, Star } from "lucide-react"
 import { Button } from "@/components/adapters/button"
 import { Card } from "@/components/adapters/card"
 import { PhotoUploader } from "@/components/upload/photo-uploader"
+import { PrivateImage } from "@/components/private-image"
 import { FindImageButton } from "@/components/places/find-image-button"
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
@@ -115,7 +116,7 @@ export function MediaTab({ place }: MediaTabProps) {
                   className="cursor-pointer hover:opacity-90 transition-opacity"
                   onClick={() => openLightbox(index)}
                 >
-                  <img
+                  <PrivateImage
                     src={photo.thumbnailUri || photo.uri}
                     alt={photo.caption || photo.filename}
                     className="w-full h-48 object-cover"

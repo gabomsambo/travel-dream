@@ -12,6 +12,7 @@ import { useMapContext } from './map-context'
 import { AddressLink } from './address-link'
 import type { Attachment, PlaceWithRelations } from '@/types/database'
 import { FindImageButton } from '@/components/places/find-image-button'
+import { PrivateImage } from '@/components/private-image'
 import { usablePin } from '@/lib/place-coords'
 import { PhotoAttribution } from '@/components/attribution/photo-attribution'
 
@@ -277,7 +278,7 @@ export function MapPlaceDetails() {
                           className="aspect-square rounded-md overflow-hidden bg-muted cursor-pointer hover:opacity-90 transition-opacity"
                           onClick={() => handleAttachmentClick(photo)}
                         >
-                          <img
+                          <PrivateImage
                             src={photo.thumbnailUri || photo.uri}
                             alt={photo.caption || photo.filename || 'Attachment'}
                             className="w-full h-full object-cover"

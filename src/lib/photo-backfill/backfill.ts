@@ -16,6 +16,7 @@ import { attachments, places } from '@/db/schema';
 import type { GooglePlaceWithPhotos } from '@/lib/photo-sources/google-places';
 import { RateLimitError, type PhotoSearchItem } from '@/lib/photo-sources/types';
 import { attachPhotoFromSource, setPrimaryPhoto, type PhotoFromSource } from '@/lib/place-photos';
+import { photoRoute } from '@/lib/photo-url';
 import { forUser } from '@/lib/tenant-db';
 import {
   judgeGoogleCandidate,
@@ -48,6 +49,12 @@ export interface BackfillDeps {
   searchWikimedia(query: string): Promise<PhotoSearchItem[]>;
   /** HEAD a stored image URL: 2xx/3xx → live, 404/410 → dead, anything else → unknown. */
   checkUrl(url: string): Promise<Liveness>;
+  /**
+   * Same, for a URL in the private Blob store. It is only readable with the
+   * store's own token, so it needs its own probe: an unauthenticated request
+   * cannot tell a live private photo from a missing one.
+   */
+  checkPrivateUrl(url: string): Promise<Liveness>;
 }
 
 export interface MatchLogEntry extends MatchVerdict {
@@ -133,10 +140,14 @@ export async function loadUserPlaces(userId: string): Promise<PlaceWithPhotos[]>
 /** Whether a stored photo currently renders. */
 export async function photoLiveness(
   photo: PhotoRow,
-  deps: Pick<BackfillDeps, 'checkUrl'>,
+  deps: Pick<BackfillDeps, 'checkUrl' | 'checkPrivateUrl'>,
 ): Promise<Liveness> {
   // Rendered through the app's own resolver from a stored photo reference.
   if (photo.uri.startsWith('/api/photos/resolve/')) return 'live';
+  // A private-store photo is served by the app's own authenticated route, and
+  // the store only answers a request carrying its token, so it gets the private
+  // probe instead of the public one.
+  if (photoRoute(photo.uri) === 'private') return deps.checkPrivateUrl(photo.uri);
   if (/^https?:\/\//.test(photo.uri)) return deps.checkUrl(photo.uri);
   // Pre-Blob `/uploads/...` paths never existed on Vercel.
   return 'dead';
@@ -147,7 +158,7 @@ export async function photoLiveness(
  */
 export async function classifyPlace(
   place: PlaceWithPhotos,
-  deps: Pick<BackfillDeps, 'checkUrl'>,
+  deps: Pick<BackfillDeps, 'checkUrl' | 'checkPrivateUrl'>,
 ): Promise<Decision | null> {
   const states = await Promise.all(
     place.photos.map(async (photo) => ({ photo, state: await photoLiveness(photo, deps) })),
@@ -299,7 +310,7 @@ export async function planPlace(place: PlaceWithPhotos, deps: BackfillDeps): Pro
 export async function decideFromPlan(
   place: PlaceWithPhotos,
   planned: Decision,
-  deps: Pick<BackfillDeps, 'checkUrl'>,
+  deps: Pick<BackfillDeps, 'checkUrl' | 'checkPrivateUrl'>,
 ): Promise<Decision> {
   const now = await classifyPlace(place, deps);
   if (now) return now;

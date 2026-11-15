@@ -8,11 +8,12 @@ export type RateLimitTier =
   | 'relaxed'
   | 'auth'
   | 'photo-search'
-  | 'photo-resolve';
+  | 'photo-resolve'
+  | 'tiktok-page';
 
 interface RateLimitConfig {
   requests: number;
-  window: `${number} ${'s' | 'm' | 'h'}`;
+  window: `${number} ${'s' | 'm' | 'h' | 'd'}`;
   prefix: string;
 }
 
@@ -22,9 +23,11 @@ const RATE_LIMIT_TIERS: Record<RateLimitTier, RateLimitConfig> = {
   standard: { requests: 30, window: '1 m', prefix: 'rl:std' },
   relaxed: { requests: 100, window: '1 m', prefix: 'rl:rel' },
   'photo-search': { requests: 10, window: '1 m', prefix: 'rl:photo-search' },
-  // One call per Google-backed photo on screen; a library page shows dozens, and
-  // the browser caches each redirect for 45 min, so this only clips bursts.
+  // One call per photo on screen; a library page shows dozens, and the browser
+  // caches each redirect for 45 min, so this only clips bursts. The private
+  // photo route has the same shape: one request per image, served by the app.
   'photo-resolve': { requests: 600, window: '1 m', prefix: 'rl:photo-resolve' },
+  'tiktok-page': { requests: 30, window: '1 d', prefix: 'rl:tiktok-page' },
 };
 
 const ROUTE_TIERS: Record<string, RateLimitTier> = {
@@ -42,6 +45,7 @@ const ROUTE_TIERS: Record<string, RateLimitTier> = {
   '/api/inbox/links': 'standard',
   '/api/photos/search': 'photo-search',
   '/api/photos/resolve': 'photo-resolve',
+  '/api/photos/private': 'photo-resolve',
 };
 
 export interface RateLimitResult {
@@ -140,6 +144,23 @@ export async function checkRateLimit(
   } catch (error) {
     console.error('[RateLimit] Check failed:', error);
     return { success: true, limit: 0, remaining: 0, reset: 0 };
+  }
+}
+
+/** Read the current allowance without consuming a request. */
+export async function getRateLimitRemaining(
+  identifier: string,
+  tier: RateLimitTier
+): Promise<number | null> {
+  const limiter = getLimiter(tier);
+  if (!limiter) return null;
+
+  try {
+    const result = await limiter.getRemaining(identifier);
+    return result.remaining;
+  } catch (error) {
+    console.error('[RateLimit] Read-only check failed:', error);
+    return null;
   }
 }
 

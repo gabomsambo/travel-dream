@@ -53,3 +53,102 @@ it('returns only the signed-in user link and its independently scoped places', a
   });
   expect(JSON.stringify(rows)).not.toContain('Bob');
 });
+
+it('keeps fallback guidance visible when the TikTok reader is switched off', async () => {
+  const url = 'https://www.tiktok.com/@alicecreator/video/7694185850497666335';
+  await execute(
+    `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+     VALUES (?,?, 'url', ?, '', 'queued', ?, ?, ?)`,
+    ['src_alice_tiktok_off', ALICE.id, url, JSON.stringify({ link: {
+      originalUrl: url,
+      canonicalUrl: url,
+      platform: 'tiktok',
+      kind: 'tiktok-video',
+      handle: 'alicecreator',
+      postId: '7694185850497666335',
+      needsResolution: false,
+      resolution: { status: 'not-needed' },
+      details: { title: 'A Lisbon video' },
+      providers: [{ provider: 'tiktok-page', status: 'empty', reason: 'disabled', fetchedAt: new Date().toISOString() }],
+    } }), new Date().toISOString(), new Date().toISOString()],
+  );
+
+  const rows = await getInboxLinkItems(ALICE.id);
+  const item = rows.find((row) => row.id === 'src_alice_tiktok_off');
+  expect(item).toMatchObject({ hasHelpfulContext: true, readerMessage: "Couldn't read TikTok." });
+});
+
+it('surfaces the content kind the page reader detected for a carousel post', async () => {
+  const url = 'https://www.tiktok.com/@alicecreator/video/7694185850497666335';
+  await execute(
+    `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+     VALUES (?,?, 'url', ?, '', 'queued', ?, ?, ?)`,
+    ['src_alice_tiktok_photo', ALICE.id, url, JSON.stringify({ link: {
+      originalUrl: url,
+      canonicalUrl: url,
+      platform: 'tiktok',
+      kind: 'tiktok-video',
+      handle: 'alicecreator',
+      postId: '7694185850497666335',
+      needsResolution: false,
+      resolution: { status: 'not-needed' },
+      details: { contentKind: 'photo', title: 'A photo walk' },
+      providers: [{ provider: 'tiktok-page', status: 'ok', details: { contentKind: 'photo' }, fetchedAt: new Date().toISOString() }],
+    } }), new Date().toISOString(), new Date().toISOString()],
+  );
+
+  const rows = await getInboxLinkItems(ALICE.id);
+  const item = rows.find((row) => row.id === 'src_alice_tiktok_photo');
+  expect(item).toMatchObject({ kind: 'tiktok-video', contentKind: 'photo' });
+});
+
+it('shows paste-caption and add-photos guidance after a blocked TikTok read', async () => {
+  const url = 'https://www.tiktok.com/@alicecreator/video/7694185850497666335';
+  await execute(
+    `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+     VALUES (?,?, 'url', ?, 'Social link', 'completed', ?, ?, ?)`,
+    ['src_alice_tiktok_blocked', ALICE.id, url, JSON.stringify({ link: {
+      originalUrl: url,
+      canonicalUrl: url,
+      platform: 'tiktok',
+      kind: 'tiktok-video',
+      handle: 'alicecreator',
+      postId: '7694185850497666335',
+      needsResolution: false,
+      resolution: { status: 'not-needed' },
+      providers: [{ provider: 'tiktok-page', status: 'empty', reason: 'blocked', fetchedAt: new Date().toISOString() }],
+    } }), new Date().toISOString(), new Date().toISOString()],
+  );
+
+  const rows = await getInboxLinkItems(ALICE.id);
+  const item = rows.find((row) => row.id === 'src_alice_tiktok_blocked');
+  expect(item).toMatchObject({ readerMessage: "Couldn't read TikTok right now." });
+});
+
+it('carries when a photo import was requested so the Inbox can offer a stale one again', async () => {
+  const requestedAt = '2026-10-20T12:00:00.000Z';
+  const url = 'https://www.tiktok.com/@creator/video/7694185850497666335';
+  const now = new Date().toISOString();
+  await execute(
+    `INSERT INTO sources (id,user_id,type,uri,ocr_text,processing_status,meta,created_at,updated_at)
+     VALUES (?,?, 'url', ?, 'Caption', 'completed', ?, ?, ?)`,
+    ['src_alice_carousel', ALICE.id, url, JSON.stringify({ platform: 'tiktok', link: {
+      originalUrl: url,
+      canonicalUrl: url,
+      platform: 'tiktok',
+      kind: 'tiktok-video',
+      needsResolution: false,
+      resolution: { status: 'not-needed' },
+      details: { contentKind: 'photo' },
+      providers: [],
+      tiktokPhotoImport: { status: 'importing', requestedAt },
+    } }), now, now],
+  );
+
+  const rows = await getInboxLinkItems(ALICE.id);
+  expect(rows.find((row) => row.id === 'src_alice_carousel')).toMatchObject({
+    contentKind: 'photo',
+    photoImportStatus: 'importing',
+    photoImportRequestedAt: requestedAt,
+  });
+});

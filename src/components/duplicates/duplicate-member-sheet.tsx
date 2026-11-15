@@ -5,6 +5,7 @@ import { ExternalLink } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui-v2/sheet';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui-v2/dialog';
 import { compareRows } from '@/lib/duplicate-workbench';
+import { PrivateImage } from '@/components/private-image';
 import type { QueuePlace } from '@/lib/duplicate-certainty';
 import type { Attachment, Source } from '@/types/database';
 
@@ -68,8 +69,7 @@ export function DuplicateMemberSheet({
             aria-label={`Open ${picture.label.toLowerCase()} full size`}
             className="h-20 w-28 overflow-hidden rounded-md border bg-muted"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={picture.src} alt="" className="h-full w-full object-cover" />
+            <PrivateImage src={picture.src} alt="" className="h-full w-full object-cover" />
           </button>
         ))}
       </div>
@@ -126,7 +126,7 @@ export function DuplicateMemberSheet({
           <DialogTitle className="sr-only">{viewing?.label ?? 'Picture'}</DialogTitle>
           {viewing && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={viewing.src} alt={viewing.label} className="max-h-[85vh] w-full object-contain" />
+            <PrivateImage src={viewing.src} alt={viewing.label} className="max-h-[85vh] w-full object-contain" />
           )}
         </DialogContent>
       </Dialog>

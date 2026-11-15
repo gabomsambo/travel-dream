@@ -26,10 +26,59 @@ export type LinkParseResult =
 
 export interface LinkDetails {
   caption?: string;
+  hashtags?: string[];
   author?: string;
+  authorHandle?: string;
   placeName?: string;
+  placeAddress?: string;
+  placeCategory?: string;
+  placeCity?: string;
+  placeSourceId?: string;
   title?: string;
-  thumbnailReference?: string;
+  /** Epoch milliseconds, the same unit as `TikTokImageRef.expiresAt`. */
+  postedAt?: number;
+  contentKind?: 'photo' | 'video';
+}
+
+export type LinkProviderReason =
+  | 'disabled'
+  | 'gone'
+  | 'unavailable'
+  | 'blocked'
+  | 'format_changed'
+  | 'transient'
+  | 'throttled'
+  /** The user's per-day page-read allowance is spent; distinct from the app-wide slot being busy. */
+  | 'daily_limit'
+  | 'safety_unavailable';
+
+/** Signed TikTok CDN URLs are transient and must never enter persisted details. */
+export interface TikTokImageRef {
+  url: string;
+  width?: number;
+  height?: number;
+  /** Epoch milliseconds, the same unit as `LinkDetails.postedAt`. */
+  expiresAt?: number;
+}
+
+export interface LinkProviderResult {
+  details?: LinkDetails;
+  cachedResponse?: Record<string, string | number | boolean | null>;
+  empty?: boolean;
+  reason?: LinkProviderReason;
+  /** In-memory only. `details` and provider history remain safe to persist. */
+  transient?: { imageRefs?: TikTokImageRef[] };
+}
+
+export interface LinkProviderContext {
+  userId?: string;
+  forceRefresh?: boolean;
+  /**
+   * Wait for the app-wide request slot instead of reporting `throttled` when
+   * another read holds it. Only for callers that can afford to wait: the
+   * queue keeps deferring instead of blocking a worker.
+   */
+  waitForSlot?: boolean;
 }
 
 export interface LinkProviderRecord {
@@ -37,6 +86,7 @@ export interface LinkProviderRecord {
   status: 'ok' | 'empty' | 'error';
   details?: LinkDetails;
   cachedResponse?: Record<string, string | number | boolean | null>;
+  reason?: LinkProviderReason;
   error?: string;
   fetchedAt: string;
 }
@@ -61,4 +111,10 @@ export interface LinkSourceMeta {
   captionText?: string;
   details?: LinkDetails;
   providers: LinkProviderRecord[];
+  tiktokPhotoImport?: {
+    status: 'importing' | 'imported' | 'failed';
+    requestedAt?: string;
+    sourceIds?: string[];
+    count?: number;
+  };
 }

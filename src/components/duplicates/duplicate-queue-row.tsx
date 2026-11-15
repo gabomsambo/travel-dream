@@ -11,6 +11,7 @@ import {
 } from '@/lib/duplicate-certainty';
 import { cn } from '@/lib/utils';
 import { CERTAINTY_WORD_CLASS as WORD_CLASS } from './certainty-word-class';
+import { PrivateImage } from '@/components/private-image';
 
 function stackPlaces(cluster: QueueCluster): QueuePlace[] {
   const withPhoto = cluster.places.filter((place) => place.photoUrl);
@@ -55,8 +56,7 @@ export function DuplicateQueueRow({
             )}
           >
             {place.photoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={place.photoUrl} alt="" className="h-full w-full object-cover" />
+              <PrivateImage src={place.photoUrl} alt="" className="h-full w-full object-cover" />
             ) : (
               (place.name.trim().charAt(0) || '?').toUpperCase()
             )}

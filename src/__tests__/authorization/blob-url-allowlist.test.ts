@@ -112,6 +112,10 @@ describe('isAllowedBlobUrl', () => {
     ['a suffix look-alike host', LOOKALIKE],
     ['a non-https scheme', 'http://teststore.public.blob.vercel-storage.com/a.jpg'],
     ['a malformed URL', 'not-a-url'],
+    // Private-store URLs are only accepted by the two TikTok photo routes, via
+    // `isAllowedPrivateBlobUrl()`; the public allow-list every upload route
+    // uses must never admit them.
+    ['a private Vercel Blob store host', 'https://teststore.private.blob.vercel-storage.com/a.jpg'],
   ])('rejects %s', (_label, url) => {
     expect(isAllowedBlobUrl(url)).toBe(false);
   });

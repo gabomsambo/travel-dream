@@ -1,14 +1,19 @@
 import { NextRequest } from 'next/server';
+import { Ratelimit } from '@upstash/ratelimit';
 
 jest.mock('@upstash/ratelimit', () => ({
-  Ratelimit: jest.fn().mockImplementation(() => ({
-    limit: jest.fn().mockResolvedValue({
-      success: true,
-      limit: 100,
-      remaining: 99,
-      reset: Date.now() + 60000,
-    }),
-  })),
+  Ratelimit: Object.assign(
+    jest.fn().mockImplementation(() => ({
+      limit: jest.fn().mockResolvedValue({
+        success: true,
+        limit: 100,
+        remaining: 99,
+        reset: Date.now() + 60000,
+      }),
+      getRemaining: jest.fn().mockResolvedValue({ remaining: 7, reset: Date.now() + 60000 }),
+    })),
+    { slidingWindow: jest.fn(() => jest.fn()) },
+  ),
 }));
 
 jest.mock('@upstash/redis', () => ({
@@ -19,6 +24,7 @@ import {
   getClientIdentifier,
   isBetaTester,
   checkRateLimit,
+  getRateLimitRemaining,
   getRouteTier,
   rateLimitResponse,
 } from '../rate-limit';
@@ -187,6 +193,22 @@ describe('rate-limit', () => {
 
       const result = await checkRateLimit('test', 'strict');
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('getRateLimitRemaining', () => {
+    test('reads current allowance without consuming a request', async () => {
+      process.env.UPSTASH_REDIS_REST_URL = 'https://redis.example.test';
+      process.env.UPSTASH_REDIS_REST_TOKEN = 'test-token';
+
+      await expect(getRateLimitRemaining('user:alice', 'tiktok-page')).resolves.toBe(7);
+      const ratelimitMock = Ratelimit as unknown as jest.Mock;
+      const limiter = ratelimitMock.mock.results.at(-1)?.value as {
+        limit: jest.Mock;
+        getRemaining: jest.Mock;
+      };
+      expect(limiter.getRemaining).toHaveBeenCalledWith('user:alice');
+      expect(limiter.limit).not.toHaveBeenCalled();
     });
   });
 

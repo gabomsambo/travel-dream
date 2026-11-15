@@ -1,4 +1,4 @@
-import { photoPrefetchSrc, photoRoute, photoTint, resolverSrc, resolverSrcSet } from '@/lib/photo-url';
+import { photoPrefetchSrc, photoRoute, photoTint, privateBlobDisplayUrl, privateBlobSrc, resolverSrc, resolverSrcSet } from '@/lib/photo-url';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const nextConfig = require('../../../next.config.js') as {
@@ -19,6 +19,14 @@ describe('photoRoute', () => {
   it('keeps the Google resolver out of the optimizer, with or without a width', () => {
     expect(photoRoute('/api/photos/resolve/att_1')).toBe('resolver');
     expect(photoRoute('/api/photos/resolve/att_1?w=400')).toBe('resolver');
+  });
+
+  it('routes private Blob photos through authenticated delivery', () => {
+    const privateUrl = 'https://abc123.private.blob.vercel-storage.com/tiktok-imports/user/photo.jpg';
+    expect(photoRoute(privateUrl)).toBe('private');
+    expect(privateBlobDisplayUrl(privateUrl)).toBe(privateBlobSrc(privateUrl));
+    expect(privateBlobDisplayUrl('https://abc123.public.blob.vercel-storage.com/photo.jpg'))
+      .toBe('https://abc123.public.blob.vercel-storage.com/photo.jpg');
   });
 
   it.each([

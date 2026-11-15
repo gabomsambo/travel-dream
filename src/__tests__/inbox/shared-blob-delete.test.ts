@@ -27,6 +27,8 @@ import {
 const SHARED_BLOB = 'https://store.public.blob.vercel-storage.com/shared-screenshot.jpg';
 const THUMB_BLOB = 'https://store.public.blob.vercel-storage.com/shared-thumb.jpg';
 const ORPHAN_BLOB = 'https://store.public.blob.vercel-storage.com/orphan-only.jpg';
+const PRIVATE_PHOTO = 'https://travel-dream.private.blob.vercel-storage.com/tiktok-imports/alice/photo.jpg';
+const PRIVATE_THUMB = 'https://travel-dream.private.blob.vercel-storage.com/thumbnails/alice/photo_thumb.jpg';
 
 const mockDel = del as jest.Mock;
 
@@ -38,6 +40,30 @@ async function insertSharedScreenshotSource(id: string, userId: string, uri: str
   const meta = thumb
     ? JSON.stringify({ uploadInfo: { thumbnailPath: thumb, originalName: 'shot.jpg' } })
     : JSON.stringify({ uploadInfo: { originalName: 'shot.jpg' } });
+  await client.execute({
+    sql: `INSERT INTO sources (id, user_id, type, uri, processing_status, meta, created_at, updated_at)
+          VALUES (?,?,?,?,?,?,?,?)`,
+    args: [id, userId, 'screenshot', uri, 'done', meta, now, now],
+  });
+}
+
+/** The shape an imported TikTok photo's source row has: the thumbnail is named
+ *  only in the source meta, never on an attachment. */
+async function insertImportedPhotoSource(id: string, userId: string, uri: string, thumb: string) {
+  const { client } = require('@/db') as {
+    client: { execute: (q: { sql: string; args: unknown[] }) => Promise<unknown> };
+  };
+  const now = new Date().toISOString();
+  const meta = JSON.stringify({
+    tiktokPhotoImport: {
+      postId: '7694185850497666335',
+      postUrl: 'https://www.tiktok.com/@alicecreator/video/7694185850497666335',
+      handle: 'alicecreator',
+      index: 0,
+    },
+    massUpload: { thumbnailUrl: thumb },
+    uploadInfo: { thumbnailPath: thumb, originalName: 'shot.jpg' },
+  });
   await client.execute({
     sql: `INSERT INTO sources (id, user_id, type, uri, processing_status, meta, created_at, updated_at)
           VALUES (?,?,?,?,?,?,?,?)`,
@@ -92,6 +118,22 @@ describe('shared blob cleanup on delete', () => {
 
     expect(mockDel).toHaveBeenCalledTimes(1);
     expect(mockDel).toHaveBeenCalledWith(ORPHAN_BLOB);
+  });
+
+  it('deletes the private thumbnail a source meta names when the source is deleted', async () => {
+    const priorToken = process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
+    process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = 'test-private-store-token';
+    try {
+      await insertImportedPhotoSource('src_imported_photo', ALICE.id, PRIVATE_PHOTO, PRIVATE_THUMB);
+
+      await deleteSource('src_imported_photo', ALICE.id);
+
+      expect(mockDel).toHaveBeenCalledWith(PRIVATE_THUMB, expect.objectContaining({ access: 'private' }));
+      expect(await readCell('SELECT id FROM sources WHERE id = ?', ['src_imported_photo'])).toBeUndefined();
+    } finally {
+      if (priorToken === undefined) delete process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN;
+      else process.env.TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN = priorToken;
+    }
   });
 
   it('keeps the blob when deleting an attachment still used by a screenshot source', async () => {

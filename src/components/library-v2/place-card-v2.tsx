@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { PrivateImage } from "@/components/private-image"
 import { CoverPhotoCredit } from "@/components/attribution/cover-photo-credit"
 import { FindImageButton } from "@/components/places/find-image-button"
 
@@ -62,7 +63,7 @@ export function PlaceCardV2({ place, onClick, className, onRestore, onDelete, tr
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
         {place.coverUrl ? (
           <>
-            <img
+            <PrivateImage
               src={place.coverUrl}
               alt={place.name}
               loading="lazy"

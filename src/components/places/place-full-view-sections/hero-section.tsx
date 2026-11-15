@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { PLACE_KINDS } from "@/types/database"
 import type { PlaceWithRelations } from "@/types/database"
 import { FindImageButton } from "@/components/places/find-image-button"
+import { PrivateImage } from "@/components/private-image"
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
 
@@ -28,7 +29,7 @@ export function HeroSection({ place, formData, updateField }: HeroSectionProps) 
         <div className="space-y-1">
           <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
             {primaryPhoto ? (
-              <img
+              <PrivateImage
                 src={primaryPhoto.uri}
                 alt={place.name}
                 className="w-full h-full object-cover"

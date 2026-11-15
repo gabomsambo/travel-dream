@@ -9,12 +9,16 @@ export type PhotoRoute =
   | 'optimized'
   /** `/api/photos/resolve/<id>`: sized with `?w=`, never through the optimizer. */
   | 'resolver'
+  /** Authenticated same-origin delivery for a private Vercel Blob. */
+  | 'private'
   /** Anything else is used as is. */
   | 'plain';
 
 const RESOLVER_PATH = '/api/photos/resolve/';
 const BLOB_HOST_SUFFIX = '.public.blob.vercel-storage.com';
+const PRIVATE_BLOB_HOST_SUFFIX = '.private.blob.vercel-storage.com';
 const OPTIMIZED_HOSTS = new Set(['images.pexels.com', 'upload.wikimedia.org', 'thumb.wikimedia.org']);
+const PRIVATE_ROUTE = '/api/photos/private';
 
 export function photoRoute(url: string): PhotoRoute {
   if (url.startsWith(RESOLVER_PATH)) return 'resolver';
@@ -31,7 +35,17 @@ export function photoRoute(url: string): PhotoRoute {
   }
   if (parsed.protocol !== 'https:') return 'plain';
   const host = parsed.hostname.toLowerCase();
+  if (host.endsWith(PRIVATE_BLOB_HOST_SUFFIX)) return 'private';
   return host.endsWith(BLOB_HOST_SUFFIX) || OPTIMIZED_HOSTS.has(host) ? 'optimized' : 'plain';
+}
+
+export function privateBlobSrc(url: string): string {
+  return `${PRIVATE_ROUTE}?url=${encodeURIComponent(url)}`;
+}
+
+/** Convert a private Blob URL to its authenticated app route at client render boundaries. */
+export function privateBlobDisplayUrl(url: string): string {
+  return photoRoute(url) === 'private' ? privateBlobSrc(url) : url;
 }
 
 /** The resolver URL at one width; any width already on it is replaced. */
@@ -48,6 +62,7 @@ export function resolverSrcSet(url: string, widths: readonly number[]): string {
 export function photoPrefetchSrc(url: string, width: number): string {
   const route = photoRoute(url);
   if (route === 'resolver') return resolverSrc(url, width);
+  if (route === 'private') return privateBlobSrc(url);
   if (route === 'optimized') {
     return `/_next/image?url=${encodeURIComponent(url)}&w=${width}&q=75`;
   }

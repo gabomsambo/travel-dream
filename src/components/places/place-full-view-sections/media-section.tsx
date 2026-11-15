@@ -7,6 +7,7 @@ import { Button } from "@/components/adapters/button"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/adapters/card"
 import { PhotoUploader } from "@/components/upload/photo-uploader"
+import { PrivateImage } from "@/components/private-image"
 import { FindImageButton } from "@/components/places/find-image-button"
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
@@ -124,7 +125,7 @@ export function MediaSection({ place }: MediaSectionProps) {
                     className="aspect-square rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity relative group"
                     onClick={() => openLightbox(index)}
                   >
-                    <img
+                    <PrivateImage
                       src={photo.thumbnailUri || photo.uri}
                       alt={photo.caption || photo.filename}
                       className="w-full h-full object-cover"

@@ -19,7 +19,27 @@ export interface InboxLinkItem {
   placeName: string | null;
   hasHelpfulContext: boolean;
   resolutionStatus: string;
+  readerMessage?: string | null;
+  /** What the page reader detected: a carousel post or a video post. */
+  contentKind?: 'photo' | 'video' | null;
+  photoImportStatus?: 'importing' | 'imported' | 'failed' | null;
+  /** When the current import was requested; lets the Inbox offer a retry once an `importing` one has gone stale. */
+  photoImportRequestedAt?: string | null;
+  photoImportCount?: number;
   places: Array<{ id: string; name: string; status: string }>;
+}
+
+/** The single place that turns a page-reader reason into user-facing copy. */
+export function tiktokReaderMessage(reason: string | undefined, errored: boolean): string | null {
+  if (reason === 'disabled') return "Couldn't read TikTok.";
+  if (reason === 'gone') return "Couldn't read TikTok because the post is gone.";
+  if (reason === 'unavailable') return "Couldn't read TikTok because the post is unavailable.";
+  if (reason === 'format_changed') return "Couldn't read TikTok's page format.";
+  if (reason === 'daily_limit') return "Today's TikTok reading limit is used up. Try again tomorrow.";
+  if (reason === 'blocked' || reason === 'transient' || reason === 'throttled' || reason === 'safety_unavailable' || errored) {
+    return "Couldn't read TikTok right now.";
+  }
+  return null;
 }
 
 /** Recent social links and their own user's extracted places for the Inbox. */
@@ -61,6 +81,8 @@ export async function getInboxLinkItems(userId: string): Promise<InboxLinkItem[]
     const placeName = link.placeName ?? details?.placeName ?? null;
     const title = details?.title ?? source.meta?.title ?? null;
     const author = details?.author ?? source.meta?.author ?? null;
+    const pageProvider = link.providers.find((provider) => provider.provider === 'tiktok-page');
+    const importState = link.tiktokPhotoImport;
     const hasHelpfulContext = Boolean(
       link.captionText?.trim() || details?.caption?.trim() || title?.trim() || placeName?.trim()
     );
@@ -76,6 +98,13 @@ export async function getInboxLinkItems(userId: string): Promise<InboxLinkItem[]
       placeName,
       hasHelpfulContext,
       resolutionStatus: link.resolution.status,
+      readerMessage: link.platform === 'tiktok'
+        ? tiktokReaderMessage(pageProvider?.reason, pageProvider?.status === 'error')
+        : null,
+      contentKind: details?.contentKind ?? null,
+      photoImportStatus: importState?.status ?? null,
+      photoImportRequestedAt: importState?.requestedAt ?? null,
+      photoImportCount: importState?.count ?? 0,
       places: sourcePlaces.get(source.id) ?? [],
     }];
   });

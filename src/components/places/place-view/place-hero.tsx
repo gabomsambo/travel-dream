@@ -13,6 +13,7 @@ import { PLACE_KINDS } from "@/types/database"
 import type { ReviewCheckId } from "@/lib/review/review-checks"
 import { useSectionEdit } from "./section-edit"
 import { FindImageButton } from "@/components/places/find-image-button"
+import { PrivateImage } from "@/components/private-image"
 import { PhotoAttribution } from "@/components/attribution/photo-attribution"
 import { PoweredByGoogle } from "@/components/attribution/powered-by-google"
 import type { Attachment, PlaceWithRelations } from "@/types/database"
@@ -115,9 +116,7 @@ export function PlaceHero({
     <section aria-label={place.name} className="relative isolate overflow-hidden bg-black">
       <div className="absolute inset-0">
         {cover ? (
-          // Plain <img>: photos are user content on Blob URLs, matching Explore.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <PrivateImage
             src={cover.uri}
             alt=""
             fetchPriority="high"
@@ -318,8 +317,7 @@ export function PlaceHero({
                     aria-label={`Open photo ${i + 2}`}
                     className="overflow-hidden rounded-xl ring-2 ring-white/70 transition hover:ring-white"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={photo.thumbnailUri || photo.uri} alt="" loading="lazy" className="h-16 w-20 object-cover" />
+                    <PrivateImage src={photo.thumbnailUri || photo.uri} alt="" loading="lazy" className="h-16 w-20 object-cover" />
                   </button>
                 ))}
               </div>

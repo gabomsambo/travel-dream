@@ -264,12 +264,15 @@ Client IP for rate limiting comes only from platform-set headers (see `getClient
 **Never write uploads to the local filesystem.** On Vercel everything outside `/tmp` is read-only, so
 `writeFile`/`mkdir` into `public/uploads` fails at runtime — it only ever "worked" in local dev.
 
-Every upload uses the same three-step client-upload flow: `upload()` from `@vercel/blob/client` →
+Every browser upload uses the same three-step client-upload flow: `upload()` from `@vercel/blob/client` →
 `/api/blob/upload` (mints the token, enforces content types and rejects traversal-shaped keys) →
 a feature-specific complete route that validates the URL with `isAllowedBlobUrl()` and stores it.
 Implementations to copy: the Inbox drop sheet (`MassUploadSheet` → `/api/mass-upload/register`),
 `src/components/upload/photo-uploader.tsx`, and
-`src/components/collections/cover-image-picker-dialog.tsx`.
+`src/components/collections/cover-image-picker-dialog.tsx`. The TikTok carousel import is the one
+exception: the server copies those images into the private store itself
+(`src/lib/tiktok-private-blob.ts`), so their URLs are checked by `isAllowedPrivateBlobUrl()`, never
+by `isAllowedBlobUrl()`.
 
 The cover flow takes its blob-key extension from the MIME allow-list in `src/lib/image-upload.ts`,
 never from `file.name` — do the same in new upload paths. The mass-upload sheet and photo uploader
@@ -300,21 +303,26 @@ Which photo becomes the cover is `PrimaryPolicy` in that file. Google photos are
 `/api/photos/resolve` turns into a URL on view (billed per view) — never persist Google image bytes or URLs.
 Google photo names expire (weeks, not years): the resolver refreshes an expired one from the place id with a
 free `photos`-only Place Details call and stores the new name, so don't treat a stored name as permanent.
-Library and Explore render through `Photo` (`src/components/photo.tsx`): Blob/Pexels/Wikimedia are resized by
-the Next optimizer (`images.remotePatterns` in `next.config.js`); Google resolver URLs use `?w=` and must
-never go through the optimizer, whose cache would keep Google image bytes.
+Library and Explore render through `Photo` (`src/components/photo.tsx`): public Blob, Pexels and Wikimedia
+are resized by the Next optimizer (`images.remotePatterns` in `next.config.js`); private-store Blob URLs
+go through the authenticated `/api/photos/private` route instead (`PrivateImage`), because the optimizer
+cannot carry the store token; Google resolver URLs use `?w=` and must never go through the optimizer,
+whose cache would keep Google image bytes.
 
 ## Mass-upload queue (reliability-critical)
 
 The owner's bar is "drop 500 images and walk away": a screenshot that uploaded successfully must
 not end up `failed` from a single clock-out, kill, or race. The same queue also processes Inbox
-`type=url` link sources (`extractFromText` on `ocrText`); those insert already `queued` from
-`POST /api/inbox/links` and never use an upload session.
+`type=url` link sources: for a TikTok post it may first read the page and cache the result
+(`linkTextForExtraction`), then extracts with `extractFromText`; those insert already `queued`
+from `POST /api/inbox/links` and never use an upload session.
 
 `processingAttempts` counts **genuine verdicts about the item** (vision extraction for
 screenshots, text extraction for links) and can end in `failed`.
 `processingInterruptions` counts **clock-outs, kills and upstream outages** and never shares that
-counter. Below the cap they requeue with backoff. At the cap the row is `stalled` ("Still trying",
+counter. A deferred read (the app-wide slot busy or the daily allowance spent) is a third requeue
+class: `recordSourceDeferral` sets the row back to `queued` with a short flat backoff and touches
+neither counter. Below the cap they requeue with backoff. At the cap the row is `stalled` ("Still trying",
 no Try again) with a backoff, and the processing cron puts it back on the queue once that wait has
 elapsed. One more interruption past the cap lands in `failed`, which already offers Try again and
 Dismiss. Classification lives in `asInterruption()` in `src/lib/mass-upload/queue-processor.ts`.

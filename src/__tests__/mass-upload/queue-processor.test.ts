@@ -13,6 +13,7 @@ jest.mock('@/lib/db-mutations', () => ({
   cacheSourceProcessingWork: jest.fn(),
   completeSource: jest.fn(),
   recordSourceFailure: jest.fn(),
+  recordSourceDeferral: jest.fn(),
   recordSourceInterruption: jest.fn(),
   reclaimExpiredSourceLeases: jest.fn(),
   createPlacesFromPipeline: jest.fn(),
@@ -39,20 +40,32 @@ jest.mock('sharp', () => jest.fn(() => ({
 jest.mock('@vercel/blob', () => ({
   put: jest.fn(async () => ({ url: 'https://store.public.blob.vercel-storage.com/thumb.jpg' })),
 }));
+jest.mock('@/lib/link-import/providers/tiktok-page', () => ({
+  tiktokPageProvider: { getDetails: jest.fn() },
+}));
+jest.mock('@/lib/tiktok-private-blob', () => ({
+  ...jest.requireActual('@/lib/tiktok-private-blob'),
+  getTikTokPrivateBlob: jest.fn(),
+  putTikTokPrivateBlob: jest.fn(),
+  deleteTikTokPrivateBlob: jest.fn(),
+}));
 
 const mockExtractFromImage = jest.fn();
 const mockExtractFromText = jest.fn();
 const mockEnrichPlaces = jest.fn();
 
 import { processQueue } from '@/lib/mass-upload/queue-processor';
+import { tiktokPageProvider } from '@/lib/link-import/providers/tiktok-page';
 import { QUEUE_CONFIG } from '@/lib/mass-upload/queue-config';
 import { GooglePlacesUnavailableError } from '@/lib/mass-upload/google-places-enrichment';
+import { getTikTokPrivateBlob, putTikTokPrivateBlob } from '@/lib/tiktok-private-blob';
 import {
   claimNextQueuedSource,
   markSourceEnriching,
   cacheSourceProcessingWork,
   completeSource,
   recordSourceFailure,
+  recordSourceDeferral,
   recordSourceInterruption,
   reclaimExpiredSourceLeases,
   createPlacesFromPipeline,
@@ -60,11 +73,53 @@ import {
 import { getQueueDepth } from '@/lib/db-queries';
 import { createMockSource, createMockExtractionResult, createMockPipelinePlace } from '../helpers/mass-upload-helpers';
 
+const mockGetPrivateBlob = getTikTokPrivateBlob as jest.Mock;
+const mockPutPrivateBlob = putTikTokPrivateBlob as jest.Mock;
+
+/**
+ * The private download path builds a real `Response` around the blob stream;
+ * the `Response` in this repo's test setup cannot read one, so the private
+ * tests swap in one that can.
+ */
+class StreamResponse {
+  status: number;
+  ok: boolean;
+  headers: { get: (name: string) => string | null };
+
+  constructor(
+    private readonly body: ReadableStream<Uint8Array>,
+    init: { status: number; headers: Record<string, string> },
+  ) {
+    this.status = init.status;
+    this.ok = init.status >= 200 && init.status < 300;
+    this.headers = { get: (name) => init.headers[name.toLowerCase()] ?? null };
+  }
+
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    const reader = this.body.getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+    const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes.buffer;
+  }
+}
+
 const mockClaim = claimNextQueuedSource as jest.Mock;
 const mockEnriching = markSourceEnriching as jest.Mock;
 const mockCache = cacheSourceProcessingWork as jest.Mock;
 const mockComplete = completeSource as jest.Mock;
 const mockFailure = recordSourceFailure as jest.Mock;
+const mockDeferral = recordSourceDeferral as jest.Mock;
 const mockInterruption = recordSourceInterruption as jest.Mock;
 const mockReclaim = reclaimExpiredSourceLeases as jest.Mock;
 const mockCreatePlaces = createPlacesFromPipeline as jest.Mock;
@@ -96,6 +151,7 @@ describe('processQueue', () => {
     mockCache.mockResolvedValue(true);
     mockComplete.mockResolvedValue(true);
     mockFailure.mockResolvedValue('queued');
+    mockDeferral.mockResolvedValue('queued');
     mockInterruption.mockResolvedValue('queued');
     mockCreatePlaces.mockResolvedValue(Object.assign([{ id: 'plc_1' }], { createdCount: 1 }));
     mockExtractFromImage.mockResolvedValue(createMockExtractionResult());
@@ -180,6 +236,410 @@ describe('processQueue', () => {
     expect(mockEnrichPlaces).toHaveBeenCalledWith(expect.any(Array), expect.any(AbortSignal));
   });
 
+  it('defers throttled TikTok links without consuming interruption budget', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Caption supplied by the user',
+      processingInterruptions: 2,
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          providers: [],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason: 'throttled' });
+
+    const result = await processQueue({ workerId: 'w_tiktok_cap' });
+
+    expect(tiktokPageProvider.getDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: '7694185850497666335', platform: 'tiktok' }),
+      { userId: source.userId },
+    );
+    expect(mockDeferral).toHaveBeenCalledTimes(1);
+    expect(mockDeferral).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.stringContaining('throttled'),
+    );
+    expect(mockInterruption).not.toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(mockExtractFromText).not.toHaveBeenCalled();
+    expect(result.deferred).toBe(1);
+    expect(result.interrupted).toBe(0);
+    expect(source.processingInterruptions).toBe(2);
+  });
+
+  it('keeps deferring TikTok links while the daily reading allowance is spent', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Caption supplied by the user',
+      processingInterruptions: 2,
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          providers: [],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason: 'daily_limit' });
+
+    const result = await processQueue({ workerId: 'w_tiktok_daily' });
+
+    expect(tiktokPageProvider.getDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: '7694185850497666335', platform: 'tiktok' }),
+      { userId: source.userId },
+    );
+    expect(mockDeferral).toHaveBeenCalledTimes(1);
+    expect(mockDeferral).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.stringContaining('daily_limit'),
+    );
+    expect(mockInterruption).not.toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(mockExtractFromText).not.toHaveBeenCalled();
+    expect(result.deferred).toBe(1);
+    expect(result.interrupted).toBe(0);
+    expect(source.processingInterruptions).toBe(2);
+  });
+
+  it('completes blocked TikTok reads through the saved-link fallback and records guidance', async () => {
+    const fallback = 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335';
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: fallback,
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'disabled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason: 'blocked' });
+
+    const result = await processQueue({ workerId: 'w_tiktok_blocked' });
+
+    expect(mockExtractFromText).toHaveBeenCalledWith(fallback, 'tiktok');
+    expect(mockCache).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.objectContaining({
+        deferredLinkRead: expect.objectContaining({
+          ocrText: fallback,
+          providers: [expect.objectContaining({
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'blocked',
+          })],
+        }),
+      }),
+    );
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(mockDeferral).not.toHaveBeenCalled();
+    expect(mockInterruption).not.toHaveBeenCalled();
+    expect(result.completed).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  // 'transient' is also what a cached negative answers with; 'safety_unavailable'
+  // is the guardrails (Upstash) being unreachable.
+  it.each(['transient', 'safety_unavailable'] as const)(
+    'completes %s TikTok reads through the saved-link fallback without spending an interruption',
+    async (reason) => {
+    const fallback = 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335';
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: fallback,
+      processingInterruptions: 2,
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'disabled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason });
+
+    const result = await processQueue({ workerId: `w_tiktok_${reason}` });
+
+    expect(mockExtractFromText).toHaveBeenCalledWith(fallback, 'tiktok');
+    expect(mockCache).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.objectContaining({
+        deferredLinkRead: expect.objectContaining({
+          ocrText: fallback,
+          providers: [expect.objectContaining({
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason,
+          })],
+        }),
+      }),
+    );
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(mockInterruption).not.toHaveBeenCalled();
+    expect(mockDeferral).not.toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+    expect(result.completed).toBe(1);
+    expect(result.interrupted).toBe(0);
+    expect(result.deferred).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(source.processingInterruptions).toBe(2);
+  });
+
+  // A cached negative is the reader's own verdict about the post, so the
+  // reason has to reach the provider record: the Inbox otherwise keeps
+  // explaining a post that is gone with the reason of an earlier read.
+  it.each(['gone', 'unavailable', 'format_changed'] as const)(
+    'records the %s read reason so the Inbox can explain itself',
+    async (reason) => {
+      const fallback = 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335';
+      const source = createMockSource({
+        type: 'url',
+        uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+        ocrText: fallback,
+        processingInterruptions: 2,
+        meta: {
+          platform: 'tiktok',
+          link: {
+            platform: 'tiktok',
+            kind: 'tiktok-video',
+            postId: '7694185850497666335',
+            handle: 'creator',
+            canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+            providers: [{
+              provider: 'tiktok-page',
+              status: 'empty',
+              reason: 'throttled',
+              fetchedAt: '2026-03-01T00:00:00.000Z',
+            }],
+          },
+        },
+      });
+      queueOf(source);
+      (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({ empty: true, reason });
+
+      const result = await processQueue({ workerId: `w_tiktok_${reason}` });
+
+      expect(mockExtractFromText).toHaveBeenCalledWith(fallback, 'tiktok');
+      expect(mockCache).toHaveBeenCalledWith(
+        source.id,
+        expect.any(String),
+        expect.objectContaining({
+          deferredLinkRead: expect.objectContaining({
+            ocrText: fallback,
+            providers: [expect.objectContaining({
+              provider: 'tiktok-page',
+              status: 'empty',
+              reason,
+            })],
+          }),
+        }),
+      );
+      expect(result.completed).toBe(1);
+      expect(mockInterruption).not.toHaveBeenCalled();
+      expect(mockDeferral).not.toHaveBeenCalled();
+      expect(mockFailure).not.toHaveBeenCalled();
+      expect(source.processingInterruptions).toBe(2);
+    },
+  );
+
+  it('retries a deferred TikTok page read after a save-time disabled result', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335',
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'disabled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      details: {
+        caption: 'Visit Manteigaria in Lisbon',
+        placeName: 'Manteigaria',
+        author: 'Creator',
+        contentKind: 'video',
+      },
+    });
+
+    const result = await processQueue({ workerId: 'w_tiktok_disabled_retry' });
+
+    expect(tiktokPageProvider.getDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: '7694185850497666335', platform: 'tiktok' }),
+      { userId: source.userId },
+    );
+    expect(mockCache).toHaveBeenCalledWith(
+      source.id,
+      expect.any(String),
+      expect.objectContaining({
+        deferredLinkRead: expect.objectContaining({
+          ocrText: expect.stringContaining('Visit Manteigaria in Lisbon'),
+          providers: [expect.objectContaining({ provider: 'tiktok-page', status: 'ok' })],
+          details: expect.objectContaining({ caption: 'Visit Manteigaria in Lisbon' }),
+        }),
+      }),
+    );
+    expect(mockExtractFromText).toHaveBeenCalledWith(
+      expect.stringContaining('Visit Manteigaria in Lisbon'),
+      'tiktok',
+    );
+    expect(result.completed).toBe(1);
+  });
+
+  it('persists a successful deferred TikTok page read before extraction', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335',
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'throttled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      details: {
+        caption: 'Paste-free caption from the page',
+        author: 'Creator',
+        title: 'Lisbon walk',
+        contentKind: 'video',
+      },
+    });
+
+    await processQueue({ workerId: 'w_tiktok_persist' });
+
+    const deferredCall = mockCache.mock.calls.find(
+      (call) => call[2] && typeof call[2] === 'object' && 'deferredLinkRead' in call[2],
+    );
+    expect(deferredCall).toBeDefined();
+    expect(deferredCall?.[2]).toMatchObject({
+      deferredLinkRead: {
+        ocrText: expect.stringContaining('Paste-free caption from the page'),
+        providers: [{
+          provider: 'tiktok-page',
+          status: 'ok',
+          details: expect.objectContaining({ caption: 'Paste-free caption from the page' }),
+        }],
+        details: expect.objectContaining({ caption: 'Paste-free caption from the page' }),
+        title: 'Lisbon walk',
+        author: 'Creator',
+      },
+    });
+    expect(mockExtractFromText).toHaveBeenCalled();
+  });
+
+  it('feeds the deferred page caption to the extractor even when a caption was pasted at save time', async () => {
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335',
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          canonicalUrl: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+          captionText: 'best tarts',
+          providers: [{
+            provider: 'tiktok-page',
+            status: 'empty',
+            reason: 'throttled',
+            fetchedAt: '2026-03-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      details: {
+        caption: 'The custard tarts at Manteigaria in Lisbon #lisbon',
+        placeName: 'Manteigaria',
+        contentKind: 'video',
+      },
+    });
+
+    await processQueue({ workerId: 'w_tiktok_caption' });
+
+    expect(mockExtractFromText).toHaveBeenCalledWith(
+      expect.stringContaining('The custard tarts at Manteigaria in Lisbon #lisbon'),
+      'tiktok',
+    );
+    const deferredCall = mockCache.mock.calls.find(
+      (call) => call[2] && typeof call[2] === 'object' && 'deferredLinkRead' in call[2],
+    );
+    expect(deferredCall?.[2]).toMatchObject({
+      deferredLinkRead: {
+        details: expect.objectContaining({ caption: 'The custard tarts at Manteigaria in Lisbon #lisbon' }),
+      },
+    });
+  });
+
   it('treats a 5xx from blob storage as an interruption, not a bad screenshot', async () => {
     queueOf(createMockSource());
     (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 502, headers: { get: () => null } });
@@ -204,6 +664,119 @@ describe('processQueue', () => {
     expect(mockInterruption).toHaveBeenCalledTimes(1);
     expect(mockFailure).not.toHaveBeenCalled();
     expect(result.interrupted).toBe(1);
+  });
+
+  it('cancels a hanging private Blob download when the item watchdog fires', async () => {
+    jest.useFakeTimers();
+    try {
+      const privateUri = 'https://travel-dream.private.blob.vercel-storage.com/tiktok-imports/u/photo.jpg';
+      queueOf(createMockSource({
+        uri: privateUri,
+        meta: { tiktokPhotoImport: true, uploadInfo: { originalName: 'photo.jpg' } },
+      }));
+
+      let sawAbortSignal = false;
+      mockGetPrivateBlob.mockImplementation((_url: string, _etag?: string | null, abortSignal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (!abortSignal) return;
+          sawAbortSignal = true;
+          const fail = () => reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+          if (abortSignal.aborted) fail();
+          else abortSignal.addEventListener('abort', fail, { once: true });
+        })
+      );
+
+      const run = processQueue({ workerId: 'w_private_abort' });
+      await jest.advanceTimersByTimeAsync(QUEUE_CONFIG.itemMaxBudgetMs + 1_000);
+      const result = await run;
+
+      expect(sawAbortSignal).toBe(true);
+      expect(mockGetPrivateBlob).toHaveBeenCalled();
+      expect(mockInterruption).toHaveBeenCalledTimes(1);
+      expect(mockFailure).not.toHaveBeenCalled();
+      expect(result.interrupted).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(global.fetch).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('writes a private import thumbnail to one fixed key, so a regeneration cannot orphan it', async () => {
+    const originalResponse = (global as unknown as { Response: unknown }).Response;
+    (global as unknown as { Response: unknown }).Response = StreamResponse;
+    try {
+      const privateUri = 'https://travel-dream.private.blob.vercel-storage.com/tiktok-imports/u/photo.jpg';
+      queueOf(createMockSource({
+        uri: privateUri,
+        meta: {
+          tiktokPhotoImport: { postId: '7694185850497666335', postUrl: 'https://www.tiktok.com/@creator/photo/7694185850497666335', handle: 'creator', index: 0 },
+          uploadInfo: { originalName: 'photo.jpg' },
+        },
+      }));
+      mockGetPrivateBlob.mockResolvedValue({
+        statusCode: 200,
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(8));
+            controller.close();
+          },
+        }),
+        blob: { contentType: 'image/jpeg', size: 8, etag: '"private-etag"' },
+      });
+      mockPutPrivateBlob.mockResolvedValue({
+        url: 'https://travel-dream.private.blob.vercel-storage.com/thumbnails/user_test-1/src_test-1_thumb.jpg',
+      });
+
+      await processQueue({ workerId: 'w_private_thumb' });
+
+      expect(mockPutPrivateBlob).toHaveBeenCalledTimes(1);
+      expect(mockPutPrivateBlob).toHaveBeenCalledWith(
+        'thumbnails/user_test-1/src_test-1_thumb.jpg',
+        expect.any(Buffer),
+        'image/jpeg',
+        { overwrite: true },
+      );
+      expect(mockCache).toHaveBeenCalledWith(
+        'src_test-1',
+        expect.any(String),
+        expect.objectContaining({
+          thumbnailUrl: 'https://travel-dream.private.blob.vercel-storage.com/thumbnails/user_test-1/src_test-1_thumb.jpg',
+        }),
+      );
+    } finally {
+      (global as unknown as { Response: unknown }).Response = originalResponse;
+    }
+  });
+
+  it('does not read a provider result that carries only a cached response as link details', async () => {
+    const fallback = 'Social link: https://www.tiktok.com/@creator/video/7694185850497666335';
+    const source = createMockSource({
+      type: 'url',
+      uri: 'https://www.tiktok.com/@creator/video/7694185850497666335',
+      ocrText: fallback,
+      meta: {
+        platform: 'tiktok',
+        link: {
+          platform: 'tiktok',
+          kind: 'tiktok-video',
+          postId: '7694185850497666335',
+          handle: 'creator',
+          providers: [],
+        },
+      },
+    });
+    queueOf(source);
+    (tiktokPageProvider.getDetails as jest.Mock).mockResolvedValue({
+      cachedResponse: { version: '1.0', type: 'video' },
+    });
+
+    await processQueue({ workerId: 'w_cached_only' });
+
+    // The provider's cached payload is not link details, so the item extracts
+    // from the text that was saved with the link.
+    expect(mockExtractFromText).toHaveBeenCalledWith(fallback, 'tiktok');
+    expect(JSON.stringify(mockCache.mock.calls)).not.toContain('cachedResponse');
   });
 
   it('treats a network drop wrapped by the Gemini SDK as an interruption', async () => {

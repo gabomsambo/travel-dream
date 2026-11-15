@@ -75,9 +75,10 @@ The Docker setup now includes support for all Enhanced Library Page features:
 ### File Uploads
 
 Uploads go to Vercel Blob, not to the container filesystem, so the container
-needs `BLOB_READ_WRITE_TOKEN` in `.env.local` for any upload to work. Nothing is
-written under `public/uploads`. See the "File Storage" section of `CLAUDE.md`
-for the upload flow.
+needs `BLOB_READ_WRITE_TOKEN` in `.env.local` for browser uploads to work. TikTok
+photo imports additionally need `TIKTOK_PRIVATE_BLOB_READ_WRITE_TOKEN` (see
+`.env.example`). Nothing is written under `public/uploads`. See the "File
+Storage" section of `CLAUDE.md` for the upload flow.
 
 ### Image Processing
 

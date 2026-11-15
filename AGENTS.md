@@ -313,13 +313,16 @@ whose cache would keep Google image bytes.
 
 The owner's bar is "drop 500 images and walk away": a screenshot that uploaded successfully must
 not end up `failed` from a single clock-out, kill, or race. The same queue also processes Inbox
-`type=url` link sources (`extractFromText` on `ocrText`); those insert already `queued` from
-`POST /api/inbox/links` and never use an upload session.
+`type=url` link sources: for a TikTok post it may first read the page and cache the result
+(`linkTextForExtraction`), then extracts with `extractFromText`; those insert already `queued`
+from `POST /api/inbox/links` and never use an upload session.
 
 `processingAttempts` counts **genuine verdicts about the item** (vision extraction for
 screenshots, text extraction for links) and can end in `failed`.
 `processingInterruptions` counts **clock-outs, kills and upstream outages** and never shares that
-counter. Below the cap they requeue with backoff. At the cap the row is `stalled` ("Still trying",
+counter. A deferred read (the app-wide slot busy or the daily allowance spent) is a third requeue
+class: `recordSourceDeferral` sets the row back to `queued` with a short flat backoff and touches
+neither counter. Below the cap they requeue with backoff. At the cap the row is `stalled` ("Still trying",
 no Try again) with a backoff, and the processing cron puts it back on the queue once that wait has
 elapsed. One more interruption past the cap lands in `failed`, which already offers Try again and
 Dismiss. Classification lives in `asInterruption()` in `src/lib/mass-upload/queue-processor.ts`.

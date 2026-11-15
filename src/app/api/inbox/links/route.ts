@@ -274,7 +274,7 @@ async function refreshExistingLink(
   const priorMeta = (existing.meta ?? {}) as SourceMeta;
   const priorLink = priorMeta.link;
   const priorCaption = priorLink?.captionText;
-  const mergedCaption = caption || details.caption || priorCaption;
+  const mergedCaption = caption || priorCaption || details.caption;
   const hasPlaces = await sourceHasLinkedPlaces(tdb, existing.id);
   const requeue = shouldRequeueExisting(
     existing.processingStatus,

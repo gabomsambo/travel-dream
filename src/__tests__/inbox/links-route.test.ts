@@ -171,6 +171,31 @@ describe('POST /api/inbox/links', () => {
     expect(dispatchProcessors).toHaveBeenCalled();
   });
 
+  it('keeps a pasted caption when a re-save only reads the page caption', async () => {
+    const first = await (await save(CANONICAL_VIDEO, 'Check this out')).json() as { sourceId: string };
+    expect((await jsonMeta(first.sourceId)).link.captionText).toBe('Check this out');
+
+    (enrichLinkDetails as jest.Mock).mockResolvedValueOnce({
+      details: { author: '@creator', caption: 'Check out this cafe in Lisbon' },
+      providers: [
+        {
+          provider: 'tiktok-page',
+          status: 'ok',
+          details: { caption: 'Check out this cafe in Lisbon' },
+          fetchedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+
+    const secondResponse = await save(CANONICAL_VIDEO);
+    expect(secondResponse.status).toBe(200);
+    const meta = await jsonMeta(first.sourceId);
+    expect(meta.link.captionText).toBe('Check this out');
+    const ocrText = String(await readCell('SELECT ocr_text FROM sources WHERE id = ?', [first.sourceId]));
+    expect(ocrText).toContain('Check this out');
+    expect(ocrText).toContain('Check out this cafe in Lisbon');
+  });
+
   it('keeps the TikTok photo import state when the same link is saved again', async () => {
     const first = await (await save(CANONICAL_VIDEO)).json() as { sourceId: string };
     await databaseExec(

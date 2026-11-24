@@ -122,10 +122,12 @@ The in-app setup page is `/share-from-phone` (linked from Settings → Share fro
   `/manifest.webmanifest` with icons and a `share_target` that opens
   `GET /share-target?title=…&text=…&url=…`. The route saves the first TikTok or Instagram
   URL it finds (Android usually sends it in `text`) and lands on it in the Inbox. Signed-out
-  visitors go through login and back. It saves without asking only for a navigation the
-  browser itself started (`Sec-Fetch-Site: none`, which a share-sheet launch sends) or one
-  from this site; anything else gets a one-tap confirm page. Safari does not support share
-  targets. There is no service worker, and authenticated pages are never cached offline.
+  visitors go through login and back, then get one tap to confirm before the link is saved.
+  It saves without asking only for a navigation the browser itself started
+  (`Sec-Fetch-Site: none`, which a share-sheet launch sends); anything else — including the
+  same-origin return from login — gets a one-tap confirm page whose button POSTs back to
+  `/share-target`. Safari does not support share targets. There is no service worker, and
+  authenticated pages are never cached offline.
 
 All three ways in (Inbox form, Shortcut, share target) save through `saveSocialLink` in
 `src/lib/link-import/save-link.ts`. Regenerate the icons from `public/icons/icon.svg`

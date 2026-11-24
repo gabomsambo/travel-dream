@@ -12,6 +12,9 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = safeCallbackPath(searchParams.get('callbackUrl'))
+  const signupHref = searchParams.get('callbackUrl')
+    ? `/signup?${new URLSearchParams({ callbackUrl }).toString()}`
+    : '/signup'
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -123,7 +126,7 @@ function LoginForm() {
       <div className="mt-8 text-center">
         <p className="text-sm text-landing-secondary">
           Don&apos;t have an account?{" "}
-          <Link href="/signup" className="font-semibold text-landing-accent hover:underline">
+          <Link href={signupHref} className="font-semibold text-landing-accent hover:underline">
             Sign up
           </Link>
         </p>

@@ -11,8 +11,9 @@ interface ConfirmPageProps {
 
 /**
  * Shown when `/share-target` was reached by something other than the share
- * sheet itself (see that route). One tap saves: the form goes back to
- * `/share-target` from this site, which the route accepts.
+ * sheet itself, such as the same-origin return from /login (see that route).
+ * One tap saves: the form POSTs back to `/share-target` from this site, which
+ * the route accepts.
  */
 export default async function ShareTargetConfirmPage({ searchParams }: ConfirmPageProps) {
   await requireAuth()
@@ -26,7 +27,7 @@ export default async function ShareTargetConfirmPage({ searchParams }: ConfirmPa
         {url ? (
           <>
             <p className="mt-3 break-all rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs sm:text-sm">{url}</p>
-            <form action="/share-target" method="GET" className="mt-5 flex flex-col gap-2 sm:flex-row">
+            <form action="/share-target" method="POST" className="mt-5 flex flex-col gap-2 sm:flex-row">
               <input type="hidden" name="url" value={url} />
               <button
                 type="submit"

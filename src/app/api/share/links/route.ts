@@ -41,20 +41,6 @@ function reply(status: number, body: Record<string, unknown>) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
-async function readBody(request: NextRequest): Promise<unknown> {
-  const type = request.headers.get('content-type') ?? '';
-  if (type.includes('application/x-www-form-urlencoded') || type.includes('multipart/form-data')) {
-    const form = await request.formData().catch(() => null);
-    if (!form) return null;
-    const value = (key: string) => {
-      const v = form.get(key);
-      return typeof v === 'string' ? v : undefined;
-    };
-    return { url: value('url'), text: value('text'), title: value('title'), caption: value('caption') };
-  }
-  return request.json().catch(() => null);
-}
-
 export async function POST(request: NextRequest) {
   try {
     const auth = await authenticateShareToken(bearerToken(request), SHARE_TOKEN_SCOPE_LINK_IMPORT);
@@ -70,7 +56,7 @@ export async function POST(request: NextRequest) {
     const limit = await checkRateLimit(getClientIdentifier(request, auth.userId), 'share-link');
     if (!limit.success) return rateLimitResponse(limit);
 
-    const parsed = ShareLinkSchema.safeParse(await readBody(request));
+    const parsed = ShareLinkSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
       return reply(400, { status: 'error', error: 'invalid-input', message: 'Send the shared link as JSON: { "url": "…" }.' });
     }

@@ -55,6 +55,17 @@ async function share(body: unknown, token?: string) {
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 
+/** A request whose body is form-encoded instead of JSON, as an HTML form would send. */
+async function shareForm(body: string, token: string) {
+  const request = new (global as unknown as { Request: new (u: string, o: unknown) => Request }).Request(ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', authorization: `Bearer ${token}` },
+    body,
+  });
+  const response = await route().POST(request);
+  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+}
+
 async function countSources(userId: string): Promise<number> {
   return Number(await readCell(`SELECT COUNT(*) FROM sources WHERE user_id = ? AND type = 'url'`, [userId]));
 }
@@ -189,6 +200,17 @@ describe('POST /api/share/links', () => {
     expect(JSON.stringify(listed)).not.toContain(alice.raw);
     expect(JSON.stringify(listed)).not.toContain(hashShareToken(alice.raw));
     expect(await listShareTokens(BOB.id)).toEqual([]);
+  });
+
+  it('rejects a form-encoded body and saves nothing', async () => {
+    const alice = await newToken(ALICE.id);
+    const before = await countSources(ALICE.id);
+
+    const res = await shareForm(`url=${encodeURIComponent(POST_URL)}`, alice.raw);
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: 'invalid-input' });
+    expect(await countSources(ALICE.id)).toBe(before);
   });
 
   it('answers 400 when nothing shared contains a link', async () => {

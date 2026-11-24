@@ -172,7 +172,7 @@ export function PhoneShareGuide({
             <p>
               In TikTok or Instagram, tap <strong>Share</strong>, then <strong>More</strong> or <strong>Share to</strong>,
               and pick <strong>Tabi Dreams</strong>. Travel Dream opens on the saved link in your Inbox. If you are signed
-              out, it asks you to sign in first and then saves the link.
+              out, it asks you to sign in first, then asks for one tap to confirm before saving the link.
             </p>
           </Step>
         </ol>

@@ -10,6 +10,7 @@ export * from './attachments';
 export * from './placeLinks';
 export * from './reservations';
 export * from './library';
+export * from './share-tokens';
 
 // Re-export tables for convenience
 export { users, accounts, sessions, verificationTokens } from './auth';
@@ -23,6 +24,7 @@ export { attachments } from './attachments';
 export { placeLinks } from './placeLinks';
 export { reservations } from './reservations';
 export { placeHearts, savedViews } from './library';
+export { shareTokens } from './share-tokens';
 
 // Export all relations for Drizzle
 export {

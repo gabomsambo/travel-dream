@@ -6,11 +6,12 @@ import { signIn } from "next-auth/react"
 import { useState, Suspense } from "react"
 import { Button } from "@/components/landing/ui/button"
 import { motion } from "framer-motion"
+import { safeCallbackPath } from "@/lib/safe-callback"
 
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get('callbackUrl') || '/inbox'
+  const callbackUrl = safeCallbackPath(searchParams.get('callbackUrl'))
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 

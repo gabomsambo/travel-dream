@@ -4,11 +4,12 @@ import { auth } from '@/lib/auth'
 import { coveredUploadPlaceIds } from '@/lib/inbox-page-model'
 import { getInboxPlacesAddedAnotherWay, getInboxUploads } from '@/lib/inbox-uploads'
 import { getInboxLinkItems } from '@/lib/inbox-link-items'
+import { parseShareNotice } from '@/lib/link-import/shared-url'
 
 export const metadata = { title: 'Inbox' }
 
 interface InboxPageProps {
-  searchParams: Promise<{ upload?: string | string[] }>
+  searchParams: Promise<{ upload?: string | string[]; link?: string | string[]; shared?: string | string[] }>
 }
 
 function firstParam(value: string | string[] | undefined): string | undefined {
@@ -37,6 +38,8 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
           addedAnotherWay={addedAnotherWay}
           linkItems={linkItems}
           uploadId={firstParam(params.upload)}
+          highlightLinkId={firstParam(params.link)}
+          shareNotice={parseShareNotice(firstParam(params.shared))}
         />
       </div>
     </div>

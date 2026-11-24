@@ -184,7 +184,7 @@ Mass Upload is not in the sidebar; `/mass-upload` redirects to `/inbox?sheet=1`.
 ## Multi-Tenancy (security-critical)
 
 Every user-owned table carries a `userId` (`places`, `sources`, `collections`, `uploadSessions`,
-`dismissedDuplicates`, `placeHearts`, `savedViews`). **Authentication is not authorization**: any
+`dismissedDuplicates`, `placeHearts`, `savedViews`, `shareTokens`). **Authentication is not authorization**: any
 handler that reads or writes a row by a caller-supplied id must also filter on the caller's `user.id`.
 
 The tables with no `user_id` of their own are owned transitively through another table, which is not
@@ -215,7 +215,8 @@ Not every route is migrated. The unmigrated ones carry a per-file
 awkward; `grep -rl 'TODO(tenant-db)' src/app` is the remaining list. Adding a *new* exemption needs a
 comparable justification — the rule exists so route N+1 cannot quietly join that list. The shared
 mass-upload worker under `src/lib/mass-upload/` legitimately has no user context (it derives one from
-the row it claimed) and `api/auth/register` runs before the user exists; both keep the raw client.
+the row it claimed), and `api/auth/register` and the share-token lookup in `src/lib/phone-share-tokens.ts`
+run before there is a user; all of them keep the raw client.
 
 **Owning a container is not owning the rows it names.** When a handler reads ids out of a row and
 then queries or mutates by those ids, the follow-up query must independently filter on the caller —

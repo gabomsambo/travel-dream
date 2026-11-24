@@ -219,10 +219,10 @@ export async function readCell(sql: string, args: unknown[] = []): Promise<unkno
 }
 
 /** Build a Request the App Router handlers accept (jest.setup.js supplies the shim). */
-export function apiRequest(url: string, method = 'GET', body?: unknown): Request {
+export function apiRequest(url: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}): Request {
   return new (global as unknown as { Request: new (u: string, o: unknown) => Request }).Request(url, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }

@@ -32,8 +32,9 @@
  *
  * The shared mass-upload worker (`src/lib/mass-upload/`) has no user context by
  * design: it claims any user's queued source and derives ownership from the row
- * it claimed. `auth/register` runs before the user exists. Both keep the raw
- * client, and both live outside the linted directories.
+ * it claimed. `auth/register` runs before the user exists, and so does the
+ * share-token lookup in `phone-share-tokens.ts`, which finds the user from the
+ * token. They keep the raw client, and all live outside the linted directories.
  */
 import 'server-only';
 import { and, eq, getTableName, sql, type SQL } from 'drizzle-orm';
@@ -48,13 +49,16 @@ import {
   places,
   placesToCollections,
   savedViews,
+  shareTokens,
   sources,
   sourcesToPlaces,
   uploadSessions,
 } from '@/db/schema';
 
 /** Tables that carry `user_id` themselves. */
-const OWNED = [places, sources, collections, uploadSessions, dismissedDuplicates, placeHearts, savedViews] as const;
+const OWNED = [
+  places, sources, collections, uploadSessions, dismissedDuplicates, placeHearts, savedViews, shareTokens,
+] as const;
 
 /** Any table this module will scope by its own `user_id` column. */
 export type OwnedTable = (typeof OWNED)[number];

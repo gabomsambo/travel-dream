@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
 import { Download, Trash2, Keyboard, Sun, Moon, Laptop, Grid3x3, List, Sparkles } from 'lucide-react'
@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/adapters/select"
 
-export function SettingsClient() {
+export function SettingsClient({ phoneShare }: { phoneShare?: ReactNode } = {}) {
   const router = useRouter()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -344,6 +344,8 @@ export function SettingsClient() {
           </div>
         </CardContent>
       </Card>
+
+      {phoneShare}
 
       <Card>
         <CardHeader>

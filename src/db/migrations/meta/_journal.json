@@ -43,6 +43,13 @@
       "when": 1791809729139,
       "tag": "20261012125529_user_id_not_null",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795553888876,
+      "tag": "20261124205808_add_share_tokens",
+      "breakpoints": true
     }
   ]
 }

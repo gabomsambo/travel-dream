@@ -14,7 +14,11 @@ says "Couldn't read TikTok").
 | `settings-share-tokens-mobile.jpeg` | Settings → Share from your phone: the link to the setup page and the same token manager. |
 | `inbox-after-share-mobile.jpeg` | Landing after `/share-target?title=…&text=…<instagram url>` while signed out: login, then back to the share, saved, Inbox notice and highlighted card (dark mode). |
 | `inbox-shared-duplicate-mobile.jpeg` | Sharing a post that is already saved: the "already in your Inbox" notice, the card highlighted. |
-| `share-target-confirm-mobile.jpeg` | The one-tap confirm page `/share-target` shows when it was reached from another site rather than the share sheet. |
+| `share-target-confirm-mobile.jpeg` | The one-tap confirm page `/share-target` shows for any arrival that is not a share-sheet launch (this capture is a link from another site). |
+
+This signed-out capture predates the one-tap confirm after login: today the return from `/login`
+shows `/share-target/confirm`, and the Inbox card above follows that tap. A same-origin launch no
+longer saves on the GET.
 
 Endpoint checks against the same server (`curl`, with a token created on the page above):
 

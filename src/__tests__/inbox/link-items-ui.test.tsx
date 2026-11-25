@@ -108,3 +108,22 @@ it('says the imported photos are read to find places and that a photo is kept on
     ),
   ).toBeInTheDocument();
 });
+
+it('highlights the link that was just shared and says it was saved', () => {
+  const model = buildInboxScreen({ uploads: [], toReviewPlaceIds: [], addedAnotherWay: [], now: null });
+  const other: InboxLinkItem = { ...noContextLink, id: 'src_link_other' };
+  const { container } = render(
+    <InboxScreen model={model} linkItems={[noContextLink, other]} highlightLinkId="src_link_1" shareNotice="saved" />,
+  );
+
+  expect(screen.getByRole('status')).toHaveTextContent('Saved to your Inbox.');
+  const shared = container.querySelector('#link-src_link_1');
+  expect(shared).toHaveAttribute('aria-current', 'true');
+  expect(container.querySelector('#link-src_link_other')).not.toHaveAttribute('aria-current');
+});
+
+it('explains a share that saved nothing', () => {
+  const model = buildInboxScreen({ uploads: [], toReviewPlaceIds: [], addedAnotherWay: [], now: null });
+  render(<InboxScreen model={model} linkItems={[]} shareNotice="unsupported" />);
+  expect(screen.getByRole('status')).toHaveTextContent('only TikTok and Instagram links');
+});

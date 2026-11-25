@@ -56,6 +56,13 @@ export default auth(async (req) => {
     }
   }
 
+  // Token-authenticated endpoints: the iPhone Shortcut sends a personal share
+  // token, never a session cookie, so a login redirect would break it. They are
+  // rate-limited above like every API path and check the token themselves.
+  if (pathname.startsWith('/api/share/')) {
+    return NextResponse.next();
+  }
+
   const publicPaths = ['/', '/login', '/signup', '/api/auth'];
   const isPublicPath = publicPaths.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`)
@@ -74,7 +81,9 @@ export default auth(async (req) => {
 
   if (!isLoggedIn) {
     const loginUrl = new URL('/login', req.url);
-    loginUrl.searchParams.set('callbackUrl', pathname);
+    // Keep the query: the share target arrives as /share-target?url=…, and a
+    // first share after signing out must still land the link after login.
+    loginUrl.searchParams.set('callbackUrl', `${pathname}${req.nextUrl.search}`);
     return NextResponse.redirect(loginUrl);
   }
 

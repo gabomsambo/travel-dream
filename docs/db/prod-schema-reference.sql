@@ -1,5 +1,5 @@
 -- travel-dream PRODUCTION schema (read-only dump) — ground truth for baselining
--- captured 74 objects; NO row data included
+-- captured 74 objects (77 after the 2026-11-24 addition below); NO row data included
 --
 -- Body captured 2026-07-24 from the production Turso database, schema only, no rows.
 -- This is the reference `src/db/migrations/0000_baseline.sql` was built to reproduce.
@@ -32,6 +32,13 @@
 -- `place_hearts` and `saved_views` were already NOT NULL and are unchanged.
 -- This file describes production after that migration is applied — apply it
 -- (backup first, `npm run db:migrate`) before the reading deploy is promoted.
+--
+-- 2026-11-24 — `share_tokens` (with its two indexes) added for
+-- `src/db/migrations/20261124205808_add_share_tokens.sql`. Derived without
+-- production access by the 2026-08-29 method: replaying that migration and
+-- copying back SQLite's resulting `sqlite_master.sql`. It describes production
+-- only AFTER that migration is applied there — apply it (backup first,
+-- `npm run db:migrate`) before the PR that adds it is merged or deployed.
 --
 -- Do not hand-edit. To refresh: turso db shell <db> ".schema" (read-only) and re-verify.
 
@@ -237,6 +244,20 @@ CREATE TABLE `sessions` (
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 
+-- [table] share_tokens
+CREATE TABLE `share_tokens` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`name` text NOT NULL,
+	`token_hash` text NOT NULL,
+	`token_prefix` text NOT NULL,
+	`scope` text DEFAULT 'link-import' NOT NULL,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`last_used_at` text,
+	`revoked_at` text,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
+
 -- [table] sources
 CREATE TABLE "sources" (
 	`id` text PRIMARY KEY NOT NULL,
@@ -435,6 +456,12 @@ CREATE INDEX `saved_views_user_idx` ON `saved_views` (`user_id`);
 
 -- [index] sessions_user_idx
 CREATE INDEX `sessions_user_idx` ON `sessions` (`user_id`);
+
+-- [index] share_tokens_token_hash_idx
+CREATE UNIQUE INDEX `share_tokens_token_hash_idx` ON `share_tokens` (`token_hash`);
+
+-- [index] share_tokens_user_idx
+CREATE INDEX `share_tokens_user_idx` ON `share_tokens` (`user_id`);
 
 -- [index] sources_created_at_idx
 CREATE INDEX `sources_created_at_idx` ON `sources` (`created_at`);

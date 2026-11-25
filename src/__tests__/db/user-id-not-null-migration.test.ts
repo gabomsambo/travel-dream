@@ -50,14 +50,22 @@ type Journal = { entries: Array<{ tag: string; when: number }> };
 
 const trash: string[] = [];
 
+/**
+ * The journal as it stood just before LAST_TAG: that migration and every later
+ * one removed. Later migrations must go too — drizzle applies only entries
+ * newer than the ledger's newest row, so a later one applied here would make
+ * the full migrate below skip LAST_TAG entirely.
+ */
 function stagePriorMigrations(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-userid-prior-'));
   trash.push(dir);
   fs.cpSync(MIGRATIONS_DIR, dir, { recursive: true });
-  fs.rmSync(path.join(dir, `${LAST_TAG}.sql`));
   const journalPath = path.join(dir, 'meta', '_journal.json');
   const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as Journal;
-  journal.entries = journal.entries.filter((entry) => entry.tag !== LAST_TAG);
+  const cut = journal.entries.findIndex((entry) => entry.tag === LAST_TAG);
+  if (cut < 0) throw new Error(`journal is missing ${LAST_TAG}`);
+  for (const entry of journal.entries.slice(cut)) fs.rmSync(path.join(dir, `${entry.tag}.sql`));
+  journal.entries = journal.entries.slice(0, cut);
   fs.writeFileSync(journalPath, JSON.stringify(journal));
   return dir;
 }

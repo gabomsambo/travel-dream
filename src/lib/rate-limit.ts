@@ -9,7 +9,8 @@ export type RateLimitTier =
   | 'auth'
   | 'photo-search'
   | 'photo-resolve'
-  | 'tiktok-page';
+  | 'tiktok-page'
+  | 'share-link';
 
 interface RateLimitConfig {
   requests: number;
@@ -28,6 +29,9 @@ const RATE_LIMIT_TIERS: Record<RateLimitTier, RateLimitConfig> = {
   // photo route has the same shape: one request per image, served by the app.
   'photo-resolve': { requests: 600, window: '1 m', prefix: 'rl:photo-resolve' },
   'tiktok-page': { requests: 30, window: '1 d', prefix: 'rl:tiktok-page' },
+  // Saving from the phone share sheet: one request per tap. Applied per IP in
+  // middleware (the Shortcut has no session) and per token owner in the route.
+  'share-link': { requests: 30, window: '1 m', prefix: 'rl:share-link' },
 };
 
 const ROUTE_TIERS: Record<string, RateLimitTier> = {
@@ -43,6 +47,7 @@ const ROUTE_TIERS: Record<string, RateLimitTier> = {
   '/api/google-places': 'standard',
   '/api/review/places': 'standard',
   '/api/inbox/links': 'standard',
+  '/api/share/links': 'share-link',
   '/api/photos/search': 'photo-search',
   '/api/photos/resolve': 'photo-resolve',
   '/api/photos/private': 'photo-resolve',

@@ -55,6 +55,7 @@ import {
 } from '../helpers/tenant-fixture';
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 
 jest.mock('@vercel/blob', () => ({
   del: jest.fn().mockResolvedValue(undefined),
@@ -145,6 +146,8 @@ interface TenantIds {
   reservation: string;
   /** A saved Library view. */
   view: string;
+  /** A personal share token's row id (what the settings page revokes by). */
+  shareToken: string;
 }
 type Slot = keyof TenantIds;
 /** `all` = every id the request carries is foreign; a slot = only that one. */
@@ -161,6 +164,7 @@ const BOB_IDS: TenantIds = {
   tiktokLink: 'src_bob_tiktok_link',
   reservation: 'rsv_bob',
   view: 'svw_bob',
+  shareToken: 'stk_bob',
 };
 
 const ALICE_IDS: TenantIds = {
@@ -174,6 +178,7 @@ const ALICE_IDS: TenantIds = {
   tiktokLink: 'src_alice_tiktok_link',
   reservation: 'rsv_alice',
   view: 'svw_alice',
+  shareToken: 'stk_alice',
 };
 
 /**
@@ -182,6 +187,14 @@ const ALICE_IDS: TenantIds = {
  * Bob's leak or get touched" into one case-insensitive search.
  */
 const BOB_MARKER = /bob/i;
+
+/**
+ * The raw share tokens behind each tenant's seeded `share_tokens` row. Only
+ * their SHA-256 is in the database, as in production; the raw value is what a
+ * Shortcut sends as `Authorization: Bearer …`.
+ */
+const SHARE_TOKEN_SECRET = { alice: 'td_share_alice_sweep_secret', bob: 'td_share_bob_sweep_secret' } as const;
+const sha256 = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 
 type Exec = (query: { sql: string; args: unknown[] }) => Promise<{ rows: Record<string, unknown>[] }>;
 function dbExec(): Exec {
@@ -249,6 +262,11 @@ async function seedSweepRows(): Promise<void> {
       `INSERT INTO saved_views (id,user_id,name,query,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
       [ids.view, owner, `${label} saved view`, `search=${label}`, now, now]
     );
+    await run(
+      `INSERT INTO share_tokens (id,user_id,name,token_hash,token_prefix,scope,created_at) VALUES (?,?,?,?,?,?,?)`,
+      [ids.shareToken, owner, `${label} phone`, sha256(SHARE_TOKEN_SECRET[label]),
+       SHARE_TOKEN_SECRET[label].slice(0, 13), 'link-import', now]
+    );
   }
 
   for (const [owner, ids, handle, postId] of [
@@ -286,7 +304,7 @@ async function resetWorld(): Promise<void> {
   await ex({ sql: 'PRAGMA synchronous = OFF', args: [] });
   // Rows with a no-action foreign key to `users` go first, or the fixture's
   // `DELETE FROM users` trips the constraint.
-  for (const table of ['dismissed_duplicates', 'merge_logs', 'place_hearts', 'saved_views']) {
+  for (const table of ['dismissed_duplicates', 'merge_logs', 'place_hearts', 'saved_views', 'share_tokens']) {
     await ex({ sql: `DELETE FROM ${table}`, args: [] });
   }
   await resetTenantFixture();
@@ -361,6 +379,11 @@ async function perturbBob(): Promise<void> {
     ['svw_bob_extra', 'user_bob', 'bob extra view', 'search=bob', now, now]
   );
   await run(`UPDATE saved_views SET name = name || ' (bob perturbed)', query = 'country=Bobland' WHERE user_id = 'user_bob'`);
+  await run(
+    `INSERT INTO share_tokens (id,user_id,name,token_hash,token_prefix,scope,created_at) VALUES (?,?,?,?,?,?,?)`,
+    ['stk_bob_extra', 'user_bob', 'bob extra phone', sha256('td_share_bob_extra'), 'td_share_bobx', 'link-import', now]
+  );
+  await run(`UPDATE share_tokens SET name = name || ' (bob perturbed)', last_used_at = ? WHERE user_id = 'user_bob'`, [now]);
 }
 
 /** Every row of every table, as `table:json` strings (a multiset). */
@@ -401,6 +424,7 @@ interface RequestSpec {
   url: string;
   body?: unknown;
   params?: Record<string, string>;
+  headers?: Record<string, string>;
 }
 
 interface Case {
@@ -418,6 +442,12 @@ interface Case {
    */
   refuses?: number[] | Partial<Record<VariantKey, number[]>>;
   because?: string;
+  /**
+   * For a route that authenticates with something other than the session
+   * (a personal share token), the request an anonymous caller makes: the same
+   * call without that credential. Defaults to `request`, with the session gone.
+   */
+  anonymous?: (t: TenantIds) => RequestSpec;
   /** Statuses expected for Alice's own ids. Defaults to any 2xx. */
   owner?: number[];
   /**
@@ -930,6 +960,37 @@ const ROUTES: Record<string, Partial<Record<Method, Entry>>> = {
       }),
     },
   },
+  // --- phone sharing (personal share tokens) ------------------------------
+  // POST /api/share/links authenticates with a share token, not the session.
+  // Holding Bob's token *is* being Bob for that one route, so there is no
+  // "foreign id" to refuse; the sweep proves Alice's token writes only Alice's
+  // Inbox and that no token at all gets a 401. Bad, revoked, wrong-scope and
+  // other-user tokens are covered in src/__tests__/share/share-links-route.test.ts.
+  'share/links': {
+    POST: {
+      slots: [],
+      request: () => ({
+        url: `${API}/share/links`,
+        body: { url: 'https://www.instagram.com/p/C8abcDEFghi/' },
+        // Lower-case: the jest.setup.js Request shim's headers are a case-sensitive Map.
+        headers: { authorization: `Bearer ${SHARE_TOKEN_SECRET.alice}` },
+      }),
+      anonymous: () => ({
+        url: `${API}/share/links`,
+        body: { url: 'https://www.instagram.com/p/C8abcDEFghi/' },
+      }),
+    },
+  },
+  'share-tokens': {
+    GET: { slots: [], request: () => ({ url: `${API}/share-tokens` }) },
+    POST: { slots: [], request: () => ({ url: `${API}/share-tokens`, body: { name: 'sweep phone' } }) },
+  },
+  'share-tokens/[id]': {
+    DELETE: {
+      slots: ['shareToken'],
+      request: (t) => ({ url: `${API}/share-tokens/${t.shareToken}`, params: { id: t.shareToken } }),
+    },
+  },
   'inbox/dismiss': {
     POST: [
       {
@@ -1371,7 +1432,7 @@ async function invoke(route: string, method: Method, spec: RequestSpec): Promise
   // Required per call: the handlers must load after the fixture pins the URL.
   const mod = require(`@/app/api/${route}/route`) as Record<string, (...args: unknown[]) => Promise<unknown>>;
   const res = await mod[method](
-    apiRequest(spec.url, method, spec.body),
+    apiRequest(spec.url, method, spec.body, spec.headers),
     { params: Promise.resolve(spec.params ?? {}) }
   );
   const after = await snapshot();
@@ -1395,6 +1456,7 @@ function comparable(o: Outcome): { status: number; body: string } {
     .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '<ts>')
     .replace(/"version":"[A-Za-z0-9_-]{22}"/g, '"version":"<version>"')
     .replace(/tenant-fixture-\d+-\d+/g, '<uuid>')
+    .replace(/td_share_[A-Za-z0-9_-]+/g, '<share-token>')
     .replace(/batch_\d+_[a-z0-9]+/g, '<batch>')
     .replace(/"(processing_duration_ms|avg_processing_time_ms)":\d+/g, '"$1":<ms>');
   return { status: o.status, body };
@@ -1596,7 +1658,8 @@ describe('cross-tenant sweep — every route, real handlers, real database', () 
 
           it('refuses an anonymous caller with 401 and touches nothing', async () => {
             (requireAuthForApi as jest.Mock).mockRejectedValue(new Error('Unauthorized'));
-            const o = await invoke(route, method, c.request(c.slots.length ? BOB_IDS : ALICE_IDS));
+            const ids = c.slots.length ? BOB_IDS : ALICE_IDS;
+            const o = await invoke(route, method, (c.anonymous ?? c.request)(ids));
             expect({ added: o.added, removed: o.removed }).toEqual({ added: [], removed: [] });
             expect(o.effects).toBe(JSON.stringify(sideEffectCalls().map(() => [])));
             expectStatus(o, [401]);

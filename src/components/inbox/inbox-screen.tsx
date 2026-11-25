@@ -24,6 +24,7 @@ import type {
 } from '@/lib/inbox-page-model'
 import type { InboxLinkItem } from '@/lib/inbox-link-items'
 import { TikTokPhotoImportButton } from '@/components/inbox/tiktok-photo-import-button'
+import { inboxLinkAnchorId, type ShareNotice } from '@/lib/link-import/shared-url'
 
 const TONE_ICON: Record<InboxRowTone, LucideIcon> = {
   new: Sparkles,
@@ -272,7 +273,33 @@ const LINK_KIND_LABEL: Record<InboxLinkItem['kind'], string> = {
   'instagram-reel': 'Instagram · reel',
 }
 
-function LinkItemsSection({ items }: { items: InboxLinkItem[] }) {
+const SHARE_NOTICE: Record<ShareNotice, { text: string; tone: 'ok' | 'warn' }> = {
+  saved: { text: 'Saved to your Inbox. We will read the link and look for places in it.', tone: 'ok' },
+  duplicate: { text: 'That link was already in your Inbox.', tone: 'ok' },
+  missing: { text: 'Nothing was saved: the share did not include a link.', tone: 'warn' },
+  unsupported: { text: 'Nothing was saved: only TikTok and Instagram links can be saved for now.', tone: 'warn' },
+  failed: { text: 'Could not save that link. Try sharing it again.', tone: 'warn' },
+  busy: { text: 'Too many shares in a row. Wait a minute, then share again.', tone: 'warn' },
+}
+
+function ShareNoticeBanner({ notice }: { notice: ShareNotice }) {
+  const { text, tone } = SHARE_NOTICE[notice]
+  return (
+    <p
+      role="status"
+      className={cn(
+        'mb-4 rounded-xl border px-4 py-3 text-sm',
+        tone === 'ok'
+          ? 'border-primary/30 bg-primary/5 text-foreground'
+          : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100',
+      )}
+    >
+      {text}
+    </p>
+  )
+}
+
+function LinkItemsSection({ items, highlightId }: { items: InboxLinkItem[]; highlightId?: string }) {
   if (items.length === 0) return null
   return (
     <section className="mt-8">
@@ -293,7 +320,15 @@ function LinkItemsSection({ items }: { items: InboxLinkItem[] }) {
                     ? `Found ${item.places.map((place) => place.name).join(', ')}.`
                     : 'No places found yet.'
           return (
-            <article key={item.id} className="rounded-2xl border border-border bg-card p-4 md:p-5">
+            <article
+              key={item.id}
+              id={inboxLinkAnchorId(item.id)}
+              aria-current={item.id === highlightId ? 'true' : undefined}
+              className={cn(
+                'scroll-mt-20 rounded-2xl border border-border bg-card p-4 md:p-5',
+                item.id === highlightId && 'border-primary ring-2 ring-primary/30',
+              )}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <span className="inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
@@ -340,13 +375,24 @@ function LinkItemsSection({ items }: { items: InboxLinkItem[] }) {
   )
 }
 
-function HomeView({ model, linkItems }: { model: Extract<InboxScreenModel, { view: 'home' }>; linkItems: InboxLinkItem[] }) {
+function HomeView({
+  model,
+  linkItems,
+  highlightLinkId,
+  shareNotice,
+}: {
+  model: Extract<InboxScreenModel, { view: 'home' }>
+  linkItems: InboxLinkItem[]
+  highlightLinkId?: string
+  shareNotice?: ShareNotice
+}) {
   return (
     <>
       <PageTitle title="Inbox" description={model.description} />
+      {shareNotice && <ShareNoticeBanner notice={shareNotice} />}
       <div className="mb-4 flex justify-end"><InboxSaveLinkButton /></div>
       {!(model.hero.kind === 'first' && linkItems.length > 0) && <HeroView hero={model.hero} />}
-      <LinkItemsSection items={linkItems} />
+      <LinkItemsSection items={linkItems} highlightId={highlightLinkId} />
       {model.reading && (
         <>
           <SectionLabel>{model.reading.heading}</SectionLabel>
@@ -448,14 +494,24 @@ function DetailView({ model }: { model: Extract<InboxScreenModel, { view: 'detai
   )
 }
 
-export function InboxScreen({ model, linkItems = [] }: { model: InboxScreenModel; linkItems?: InboxLinkItem[] }) {
+export function InboxScreen({
+  model,
+  linkItems = [],
+  highlightLinkId,
+  shareNotice,
+}: {
+  model: InboxScreenModel
+  linkItems?: InboxLinkItem[]
+  highlightLinkId?: string
+  shareNotice?: ShareNotice
+}) {
   const dock = model.dock
   const sub = model.view === 'home' && model.hero.kind === 'review' ? model.hero.sub : undefined
   return (
     <div className="mx-auto max-w-[1080px] pb-24 md:pb-8">
       <InboxLiveRefresh active={model.live || linkItems.some((item) => ['queued', 'uploaded', 'extracting', 'enriching'].includes(item.processingStatus))} />
       <ReviewEnterKey href={model.enterHref} />
-      {model.view === 'detail' ? <DetailView model={model} /> : <HomeView model={model} linkItems={linkItems} />}
+      {model.view === 'detail' ? <DetailView model={model} /> : <HomeView model={model} linkItems={linkItems} highlightLinkId={highlightLinkId} shareNotice={shareNotice} />}
       <Dock dock={dock} sub={sub} />
     </div>
   )

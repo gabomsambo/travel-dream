@@ -105,3 +105,30 @@ This project follows the Travel Dreams Collection domain model with support for:
 - Deduplication and canonicalization
 - Flexible tagging and categorization
 - Performance-optimized queries with proper indexing
+
+## Sharing from a phone
+
+TikTok and Instagram links can be saved straight from a phone's share sheet.
+The in-app setup page is `/share-from-phone` (linked from Settings → Share from your phone).
+
+- **iPhone and iPad — Shortcut.** The user creates a personal share token in Settings
+  (only its SHA-256 is stored; the raw token is shown once) and builds a Shortcut that
+  POSTs the shared URL to `POST /api/share/links` with `Authorization: Bearer <token>`.
+  The response is JSON with a `message` to show and an `inboxUrl` deep link. Tokens are
+  scoped to link import only, record when they were last used, and can be revoked.
+  There is no importable `.shortcut` file: iOS only imports shortcut files that were
+  signed on a Mac or shared through iCloud, so the page gives step-by-step instructions.
+- **Android and desktop Chrome — install the web app.** `src/app/manifest.ts` serves
+  `/manifest.webmanifest` with icons and a `share_target` that opens
+  `GET /share-target?title=…&text=…&url=…`. The route saves the first TikTok or Instagram
+  URL it finds (Android usually sends it in `text`) and lands on it in the Inbox. Signed-out
+  visitors go through login and back, then get one tap to confirm before the link is saved.
+  It saves without asking only for a navigation the browser itself started
+  (`Sec-Fetch-Site: none`, which a share-sheet launch sends); anything else — including the
+  same-origin return from login — gets a one-tap confirm page whose button POSTs back to
+  `/share-target`. Safari does not support share targets. There is no service worker, and
+  authenticated pages are never cached offline.
+
+All three ways in (Inbox form, Shortcut, share target) save through `saveSocialLink` in
+`src/lib/link-import/save-link.ts`. Regenerate the icons from `public/icons/icon.svg`
+with `node scripts/generate-pwa-icons.mjs`.

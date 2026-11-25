@@ -6,11 +6,15 @@ import { signIn } from "next-auth/react"
 import { useState, Suspense } from "react"
 import { Button } from "@/components/landing/ui/button"
 import { motion } from "framer-motion"
+import { safeCallbackPath } from "@/lib/safe-callback"
 
 function SignupForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get('callbackUrl') || '/inbox'
+  const callbackUrl = safeCallbackPath(searchParams.get('callbackUrl'))
+  const loginHref = searchParams.get('callbackUrl')
+    ? `/login?${new URLSearchParams({ callbackUrl }).toString()}`
+    : '/login'
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -48,7 +52,7 @@ function SignupForm() {
       if (signInResult?.error) {
         setError("Account created but sign-in failed. Please log in manually.")
         setLoading(false)
-        router.push("/login")
+        router.push(loginHref)
       } else {
         router.push(callbackUrl)
       }
@@ -154,7 +158,7 @@ function SignupForm() {
       <div className="mt-8 text-center">
         <p className="text-sm text-landing-secondary">
           Already have an account?{" "}
-          <Link href="/login" className="font-semibold text-landing-accent hover:underline">
+          <Link href={loginHref} className="font-semibold text-landing-accent hover:underline">
             Log in
           </Link>
         </p>
